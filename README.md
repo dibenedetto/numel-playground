@@ -1,2 +1,2 @@
 # numel-playground
-Numel Playground is an AI Workflow playground.
+Numel Playground is a lab for agentic workflows.
