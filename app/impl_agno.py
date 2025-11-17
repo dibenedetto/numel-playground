@@ -24,18 +24,23 @@ from   agno.vectordb.lancedb           import LanceDb
 from   agno.vectordb.search            import SearchType
 
 
-from   core                            import (
+from core import (
 	AgentApp,
 	register_backend
 )
 
-from   schema                          import (
+from schema import (
 	DEFAULT_KNOWLEDGE_MANAGER_INDEX_DB_TABLE_NAME,
 	DEFAULT_TOOL_MAX_WEB_SEARCH_RESULTS,
 	AppConfig,
 	BackendConfig,
 	AgentOptionsConfig
 )
+
+from utils import (
+	log_print
+)
+
 
 def _validate_config(config: AppConfig) -> bool:
 	# TODO: Implement validation logic for the Agno app configuration
@@ -292,6 +297,7 @@ class _AgnoAgentApp(AgentApp):
 		config_impl.agents         = [self._build_agent             (self.config, config_impl, i) for i in range(len(self.config.agents        ))]
 
 		self.config_impl = config_impl
+		log_print("Agno Agent App initialized")
 
 
 	def generate_app(self, agent_index: int) -> FastAPI:
@@ -321,6 +327,7 @@ class _AgnoAgentApp(AgentApp):
 
 	def close(self) -> bool:
 		self.config_impl = None
+		log_print("Agno Agent App closed")
 		return True
 
 
