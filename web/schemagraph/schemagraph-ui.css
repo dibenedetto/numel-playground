@@ -178,17 +178,48 @@
   width: 280px;
   background: var(--sg-bg-secondary, #2a2a2a);
   border: 1px solid var(--sg-border-color, #1a1a1a);
-  border-radius: 4px;
+  border-radius: 8px;
   padding: 12px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
   z-index: 1000;
   display: none;
   max-height: 500px;
   overflow-y: auto;
+  opacity: 0;
+  transform: translateX(20px) scale(0.95);
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
 .sg-analytics-panel.show {
   display: block;
+  animation: sg-analyticsSlideIn 0.3s ease forwards;
+}
+
+@keyframes sg-analyticsSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+/* Fade out animation when closing */
+.sg-analytics-panel.hiding {
+  animation: sg-analyticsSlideOut 0.3s ease forwards;
+}
+
+@keyframes sg-analyticsSlideOut {
+  from {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(20px) scale(0.95);
+  }
 }
 
 .sg-analytics-header {
@@ -212,10 +243,22 @@
   background: var(--sg-accent-red, #dc6464);
   color: var(--sg-text-primary, #ffffff);
   border: none;
-  padding: 2px 6px;
-  border-radius: 2px;
+  padding: 2px 8px;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 14px;
+  font-weight: bold;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.sg-analytics-close:hover {
+  background: #ff4444;
+  transform: scale(1.1);
+}
+
+.sg-analytics-close:active {
+  transform: scale(0.95);
 }
 
 .sg-analytics-metric {
@@ -224,7 +267,25 @@
   padding: 4px 0;
   font-size: 11px;
   border-bottom: 1px solid var(--sg-border-color, #1a1a1a);
+  animation: sg-metricFadeIn 0.3s ease backwards;
 }
+
+@keyframes sg-metricFadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Stagger animation for metrics */
+.sg-analytics-metric:nth-child(1) { animation-delay: 0.05s; }
+.sg-analytics-metric:nth-child(2) { animation-delay: 0.1s; }
+.sg-analytics-metric:nth-child(3) { animation-delay: 0.15s; }
+.sg-analytics-metric:nth-child(4) { animation-delay: 0.2s; }
 
 .sg-analytics-metric:last-child {
   border-bottom: none;
@@ -246,12 +307,19 @@
   border-top: 1px solid var(--sg-border-color, #1a1a1a);
 }
 
+.sg-analytics-section:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
 .sg-analytics-section-title {
   font-size: 10px;
   color: var(--sg-text-tertiary, #707070);
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 8px;
+  font-weight: 600;
 }
 
 .sg-analytics-btn {
@@ -261,15 +329,40 @@
   background: var(--sg-bg-quaternary, #404040);
   color: var(--sg-text-primary, #ffffff);
   border: 1px solid var(--sg-border-color, #1a1a1a);
-  border-radius: 2px;
+  border-radius: 4px;
   cursor: pointer;
   font-size: 10px;
   transition: all 0.15s ease;
+  font-weight: 500;
 }
 
 .sg-analytics-btn:hover {
   background: var(--sg-accent-blue, #46a2da);
   border-color: var(--sg-accent-blue, #46a2da);
+  transform: translateY(-1px);
+}
+
+.sg-analytics-btn:active {
+  transform: translateY(0);
+}
+
+/* Scrollbar for analytics panel */
+.sg-analytics-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.sg-analytics-panel::-webkit-scrollbar-track {
+  background: var(--sg-bg-tertiary, #353535);
+  border-radius: 4px;
+}
+
+.sg-analytics-panel::-webkit-scrollbar-thumb {
+  background: var(--sg-bg-quaternary, #404040);
+  border-radius: 4px;
+}
+
+.sg-analytics-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--sg-text-tertiary, #707070);
 }
 
 /* Buttons & Controls */

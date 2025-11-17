@@ -168,20 +168,9 @@
 					<div class="sg-schema-manager-title">📋 Registered Schemas:</div>
 					<div id="sg-schemaList"></div>
 				</div>
-				
-				<button id="sg-uploadSchemaBtn" class="sg-action-btn">📤 Upload Schema</button>
-				<button id="sg-exportBtn" class="sg-action-btn">Export Graph</button>
-				<button id="sg-importBtn" class="sg-action-btn">Import Graph</button>
-				
-				<input type="file" id="sg-uploadSchemaFile" accept=".py" />
-				<input type="file" id="sg-importFile" accept=".json" />
-				<input type="file" id="sg-importConfigFile" accept=".json" />
-				<input type="file" id="workflowFileInput" accept=".json" style="display: none;" />
-				
-				<button id="sg-textScalingToggle" class="sg-text-scaling-toggle">
-					<span class="sg-text-scaling-icon">🔤</span>
-					<span class="sg-text-scaling-label" id="sg-textScalingLabel">Fixed</span>
-				</button>
+				<div>
+					<input type="file" id="workflowFileInput" accept=".json" style="display: none;" />
+				</div>
 			</div>
 
 			<div class="sg-canvas-container">

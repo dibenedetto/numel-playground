@@ -224,55 +224,147 @@
 }
 
 /* ========================================================================
-   TOOLBAR
+   TOOLBAR - Small Corner Toggle with Floating Panel
    ======================================================================== */
 
-.sg-toolbar {
+/* Small toggle button in corner */
+.sg-toolbar-toggle-corner {
   position: absolute;
   bottom: 20px;
   right: 20px;
+  width: 48px;
+  height: 48px;
   background: var(--sg-bg-secondary, #2a2a2a);
   border: 1px solid var(--sg-border-color, #1a1a1a);
-  border-radius: 8px;
-  padding: 0;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
-  z-index: 100;
-  display: flex;
-  flex-direction: column;
-  max-width: 90%;
-  transition: all 0.3s ease;
-}
-
-.sg-toolbar.collapsed {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-}
-
-.sg-toolbar-toggle {
-  width: 100%;
-  background: var(--sg-bg-tertiary, #353535);
-  border: none;
-  border-radius: 8px 8px 0 0;
-  padding: 8px 12px;
+  border-radius: 50%;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 20px;
   color: var(--sg-text-primary, #ffffff);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  transition: all 0.2s ease;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+  transition: all 0.3s ease;
+  animation: sg-toolbarToggleBounce 0.6s ease;
+}
+
+@keyframes sg-toolbarToggleBounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.sg-toolbar-toggle-corner:hover {
+  background: var(--sg-bg-tertiary, #353535);
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.8);
+}
+
+.sg-toolbar-toggle-corner:active {
+  transform: scale(0.95);
+}
+
+.sg-toolbar-toggle-corner.active {
+  background: var(--sg-accent-blue, #46a2da);
+  border-color: var(--sg-accent-blue, #46a2da);
+}
+
+.sg-toolbar-toggle-icon {
+  line-height: 1;
+}
+
+/* Floating toolbar panel */
+.sg-toolbar-panel {
+  position: absolute;
+  bottom: 80px;
+  right: 20px;
+  background: var(--sg-bg-secondary, #2a2a2a);
+  border: 1px solid var(--sg-border-color, #1a1a1a);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  z-index: 99;
+  display: none;
+  flex-direction: column;
+  max-width: 90vw;
+  max-height: 70vh;
+  opacity: 0;
+  transform: translateY(10px) scale(0.95);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.sg-toolbar-panel.show {
+  display: flex;
+  animation: sg-toolbarSlideIn 0.3s ease forwards;
+}
+
+@keyframes sg-toolbarSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.sg-toolbar-panel.hiding {
+  animation: sg-toolbarSlideOut 0.3s ease forwards;
+}
+
+@keyframes sg-toolbarSlideOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(10px) scale(0.95);
+  }
+}
+
+.sg-toolbar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--sg-bg-tertiary, #353535);
+  border-bottom: 1px solid var(--sg-border-color, #1a1a1a);
+  border-radius: 8px 8px 0 0;
+}
+
+.sg-toolbar-title {
+  font-size: 12px;
   font-weight: 600;
+  color: var(--sg-text-primary, #ffffff);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
-.sg-toolbar-toggle:hover {
-  background: var(--sg-bg-quaternary, #404040);
+.sg-toolbar-close {
+  background: var(--sg-accent-red, #dc6464);
+  color: var(--sg-text-primary, #ffffff);
+  border: none;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+  transition: all 0.15s ease;
+  line-height: 1;
 }
 
-.sg-toolbar-toggle-icon {
-  font-size: 10px;
-  transition: transform 0.3s ease;
+.sg-toolbar-close:hover {
+  background: #ff4444;
+  transform: scale(1.1);
+}
+
+.sg-toolbar-close:active {
+  transform: scale(0.95);
 }
 
 .sg-toolbar-content {
@@ -281,8 +373,9 @@
   gap: 8px;
   padding: 12px;
   align-items: center;
-  max-height: 200px;
+  max-height: calc(70vh - 50px);
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .sg-toolbar-section {
@@ -293,7 +386,28 @@
   background: var(--sg-bg-tertiary, #353535);
   border-radius: 6px;
   border: 1px solid var(--sg-border-color, #1a1a1a);
+  animation: sg-toolbarItemFadeIn 0.4s ease backwards;
 }
+
+@keyframes sg-toolbarItemFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Stagger animation for sections */
+.sg-toolbar-section:nth-child(2) { animation-delay: 0.05s; }
+.sg-toolbar-section:nth-child(4) { animation-delay: 0.1s; }
+.sg-toolbar-section:nth-child(6) { animation-delay: 0.15s; }
+.sg-toolbar-section:nth-child(8) { animation-delay: 0.2s; }
+.sg-toolbar-section:nth-child(10) { animation-delay: 0.25s; }
+.sg-toolbar-section:nth-child(12) { animation-delay: 0.3s; }
+.sg-toolbar-section:nth-child(14) { animation-delay: 0.35s; }
 
 .sg-toolbar-label {
   font-size: 10px;
@@ -339,6 +453,7 @@
 
 .sg-toolbar-btn-toggle {
   background: var(--sg-bg-quaternary, #404040);
+  transition: all 0.2s ease;
 }
 
 .sg-toolbar-btn-toggle.active {
@@ -412,18 +527,22 @@
 
 /* Responsive adjustments */
 @media (max-width: 1200px) {
-  .sg-toolbar {
-    max-width: 95%;
-  }
-  
-  .sg-toolbar-content {
-    max-height: 300px;
+  .sg-toolbar-panel {
+    max-width: 95vw;
   }
 }
 
 @media (max-width: 768px) {
-  .sg-toolbar {
+  .sg-toolbar-toggle-corner {
     bottom: 10px;
+    right: 10px;
+    width: 44px;
+    height: 44px;
+    font-size: 18px;
+  }
+  
+  .sg-toolbar-panel {
+    bottom: 65px;
     right: 10px;
     left: 10px;
     max-width: none;

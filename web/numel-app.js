@@ -134,9 +134,6 @@ function setupEventListeners() {
 	if (importConfigFile) {
 		importConfigFile.addEventListener('change', handleConfigFileUpload);
 	}
-	
-	// Initialize toolbar collapse
-	initToolbarCollapse();
 }
 
 // ========================================================================
@@ -643,40 +640,6 @@ function createNewConfig() {
 	
 	addMessage("system", "📄 New config template downloaded");
 	addMessage("system", "ℹ️ Edit the file and upload it to apply");
-}
-
-// ========================================================================
-// TOOLBAR COLLAPSE/EXPAND
-// ========================================================================
-
-function initToolbarCollapse() {
-	// Load saved state
-	const isCollapsed = localStorage.getItem('toolbarCollapsed') === 'true';
-	if (isCollapsed) {
-		mainToolbar.classList.add('collapsed');
-	}
-	
-	// Toggle on button click
-	toolbarToggle.addEventListener('click', toggleToolbar);
-	
-	// Toggle on keyboard (Space/Enter when focused)
-	toolbarToggle.addEventListener('keydown', (e) => {
-		if (e.key === ' ' || e.key === 'Enter') {
-			e.preventDefault();
-			toggleToolbar();
-		}
-	});
-}
-
-function toggleToolbar() {
-	mainToolbar.classList.toggle('collapsed');
-	const isCollapsed = mainToolbar.classList.contains('collapsed');
-	
-	// Save state
-	localStorage.setItem('toolbarCollapsed', isCollapsed);
-	
-	// Update button title
-	toolbarToggle.title = isCollapsed ? 'Expand toolbar' : 'Collapse toolbar';
 }
 
 // ========================================================================

@@ -16,7 +16,6 @@ let workflowSelect;
 let startWorkflowBtn, stopWorkflowBtn;
 let workflowStatus, eventLog;
 let userInputModal, userInputPrompt, userInputField;
-let modeDisplay;
 
 // ========================================================================
 // INITIALIZATION
@@ -39,8 +38,6 @@ function initWorkflowUI() {
 	userInputModal = document.getElementById('userInputModal');
 	userInputPrompt = document.getElementById('userInputPrompt');
 	userInputField = document.getElementById('userInputField');
-	
-	modeDisplay = document.getElementById('sg-modeDisplay');
 	
 	// Setup listeners
 	setupWorkflowEventListeners();
@@ -94,7 +91,6 @@ async function switchMode(mode) {
 		workflowModeBtn.classList.remove('active');
 		chatMode.style.display = 'flex';
 		workflowMode.style.display = 'none';
-		modeDisplay.textContent = 'Chat';
 		
 		// Exit workflow mode
 		if (workflowVisualizer?.isWorkflowMode) {
@@ -106,7 +102,6 @@ async function switchMode(mode) {
 		workflowModeBtn.classList.add('active');
 		chatMode.style.display = 'none';
 		workflowMode.style.display = 'flex';
-		modeDisplay.textContent = 'Workflow';
 		
 		// CRITICAL: Initialize workflow system FIRST before entering mode
 		if (!workflowClient && gGraph) {
@@ -118,7 +113,6 @@ async function switchMode(mode) {
 				workflowModeBtn.classList.remove('active');
 				chatMode.style.display = 'flex';
 				workflowMode.style.display = 'none';
-				modeDisplay.textContent = 'Chat';
 				return;
 			}
 		}
