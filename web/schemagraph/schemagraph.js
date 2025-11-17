@@ -1393,6 +1393,7 @@ class SchemaGraphApp {
     this.initializeState();
     
     this.injectDialogHTML();
+    this.injectToolbarHTML();
     
     this.api = this._createAPI();
     this.ui = this._createUI();
@@ -1506,6 +1507,138 @@ class SchemaGraphApp {
     console.log('✨ SchemaGraph dialogs injected');
   }
 
+  /**
+   * Inject toolbar HTML into the canvas container (self-contained library)
+   * Creates a comprehensive toolbar with all controls
+   * @private
+   */
+  injectToolbarHTML() {
+    // Find canvas container
+    const canvasContainer = this.canvas.parentElement;
+    if (!canvasContainer) {
+      console.warn('Cannot inject toolbar: canvas container not found');
+      return;
+    }
+  
+    // Check if toolbar already exists
+    if (document.getElementById('sg-toolbar')) {
+      return;
+    }
+  
+    // Create toolbar
+    const toolbar = document.createElement('div');
+    toolbar.id = 'sg-toolbar';
+    toolbar.className = 'sg-toolbar';
+    toolbar.innerHTML = `
+      <button id="sg-toolbarToggle" class="sg-toolbar-toggle" title="Toggle toolbar">
+        <span class="sg-toolbar-toggle-icon">▼</span>
+      </button>
+      
+      <div class="sg-toolbar-content" id="sg-toolbarContent">
+        <div class="sg-toolbar-section">
+          <span class="sg-toolbar-label">🎤 Voice</span>
+          <button id="sg-voiceStartBtn" class="sg-toolbar-btn">Start</button>
+          <button id="sg-voiceStopBtn" class="sg-toolbar-btn" style="display: none;">Stop</button>
+          <span id="sg-voiceStatus" class="sg-toolbar-status"></span>
+        </div>
+        
+        <div class="sg-toolbar-divider"></div>
+        
+        <div class="sg-toolbar-section">
+          <button id="sg-analyticsToggleBtn" class="sg-toolbar-btn">📊 Analytics</button>
+        </div>
+        
+        <div class="sg-toolbar-divider"></div>
+        
+        <div class="sg-toolbar-section">
+          <span class="sg-toolbar-label">Schema</span>
+          <button id="sg-uploadSchemaBtn" class="sg-toolbar-btn sg-toolbar-btn-primary">📤 Upload</button>
+          <button id="sg-exportBtn" class="sg-toolbar-btn">Export Graph</button>
+          <button id="sg-importBtn" class="sg-toolbar-btn">Import Graph</button>
+          <button id="sg-exportConfigBtn" class="sg-toolbar-btn">Export Config</button>
+          <button id="sg-importConfigBtn" class="sg-toolbar-btn">Import Config</button>
+        </div>
+        
+        <div class="sg-toolbar-divider"></div>
+        
+        <div class="sg-toolbar-section">
+          <span class="sg-toolbar-label">View</span>
+          <button id="sg-centerViewBtn" class="sg-toolbar-btn" title="Center view">🎯 Center</button>
+          <select id="sg-layoutSelect" class="sg-toolbar-select">
+            <option value="">🔧 Layout...</option>
+            <option value="hierarchical-vertical">Hierarchical ↓</option>
+            <option value="hierarchical-horizontal">Hierarchical →</option>
+            <option value="force-directed">Force-Directed</option>
+            <option value="grid">Grid</option>
+            <option value="circular">Circular</option>
+          </select>
+        </div>
+        
+        <div class="sg-toolbar-divider"></div>
+        
+        <div class="sg-toolbar-section">
+          <span class="sg-toolbar-label">Style</span>
+          <select id="sg-drawingStyleSelect" class="sg-toolbar-select">
+            <option value="default">🎨 Default</option>
+            <option value="minimal">✨ Minimal</option>
+            <option value="blueprint">📐 Blueprint</option>
+            <option value="neon">💫 Neon</option>
+            <option value="organic">🌿 Organic</option>
+            <option value="wireframe">📊 Wireframe</option>
+          </select>
+          <button id="sg-textScalingToggle" class="sg-toolbar-btn sg-toolbar-btn-toggle">
+            <span class="sg-toolbar-toggle-label" id="sg-textScalingLabel">Text: Fixed</span>
+          </button>
+          <button id="sg-themeBtn" class="sg-toolbar-btn" title="Switch theme">🎨 Theme</button>
+        </div>
+        
+        <div class="sg-toolbar-divider"></div>
+        
+        <div class="sg-toolbar-section">
+          <span class="sg-toolbar-label">Zoom</span>
+          <span class="sg-toolbar-zoom-value" id="sg-zoomLevel">100%</span>
+          <button id="sg-resetZoomBtn" class="sg-toolbar-btn" title="Reset zoom">⟲</button>
+        </div>
+      </div>
+    `;
+  
+    // Inject toolbar into canvas container
+    canvasContainer.appendChild(toolbar);
+  
+    // Setup toolbar toggle
+    const toggleBtn = document.getElementById('sg-toolbarToggle');
+    const content = document.getElementById('sg-toolbarContent');
+    const toggleIcon = toolbar.querySelector('.sg-toolbar-toggle-icon');
+    
+    // Load saved state
+    const toolbarCollapsed = localStorage.getItem('schemagraph-toolbar-collapsed') === 'true';
+    if (toolbarCollapsed) {
+      content.style.display = 'none';
+      toggleIcon.textContent = '▲';
+      toolbar.classList.add('collapsed');
+    }
+  
+    toggleBtn?.addEventListener('click', () => {
+      const isCollapsed = content.style.display === 'none';
+      content.style.display = isCollapsed ? 'flex' : 'none';
+      toggleIcon.textContent = isCollapsed ? '▼' : '▲';
+      toolbar.classList.toggle('collapsed', !isCollapsed);
+      localStorage.setItem('schemagraph-toolbar-collapsed', (!isCollapsed).toString());
+    });
+  
+    // Create hidden file inputs
+    const hiddenInputs = document.createElement('div');
+    hiddenInputs.style.display = 'none';
+    hiddenInputs.innerHTML = `
+      <input type="file" id="sg-uploadSchemaFile" accept=".py" />
+      <input type="file" id="sg-importFile" accept=".json" />
+      <input type="file" id="sg-importConfigFile" accept=".json" />
+    `;
+    document.body.appendChild(hiddenInputs);
+  
+    console.log('✨ SchemaGraph toolbar injected');
+  }
+
   setupEventListeners() {
     // Mouse events
     this.eventBus.on('mouse:down', (data) => this.handleMouseDown(data));
@@ -1574,19 +1707,24 @@ class SchemaGraphApp {
   }
 
   updateTextScalingUI() {
-    const toggleBtn = document.getElementById('sg-textScalingToggle');
     const label = document.getElementById('sg-textScalingLabel');
     
-    if (!toggleBtn || !label) return;
+    if (!label) return;
     
     if (this.textScalingMode === 'scaled') {
-      toggleBtn.classList.add('scaled');
-      label.textContent = 'Scaled';
-      toggleBtn.title = 'Text scales with zoom (click for fixed size)';
+      label.textContent = 'Text: Scaled';
     } else {
-      toggleBtn.classList.remove('scaled');
-      label.textContent = 'Fixed';
-      toggleBtn.title = 'Text stays readable (click to scale with zoom)';
+      label.textContent = 'Text: Fixed';
+    }
+    
+    // Update button state
+    const toggleBtn = document.getElementById('sg-textScalingToggle');
+    if (toggleBtn) {
+      if (this.textScalingMode === 'scaled') {
+        toggleBtn.classList.add('active');
+      } else {
+        toggleBtn.classList.remove('active');
+      }
     }
   }
 
