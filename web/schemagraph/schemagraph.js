@@ -1392,6 +1392,8 @@ class SchemaGraphApp {
     
     this.initializeState();
     
+    this.injectDialogHTML();
+    
     this.api = this._createAPI();
     this.ui = this._createUI();
     
@@ -1440,6 +1442,68 @@ class SchemaGraphApp {
     
     this.textScalingMode = 'fixed';  // Default to fixed text size
     this.loadTextScalingMode();
+  }
+
+  injectDialogHTML() {
+    // Check if dialogs already exist (prevent duplicates)
+    if (document.getElementById('sg-messageDialog')) {
+      return;
+    }
+
+    // Create message dialog
+    const messageDialog = document.createElement('div');
+    messageDialog.id = 'sg-messageDialog';
+    messageDialog.className = 'sg-dialog-overlay';
+    messageDialog.innerHTML = `
+      <div class="sg-dialog">
+        <div class="sg-dialog-header" id="sg-messageDialogTitle">Message</div>
+        <div class="sg-dialog-body">
+          <div id="sg-messageDialogContent" style="white-space: pre-line; line-height: 1.6;"></div>
+        </div>
+        <div class="sg-dialog-footer">
+          <button id="sg-messageDialogOk" class="sg-dialog-btn sg-dialog-btn-confirm">OK</button>
+        </div>
+      </div>
+    `;
+
+    // Create confirm dialog
+    const confirmDialog = document.createElement('div');
+    confirmDialog.id = 'sg-confirmDialog';
+    confirmDialog.className = 'sg-dialog-overlay';
+    confirmDialog.innerHTML = `
+      <div class="sg-dialog">
+        <div class="sg-dialog-header" id="sg-confirmDialogTitle">Confirm</div>
+        <div class="sg-dialog-body">
+          <div id="sg-confirmDialogContent" style="white-space: pre-line; line-height: 1.6;"></div>
+        </div>
+        <div class="sg-dialog-footer">
+          <button id="sg-confirmDialogCancel" class="sg-dialog-btn sg-dialog-btn-cancel">Cancel</button>
+          <button id="sg-confirmDialogOk" class="sg-dialog-btn sg-dialog-btn-confirm">OK</button>
+        </div>
+      </div>
+    `;
+
+    // Inject into DOM
+    document.body.appendChild(messageDialog);
+    document.body.appendChild(confirmDialog);
+
+    // Setup click-outside-to-close for message dialog
+    messageDialog.addEventListener('click', (e) => {
+      if (e.target === messageDialog) {
+        const okBtn = document.getElementById('sg-messageDialogOk');
+        okBtn?.click();
+      }
+    });
+
+    // Setup click-outside-to-close for confirm dialog (acts as cancel)
+    confirmDialog.addEventListener('click', (e) => {
+      if (e.target === confirmDialog) {
+        const cancelBtn = document.getElementById('sg-confirmDialogCancel');
+        cancelBtn?.click();
+      }
+    });
+
+    console.log('✨ SchemaGraph dialogs injected');
   }
 
   setupEventListeners() {
@@ -1791,7 +1855,7 @@ class SchemaGraphApp {
   - "Theme" - Change theme
   - "Help" - Show this message`;
     
-    alert(helpMessage);
+    this.ui.dialogs.showMessage(helpMessage, '🎤 Voice Commands');
   }
 
   loadTheme() {
@@ -2600,25 +2664,25 @@ class SchemaGraphApp {
     }
     
     if (this.graph.schemas[schemaName]) {
-      if (!confirm(`Schema "${schemaName}" already exists. Replace it?`)) return;
-      this.graph.removeSchema(schemaName);
+      this.ui.dialogs.showConfirm(
+        `Schema "${schemaName}" already exists. Replace it?`,
+        '⚠️ Replace Schema'
+      ).then(confirmed => {
+        if (!confirmed) return;
+        
+        this.graph.removeSchema(schemaName);
+        this._completeSchemaRegistration(schemaName, indexType, rootType);
+      });
+      return;
     }
     
+    this._completeSchemaRegistration(schemaName, indexType, rootType);
+  }
+
+  _completeSchemaRegistration(schemaName, indexType, rootType) {
     if (this.graph.registerSchema(schemaName, this.pendingSchemaCode, indexType, rootType)) {
       this.eventBus.emit('ui:hide', { id: 'schemaDialog' });
       this.pendingSchemaCode = null;
-      
-      if (false && rootType) {
-        const rootNodeType = schemaName + '.' + rootType;
-        if (this.graph.nodeTypes[rootNodeType]) {
-          const createRootNode = confirm(`Schema registered! Create root node (${rootType})?`);
-          if (createRootNode) {
-            const node = this.graph.createNode(rootNodeType);
-            node.pos = [100, 100];
-            this.draw();
-          }
-        }
-      }
       
       this.eventBus.emit('ui:update', { 
         id: 'status', 
@@ -6737,9 +6801,84 @@ class SchemaGraphApp {
         },
   
         /**
-         * Setup all dialogs
-         * @returns {void}
+         * Show message dialog (replaces alert)
+         * @param {string} message - Message text
+         * @param {string} title - Dialog title (optional)
+         * @returns {Promise<void>} Resolves when OK is clicked
          */
+        showMessage: (message, title = 'Message') => {
+          return new Promise((resolve) => {
+            const dialog = document.getElementById('sg-messageDialog');
+            const titleEl = document.getElementById('sg-messageDialogTitle');
+            const contentEl = document.getElementById('sg-messageDialogContent');
+            const okBtn = document.getElementById('sg-messageDialogOk');
+            
+            if (!dialog || !titleEl || !contentEl || !okBtn) {
+              console.warn('Message dialog elements not found, falling back to alert');
+              alert(message);
+              resolve();
+              return;
+            }
+            
+            titleEl.textContent = title;
+            contentEl.textContent = message;
+            dialog.classList.add('show');
+            
+            const handleOk = () => {
+              dialog.classList.remove('show');
+              okBtn.removeEventListener('click', handleOk);
+              resolve();
+            };
+            
+            okBtn.addEventListener('click', handleOk);
+            
+            // Focus OK button
+            setTimeout(() => okBtn.focus(), 100);
+          });
+        },
+  
+        /**
+         * Show confirm dialog (replaces confirm)
+         * @param {string} message - Message text
+         * @param {string} title - Dialog title (optional)
+         * @returns {Promise<boolean>} Resolves to true if OK, false if Cancel
+         */
+        showConfirm: (message, title = 'Confirm') => {
+          return new Promise((resolve) => {
+            const dialog = document.getElementById('sg-confirmDialog');
+            const titleEl = document.getElementById('sg-confirmDialogTitle');
+            const contentEl = document.getElementById('sg-confirmDialogContent');
+            const okBtn = document.getElementById('sg-confirmDialogOk');
+            const cancelBtn = document.getElementById('sg-confirmDialogCancel');
+            
+            if (!dialog || !titleEl || !contentEl || !okBtn || !cancelBtn) {
+              console.warn('Confirm dialog elements not found, falling back to confirm');
+              resolve(confirm(message));
+              return;
+            }
+            
+            titleEl.textContent = title;
+            contentEl.textContent = message;
+            dialog.classList.add('show');
+            
+            const cleanup = (result) => {
+              dialog.classList.remove('show');
+              okBtn.removeEventListener('click', handleOk);
+              cancelBtn.removeEventListener('click', handleCancel);
+              resolve(result);
+            };
+            
+            const handleOk = () => cleanup(true);
+            const handleCancel = () => cleanup(false);
+            
+            okBtn.addEventListener('click', handleOk);
+            cancelBtn.addEventListener('click', handleCancel);
+            
+            // Focus Cancel button (safer default)
+            setTimeout(() => cancelBtn.focus(), 100);
+          });
+        },
+  
         setupAll: () => {
           this.ui.dialogs.setupSchemaDialog();
           this.ui.dialogs.setupSchemaRemovalDialog();
@@ -6748,6 +6887,23 @@ class SchemaGraphApp {
           document.addEventListener('click', (e) => {
             if (!e.target.closest('#sg-contextMenu')) {
               this.ui.dialogs.hideContextMenu();
+            }
+          });
+          
+          // ESC key closes dialogs
+          document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+              // Close message dialog
+              const messageDialog = document.getElementById('sg-messageDialog');
+              if (messageDialog?.classList.contains('show')) {
+                document.getElementById('sg-messageDialogOk')?.click();
+              }
+              
+              // Close confirm dialog (as cancel)
+              const confirmDialog = document.getElementById('sg-confirmDialog');
+              if (confirmDialog?.classList.contains('show')) {
+                document.getElementById('sg-confirmDialogCancel')?.click();
+              }
             }
           });
         }
@@ -6975,8 +7131,13 @@ class SchemaGraphApp {
             this.api.analytics.download();
           });
           
-          resetBtn?.addEventListener('click', () => {
-            if (confirm('Reset analytics for current session? This cannot be undone.')) {
+          resetBtn?.addEventListener('click', async () => {
+            const confirmed = await this.ui.dialogs.showConfirm(
+              'Reset analytics for current session? This cannot be undone.',
+              '⚠️ Reset Analytics'
+            );
+            
+            if (confirmed) {
               this.api.analytics.endSession();
               this.ui.update.analytics();
             }
