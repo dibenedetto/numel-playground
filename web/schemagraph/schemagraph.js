@@ -172,99 +172,21 @@ class Node {
     this.outputs = [];
     this.properties = {};
     this.graph = null;
-    this._deferSizeCalculation = false; // Flag to control auto-sizing
   }
 
   addInput(name, type) {
     this.inputs.push({ name, type, link: null });
-    // Only recalculate if not deferred
-    if (!this._deferSizeCalculation && this.calculateNodeSize) {
-      this.calculateNodeSize();
-    }
     return this.inputs.length - 1;
   }
 
   addOutput(name, type) {
     this.outputs.push({ name, type, links: [] });
-    // Only recalculate if not deferred
-    if (!this._deferSizeCalculation && this.calculateNodeSize) {
-      this.calculateNodeSize();
-    }
     return this.outputs.length - 1;
-  }
-
-  /**
-   * Calculate node size based on inputs/outputs
-   * This is the default implementation that can be overridden by subclasses
-   */
-  calculateNodeSize() {
-    // Guard against being called with incomplete data
-    if (!this.inputs || !this.outputs) {
-      return;
-    }
-    
-    // Count actual slots (inputs and outputs)
-    const totalSlots = Math.max(this.inputs.length, this.outputs.length, 1);
-    
-    // Layout constants
-    const headerHeight = 26;
-    const paddingTop = 12;
-    const paddingBottom = 8;
-    const slotHeight = 40;
-    
-    // Calculate height
-    let calculatedHeight = headerHeight + paddingTop + (totalSlots * slotHeight) + paddingBottom;
-    
-    // Add extra height for native nodes with value display
-    if (this.isNative) {
-      calculatedHeight += 28; // Value display area
-    }
-    
-    const minHeight = 80;
-    
-    // Calculate width based on content
-    let maxContentLength = this.title ? this.title.length : 10;
-    
-    // Check input names and types
-    if (this.inputs && this.inputs.length > 0) {
-      for (const inp of this.inputs) {
-        if (inp.name) {
-          maxContentLength = Math.max(maxContentLength, inp.name.length);
-        }
-        if (inp.type) {
-          maxContentLength = Math.max(maxContentLength, inp.type.length);
-        }
-      }
-    }
-    
-    // Check output names and types
-    if (this.outputs && this.outputs.length > 0) {
-      for (const out of this.outputs) {
-        if (out.name) {
-          maxContentLength = Math.max(maxContentLength, out.name.length);
-        }
-        if (out.type) {
-          maxContentLength = Math.max(maxContentLength, out.type.length);
-        }
-      }
-    }
-    
-    // Width calculation
-    const baseWidth = 100;
-    const contentWidth = maxContentLength * 7; // ~7px per character
-    const paddingWidth = 100; // Space for slots, padding, and value boxes
-    const calculatedWidth = baseWidth + Math.min(contentWidth, 200) + paddingWidth;
-    
-    // Set final size with bounds
-    this.size = [
-      Math.max(180, Math.min(calculatedWidth, 400)), // Min 180, max 400
-      Math.max(minHeight, calculatedHeight)
-    ];
   }
 
   getInputData(slot) {
     if (!this.inputs[slot] || !this.inputs[slot].link) return null;
-    const link = this.graph.links[this.links[slot].link];
+    const link = this.graph.links[this.inputs[slot].link];
     if (!link) return null;
     const originNode = this.graph.getNodeById(link.origin_id);
     if (!originNode || !originNode.outputs[link.origin_slot]) return null;
@@ -680,10 +602,6 @@ class SchemaGraph extends Graph {
           this.schemaName = schemaName;
           this.modelName = modelName;
           this.isRootType = isRootType;
-          
-          // 🔧 FIX: Defer size calculation until all inputs/outputs are added
-          this._deferSizeCalculation = true;
-          
           this.addOutput('self', modelName);
           
           this.nativeInputs = {};
@@ -715,35 +633,15 @@ class SchemaGraph extends Graph {
                 const defaultValue = self._getDefaultValueForType(baseType);
                 this.nativeInputs[i] = {
                   type: baseType,
-                  value: defaultValue,
+                  value: defaultValue,  // ← NOW USES DEFAULT VALUE
                   optional: isOptional
                 };
               }
             }
           }
-          
-          // 🔧 FIX: Calculate size once after all inputs/outputs are added
-          this._deferSizeCalculation = false;
-          this.calculateNodeSize();
+          this.size = [200, Math.max(80, 30 + fields.length * 25)];
         }
-      
-        // Override with schema-specific sizing if needed
-        calculateNodeSize() {
-          // Use the base implementation
-          super.calculateNodeSize();
-          
-          // Add any schema-specific adjustments here if needed
-          if (this.multiInputs && Object.keys(this.multiInputs).length > 0) {
-            // Add a bit more width for multi-input indicators
-            this.size[0] = Math.min(this.size[0] + 20, 400);
-          }
-          
-          if (this.optionalFields && Object.keys(this.optionalFields).length > 0) {
-            // Add a bit more width for optional badges
-            this.size[0] = Math.min(this.size[0] + 10, 400);
-          }
-        }
-      
+  
         onExecute() {
           const data = {};
           for (let i = 0; i < this.inputs.length; i++) {
@@ -772,7 +670,7 @@ class SchemaGraph extends Graph {
                 const isOptional = this.nativeInputs[i].optional;
                 const baseType = this.nativeInputs[i].type;
                 
-                // Handle boolean values correctly
+                // FIX: Handle boolean values correctly
                 if (baseType === 'bool') {
                   if (val === true || val === false) {
                     data[this.inputs[i].name] = val;
@@ -1125,10 +1023,7 @@ class SchemaGraph extends Graph {
       const node = new (this.nodeTypes[nodeTypeKey])();
       node.id = nodeData.id;
       node.pos = nodeData.pos.slice();
-      
-      // 🔧 FIX: Use saved size directly, don't recalculate
       node.size = nodeData.size.slice();
-      
       node.properties = JSON.parse(JSON.stringify(nodeData.properties));
       
       if (nodeData.isRootType !== undefined) {
@@ -1139,10 +1034,12 @@ class SchemaGraph extends Graph {
         node.nativeInputs = JSON.parse(JSON.stringify(nodeData.nativeInputs));
       }
       
+      // 🔧 FIX: Restore multi-input configuration
       if (nodeData.multiInputs) {
         node.multiInputs = JSON.parse(JSON.stringify(nodeData.multiInputs));
       }
       
+      // 🔧 FIX: Restore workflow-specific properties
       if (nodeData.color) {
         node.color = nodeData.color;
       }
@@ -1154,7 +1051,7 @@ class SchemaGraph extends Graph {
       this._nodes_by_id[node.id] = node;
       node.graph = this;
     }
-  
+    
     if (data.links) {
       for (const linkData of data.links) {
         const originNode = this._nodes_by_id[linkData.origin_id];
@@ -2278,26 +2175,17 @@ class SchemaGraphApp {
         try { return JSON.parse(v); } catch (e) { return {}; }
       }},
     ];
-  
+
     for (const nodeSpec of nativeNodes) {
-      const self = this;
-      
       class NativeNode extends Node {
         constructor() {
           super(nodeSpec.name);
-          
-          // 🔧 FIX: Defer size calculation
-          this._deferSizeCalculation = true;
-          
           this.addOutput('value', nodeSpec.type);
           this.properties.value = nodeSpec.defaultValue;
+          this.size = [180, 80];
           this.isNative = true;
-          
-          // 🔧 FIX: Calculate size once after setup
-          this._deferSizeCalculation = false;
-          this.calculateNodeSize();
         }
-      
+
         onExecute() {
           this.setOutputData(0, nodeSpec.parser(this.properties.value));
         }
@@ -2375,7 +2263,7 @@ class SchemaGraphApp {
     // Check for output slot drag
     for (const node of this.graph.nodes) {
       for (let j = 0; j < node.outputs.length; j++) {
-        const slotY = node.pos[1] + 38 + j * 40;
+        const slotY = node.pos[1] + 30 + j * 25;
         const dist = Math.sqrt(Math.pow(wx - (node.pos[0] + node.size[0]), 2) + Math.pow(wy - slotY, 2));
         if (dist < 10) {
           this.connecting = { node, slot: j, isOutput: true };
@@ -2388,7 +2276,7 @@ class SchemaGraphApp {
     // Check for input slot drag
     for (const node of this.graph.nodes) {
       for (let j = 0; j < node.inputs.length; j++) {
-        const slotY = node.pos[1] + 38 + j * 40;
+        const slotY = node.pos[1] + 30 + j * 25;
         const dist = Math.sqrt(Math.pow(wx - node.pos[0], 2) + Math.pow(wy - slotY, 2));
         if (dist < 10) {
           if (!node.multiInputs || !node.multiInputs[j]) {
@@ -2641,7 +2529,7 @@ class SchemaGraphApp {
       if (node.nativeInputs) {
         for (let j = 0; j < node.inputs.length; j++) {
           if (!node.inputs[j].link && node.nativeInputs[j] !== undefined) {
-            const slotY = node.pos[1] + 38 + j * 40;
+            const slotY = node.pos[1] + 30 + j * 25;
             const boxX = node.pos[0] + node.size[0] - 70;
             const boxY = slotY - 8;
             const boxW = 65;
@@ -4858,9 +4746,9 @@ class SchemaGraphApp {
       const targ = this.graph.getNodeById(link.target_id);
       if (orig && targ) {
         const x1 = orig.pos[0] + orig.size[0];
-        const y1 = orig.pos[1] + 38 + link.origin_slot * 40; // Changed from 25 to 40
+        const y1 = orig.pos[1] + 33 + link.origin_slot * 25;
         const x2 = targ.pos[0];
-        const y2 = targ.pos[1] + 38 + link.target_slot * 40; // Changed from 25 to 40
+        const y2 = targ.pos[1] + 33 + link.target_slot * 25;
         
         // Better curve calculation - limit control point distance
         const distance = Math.abs(x2 - x1);
@@ -5164,12 +5052,13 @@ class SchemaGraphApp {
     const style = this.drawingStyleManager.getStyle();
     const textScale = this.getTextScale();
     
+    // 🔧 FIX: Guard against undefined inputs
     if (!node.inputs || !node.inputs[j]) {
-      return;
+        return;
     }
     
     const inp = node.inputs[j];
-    const sy = y + 38 + j * 40; // Changed from 25 to 40 spacing
+    const sy = y + 38 + j * 25;
     const hovered = this.connecting && !this.connecting.isOutput && 
       Math.abs(worldMouse[0] - x) < 10 && Math.abs(worldMouse[1] - sy) < 10;
     const compat = this.isSlotCompatible(node, j, false);
@@ -5217,47 +5106,23 @@ class SchemaGraphApp {
       }
     }
     
-    // 🔧 FIX: Truncate field name if too long
+    // Field name with text scaling
     this.ctx.fillStyle = colors.textSecondary;
     this.ctx.font = (10 * textScale) + 'px Arial, sans-serif';
     this.ctx.textAlign = 'left';
     this.ctx.textBaseline = 'middle';
-    
-    const maxNameWidth = w - 80; // Leave space for type and value box
-    let displayName = inp.name;
-    let nameWidth = this.ctx.measureText(displayName).width;
-    
-    if (nameWidth > maxNameWidth) {
-      while (nameWidth > maxNameWidth && displayName.length > 3) {
-        displayName = displayName.substring(0, displayName.length - 1);
-        nameWidth = this.ctx.measureText(displayName + '...').width;
-      }
-      displayName += '...';
-    }
-    
-    this.ctx.fillText(displayName, x + 10, sy);
+    this.ctx.fillText(inp.name, x + 10, sy);
     
     // Field type with text scaling and rounded box
     if (!node.isNative || (!!node.nativeInputs && node.nativeInputs[j] === undefined)) {
       const compactType = this.graph.compactType(inp.type);
+      let typeText = compactType.length > 20 ? compactType.substring(0, 20) + '...' : compactType;
       
-      // 🔧 FIX: Truncate type if too long
+      // Measure text to create properly sized box
       this.ctx.font = (8 * textScale) + 'px "Courier New", monospace';
-      const maxTypeWidth = w - 30;
-      let typeText = compactType;
-      let typeWidth = this.ctx.measureText(typeText).width;
-      
-      if (typeWidth > maxTypeWidth) {
-        while (typeWidth > maxTypeWidth && typeText.length > 5) {
-          typeText = typeText.substring(0, typeText.length - 1);
-          typeWidth = this.ctx.measureText(typeText + '...').width;
-        }
-        typeText += '...';
-      }
-      
       const textWidth = this.ctx.measureText(typeText).width;
       const typeBoxX = x + 10;
-      const typeBoxY = sy + 12; // Moved down from sy + 10
+      const typeBoxY = sy + 10 - 5;
       const typeBoxW = textWidth + 8;
       const typeBoxH = 10;
       const typeBoxRadius = 2;
@@ -5285,7 +5150,7 @@ class SchemaGraphApp {
       // Type text
       this.ctx.fillStyle = colors.textTertiary;
       this.ctx.textAlign = 'left';
-      this.ctx.fillText(typeText, typeBoxX + 4, sy + 17); // Adjusted Y position
+      this.ctx.fillText(typeText, typeBoxX + 4, sy + 10);
     }
     
     // Native input value box with rounded corners
@@ -5401,7 +5266,7 @@ class SchemaGraphApp {
     }
     
     const out = node.outputs[j];
-    const sy = y + 38 + j * 40; // Changed from 25 to 40 spacing
+    const sy = y + 38 + j * 25;  // Start slots 5px lower
     const hovered = this.connecting && this.connecting.isOutput && 
       Math.abs(worldMouse[0] - (x + w)) < 10 && Math.abs(worldMouse[1] - sy) < 10;
     const compat = this.isSlotCompatible(node, j, true);
@@ -5443,23 +5308,13 @@ class SchemaGraphApp {
     // Output type with text scaling and rounded box
     if (!node.isNative) {
       const compactType = this.graph.compactType(out.type);
+      let typeText = compactType.length > 15 ? compactType.substring(0, 15) + '...' : compactType;
       
+      // Measure text to create properly sized box
       this.ctx.font = (8 * textScale) + 'px "Courier New", monospace';
-      const maxTypeWidth = w - 30;
-      let typeText = compactType;
-      let typeWidth = this.ctx.measureText(typeText).width;
-      
-      if (typeWidth > maxTypeWidth) {
-        while (typeWidth > maxTypeWidth && typeText.length > 5) {
-          typeText = typeText.substring(0, typeText.length - 1);
-          typeWidth = this.ctx.measureText(typeText + '...').width;
-        }
-        typeText += '...';
-      }
-      
       const textWidth = this.ctx.measureText(typeText).width;
       const typeBoxX = x + w - 10 - textWidth - 8;
-      const typeBoxY = sy + 12; // Moved down from sy + 10
+      const typeBoxY = sy + 10 - 5;
       const typeBoxW = textWidth + 8;
       const typeBoxH = 10;
       const typeBoxRadius = 2;
