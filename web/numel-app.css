@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 /* ========================================================================
    NUMEL APP - Completely Fixed Layout
    ======================================================================== */
@@ -910,3 +911,925 @@ body.workflow-active .numel-graph-panel {
 		padding: 8px 10px;
 	}
 }
+=======
+/* ========================================================================
+   NUMEL APP - Inherits SchemaGraph Theme Variables
+   Uses SchemaGraph CSS variables (--sg-*) for theming
+   ======================================================================== */
+
+/* Base Layout */
+body {
+	font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+	margin: 0;
+	padding: 20px 20px 60px 20px;
+	background: var(--sg-bg-primary);
+	color: var(--sg-text-primary);
+	display: flex;
+	gap: 20px;
+	height: 100vh;
+	box-sizing: border-box;
+	transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+/* Chat Panel */
+.numel-panel {
+	background: var(--sg-bg-secondary);
+	border: 1px solid var(--sg-border-color);
+	border-radius: 6px;
+	padding: 20px;
+	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+	flex: 1 1 0;
+	min-width: 320px;
+	max-width: 600px;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+	transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.numel-title {
+	flex-shrink: 0;
+	margin: 0 0 20px 0;
+	font-size: 24px;
+	font-weight: 600;
+	text-align: center;
+	color: var(--sg-text-primary);
+}
+
+.numel-brand {
+	color: var(--sg-accent-orange);
+	font-weight: 700;
+}
+
+/* Mode Switcher */
+.numel-mode-switcher {
+	flex-shrink: 0;
+	display: flex;
+	gap: 8px;
+	margin-top: 15px;
+	margin-bottom: 15px;
+	background: var(--sg-bg-tertiary);
+	padding: 4px;
+	border: 1px solid var(--sg-border-color);
+	border-radius: 6px;
+}
+
+.numel-mode-btn {
+	flex: 1;
+	padding: 8px 12px;
+	background: transparent;
+	border: none;
+	border-radius: 4px;
+	color: var(--sg-text-secondary);
+	font-size: 14px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+
+.numel-mode-btn:hover {
+	background: var(--sg-bg-quaternary);
+	color: var(--sg-text-primary);
+}
+
+.numel-mode-btn.active {
+	background: var(--sg-accent-blue);
+	color: #ffffff;
+}
+
+/* Mode Content - FIXED: Allow scrolling */
+.numel-mode-content {
+	display: flex;
+	flex-direction: column;
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	overflow-x: hidden;
+	gap: 15px;
+}
+
+.numel-mode-content::-webkit-scrollbar {
+	width: 8px;
+}
+
+.numel-mode-content::-webkit-scrollbar-track {
+	background: var(--sg-bg-tertiary);
+}
+
+.numel-mode-content::-webkit-scrollbar-thumb {
+	background: var(--sg-bg-quaternary);
+	border-radius: 4px;
+}
+
+.numel-mode-content::-webkit-scrollbar-thumb:hover {
+	background: var(--sg-text-tertiary);
+}
+
+/* Config Sections */
+.numel-config-section {
+	flex-shrink: 0;
+	padding: 12px;
+	background: var(--sg-bg-tertiary);
+	border: 1px solid var(--sg-border-color);
+	border-radius: 6px;
+	transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.numel-config-section .numel-section-header {
+	margin-bottom: 8px;
+}
+
+.numel-section-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	margin-bottom: 8px;
+}
+
+.numel-section-title {
+	font-size: 11px;
+	font-weight: 700;
+	color: var(--sg-text-secondary);
+	text-transform: uppercase;
+	letter-spacing: 0.8px;
+	margin: 0;
+}
+
+.numel-btn-icon {
+	background: transparent;
+	border: none;
+	padding: 4px 8px;
+	cursor: pointer;
+	font-size: 14px;
+	border-radius: 4px;
+	transition: background 0.15s ease;
+}
+
+.numel-btn-icon:hover {
+	background: var(--sg-bg-quaternary);
+}
+
+.numel-config-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	margin: 8px 0;
+}
+
+.numel-config-row label {
+	flex: 0 0 80px;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--sg-text-secondary);
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+}
+
+.numel-config-row input[type="text"],
+.numel-config-row input[type="url"] {
+	flex: 1;
+	padding: 6px 10px;
+	background: var(--sg-bg-quaternary);
+	border: 1px solid var(--sg-border-color);
+	border-radius: 4px;
+	color: var(--sg-text-primary);
+	font-size: 12px;
+	font-family: 'Courier New', monospace;
+	transition: all 0.15s ease;
+}
+
+.numel-config-row input:focus {
+	outline: none;
+	border-color: var(--sg-accent-blue);
+	box-shadow: 0 0 0 2px rgba(70, 162, 218, 0.2);
+}
+
+.numel-config-row input:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.numel-config-row select {
+	flex: 1;
+	padding: 6px 10px;
+	background: var(--sg-bg-quaternary);
+	border: 1px solid var(--sg-border-color);
+	border-radius: 4px;
+	color: var(--sg-text-primary);
+	font-size: 12px;
+	cursor: pointer;
+	transition: all 0.15s ease;
+}
+
+.numel-config-row select:focus {
+	outline: none;
+	border-color: var(--sg-accent-blue);
+	box-shadow: 0 0 0 2px rgba(70, 162, 218, 0.2);
+}
+
+.numel-config-row select:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.numel-config-row input[type="checkbox"] {
+	width: 18px;
+	height: 18px;
+	cursor: pointer;
+}
+
+.numel-config-row button {
+	flex: 1;
+	min-width: 0;
+}
+
+.numel-config-section.highlight {
+	animation: sectionPulse 0.5s ease-in-out;
+	border-left: 3px solid var(--sg-accent-blue);
+}
+
+@keyframes sectionPulse {
+	0%, 100% {
+		background: var(--sg-bg-tertiary);
+	}
+	50% {
+		background: rgba(70, 162, 218, 0.1);
+	}
+}
+
+/* Status */
+.numel-status {
+	flex: 1;
+	font-size: 12px;
+	font-weight: 600;
+	padding: 4px 8px;
+	border-radius: 3px;
+	text-align: center;
+}
+
+.numel-status-idle {
+	color: var(--sg-accent-purple);
+	border: 1px solid var(--sg-accent-purple);
+	background: rgba(147, 112, 219, 0.1);
+}
+
+.numel-status-connecting {
+	color: var(--sg-accent-yellow);
+	border: 1px solid var(--sg-accent-yellow);
+	background: rgba(255, 215, 0, 0.1);
+}
+
+.numel-status-connected {
+	color: var(--sg-accent-green);
+	border: 1px solid var(--sg-accent-green);
+	background: rgba(146, 208, 80, 0.1);
+}
+
+.numel-status-disconnected {
+	color: var(--sg-accent-red);
+	border: 1px solid var(--sg-accent-red);
+	background: rgba(220, 100, 100, 0.1);
+}
+
+.numel-status-running {
+	color: var(--sg-accent-green);
+	border: 1px solid var(--sg-accent-green);
+	background: rgba(146, 208, 80, 0.1);
+}
+
+.numel-status-failed {
+	color: var(--sg-accent-red);
+	border: 1px solid var(--sg-accent-red);
+	background: rgba(220, 100, 100, 0.1);
+}
+
+/* Workflow Controls */
+.numel-workflow-controls {
+	display: flex;
+	gap: 8px;
+	margin: 8px 0;
+}
+
+.numel-workflow-controls button {
+	flex: 1;
+}
+
+/* Chat Container */
+.numel-chat-container {
+	flex: 1;
+	border: 1px solid var(--sg-border-color);
+	border-radius: 6px;
+	overflow-y: auto;
+	padding: 15px;
+	background: var(--sg-bg-quaternary);
+	min-height: 200px;
+	transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.numel-chat-container::-webkit-scrollbar {
+	width: 10px;
+}
+
+.numel-chat-container::-webkit-scrollbar-track {
+	background: var(--sg-bg-tertiary);
+}
+
+.numel-chat-container::-webkit-scrollbar-thumb {
+	background: var(--sg-bg-quaternary);
+	border-radius: 5px;
+}
+
+.numel-chat-container::-webkit-scrollbar-thumb:hover {
+	background: var(--sg-text-tertiary);
+}
+
+/* Messages */
+.message {
+	margin: 10px 0;
+	padding: 10px 14px;
+	border-radius: 8px;
+	max-width: 80%;
+	line-height: 1.5;
+	animation: messageSlideIn 0.2s ease;
+}
+
+@keyframes messageSlideIn {
+	from {
+		opacity: 0;
+		transform: translateY(10px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.message.user {
+	background: var(--sg-accent-blue);
+	color: #ffffff;
+	margin-left: auto;
+	border-bottom-right-radius: 3px;
+}
+
+.message.agent {
+	background: var(--sg-accent-green);
+	color: #ffffff;
+	border-bottom-left-radius: 3px;
+}
+
+.message.system {
+	background: var(--sg-bg-tertiary);
+	color: var(--sg-text-tertiary);
+	font-size: 0.85em;
+	font-style: italic;
+	border-left: 3px solid var(--sg-text-quaternary);
+}
+
+.message.system-error {
+	background: rgba(220, 100, 100, 0.2);
+	color: var(--sg-accent-red);
+	font-size: 0.85em;
+	border-left: 3px solid var(--sg-accent-red);
+}
+
+.message.ui {
+	background: rgba(146, 208, 80, 0.15);
+	color: var(--sg-accent-green);
+	font-size: 0.9em;
+	border-left: 3px solid var(--sg-accent-green);
+}
+
+/* Input Group */
+.numel-input-group {
+	display: flex;
+	gap: 8px;
+	flex-shrink: 0;
+}
+
+.numel-input-group input[type="text"] {
+	flex: 1;
+	padding: 10px 12px;
+	border: 1px solid var(--sg-border-color);
+	border-radius: 6px;
+	background: var(--sg-bg-quaternary);
+	color: var(--sg-text-primary);
+	font-size: 14px;
+	transition: all 0.15s ease;
+}
+
+.numel-input-group input[type="text"]:focus {
+	outline: none;
+	border-color: var(--sg-accent-blue);
+	box-shadow: 0 0 0 2px rgba(70, 162, 218, 0.2);
+}
+
+.numel-input-group input[type="text"]:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+/* Buttons */
+.numel-btn {
+	padding: 10px 16px;
+	border: none;
+	border-radius: 6px;
+	cursor: pointer;
+	font-size: 14px;
+	font-weight: 600;
+	transition: all 0.15s ease;
+	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.numel-btn:hover {
+	transform: translateY(-1px);
+	box-shadow: 0 3px 6px rgba(0, 0, 0, 0.3);
+}
+
+.numel-btn:active {
+	transform: translateY(0);
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.numel-btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	transform: none !important;
+}
+
+.numel-btn-primary {
+	background: var(--sg-accent-blue);
+	color: #ffffff;
+}
+
+.numel-btn-primary:hover:not(:disabled) {
+	background: var(--sg-accent-blue-light);
+}
+
+.numel-btn-secondary {
+	background: var(--sg-bg-tertiary);
+	color: var(--sg-text-primary);
+	border: 1px solid var(--sg-border-color);
+}
+
+.numel-btn-secondary:hover:not(:disabled) {
+	background: var(--sg-bg-quaternary);
+	border-color: var(--sg-border-highlight);
+}
+
+.numel-btn-accent {
+	background: var(--sg-accent-green);
+	color: #ffffff;
+}
+
+.numel-btn-accent:hover:not(:disabled) {
+	background: #7ab854;
+}
+
+.numel-btn-accent-red {
+	background: var(--sg-accent-red);
+	color: var(--sg-text-primary);
+	border: 1px solid var(--sg-border-color);
+}
+
+.numel-btn-accent-red:hover:not(:disabled) {
+	background: var(--sg-accent-red);
+	border-color: var(--sg-border-highlight);
+}
+
+/* Loading */
+.numel-loading {
+	flex-shrink: 0;
+	display: none;
+	color: var(--sg-text-tertiary);
+	font-style: italic;
+	font-size: 12px;
+	text-align: center;
+	padding: 8px;
+}
+
+/* Graph Panel */
+.numel-graph-panel {
+	flex: 1 1 0;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+/* Canvas Container */
+.sg-canvas-container {
+	position: relative;
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+	border: 1px solid var(--sg-border-color);
+	background: var(--sg-canvas-bg);
+	border-radius: 6px;
+	overflow: hidden;
+	transition: box-shadow 0.3s ease, border-color 0.3s ease, background-color 0.3s ease;
+}
+
+#sg-main-canvas {
+	flex: 1;
+	width: 100%;
+	height: 100%;
+}
+
+.numel-hidden-elements {
+	display: none;
+}
+
+/* ========================================================================
+   TOOLBAR - Bottom Right Positioning
+   ======================================================================== */
+
+.numel-toolbar {
+	position: absolute;
+	bottom: 16px;
+	right: 16px;
+	max-width: calc(100% - 32px);
+	z-index: 100;
+	padding: 12px 16px;
+	background: var(--sg-bg-secondary);
+	opacity: 0.95;
+	border: 1px solid var(--sg-border-color);
+	border-radius: 6px;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+	backdrop-filter: blur(10px);
+	transition: all 0.3s ease;
+}
+
+.numel-toolbar.collapsed {
+	height: 44px;
+	overflow: hidden;
+	padding: 6px 16px;
+}
+
+.numel-toolbar.collapsed .numel-toolbar-content {
+	opacity: 0;
+	pointer-events: none;
+	max-height: 0;
+}
+
+.numel-toolbar-toggle {
+	position: absolute;
+	left: 50%;
+	top: 10px;
+	transform: translateX(-50%);
+	background: var(--sg-bg-tertiary);
+	border: 1px solid var(--sg-border-color);
+	border-radius: 6px;
+	padding: 6px 16px;
+	cursor: pointer;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--sg-text-primary);
+	transition: all 0.2s ease;
+	z-index: 10;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.numel-toolbar-toggle:hover {
+	background: var(--sg-bg-quaternary);
+	border-color: var(--sg-accent-blue);
+	transform: translateX(-50%) translateY(-1px);
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.numel-toolbar-toggle:active {
+	transform: translateX(-50%) translateY(0);
+}
+
+.numel-toolbar-toggle:focus {
+	outline: 2px solid var(--sg-accent-blue);
+	outline-offset: 2px;
+}
+
+.numel-toolbar-toggle-icon {
+	display: inline-block;
+	transition: transform 0.3s ease;
+	font-size: 10px;
+	margin-left: 4px;
+}
+
+.numel-toolbar.collapsed .numel-toolbar-toggle-icon {
+	transform: rotate(-180deg);
+}
+
+.numel-toolbar-content {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	gap: 10px 12px;
+	padding-top: 36px;
+	transition: opacity 0.3s ease, max-height 0.3s ease;
+	max-height: 600px;
+	overflow-y: auto;
+	overflow-x: hidden;
+}
+
+.numel-toolbar.collapsed .numel-toolbar-content {
+	padding-top: 0;
+}
+
+.numel-toolbar-content::-webkit-scrollbar {
+	width: 8px;
+}
+
+.numel-toolbar-content::-webkit-scrollbar-track {
+	background: var(--sg-bg-tertiary);
+	border-radius: 4px;
+}
+
+.numel-toolbar-content::-webkit-scrollbar-thumb {
+	background: var(--sg-bg-quaternary);
+	border-radius: 4px;
+}
+
+.numel-toolbar-content::-webkit-scrollbar-thumb:hover {
+	background: var(--sg-text-tertiary);
+}
+
+.numel-toolbar-section {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+	padding: 8px 12px;
+	background: var(--sg-bg-tertiary);
+	border-radius: 4px;
+	border: 1px solid var(--sg-border-color);
+}
+
+.numel-toolbar-section-title {
+	font-size: 10px;
+	font-weight: 700;
+	text-transform: uppercase;
+	color: var(--sg-text-tertiary);
+	letter-spacing: 0.5px;
+	margin-right: 8px;
+	min-width: fit-content;
+}
+
+.sg-voice-controls {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-wrap: nowrap;
+}
+
+.sg-status {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--sg-text-secondary);
+	padding: 6px 10px;
+	background: var(--sg-bg-tertiary);
+	border-radius: 4px;
+	border: 1px solid var(--sg-border-color);
+}
+
+.sg-status-value {
+	color: var(--sg-accent-blue);
+	font-weight: 700;
+}
+
+.sg-zoom-display {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 11px;
+	color: var(--sg-text-secondary);
+}
+
+.sg-zoom-value {
+	font-weight: 700;
+	color: var(--sg-text-primary);
+	min-width: 45px;
+	text-align: right;
+}
+
+.sg-divider {
+	display: none;
+}
+
+.sg-action-btn,
+.sg-theme-btn,
+.sg-zoom-reset-btn,
+.sg-voice-btn {
+	padding: 6px 12px;
+	font-size: 11px;
+	font-weight: 600;
+	border-radius: 4px;
+	border: 1px solid var(--sg-border-color);
+	background: var(--sg-bg-quaternary);
+	color: var(--sg-text-primary);
+	cursor: pointer;
+	transition: all 0.15s ease;
+	white-space: nowrap;
+}
+
+.sg-action-btn:hover,
+.sg-theme-btn:hover,
+.sg-zoom-reset-btn:hover,
+.sg-voice-btn:hover {
+	background: var(--sg-bg-tertiary);
+	border-color: var(--sg-accent-blue);
+	transform: translateY(-1px);
+	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.sg-action-btn:active,
+.sg-theme-btn:active,
+.sg-zoom-reset-btn:active,
+.sg-voice-btn:active {
+	transform: translateY(0);
+}
+
+.sg-action-btn:focus,
+.sg-theme-btn:focus,
+.sg-zoom-reset-btn:focus,
+.sg-voice-btn:focus {
+	outline: 2px solid var(--sg-accent-blue);
+	outline-offset: 2px;
+}
+
+.sg-drawing-style-select,
+.sg-layout-select {
+	padding: 6px 10px;
+	font-size: 11px;
+	border-radius: 4px;
+	border: 1px solid var(--sg-border-color);
+	background: var(--sg-bg-quaternary);
+	color: var(--sg-text-primary);
+	cursor: pointer;
+	transition: all 0.15s ease;
+	min-width: 140px;
+}
+
+.sg-drawing-style-select:hover,
+.sg-layout-select:hover {
+	border-color: var(--sg-accent-blue);
+	background: var(--sg-bg-tertiary);
+}
+
+.sg-drawing-style-select:focus,
+.sg-layout-select:focus {
+	outline: none;
+	border-color: var(--sg-accent-blue);
+	box-shadow: 0 0 0 2px rgba(70, 162, 218, 0.2);
+}
+
+/* Footer */
+.numel-footer {
+	position: fixed;
+	bottom: 10px;
+	left: 50%;
+	transform: translateX(-50%);
+	text-align: center;
+	font-size: 11px;
+	color: var(--sg-text-tertiary);
+	padding: 8px 16px;
+	background: var(--sg-bg-secondary);
+	border: 1px solid var(--sg-border-color);
+	border-radius: 4px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+	z-index: 50;
+}
+
+.numel-footer a {
+	color: var(--sg-accent-blue);
+	text-decoration: none;
+	transition: color 0.15s ease;
+}
+
+.numel-footer a:hover {
+	color: var(--sg-accent-blue-light);
+	text-decoration: underline;
+}
+
+/* ========================================================================
+   RESPONSIVE ADJUSTMENTS
+   ======================================================================== */
+
+@media (min-width: 1800px) {
+	.numel-toolbar {
+		max-width: 900px;
+	}
+	
+	.numel-toolbar-content {
+		grid-template-columns: repeat(3, 1fr);
+	}
+}
+
+@media (min-width: 1400px) and (max-width: 1799px) {
+	.numel-toolbar {
+		max-width: 700px;
+	}
+	
+	.numel-toolbar-content {
+		grid-template-columns: repeat(2, 1fr);
+	}
+}
+
+@media (max-width: 1399px) {
+	.numel-toolbar {
+		max-width: 400px;
+	}
+	
+	.numel-toolbar-content {
+		grid-template-columns: 1fr;
+	}
+}
+
+@media (max-width: 1200px) {
+	body {
+		flex-direction: column;
+		padding: 15px 15px 50px 15px;
+	}
+
+	.numel-panel {
+		flex: 0 0 auto;
+		max-width: none;
+		max-height: 50vh;
+	}
+
+	.numel-graph-panel {
+		flex: 1;
+		min-height: 400px;
+	}
+	
+	.numel-toolbar {
+		position: fixed;
+		bottom: 60px;
+		right: 10px;
+		left: 10px;
+		max-width: none;
+	}
+	
+	.numel-toolbar.collapsed {
+		height: 44px;
+	}
+	
+	.numel-toolbar-content {
+		max-height: 50vh;
+	}
+	
+	.numel-config-row {
+		flex-direction: column;
+		gap: 6px;
+	}
+	
+	.numel-config-row button {
+		width: 100%;
+	}
+}
+
+@media (max-width: 768px) {
+	.numel-toolbar {
+		bottom: 55px;
+		right: 5px;
+		left: 5px;
+		padding: 8px 12px;
+	}
+	
+	.numel-toolbar-toggle {
+		padding: 4px 12px;
+		font-size: 10px;
+	}
+	
+	.numel-toolbar-content {
+		gap: 8px;
+		max-height: 40vh;
+	}
+	
+	.numel-toolbar-section {
+		padding: 6px 8px;
+		flex-direction: column;
+		align-items: stretch;
+	}
+	
+	.sg-action-btn,
+	.sg-drawing-style-select,
+	.sg-layout-select {
+		width: 100%;
+	}
+}
+
+/* ========================================================================
+   BACKDROP FILTER FALLBACK
+   ======================================================================== */
+
+@supports not (backdrop-filter: blur(10px)) {
+	.numel-toolbar {
+		background: var(--sg-bg-secondary);
+		opacity: 0.98;
+	}
+}
+>>>>>>> workflows

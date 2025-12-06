@@ -22,15 +22,15 @@
 
 	"models" : [
 		{
-			"type" : "openai",
-			"id"   : "gpt-4"
+			"type" : "ollama",
+			"id"   : "mistral"
 		}
 	],
 
 	"embeddings" : [
 		{
-			"type" : "openai",
-			"id"   : ""
+			"type" : "ollama",
+			"id"   : "mistral"
 		}
 	],
 
@@ -204,61 +204,6 @@
 				},
 				1
 			]
-		}
-	],
-
-	"workflows": [
-		{
-			"id": "test_workflow_1",
-			"name": "Simple Test Workflow",
-			"description": "A simple workflow for testing",
-			"version": "1.0.0",
-			"nodes": [
-				{
-					"id": "start_1",
-					"type": "start",
-					"name": "Start",
-					"position": {"x": 100, "y": 200},
-					"config": {}
-				},
-				{
-					"id": "agent_1",
-					"type": "agent",
-					"name": "Test Agent",
-					"position": {"x": 400, "y": 200},
-					"config": {
-						"agent": {
-							"agent_ref": 0,
-							"input_mapping": {"message": "user_query"},
-							"output_mapping": {"response": "content"}
-						}
-					}
-				},
-				{
-					"id": "end_1",
-					"type": "end",
-					"name": "End",
-					"position": {"x": 700, "y": 200},
-					"config": {}
-				}
-			],
-			"edges": [
-				{
-					"id": "edge_1",
-					"source_node_id": "start_1",
-					"target_node_id": "agent_1",
-					"type": "default"
-				},
-				{
-					"id": "edge_2",
-					"source_node_id": "agent_1",
-					"target_node_id": "end_1",
-					"type": "default"
-				}
-			],
-			"start_node_id": "start_1",
-			"end_node_ids": ["end_1"],
-			"agents": [0]
 		}
 	]
 }

@@ -9,14 +9,12 @@ import uvicorn
 
 
 from   dotenv                  import load_dotenv
-from   fastapi                 import FastAPI, WebSocket
+from   fastapi                 import FastAPI, HTTPException, WebSocket
 from   fastapi.middleware.cors import CORSMiddleware
-from   functools               import partial
 from   typing                  import Any
 
 
-from   numel                   import (
-	AppContext,
+from core import (
 	compact_config,
 	extract_config,
 	get_backends,
@@ -27,6 +25,34 @@ from   numel                   import (
 from   schema                  import DEFAULT_APP_PORT, AppConfig, Event, EventType
 from   utils                   import get_time_str, log_print, seed_everything
 from   workflow                import ExecutionStatus, WorkflowExecutor
+
+from event_bus import (
+	get_event_bus,
+)
+
+from schema import (
+	DEFAULT_APP_PORT,
+	AppConfig,
+)
+
+from utils import (
+	get_time_str,
+	log_print,
+	seed_everything,
+)
+
+from workflow_api import (
+	setup_workflow_api,
+)
+
+from workflow_engine import (
+	WorkflowContext,
+	WorkflowEngine,
+)
+
+from workflow_manager import (
+	WorkflowManager,
+)
 
 
 load_dotenv()
@@ -86,6 +112,21 @@ if True:
 
 
 if True:
+	# Load workflow schema too
+	workflow_schema = None
+	try:
+		workflow_schema_path = os.path.join(current_dir, "workflow_schema.py")
+		with open(workflow_schema_path, "r", encoding="utf-8") as f:
+			workflow_schema_text = f.read()
+		workflow_schema = {
+			"schema": workflow_schema_text,
+		}
+	except Exception as e:
+		log_print(f"Error reading workflow schema: {e}")
+		raise HTTPException(status_code=500, detail=str(e))
+
+
+if True:
 	config = load_config(args.config_path) or AppConfig()
 	config.port = args.port
 	config = adjust_config(config)
@@ -95,7 +136,14 @@ if True:
 
 
 if True:
-	impl_modules = [os.path.splitext(f)[0] for f in os.listdir(current_dir) if f.endswith("_impl.py")]
+	event_bus        = get_event_bus()
+	workflow_eng     = None
+	workflow_manager = WorkflowManager(config, storage_dir="workflows")
+	workflow_manager .load_all_from_directory()
+
+
+if True:
+	impl_modules = [os.path.splitext(f)[0] for f in os.listdir(current_dir) if (f.startswith("impl_") and f.endswith(".py"))]
 	for module_name in impl_modules:
 		try:
 			impl_module = __import__(module_name)
@@ -105,20 +153,20 @@ if True:
 
 
 if True:
-	ctrl_server = None
-	ctrl_status = {
+	ctrl_server     = None
+	ctrl_status     = {
 		"config" : None,
 		"status" : "waiting",
 	}
-
 	apps            = None
-	app_ctx         = None
-	workflows       = None
 	running_servers = []
-
-	ctrl_app = FastAPI(title="Control")
+	ctrl_app        = FastAPI(title="Control")
 	add_middleware(ctrl_app)
 
+
+# ========================================================================
+# Original API Endpoints (App Schema & Config)
+# ========================================================================
 
 @ctrl_app.post("/ping")
 async def ping():
@@ -132,8 +180,68 @@ async def ping():
 
 @ctrl_app.post("/schema")
 async def export_schema():
+	"""Export app schema"""
 	global schema
 	return schema
+
+
+@ctrl_app.post("/workflow/schema")
+async def export_workflow_schema():
+	"""Export workflow schema with node type definitions from Pydantic"""
+	global workflow_schema
+	
+	# Import the Pydantic enum to get valid node types
+	from workflow_schema import WorkflowNodeType
+	
+	# Build node type metadata from the Pydantic schema
+	node_types = {}
+	for node_type in WorkflowNodeType:
+		type_name = node_type.value
+		
+		# Define slot configurations based on node type
+		if type_name == "start":
+			node_types[type_name] = {
+				"inputs": [],
+				"outputs": ["output"],
+				"description": "Start node - outputs initial workflow variables"
+			}
+		elif type_name == "end":
+			node_types[type_name] = {
+				"inputs": ["input"],
+				"outputs": [],
+				"description": "End node - collects final outputs"
+			}
+		elif type_name in ["agent", "prompt", "tool", "transform"]:
+			node_types[type_name] = {
+				"inputs": ["input"],
+				"outputs": ["output"],
+				"description": f"{type_name.title()} node - processes input data"
+			}
+		elif type_name == "decision":
+			node_types[type_name] = {
+				"inputs": ["input"],
+				"outputs": ["dynamic"],  # Outputs determined by branches config
+				"description": "Decision node - routes data based on conditions"
+			}
+		elif type_name == "merge":
+			node_types[type_name] = {
+				"inputs": ["dynamic"],  # Multiple inputs
+				"outputs": ["output"],
+				"description": "Merge node - combines multiple inputs"
+			}
+		elif type_name == "user_input":
+			node_types[type_name] = {
+				"inputs": [],
+				"outputs": ["output"],
+				"description": "User input node - waits for user input"
+			}
+	
+	# Return both the schema text and node type metadata
+	return {
+		"schema": workflow_schema["schema"],
+		"node_types": node_types,
+		"valid_types": [t.value for t in WorkflowNodeType]
+	}
 
 
 @ctrl_app.post("/import")
@@ -145,6 +253,7 @@ async def import_config(cfg: dict):
 	new_config = adjust_config(new_config)
 	if new_config is None:
 		return {"error": "Invalid app configuration"}
+	config = new_config
 	ctrl_status["status"] = "ready"
 	return config
 
@@ -157,7 +266,7 @@ async def export_config():
 
 @ctrl_app.post("/start")
 async def start_app():
-	global apps, app_ctx, config, ctrl_status, running_servers, workflows
+	global apps, config, ctrl_status, running_servers, workflow_eng
 	if apps is not None:
 		return {"error": "App is already running"}
 	try:
@@ -172,19 +281,21 @@ async def start_app():
 		app_agents    = []
 		app_tools     = []
 
-		agent_index = 0
+		agent_index   = 0
+		agent_remap   = {}
+		tool_remap    = {}
+
 		for backend, ctor in backends.values():
-			bkd_cfg = extract_config(config, backend, active_agents)
-			if not bkd_cfg.agents:
-				apps       .append(None)
-				app_agents .append(None)
+			bkd_cfg, agent_rmp, tool_rmp = extract_config(config, backend, active_agents)
+			if not bkd_cfg or not bkd_cfg.agents:
 				continue
 
-			app       = ctor(bkd_cfg)
-			app_agent = partial(run_agent, app, agent_index)
+			app     = ctor(bkd_cfg)
+			app_idx = len(apps)
+			rmp     = { global_idx : (app_idx, local_idx) for global_idx, local_idx in agent_rmp.items() }
+			agent_remap.update(rmp)
 
-			apps       .append(app)
-			app_agents .append(app_agent)
+			apps.append(app)
 
 			for i in range(len(app.config.agents)):
 				agent_app = app.generate_app(i)
@@ -203,19 +314,26 @@ async def start_app():
 				agent_index += 1
 				agent_port  += 1
 
-		app_ctx   = AppContext(config, app_agents, app_tools)
-		workflows = dict()
+		# Initialize workflow engine
+		workflow_ctx = WorkflowContext (apps, agent_remap, tool_remap)
+		workflow_eng = WorkflowEngine  (workflow_ctx, event_bus)
+		setup_workflow_api(ctrl_app, workflow_eng, event_bus)
+
+		log_print("✅ Workflow engine initialized")
 
 		ctrl_status["config"] = config
 		ctrl_status["status"] = "running"
+
 	except Exception as e:
+		log_print(f"Error starting app: {e}")
 		return {"error": str(e)}
+
 	return ctrl_status
 
 
 @ctrl_app.post("/stop")
 async def stop_app():
-	global apps, app_ctx, config, ctrl_status, running_servers, workflows
+	global apps, config, ctrl_status, running_servers, workflow_eng
 	if apps is None:
 		return {"error": "App is not running"}
 	try:
@@ -231,13 +349,17 @@ async def stop_app():
 				app.close()
 		for agent in config.agents:
 			agent.port = 0
-		apps            = None
-		app_ctx         = None
-		workflows       = None
-		running_servers = []
+		
+		# Clean up workflow engine
+		workflow_eng = None
+		log_print("Workflow engine stopped")
+		
+		apps                  = None
+		running_servers       = []
 		ctrl_status["config"] = None
 		ctrl_status["status"] = "stopped"
 	except Exception as e:
+		log_print(f"Error stopping app: {e}")
 		return {"error": str(e)}
 	return ctrl_status
 
@@ -253,8 +375,18 @@ async def restart_app():
 
 @ctrl_app.post("/status")
 async def server_status():
-	global ctrl_status
-	return ctrl_status
+	global ctrl_status, workflow_eng
+	
+	status = dict(ctrl_status)
+	
+	# Add workflow engine status
+	if workflow_eng:
+		status["workflow_eng"] = {
+			"active_executions": len(workflow_eng.executions),
+			"event_history_size": len(event_bus._event_history)
+		}
+	
+	return status
 
 
 # launch.py - ADD/REPLACE these workflow endpoints
@@ -475,11 +607,15 @@ async def workflow_events(websocket: WebSocket, execution_id: str):
 
 @ctrl_app.post("/shutdown")
 async def shutdown_server():
-	global apps, ctrl_app, ctrl_server, ctrl_status
+	global apps, ctrl_app, ctrl_server, ctrl_status, workflow_eng
 	if apps is not None:
 		return {"error": "App is running"}
 	if ctrl_server and ctrl_server.should_exit is False:
 		ctrl_server.should_exit = True
+	
+	# Clean up workflow engine
+	workflow_eng = None
+	
 	ctrl_app    = None
 	ctrl_server = None
 	ctrl_status = None

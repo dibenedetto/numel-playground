@@ -1,4 +1,4 @@
-# agno_impl
+# impl_agno
 
 import copy
 
@@ -24,15 +24,21 @@ from   agno.vectordb.lancedb           import LanceDb
 from   agno.vectordb.search            import SearchType
 
 
-from   numel                           import (
+from core import (
+	AgentApp,
+	register_backend
+)
+
+from schema import (
 	DEFAULT_KNOWLEDGE_MANAGER_INDEX_DB_TABLE_NAME,
 	DEFAULT_TOOL_MAX_WEB_SEARCH_RESULTS,
 	AppConfig,
-	AgentApp,
-	AgentOptionsConfig,
 	BackendConfig,
-	MessageModel,
-	register_backend
+	AgentOptionsConfig
+)
+
+from utils import (
+	log_print
 )
 
 
@@ -291,6 +297,7 @@ class _AgnoAgentApp(AgentApp):
 		config_impl.agents         = [self._build_agent             (self.config, config_impl, i) for i in range(len(self.config.agents        ))]
 
 		self.config_impl = config_impl
+		log_print("Agno Agent App initialized")
 
 
 	def generate_app(self, agent_index: int) -> FastAPI:
@@ -303,18 +310,26 @@ class _AgnoAgentApp(AgentApp):
 		return app
 
 
-	async def run(self, agent_index: int, *args, **kwargs) -> MessageModel:
+	async def run_agent(self, agent_index: int, *args, **kwargs) -> Any:
 		agent  = self.config_impl.agents[agent_index]
 		raw    = await agent.arun(*args, **kwargs)
-		result = MessageModel(
+		result = dict(
 			content_type = raw.content_type,
 			content      = raw.content,
 		)
 		return result
 
 
+<<<<<<< HEAD:app/agno_impl.py
+=======
+	async def run_tool(self, tool_index: int, *args, **kwargs) -> Any:
+		return None
+
+
+>>>>>>> workflows:app/impl_agno.py
 	def close(self) -> bool:
 		self.config_impl = None
+		log_print("Agno Agent App closed")
 		return True
 
 

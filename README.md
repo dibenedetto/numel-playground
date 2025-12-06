@@ -1,2 +1,2 @@
-# meshade
-MeShade is an AI Assistant.
+# numel-playground
+Numel Playground is a lab for agentic workflows.

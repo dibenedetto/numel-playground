@@ -68,9 +68,16 @@ class EventBus {
 // ========================================================================
 
 class AnalyticsService {
-  constructor(eventBus) {
+constructor(eventBus) {
     this.eventBus = eventBus;
-    this.metrics = {
+    this.metrics = this.createMetrics();
+    this.sessions = [];
+    this.currentSession = this.createSession();
+    this.setupListeners();
+  }
+
+  createMetrics() {
+    return {
       nodeCreated: 0,
       nodeDeleted: 0,
       linkCreated: 0,
@@ -85,9 +92,6 @@ class AnalyticsService {
       errors: 0,
       interactions: 0
     };
-    this.sessions = [];
-    this.currentSession = this.createSession();
-    this.setupListeners();
   }
 
   createSession() {
@@ -126,7 +130,7 @@ class AnalyticsService {
     });
   }
 
-  getMetrics() {
+getMetrics() {
     return { ...this.metrics };
   }
 
@@ -141,7 +145,11 @@ class AnalyticsService {
 
   endSession() {
     this.currentSession.endTime = Date.now();
+    this.currentSession.metrics = { ...this.metrics }; // Save current metrics
     this.sessions.push(this.currentSession);
+    
+    // Reset metrics for new session
+    this.metrics = this.createMetrics();
     this.currentSession = this.createSession();
   }
 
@@ -317,6 +325,7 @@ class SchemaGraph extends Graph {
     this.eventBus = eventBus;
     this.schemas = {};
     this.nodeTypes = {};
+    this.enabledSchemas = new Set();
   }
 
   registerSchema(schemaName, schemaCode, indexType = 'int', rootType = null) {
@@ -335,6 +344,8 @@ class SchemaGraph extends Graph {
       };
       this._generateNodes(schemaName, parsed, indexType);
       
+      this.enabledSchemas.add(schemaName); // ✨ NEW: Auto-enable on registration
+      
       this.eventBus.emit('schema:registered', { schemaName, rootType });
       return true;
     } catch (e) {
@@ -342,6 +353,40 @@ class SchemaGraph extends Graph {
       this.eventBus.emit('error', { type: 'schema:register', error: e.message });
       return false;
     }
+  }
+
+  enableSchema(schemaName) {
+    if (this.schemas[schemaName]) {
+      this.enabledSchemas.add(schemaName);
+      this.eventBus.emit('schema:enabled', { schemaName });
+      return true;
+    }
+    return false;
+  }
+
+  disableSchema(schemaName) {
+    if (this.schemas[schemaName]) {
+      this.enabledSchemas.delete(schemaName);
+      this.eventBus.emit('schema:disabled', { schemaName });
+      return true;
+    }
+    return false;
+  }
+
+  toggleSchema(schemaName) {
+    if (this.enabledSchemas.has(schemaName)) {
+      return this.disableSchema(schemaName);
+    } else {
+      return this.enableSchema(schemaName);
+    }
+  }
+
+  isSchemaEnabled(schemaName) {
+    return this.enabledSchemas.has(schemaName);
+  }
+
+  getEnabledSchemas() {
+    return Array.from(this.enabledSchemas);
   }
 
   _createFieldMappingFromSchema(schemaCode, parsedModels, rootType) {
@@ -890,20 +935,52 @@ class SchemaGraph extends Graph {
         nodeData.nativeInputs = JSON.parse(JSON.stringify(node.nativeInputs));
       }
       
+      // 🔧 FIX: Save multi-input configuration
+      if (node.multiInputs) {
+        nodeData.multiInputs = JSON.parse(JSON.stringify(node.multiInputs));
+      }
+      
+      // 🔧 FIX: Save workflow-specific properties
+      if (node.color) {
+        nodeData.color = node.color;
+      }
+      if (node.workflowData) {
+        nodeData.workflowData = JSON.parse(JSON.stringify(node.workflowData));
+      }
+      
       data.nodes.push(nodeData);
     }
     
     for (const linkId in this.links) {
       if (this.links.hasOwnProperty(linkId)) {
         const link = this.links[linkId];
-        data.links.push({
+        const linkData = {
           id: link.id,
           origin_id: link.origin_id,
           origin_slot: link.origin_slot,
           target_id: link.target_id,
           target_slot: link.target_slot,
           type: link.type
-        });
+        };
+        
+        // 🔧 FIX: Save workflow-specific link data
+        if (link.workflowData) {
+          linkData.workflowData = JSON.parse(JSON.stringify(link.workflowData));
+        }
+        if (link.conditionType) {
+          linkData.conditionType = link.conditionType;
+        }
+        if (link.conditionInfo) {
+          linkData.conditionInfo = JSON.parse(JSON.stringify(link.conditionInfo));
+        }
+        if (link.isConditional) {
+          linkData.isConditional = link.isConditional;
+        }
+        if (link.conditionLabel) {
+          linkData.conditionLabel = link.conditionLabel;
+        }
+        
+        data.links.push(linkData);
       }
     }
     
@@ -957,6 +1034,19 @@ class SchemaGraph extends Graph {
         node.nativeInputs = JSON.parse(JSON.stringify(nodeData.nativeInputs));
       }
       
+      // 🔧 FIX: Restore multi-input configuration
+      if (nodeData.multiInputs) {
+        node.multiInputs = JSON.parse(JSON.stringify(nodeData.multiInputs));
+      }
+      
+      // 🔧 FIX: Restore workflow-specific properties
+      if (nodeData.color) {
+        node.color = nodeData.color;
+      }
+      if (nodeData.workflowData) {
+        node.workflowData = JSON.parse(JSON.stringify(nodeData.workflowData));
+      }
+      
       this.nodes.push(node);
       this._nodes_by_id[node.id] = node;
       node.graph = this;
@@ -979,7 +1069,30 @@ class SchemaGraph extends Graph {
           
           this.links[linkData.id] = link;
           originNode.outputs[linkData.origin_slot].links.push(linkData.id);
-          targetNode.inputs[linkData.target_slot].link = linkData.id;
+          
+          // 🔧 FIX: Restore multi-input links properly
+          if (targetNode.multiInputs && targetNode.multiInputs[linkData.target_slot]) {
+            targetNode.multiInputs[linkData.target_slot].links.push(linkData.id);
+          } else {
+            targetNode.inputs[linkData.target_slot].link = linkData.id;
+          }
+          
+          // 🔧 FIX: Restore workflow-specific link data
+          if (linkData.workflowData) {
+            link.workflowData = JSON.parse(JSON.stringify(linkData.workflowData));
+          }
+          if (linkData.conditionType) {
+            link.conditionType = linkData.conditionType;
+          }
+          if (linkData.conditionInfo) {
+            link.conditionInfo = JSON.parse(JSON.stringify(linkData.conditionInfo));
+          }
+          if (linkData.isConditional) {
+            link.isConditional = linkData.isConditional;
+          }
+          if (linkData.conditionLabel) {
+            link.conditionLabel = linkData.conditionLabel;
+          }
           
           if (linkData.id > this.last_link_id) {
             this.last_link_id = linkData.id;
@@ -1287,6 +1400,10 @@ class SchemaGraphApp {
     
     this.initializeState();
     
+    this.injectDialogHTML();
+    this.injectToolbarHTML();
+    this.injectAnalyticsPanelHTML();
+
     this.api = this._createAPI();
     this.ui = this._createUI();
     
@@ -1324,6 +1441,7 @@ class SchemaGraphApp {
     this.spacePressed = false;
     this.editingNode = null;
     this.pendingSchemaCode = null;
+    this.customContextMenuHandler = null;
     
     this.themes = ['dark', 'light', 'ocean'];
     this.currentThemeIndex = 0;
@@ -1334,6 +1452,352 @@ class SchemaGraphApp {
     
     this.textScalingMode = 'fixed';  // Default to fixed text size
     this.loadTextScalingMode();
+  }
+
+  injectDialogHTML() {
+    // Check if dialogs already exist (prevent duplicates)
+    if (document.getElementById('sg-messageDialog')) {
+      return;
+    }
+
+    // Create message dialog
+    const messageDialog = document.createElement('div');
+    messageDialog.id = 'sg-messageDialog';
+    messageDialog.className = 'sg-dialog-overlay';
+    messageDialog.innerHTML = `
+      <div class="sg-dialog">
+        <div class="sg-dialog-header" id="sg-messageDialogTitle">Message</div>
+        <div class="sg-dialog-body">
+          <div id="sg-messageDialogContent" style="white-space: pre-line; line-height: 1.6;"></div>
+        </div>
+        <div class="sg-dialog-footer">
+          <button id="sg-messageDialogOk" class="sg-dialog-btn sg-dialog-btn-confirm">OK</button>
+        </div>
+      </div>
+    `;
+
+    // Create confirm dialog
+    const confirmDialog = document.createElement('div');
+    confirmDialog.id = 'sg-confirmDialog';
+    confirmDialog.className = 'sg-dialog-overlay';
+    confirmDialog.innerHTML = `
+      <div class="sg-dialog">
+        <div class="sg-dialog-header" id="sg-confirmDialogTitle">Confirm</div>
+        <div class="sg-dialog-body">
+          <div id="sg-confirmDialogContent" style="white-space: pre-line; line-height: 1.6;"></div>
+        </div>
+        <div class="sg-dialog-footer">
+          <button id="sg-confirmDialogCancel" class="sg-dialog-btn sg-dialog-btn-cancel">Cancel</button>
+          <button id="sg-confirmDialogOk" class="sg-dialog-btn sg-dialog-btn-confirm">OK</button>
+        </div>
+      </div>
+    `;
+
+    // Inject into DOM
+    document.body.appendChild(messageDialog);
+    document.body.appendChild(confirmDialog);
+
+    // Setup click-outside-to-close for message dialog
+    messageDialog.addEventListener('click', (e) => {
+      if (e.target === messageDialog) {
+        const okBtn = document.getElementById('sg-messageDialogOk');
+        okBtn?.click();
+      }
+    });
+
+    // Setup click-outside-to-close for confirm dialog (acts as cancel)
+    confirmDialog.addEventListener('click', (e) => {
+      if (e.target === confirmDialog) {
+        const cancelBtn = document.getElementById('sg-confirmDialogCancel');
+        cancelBtn?.click();
+      }
+    });
+
+    console.log('✨ SchemaGraph dialogs injected');
+  }
+
+  /**
+   * Inject toolbar HTML into the canvas container (self-contained library)
+   * Creates a compact corner toggle with expandable toolbar
+   * @private
+   */
+  injectToolbarHTML() {
+    // Find canvas container
+    const canvasContainer = this.canvas.parentElement;
+    if (!canvasContainer) {
+      console.warn('Cannot inject toolbar: canvas container not found');
+      return;
+    }
+  
+    // Check if toolbar already exists
+    if (document.getElementById('sg-toolbarToggle')) {
+      return;
+    }
+  
+    // Create small toggle button in corner
+    const toggleBtn = document.createElement('button');
+    toggleBtn.id = 'sg-toolbarToggle';
+    toggleBtn.className = 'sg-toolbar-toggle-corner';
+    toggleBtn.title = 'Toggle toolbar';
+    toggleBtn.innerHTML = `
+      <span class="sg-toolbar-toggle-icon">⚙️</span>
+    `;
+  
+    // Create floating toolbar panel
+    const toolbarPanel = document.createElement('div');
+    toolbarPanel.id = 'sg-toolbarPanel';
+    toolbarPanel.className = 'sg-toolbar-panel';
+    toolbarPanel.innerHTML = `
+      <div class="sg-toolbar-header">
+        <span class="sg-toolbar-title">⚙️ Toolbar</span>
+        <button id="sg-toolbarClose" class="sg-toolbar-close">✕</button>
+      </div>
+      
+      <div class="sg-toolbar-content" id="sg-toolbarContent">
+        <div class="sg-toolbar-section">
+          <span class="sg-toolbar-label">🎤 Voice</span>
+          <button id="sg-voiceStartBtn" class="sg-toolbar-btn">Start</button>
+          <button id="sg-voiceStopBtn" class="sg-toolbar-btn" style="display: none;">Stop</button>
+          <span id="sg-voiceStatus" class="sg-toolbar-status"></span>
+        </div>
+        
+        <div class="sg-toolbar-divider"></div>
+        
+        <div class="sg-toolbar-section">
+          <button id="sg-analyticsToggleBtn" class="sg-toolbar-btn">📊 Analytics</button>
+        </div>
+        
+        <div class="sg-toolbar-divider"></div>
+        
+        <div class="sg-toolbar-section">
+          <span class="sg-toolbar-label">Schema</span>
+          <button id="sg-uploadSchemaBtn" class="sg-toolbar-btn sg-toolbar-btn-primary">📤 Upload</button>
+          <button id="sg-exportBtn" class="sg-toolbar-btn">Export Graph</button>
+          <button id="sg-importBtn" class="sg-toolbar-btn">Import Graph</button>
+          <button id="sg-exportConfigBtn" class="sg-toolbar-btn">Export Config</button>
+          <button id="sg-importConfigBtn" class="sg-toolbar-btn">Import Config</button>
+        </div>
+        
+        <div class="sg-toolbar-divider"></div>
+        
+        <div class="sg-toolbar-section">
+          <span class="sg-toolbar-label">View</span>
+          <button id="sg-centerViewBtn" class="sg-toolbar-btn" title="Center view">🎯 Center</button>
+          <select id="sg-layoutSelect" class="sg-toolbar-select">
+            <option value="">🔧 Layout...</option>
+            <option value="hierarchical-vertical">Hierarchical ↓</option>
+            <option value="hierarchical-horizontal">Hierarchical →</option>
+            <option value="force-directed">Force-Directed</option>
+            <option value="grid">Grid</option>
+            <option value="circular">Circular</option>
+          </select>
+        </div>
+        
+        <div class="sg-toolbar-divider"></div>
+        
+        <div class="sg-toolbar-section">
+          <span class="sg-toolbar-label">Style</span>
+          <select id="sg-drawingStyleSelect" class="sg-toolbar-select">
+            <option value="default">🎨 Default</option>
+            <option value="minimal">✨ Minimal</option>
+            <option value="blueprint">📐 Blueprint</option>
+            <option value="neon">💫 Neon</option>
+            <option value="organic">🌿 Organic</option>
+            <option value="wireframe">📊 Wireframe</option>
+          </select>
+          <button id="sg-textScalingToggle" class="sg-toolbar-btn sg-toolbar-btn-toggle">
+            <span class="sg-toolbar-toggle-label" id="sg-textScalingLabel">Text: Fixed</span>
+          </button>
+          <button id="sg-themeBtn" class="sg-toolbar-btn" title="Switch theme">🎨 Theme</button>
+        </div>
+        
+        <div class="sg-toolbar-divider"></div>
+        
+        <div class="sg-toolbar-section">
+          <span class="sg-toolbar-label">Zoom</span>
+          <span class="sg-toolbar-zoom-value" id="sg-zoomLevel">100%</span>
+          <button id="sg-resetZoomBtn" class="sg-toolbar-btn" title="Reset zoom">⟲</button>
+        </div>
+      </div>
+    `;
+  
+    // Inject both into canvas container
+    canvasContainer.appendChild(toggleBtn);
+    canvasContainer.appendChild(toolbarPanel);
+  
+    // Setup toggle functionality
+    const closeBtn = document.getElementById('sg-toolbarClose');
+    
+    const showToolbar = () => {
+      toolbarPanel.classList.add('show');
+      toggleBtn.classList.add('active');
+    };
+    
+    const hideToolbar = () => {
+      toolbarPanel.classList.add('hiding');
+      toggleBtn.classList.remove('active');
+      setTimeout(() => {
+        toolbarPanel.classList.remove('show', 'hiding');
+      }, 300);
+    };
+  
+    toggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (toolbarPanel.classList.contains('show')) {
+        hideToolbar();
+      } else {
+        showToolbar();
+      }
+    });
+  
+    closeBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      hideToolbar();
+    });
+  
+    // Click outside to close
+    document.addEventListener('click', (e) => {
+      const isVisible = toolbarPanel.classList.contains('show');
+      if (!isVisible) return;
+      
+      const clickedInsidePanel = toolbarPanel.contains(e.target);
+      const clickedToggle = toggleBtn.contains(e.target);
+      const clickedDialog = e.target.closest('.sg-dialog-overlay');
+      const clickedAnalytics = e.target.closest('#sg-analyticsPanel');
+      
+      // Close if clicked outside (but not on dialogs or analytics)
+      if (!clickedInsidePanel && !clickedToggle && !clickedDialog && !clickedAnalytics) {
+        hideToolbar();
+      }
+    });
+  
+    // Create hidden file inputs
+    const hiddenInputs = document.createElement('div');
+    hiddenInputs.style.display = 'none';
+    hiddenInputs.innerHTML = `
+      <input type="file" id="sg-uploadSchemaFile" accept=".py" />
+      <input type="file" id="sg-importFile" accept=".json" />
+      <input type="file" id="sg-importConfigFile" accept=".json" />
+    `;
+    document.body.appendChild(hiddenInputs);
+  
+    console.log('✨ SchemaGraph toolbar injected');
+  }
+
+  /**
+   * Inject analytics panel HTML into the DOM (self-contained library)
+   * Creates the analytics dashboard
+   * @private
+   */
+  injectAnalyticsPanelHTML() {
+    // Check if panel already exists
+    if (document.getElementById('sg-analyticsPanel')) {
+      return;
+    }
+  
+    // Create analytics panel
+    const panel = document.createElement('div');
+    panel.id = 'sg-analyticsPanel';
+    panel.className = 'sg-analytics-panel';
+    panel.innerHTML = `
+      <div class="sg-analytics-header">
+        <div class="sg-analytics-title">📊 Analytics Dashboard</div>
+        <button id="sg-analyticsCloseBtn" class="sg-analytics-close">✕</button>
+      </div>
+      
+      <div class="sg-analytics-section">
+        <div class="sg-analytics-section-title">Session Info</div>
+        <div class="sg-analytics-metric">
+          <span class="sg-analytics-metric-name">Session ID:</span>
+          <span class="sg-analytics-metric-value" id="sg-sessionId">-</span>
+        </div>
+        <div class="sg-analytics-metric">
+          <span class="sg-analytics-metric-name">Duration:</span>
+          <span class="sg-analytics-metric-value" id="sg-sessionDuration">-</span>
+        </div>
+        <div class="sg-analytics-metric">
+          <span class="sg-analytics-metric-name">Total Events:</span>
+          <span class="sg-analytics-metric-value" id="sg-totalEvents">-</span>
+        </div>
+      </div>
+      
+      <div class="sg-analytics-section">
+        <div class="sg-analytics-section-title">Graph Operations</div>
+        <div class="sg-analytics-metric">
+          <span class="sg-analytics-metric-name">Nodes Created:</span>
+          <span class="sg-analytics-metric-value" id="sg-nodesCreated">0</span>
+        </div>
+        <div class="sg-analytics-metric">
+          <span class="sg-analytics-metric-name">Nodes Deleted:</span>
+          <span class="sg-analytics-metric-value" id="sg-nodesDeleted">0</span>
+        </div>
+        <div class="sg-analytics-metric">
+          <span class="sg-analytics-metric-name">Links Created:</span>
+          <span class="sg-analytics-metric-value" id="sg-linksCreated">0</span>
+        </div>
+        <div class="sg-analytics-metric">
+          <span class="sg-analytics-metric-name">Links Deleted:</span>
+          <span class="sg-analytics-metric-value" id="sg-linksDeleted">0</span>
+        </div>
+      </div>
+      
+      <div class="sg-analytics-section">
+        <div class="sg-analytics-section-title">Schema Operations</div>
+        <div class="sg-analytics-metric">
+          <span class="sg-analytics-metric-name">Schemas Registered:</span>
+          <span class="sg-analytics-metric-value" id="sg-schemasRegistered">0</span>
+        </div>
+        <div class="sg-analytics-metric">
+          <span class="sg-analytics-metric-name">Schemas Removed:</span>
+          <span class="sg-analytics-metric-value" id="sg-schemasRemoved">0</span>
+        </div>
+      </div>
+      
+      <div class="sg-analytics-section">
+        <div class="sg-analytics-section-title">File Operations</div>
+        <div class="sg-analytics-metric">
+          <span class="sg-analytics-metric-name">Graphs Exported:</span>
+          <span class="sg-analytics-metric-value" id="sg-graphsExported">0</span>
+        </div>
+        <div class="sg-analytics-metric">
+          <span class="sg-analytics-metric-name">Graphs Imported:</span>
+          <span class="sg-analytics-metric-value" id="sg-graphsImported">0</span>
+        </div>
+        <div class="sg-analytics-metric">
+          <span class="sg-analytics-metric-name">Configs Exported:</span>
+          <span class="sg-analytics-metric-value" id="sg-configsExported">0</span>
+        </div>
+        <div class="sg-analytics-metric">
+          <span class="sg-analytics-metric-name">Configs Imported:</span>
+          <span class="sg-analytics-metric-value" id="sg-configsImported">0</span>
+        </div>
+      </div>
+      
+      <div class="sg-analytics-section">
+        <div class="sg-analytics-section-title">User Interactions</div>
+        <div class="sg-analytics-metric">
+          <span class="sg-analytics-metric-name">Total Interactions:</span>
+          <span class="sg-analytics-metric-value" id="sg-totalInteractions">0</span>
+        </div>
+        <div class="sg-analytics-metric">
+          <span class="sg-analytics-metric-name">Layouts Applied:</span>
+          <span class="sg-analytics-metric-value" id="sg-layoutsApplied">0</span>
+        </div>
+        <div class="sg-analytics-metric">
+          <span class="sg-analytics-metric-name">Errors:</span>
+          <span class="sg-analytics-metric-value" id="sg-errorCount">0</span>
+        </div>
+      </div>
+      
+      <button id="sg-refreshAnalyticsBtn" class="sg-analytics-btn">🔄 Refresh</button>
+      <button id="sg-exportAnalyticsBtn" class="sg-analytics-btn">💾 Export Analytics</button>
+      <button id="sg-resetAnalyticsBtn" class="sg-analytics-btn">🗑️ Reset Session</button>
+    `;
+  
+    // Inject into body
+    document.body.appendChild(panel);
+  
+    console.log('✨ SchemaGraph analytics panel injected');
   }
 
   setupEventListeners() {
@@ -1404,20 +1868,7 @@ class SchemaGraphApp {
   }
 
   updateTextScalingUI() {
-    const toggleBtn = document.getElementById('sg-textScalingToggle');
-    const label = document.getElementById('sg-textScalingLabel');
-    
-    if (!toggleBtn || !label) return;
-    
-    if (this.textScalingMode === 'scaled') {
-      toggleBtn.classList.add('scaled');
-      label.textContent = 'Scaled';
-      toggleBtn.title = 'Text scales with zoom (click for fixed size)';
-    } else {
-      toggleBtn.classList.remove('scaled');
-      label.textContent = 'Fixed';
-      toggleBtn.title = 'Text stays readable (click to scale with zoom)';
-    }
+    this.ui.update.textScaling();
   }
 
   loadTextScalingMode() {
@@ -1685,7 +2136,7 @@ class SchemaGraphApp {
   - "Theme" - Change theme
   - "Help" - Show this message`;
     
-    alert(helpMessage);
+    this.ui.dialogs.showMessage(helpMessage, '🎤 Voice Commands');
   }
 
   loadTheme() {
@@ -2166,6 +2617,12 @@ class SchemaGraphApp {
       }
     }
     
+    // Check for custom context menu handler
+    if (this.customContextMenuHandler) {
+      const handled = this.customContextMenuHandler(clickedNode, wx, wy, data.coords);
+      if (handled) return; // Custom handler took over
+    }
+    
     this.showContextMenu(clickedNode, wx, wy, data.coords);
   }
 
@@ -2238,7 +2695,7 @@ class SchemaGraphApp {
         }
       }
     } else {
-      // Canvas context menu (rest remains the same)
+      // Canvas context menu - show ONLY ENABLED schemas
       html += '<div class="sg-context-menu-category">Native Types</div>';
       const natives = ['Native.String', 'Native.Integer', 'Native.Boolean', 'Native.Float', 'Native.List', 'Native.Dict'];
       for (const nativeType of natives) {
@@ -2246,8 +2703,15 @@ class SchemaGraphApp {
         html += '<div class="sg-context-menu-item" data-type="' + nativeType + '">' + name + '</div>';
       }
       
+      // ✨ CHANGED: Only show enabled schemas
       const registeredSchemas = Object.keys(this.graph.schemas);
       for (const schemaName of registeredSchemas) {
+        // Skip if schema is disabled
+        if (!this.graph.isSchemaEnabled(schemaName)) {
+          console.log('Skipping disabled schema in context menu:', schemaName);
+          continue;
+        }
+        
         const schemaTypes = [];
         const schemaInfo = this.graph.schemas[schemaName];
         let rootNodeType = null;
@@ -2481,25 +2945,25 @@ class SchemaGraphApp {
     }
     
     if (this.graph.schemas[schemaName]) {
-      if (!confirm(`Schema "${schemaName}" already exists. Replace it?`)) return;
-      this.graph.removeSchema(schemaName);
+      this.ui.dialogs.showConfirm(
+        `Schema "${schemaName}" already exists. Replace it?`,
+        '⚠️ Replace Schema'
+      ).then(confirmed => {
+        if (!confirmed) return;
+        
+        this.graph.removeSchema(schemaName);
+        this._completeSchemaRegistration(schemaName, indexType, rootType);
+      });
+      return;
     }
     
+    this._completeSchemaRegistration(schemaName, indexType, rootType);
+  }
+
+  _completeSchemaRegistration(schemaName, indexType, rootType) {
     if (this.graph.registerSchema(schemaName, this.pendingSchemaCode, indexType, rootType)) {
       this.eventBus.emit('ui:hide', { id: 'schemaDialog' });
       this.pendingSchemaCode = null;
-      
-      if (false && rootType) {
-        const rootNodeType = schemaName + '.' + rootType;
-        if (this.graph.nodeTypes[rootNodeType]) {
-          const createRootNode = confirm(`Schema registered! Create root node (${rootType})?`);
-          if (createRootNode) {
-            const node = this.graph.createNode(rootNodeType);
-            node.pos = [100, 100];
-            this.draw();
-          }
-        }
-      }
       
       this.eventBus.emit('ui:update', { 
         id: 'status', 
@@ -3770,16 +4234,42 @@ class SchemaGraphApp {
         if (type.indexOf(schemaName + '.') === 0) typeCount++;
       }
       
+      const isEnabled = this.graph.isSchemaEnabled(schemaName);
+      
       html += '<div class="sg-schema-item">';
       html += '<div><span class="sg-schema-item-name">' + schemaName + '</span>';
       html += '<span class="sg-schema-item-count">(' + typeCount + ' types, ' + nodeCount + ' nodes)</span></div>';
+      html += '<div style="display: flex; gap: 4px;">';
+      // ✨ NEW: Enable/Disable toggle button
+      html += '<button class="sg-schema-toggle-btn ' + (isEnabled ? 'enabled' : 'disabled') + '" data-schema="' + schemaName + '" title="' + (isEnabled ? 'Disable schema' : 'Enable schema') + '">';
+      html += (isEnabled ? '👁️ Enabled' : '🚫 Disabled');
+      html += '</button>';
       html += '<button class="sg-schema-remove-btn" data-schema="' + schemaName + '">Remove</button>';
+      html += '</div>';
       html += '</div>';
     }
     
     listEl.innerHTML = html;
     
-    const removeButtons = listEl.querySelectorAll('.schema-remove-btn');
+    // Setup toggle buttons
+    const toggleButtons = listEl.querySelectorAll('.sg-schema-toggle-btn');
+    for (const button of toggleButtons) {
+      button.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const schemaName = button.getAttribute('data-schema');
+        this.graph.toggleSchema(schemaName);
+        this.updateSchemaList(); // Refresh the list
+        this.eventBus.emit('ui:update', { 
+          id: 'status', 
+          content: `Schema "${schemaName}" ${this.graph.isSchemaEnabled(schemaName) ? 'enabled' : 'disabled'}` 
+        });
+        setTimeout(() => {
+          this.eventBus.emit('ui:update', { id: 'status', content: 'Right-click to add nodes.' });
+        }, 2000);
+      });
+    }
+    
+    const removeButtons = listEl.querySelectorAll('.sg-schema-remove-btn');
     for (const button of removeButtons) {
       button.addEventListener('click', () => {
         this.openSchemaRemovalDialog();
@@ -4376,7 +4866,7 @@ class SchemaGraphApp {
       this.ctx.fill();
     }
     
-// Show preview selection with dashed border
+    // Show preview selection with dashed border
     if (isPreviewSelected && !isSelected) {
       this.ctx.strokeStyle = colors.accentGreen;
       this.ctx.lineWidth = 2 / this.camera.scale;
@@ -4403,8 +4893,9 @@ class SchemaGraphApp {
     }
     
     // Header
-    const headerColor = node.isNative ? colors.accentPurple : 
-                        (node.isRootType ? colors.accentOrange : colors.nodeHeader);
+    const hasOwnColor = node.hasOwnProperty('color') && (node.color !== null) && (node.color !== undefined);
+    const headerColor = hasOwnColor ? node.color : (node.isNative ? colors.accentPurple : 
+                        (node.isRootType ? colors.accentOrange : colors.nodeHeader));
     
     if (style.useGradient && style.currentStyle !== 'wireframe') {
       const headerGradient = this.ctx.createLinearGradient(x, y, x, y + 26);
@@ -4484,11 +4975,15 @@ class SchemaGraphApp {
     
     // Slots
     const worldMouse = this.screenToWorld(this.mousePos[0], this.mousePos[1]);
-    for (let j = 0; j < node.inputs.length; j++) {
-      this.drawInputSlot(node, j, x, y, w, worldMouse, colors);
+    if (node.inputs) {
+        for (let j = 0; j < node.inputs.length; j++) {
+          this.drawInputSlot(node, j, x, y, w, worldMouse, colors);
+        }
     }
-    for (let j = 0; j < node.outputs.length; j++) {
-      this.drawOutputSlot(node, j, x, y, w, worldMouse, colors);
+    if (node.inputs) {
+        for (let j = 0; j < node.outputs.length; j++) {
+            this.drawOutputSlot(node, j, x, y, w, worldMouse, colors);
+        }
     }
     
     // Native value display with rounded corners
@@ -4556,6 +5051,12 @@ class SchemaGraphApp {
   drawInputSlot(node, j, x, y, w, worldMouse, colors) {
     const style = this.drawingStyleManager.getStyle();
     const textScale = this.getTextScale();
+    
+    // 🔧 FIX: Guard against undefined inputs
+    if (!node.inputs || !node.inputs[j]) {
+        return;
+    }
+    
     const inp = node.inputs[j];
     const sy = y + 38 + j * 25;
     const hovered = this.connecting && !this.connecting.isOutput && 
@@ -4613,7 +5114,7 @@ class SchemaGraphApp {
     this.ctx.fillText(inp.name, x + 10, sy);
     
     // Field type with text scaling and rounded box
-    if (!node.isNative || node.nativeInputs[j] === undefined) {
+    if (!node.isNative || (!!node.nativeInputs && node.nativeInputs[j] === undefined)) {
       const compactType = this.graph.compactType(inp.type);
       let typeText = compactType.length > 20 ? compactType.substring(0, 20) + '...' : compactType;
       
@@ -4758,6 +5259,12 @@ class SchemaGraphApp {
   drawOutputSlot(node, j, x, y, w, worldMouse, colors) {
     const style = this.drawingStyleManager.getStyle();
     const textScale = this.getTextScale();
+    
+    // 🔧 FIX: Guard against undefined outputs
+    if (!node.outputs || !node.outputs[j]) {
+        return;
+    }
+    
     const out = node.outputs[j];
     const sy = y + 38 + j * 25;  // Start slots 5px lower
     const hovered = this.connecting && this.connecting.isOutput && 
@@ -4944,6 +5451,60 @@ class SchemaGraphApp {
          */
         info: (name) => {
           return this.graph.getSchemaInfo(name);
+        },
+
+        /**
+         * Enable a schema (show in context menu)
+         * @param {string} name - Schema name
+         * @returns {boolean} Success status
+         */
+        enable: (name) => {
+          const success = this.graph.enableSchema(name);
+          if (success) {
+            this.updateSchemaList();
+          }
+          return success;
+        },
+
+        /**
+         * Disable a schema (hide from context menu)
+         * @param {string} name - Schema name
+         * @returns {boolean} Success status
+         */
+        disable: (name) => {
+          const success = this.graph.disableSchema(name);
+          if (success) {
+            this.updateSchemaList();
+          }
+          return success;
+        },
+
+        /**
+         * Toggle schema enabled/disabled state
+         * @param {string} name - Schema name
+         * @returns {boolean} New enabled state
+         */
+        toggle: (name) => {
+          this.graph.toggleSchema(name);
+          this.updateSchemaList();
+          return this.graph.isSchemaEnabled(name);
+        },
+
+        /**
+         * Check if schema is enabled
+         * @param {string} name - Schema name
+         * @returns {boolean} Enabled status
+         */
+        isEnabled: (name) => {
+          return this.graph.isSchemaEnabled(name);
+        },
+
+        /**
+         * Get list of enabled schemas
+         * @returns {string[]} Array of enabled schema names
+         */
+        listEnabled: () => {
+          return this.graph.getEnabledSchemas();
         }
       },
 
@@ -5675,10 +6236,10 @@ class SchemaGraphApp {
           this.textScalingMode = mode;
           this.saveTextScalingMode();
           this.updateTextScalingUI();
-          this.draw();
+          this.draw(); // ← Redraw
           return true;
         },
-
+      
         /**
          * Get current text scaling mode
          * @returns {string} Current mode
@@ -5686,7 +6247,7 @@ class SchemaGraphApp {
         get: () => {
           return this.textScalingMode;
         },
-
+      
         /**
          * Toggle text scaling mode
          * @returns {string} New mode
@@ -5695,7 +6256,7 @@ class SchemaGraphApp {
           this.textScalingMode = this.textScalingMode === 'fixed' ? 'scaled' : 'fixed';
           this.saveTextScalingMode();
           this.updateTextScalingUI();
-          this.draw();
+          this.draw(); // ← Redraw
           return this.textScalingMode;
         }
       },
@@ -5828,6 +6389,23 @@ class SchemaGraphApp {
          */
         getEventBus: () => {
           return this.eventBus;
+        },
+
+        /**
+         * Set custom context menu handler
+         * @param {Function} handler - Handler function (clickedNode, wx, wy, coords) => boolean
+         * @returns {void}
+         */
+        setContextMenuHandler: (handler) => {
+          this.customContextMenuHandler = handler;
+        },
+        
+        /**
+         * Clear custom context menu handler
+         * @returns {void}
+         */
+        clearContextMenuHandler: () => {
+          this.customContextMenuHandler = null;
         }
       },
 
@@ -6243,6 +6821,7 @@ class SchemaGraphApp {
             this.ui.update.textScaling();
             const modeText = newMode === 'fixed' ? 'Fixed Size' : 'Scaled with Zoom';
             this.ui.messages.showSuccess(`Text: ${modeText}`, 1500);
+            this.draw();
           });
         },
   
@@ -6504,9 +7083,84 @@ class SchemaGraphApp {
         },
   
         /**
-         * Setup all dialogs
-         * @returns {void}
+         * Show message dialog (replaces alert)
+         * @param {string} message - Message text
+         * @param {string} title - Dialog title (optional)
+         * @returns {Promise<void>} Resolves when OK is clicked
          */
+        showMessage: (message, title = 'Message') => {
+          return new Promise((resolve) => {
+            const dialog = document.getElementById('sg-messageDialog');
+            const titleEl = document.getElementById('sg-messageDialogTitle');
+            const contentEl = document.getElementById('sg-messageDialogContent');
+            const okBtn = document.getElementById('sg-messageDialogOk');
+            
+            if (!dialog || !titleEl || !contentEl || !okBtn) {
+              console.warn('Message dialog elements not found, falling back to alert');
+              alert(message);
+              resolve();
+              return;
+            }
+            
+            titleEl.textContent = title;
+            contentEl.textContent = message;
+            dialog.classList.add('show');
+            
+            const handleOk = () => {
+              dialog.classList.remove('show');
+              okBtn.removeEventListener('click', handleOk);
+              resolve();
+            };
+            
+            okBtn.addEventListener('click', handleOk);
+            
+            // Focus OK button
+            setTimeout(() => okBtn.focus(), 100);
+          });
+        },
+  
+        /**
+         * Show confirm dialog (replaces confirm)
+         * @param {string} message - Message text
+         * @param {string} title - Dialog title (optional)
+         * @returns {Promise<boolean>} Resolves to true if OK, false if Cancel
+         */
+        showConfirm: (message, title = 'Confirm') => {
+          return new Promise((resolve) => {
+            const dialog = document.getElementById('sg-confirmDialog');
+            const titleEl = document.getElementById('sg-confirmDialogTitle');
+            const contentEl = document.getElementById('sg-confirmDialogContent');
+            const okBtn = document.getElementById('sg-confirmDialogOk');
+            const cancelBtn = document.getElementById('sg-confirmDialogCancel');
+            
+            if (!dialog || !titleEl || !contentEl || !okBtn || !cancelBtn) {
+              console.warn('Confirm dialog elements not found, falling back to confirm');
+              resolve(confirm(message));
+              return;
+            }
+            
+            titleEl.textContent = title;
+            contentEl.textContent = message;
+            dialog.classList.add('show');
+            
+            const cleanup = (result) => {
+              dialog.classList.remove('show');
+              okBtn.removeEventListener('click', handleOk);
+              cancelBtn.removeEventListener('click', handleCancel);
+              resolve(result);
+            };
+            
+            const handleOk = () => cleanup(true);
+            const handleCancel = () => cleanup(false);
+            
+            okBtn.addEventListener('click', handleOk);
+            cancelBtn.addEventListener('click', handleCancel);
+            
+            // Focus Cancel button (safer default)
+            setTimeout(() => cancelBtn.focus(), 100);
+          });
+        },
+  
         setupAll: () => {
           this.ui.dialogs.setupSchemaDialog();
           this.ui.dialogs.setupSchemaRemovalDialog();
@@ -6515,6 +7169,23 @@ class SchemaGraphApp {
           document.addEventListener('click', (e) => {
             if (!e.target.closest('#sg-contextMenu')) {
               this.ui.dialogs.hideContextMenu();
+            }
+          });
+          
+          // ESC key closes dialogs
+          document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+              // Close message dialog
+              const messageDialog = document.getElementById('sg-messageDialog');
+              if (messageDialog?.classList.contains('show')) {
+                document.getElementById('sg-messageDialogOk')?.click();
+              }
+              
+              // Close confirm dialog (as cancel)
+              const confirmDialog = document.getElementById('sg-confirmDialog');
+              if (confirmDialog?.classList.contains('show')) {
+                document.getElementById('sg-confirmDialogCancel')?.click();
+              }
             }
           });
         }
@@ -6582,17 +7253,21 @@ class SchemaGraphApp {
         textScaling: () => {
           const btn = document.getElementById('sg-textScalingToggle');
           const label = document.getElementById('sg-textScalingLabel');
-          if (!btn || !label) return;
+          
+          if (!btn || !label) {
+            console.warn('Text scaling UI elements not found');
+            return;
+          }
           
           const mode = this.api.textScaling.get();
           
           if (mode === 'scaled') {
-            btn.classList.add('scaled');
-            label.textContent = 'Scaled';
+            btn.classList.add('active');
+            label.textContent = 'Text: Scaled';
             btn.title = 'Text scales with zoom (click for fixed size)';
           } else {
-            btn.classList.remove('scaled');
-            label.textContent = 'Fixed';
+            btn.classList.remove('active');
+            label.textContent = 'Text: Fixed';
             btn.title = 'Text stays readable (click to scale with zoom)';
           }
         },
@@ -6711,10 +7386,6 @@ class SchemaGraphApp {
       },
   
       analytics: {
-        /**
-         * Setup analytics panel
-         * @returns {void}
-         */
         setup: () => {
           const toggleBtn = document.getElementById('sg-analyticsToggleBtn');
           const panel = document.getElementById('sg-analyticsPanel');
@@ -6723,7 +7394,8 @@ class SchemaGraphApp {
           const exportBtn = document.getElementById('sg-exportAnalyticsBtn');
           const resetBtn = document.getElementById('sg-resetAnalyticsBtn');
           
-          toggleBtn?.addEventListener('click', () => {
+          toggleBtn?.addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent click from bubbling
             panel?.classList.toggle('show');
             if (panel?.classList.contains('show')) {
               this.ui.update.analytics();
@@ -6731,7 +7403,15 @@ class SchemaGraphApp {
           });
           
           closeBtn?.addEventListener('click', () => {
-            panel?.classList.remove('show');
+            if (!panel) return;
+            
+            // Add hiding class for animation
+            panel.classList.add('hiding');
+            
+            // Remove show class after animation completes
+            setTimeout(() => {
+              panel.classList.remove('show', 'hiding');
+            }, 300); // Match animation duration
           });
           
           refreshBtn?.addEventListener('click', () => {
@@ -6742,10 +7422,35 @@ class SchemaGraphApp {
             this.api.analytics.download();
           });
           
-          resetBtn?.addEventListener('click', () => {
-            if (confirm('Reset analytics for current session? This cannot be undone.')) {
+          resetBtn?.addEventListener('click', async () => {
+            const confirmed = await this.ui.dialogs.showConfirm(
+              'Reset analytics for current session? This cannot be undone.',
+              '⚠️ Reset Analytics'
+            );
+            
+            if (confirmed) {
               this.api.analytics.endSession();
               this.ui.update.analytics();
+            }
+          });
+          
+          // Click outside to close
+          document.addEventListener('click', (e) => {
+            if (!panel) return;
+            
+            const isVisible = panel.classList.contains('show');
+            const clickedInsidePanel = panel.contains(e.target);
+            const clickedToggleBtn = toggleBtn?.contains(e.target);
+            
+            // Close if visible and clicked outside (but not on toggle button)
+            if (isVisible && !clickedInsidePanel && !clickedToggleBtn) {
+              // Add hiding class for animation
+              panel.classList.add('hiding');
+              
+              // Remove show class after animation completes
+              setTimeout(() => {
+                panel.classList.remove('show', 'hiding');
+              }, 300); // Match animation duration
             }
           });
           

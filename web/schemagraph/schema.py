@@ -1,59 +1,61 @@
-from   pydantic        import BaseModel
-from   typing          import Any, Dict, List, Optional, Union
+# schema
+
+from pydantic import BaseModel
+from typing   import Any, Dict, List, Optional, Union
 
 
-DEFAULT_APP_MAX_AGENTS                            : int  = 100
-DEFAULT_APP_PORT                                  : int  = 8000
-DEFAULT_APP_API_KEY                               : str  = None
+DEFAULT_APP_MAX_AGENTS                          : int  = 100
+DEFAULT_APP_PORT                                : int  = 8000
+DEFAULT_APP_API_KEY                             : str  = None
 
-DEFAULT_APP_OPTIONS_RELOAD                        : bool = True
-DEFAULT_APP_OPTIONS_SEED                          : int  = None
+DEFAULT_APP_OPTIONS_RELOAD                      : bool = True
+DEFAULT_APP_OPTIONS_SEED                        : int  = None
 
-DEFAULT_BACKEND_TYPE                              : str  = "agno"
-DEFAULT_BACKEND_VERSION                           : str  = ""
-DEFAULT_BACKEND_FALLBACK                          : bool = False
+DEFAULT_BACKEND_TYPE                            : str  = "agno"
+DEFAULT_BACKEND_VERSION                         : str  = ""
+DEFAULT_BACKEND_FALLBACK                        : bool = False
 
-DEFAULT_MODEL_TYPE                                : str  = "ollama"
-DEFAULT_MODEL_ID                                  : str  = "mistral"
-DEFAULT_MODEL_FALLBACK                            : bool = False
+DEFAULT_MODEL_TYPE                              : str  = "ollama"
+DEFAULT_MODEL_ID                                : str  = "mistral"
+DEFAULT_MODEL_FALLBACK                          : bool = False
 
-DEFAULT_EMBEDDING_TYPE                            : str  = "ollama"
-DEFAULT_EMBEDDING_ID                              : str  = "mistral"
-DEFAULT_EMBEDDING_FALLBACK                        : bool = False
+DEFAULT_EMBEDDING_TYPE                          : str  = "ollama"
+DEFAULT_EMBEDDING_ID                            : str  = "mistral"
+DEFAULT_EMBEDDING_FALLBACK                      : bool = False
 
-DEFAULT_CONTENT_DB_ENGINE                         : str  = "sqlite"
-DEFAULT_CONTENT_DB_URL                            : str  = "storage/content"
-DEFAULT_CONTENT_DB_FALLBACK                       : bool = False
+DEFAULT_CONTENT_DB_ENGINE                       : str  = "sqlite"
+DEFAULT_CONTENT_DB_URL                          : str  = "storage/content"
+DEFAULT_CONTENT_DB_FALLBACK                     : bool = False
 
-DEFAULT_INDEX_DB_ENGINE                           : str  = "lancedb"
-DEFAULT_INDEX_DB_URL                              : str  = "storage/index"
-DEFAULT_INDEX_DB_SEARCH_TYPE                      : str  = "hybrid"
-DEFAULT_INDEX_DB_FALLBACK                         : bool = False
+DEFAULT_INDEX_DB_ENGINE                         : str  = "lancedb"
+DEFAULT_INDEX_DB_URL                            : str  = "storage/index"
+DEFAULT_INDEX_DB_SEARCH_TYPE                    : str  = "hybrid"
+DEFAULT_INDEX_DB_FALLBACK                       : bool = False
 
-DEFAULT_MEMORY_MANAGER_QUERY                      : bool = False
-DEFAULT_MEMORY_MANAGER_UPDATE                     : bool = False
-DEFAULT_MEMORY_MANAGER_MANAGED                    : bool = False
-DEFAULT_MEMORY_MANAGER_CONTENT_DB_TABLE_NAME      : str  = "memory_manager_content_db_table"
+DEFAULT_MEMORY_MANAGER_QUERY                    : bool = False
+DEFAULT_MEMORY_MANAGER_UPDATE                   : bool = False
+DEFAULT_MEMORY_MANAGER_MANAGED                  : bool = False
+DEFAULT_MEMORY_MANAGER_CONTENT_DB_TABLE_NAME    : str  = "memory_manager_content_db_table"
 
-DEFAULT_SESSION_MANAGER_QUERY                     : bool = False
-DEFAULT_SESSION_MANAGER_UPDATE                    : bool = False
-DEFAULT_SESSION_MANAGER_HISTORY_SIZE              : int  = 10
-DEFAULT_SESSION_MANAGER_SUMMARIZE                 : bool = False
-DEFAULT_SESSION_MANAGER_CONTENT_DB_TABLE_NAME     : str  = "session_manager_content_db_table"
+DEFAULT_SESSION_MANAGER_QUERY                   : bool = False
+DEFAULT_SESSION_MANAGER_UPDATE                  : bool = False
+DEFAULT_SESSION_MANAGER_HISTORY_SIZE            : int  = 10
+DEFAULT_SESSION_MANAGER_SUMMARIZE               : bool = False
+DEFAULT_SESSION_MANAGER_CONTENT_DB_TABLE_NAME   : str  = "session_manager_content_db_table"
 
-DEFAULT_KNOWLEDGE_MANAGER_QUERY                   : bool = True
-DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS             : int  = 10
-DEFAULT_KNOWLEDGE_MANAGER_CONTENT_DB_TABLE_NAME   : str  = "knowledge_manager_content_db_table"
-DEFAULT_KNOWLEDGE_MANAGER_INDEX_DB_TABLE_NAME     : str  = "knowledge_manager_index_db_table"
+DEFAULT_KNOWLEDGE_MANAGER_QUERY                 : bool = True
+DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS           : int  = 10
+DEFAULT_KNOWLEDGE_MANAGER_CONTENT_DB_TABLE_NAME : str  = "knowledge_manager_content_db_table"
+DEFAULT_KNOWLEDGE_MANAGER_INDEX_DB_TABLE_NAME   : str  = "knowledge_manager_index_db_table"
 
-DEFAULT_TOOL_FALLBACK                             : bool = False
-DEFAULT_TOOL_MAX_WEB_SEARCH_RESULTS               : int  = 5
+DEFAULT_TOOL_FALLBACK                           : bool = False
+DEFAULT_TOOL_MAX_WEB_SEARCH_RESULTS             : int  = 5
 
-DEFAULT_AGENT_OPTIONS_MARKDOWN                    : bool = True
-DEFAULT_AGENT_OPTIONS_USE_SESSION                 : bool = False
-DEFAULT_AGENT_OPTIONS_SESSION_HISTORY_SIZE        : int  = 10
-DEFAULT_AGENT_OPTIONS_SUMMARIZE_SESSIONS          : bool = False
-DEFAULT_AGENT_OPTIONS_USE_KNOWLEDGE               : bool = False
+DEFAULT_AGENT_OPTIONS_MARKDOWN                  : bool = True
+DEFAULT_AGENT_OPTIONS_USE_SESSION               : bool = False
+DEFAULT_AGENT_OPTIONS_SESSION_HISTORY_SIZE      : int  = 10
+DEFAULT_AGENT_OPTIONS_SUMMARIZE_SESSIONS        : bool = False
+DEFAULT_AGENT_OPTIONS_USE_KNOWLEDGE             : bool = False
 
 
 Index = int
@@ -162,25 +164,14 @@ class AgentConfig(ConfigModel):
 	port          : int                                               = 0
 
 
-class TeamOptionsConfig(ConfigModel):
-	tag : int = 0
+# class TeamOptionsConfig(ConfigModel):
+# 	tag : int = 0
 
 
-class TeamConfig(ConfigModel):
-	info    : Optional[InfoConfig]                      = InfoConfig()
-	options : Optional[Union[TeamOptionsConfig, Index]] = TeamOptionsConfig()
-	agents  : List[Union[AgentConfig, Index]]           = []
-
-
-class WorkflowOptionsConfig(ConfigModel):
-	tag : int = 0
-
-
-class WorkflowConfig(ConfigModel):
-	info    : Optional[InfoConfig]                          = InfoConfig()
-	options : Optional[Union[WorkflowOptionsConfig, Index]] = WorkflowOptionsConfig()
-	agents  : List[Union[AgentConfig, Index]]               = []
-	teams   : List[Union[TeamConfig, Index]]                = []
+# class TeamConfig(ConfigModel):
+# 	info    : Optional[InfoConfig]                      = InfoConfig()
+# 	options : Optional[Union[TeamOptionsConfig, Index]] = TeamOptionsConfig()
+# 	agents  : List[Union[AgentConfig, Index]]           = []
 
 
 class AppOptionsConfig(ConfigModel):
@@ -205,8 +196,8 @@ class AppConfig(ConfigModel):
 	tools            : Optional[List[ToolConfig              ]] = []
 	agent_options    : Optional[List[AgentOptionsConfig      ]] = []
 	agents           : Optional[List[AgentConfig             ]] = []
-	team_options     : Optional[List[TeamOptionsConfig       ]] = []
-	teams            : Optional[List[TeamConfig              ]] = []
-	workflow_options : Optional[List[WorkflowOptionsConfig   ]] = []
-	workflows        : Optional[List[WorkflowConfig          ]] = []
+	# team_options     : Optional[List[TeamOptionsConfig       ]] = []
+	# teams            : Optional[List[TeamConfig              ]] = []
+	# workflow_options : Optional[List[WorkflowOptionsConfig   ]] = []
+	# workflows        : Optional[List[WorkflowConfig          ]] = []
 	port             : int                                      = DEFAULT_APP_PORT

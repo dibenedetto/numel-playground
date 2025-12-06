@@ -41,10 +41,10 @@ def unroll_config(config: AppConfig) -> AppConfig:
 		if not config_copy.tools            : config_copy.tools            = []
 		if not config_copy.agent_options    : config_copy.agent_options    = []
 		if not config_copy.agents           : config_copy.agents           = []
-		if not config_copy.team_options     : config_copy.team_options     = []
-		if not config_copy.teams            : config_copy.teams            = []
-		if not config_copy.workflow_options : config_copy.workflow_options = []
-		if not config_copy.workflows        : config_copy.workflows        = []
+		# if not config_copy.team_options     : config_copy.team_options     = []
+		# if not config_copy.teams            : config_copy.teams            = []
+		# if not config_copy.workflow_options : config_copy.workflow_options = []
+		# if not config_copy.workflows        : config_copy.workflows        = []
 
 	if True:
 		if isinstance(config_copy.info, InfoConfig):
@@ -362,21 +362,22 @@ def validate_config(config: AppConfig) -> bool:
 			# TODO: check agent
 			pass
 
-	if True:
-		for team_option in config.team_options:
-			# TODO: check team_option
-			pass
+	# if True:
+	# 	for team_option in config.team_options:
+	# 		# TODO: check team_option
+	# 		pass
 
-	if True:
-		for team in config.teams:
-			# TODO: check team
-			pass
+	# if True:
+	# 	for team in config.teams:
+	# 		# TODO: check team
+	# 		pass
 
-	if True:
-		for workflow_option in config.workflow_options:
-			# TODO: check workflow_option
-			pass
+	# if True:
+	# 	for workflow_option in config.workflow_options:
+	# 		# TODO: check workflow_option
+	# 		pass
 
+<<<<<<< HEAD:app/numel.py
 	# ========================================================================
 	# WORKFLOW VALIDATION
 	# ========================================================================
@@ -403,6 +404,12 @@ def validate_config(config: AppConfig) -> bool:
 			
 			# Check for cycles (optional - workflows can have intentional loops)
 			# ... add cycle detection if needed ...
+=======
+	# if True:
+	# 	for workflow in config.workflows:
+	# 		# TODO: check workflow
+	# 		pass
+>>>>>>> workflows:app/core.py
 
 	return True
 
@@ -413,9 +420,9 @@ def compact_config(config: AppConfig) -> AppConfig:
 	return config_copy
 
 
-def extract_config(config: AppConfig, backend: BackendConfig, active_agents: List[bool]) -> AppConfig:
+def extract_config(config: AppConfig, backend: BackendConfig, active_agents: List[bool]) -> Tuple[AppConfig, dict, dict]:
 	if config is None or backend is None or len(active_agents) != len(config.agents):
-		return None
+		return (None, None, None)
 
 	extracted = AppConfig()
 
@@ -433,10 +440,10 @@ def extract_config(config: AppConfig, backend: BackendConfig, active_agents: Lis
 	extracted.tools            = []
 	extracted.agent_options    = []
 	extracted.agents           = []
-	extracted.team_options     = []
-	extracted.teams            = []
-	extracted.workflow_options = []
-	extracted.workflows        = []
+	# extracted.team_options     = []
+	# extracted.teams            = []
+	# extracted.workflow_options = []
+	# extracted.workflows        = []
 
 	info_remap                 = dict()
 	app_options_remap          = dict()
@@ -698,7 +705,7 @@ def extract_config(config: AppConfig, backend: BackendConfig, active_agents: Lis
 				dst_item.tools.append(dst_tool)
 		extracted.agents[dst] = dst_item
 
-	return extracted
+	return (extracted, agent_remap, tool_remap)
 
 
 def load_config(file_path: str) -> AppConfig:
@@ -775,8 +782,17 @@ class AgentApp:
 		raise NotImplementedError("Subclasses must implement the generate_app method")
 
 
+<<<<<<< HEAD:app/numel.py
 	async def run(self, agent_index: int, *args, **kwargs) -> MessageModel:
 		raise NotImplementedError("Subclasses must implement the run method")
+=======
+	async def run_agent(self, agent_index: int, *args, **kwargs) -> Any:
+		raise NotImplementedError("Subclasses must implement the run_agent method")
+
+
+	async def run_tool(self, tool_index: int, *args, **kwargs) -> Any:
+		raise NotImplementedError("Subclasses must implement the run_tool method")
+>>>>>>> workflows:app/core.py
 
 
 	def close(self) -> bool:
