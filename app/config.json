@@ -149,8 +149,8 @@
 
 			"prompt" : {
 				"model" : {
-					"type" : "openai",
-					"id"   : "gpt-5"
+					"type" : "ollama",
+					"id"   : "mistral"
 				},
 				"embedding" : {
 					"type" : "ollama",

@@ -320,13 +320,10 @@ class _AgnoAgentApp(AgentApp):
 		return result
 
 
-<<<<<<< HEAD:app/agno_impl.py
-=======
 	async def run_tool(self, tool_index: int, *args, **kwargs) -> Any:
 		return None
 
 
->>>>>>> workflows:app/impl_agno.py
 	def close(self) -> bool:
 		self.config_impl = None
 		log_print("Agno Agent App closed")

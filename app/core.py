@@ -377,39 +377,10 @@ def validate_config(config: AppConfig) -> bool:
 	# 		# TODO: check workflow_option
 	# 		pass
 
-<<<<<<< HEAD:app/numel.py
-	# ========================================================================
-	# WORKFLOW VALIDATION
-	# ========================================================================
-	
-	if True:
-		for workflow in config.workflows:
-			# Check for at least one start node
-			has_start = any(node.id == workflow.start_node_id for node in workflow.nodes)
-			if not has_start:
-				print(f"Workflow {workflow.id} missing start node")
-				return False
-			
-			# Check for at least one end node
-			if not workflow.end_node_ids:
-				print(f"Workflow {workflow.id} missing end nodes")
-				return False
-			
-			# Validate all end nodes exist
-			node_ids = {node.id for node in workflow.nodes}
-			for end_id in workflow.end_node_ids:
-				if end_id not in node_ids:
-					print(f"Workflow {workflow.id} references non-existent end node {end_id}")
-					return False
-			
-			# Check for cycles (optional - workflows can have intentional loops)
-			# ... add cycle detection if needed ...
-=======
 	# if True:
 	# 	for workflow in config.workflows:
 	# 		# TODO: check workflow
 	# 		pass
->>>>>>> workflows:app/core.py
 
 	return True
 
@@ -782,17 +753,12 @@ class AgentApp:
 		raise NotImplementedError("Subclasses must implement the generate_app method")
 
 
-<<<<<<< HEAD:app/numel.py
-	async def run(self, agent_index: int, *args, **kwargs) -> MessageModel:
-		raise NotImplementedError("Subclasses must implement the run method")
-=======
 	async def run_agent(self, agent_index: int, *args, **kwargs) -> Any:
 		raise NotImplementedError("Subclasses must implement the run_agent method")
 
 
 	async def run_tool(self, tool_index: int, *args, **kwargs) -> Any:
 		raise NotImplementedError("Subclasses must implement the run_tool method")
->>>>>>> workflows:app/core.py
 
 
 	def close(self) -> bool:
