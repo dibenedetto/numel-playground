@@ -22,15 +22,15 @@
 
 	"models" : [
 		{
-			"type" : "openai",
-			"id"   : "gpt-4"
+			"type" : "ollama",
+			"id"   : "mistral"
 		}
 	],
 
 	"embeddings" : [
 		{
-			"type" : "openai",
-			"id"   : ""
+			"type" : "ollama",
+			"id"   : "mistral"
 		}
 	],
 
@@ -149,8 +149,8 @@
 
 			"prompt" : {
 				"model" : {
-					"type" : "openai",
-					"id"   : "gpt-5"
+					"type" : "ollama",
+					"id"   : "mistral"
 				},
 				"embedding" : {
 					"type" : "ollama",
