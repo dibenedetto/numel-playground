@@ -1,8 +1,5 @@
 console.log('=== SCHEMAGRAPH LOADING ===');
 
-// ========================================================================
-// EVENT BUS
-// ========================================================================
 
 class EventBus {
   constructor() {
@@ -63,9 +60,6 @@ class EventBus {
   }
 }
 
-// ========================================================================
-// ANALYTICS SERVICE
-// ========================================================================
 
 class AnalyticsService {
 constructor(eventBus) {
@@ -145,10 +139,9 @@ getMetrics() {
 
   endSession() {
     this.currentSession.endTime = Date.now();
-    this.currentSession.metrics = { ...this.metrics }; // Save current metrics
+    this.currentSession.metrics = { ...this.metrics };
     this.sessions.push(this.currentSession);
     
-    // Reset metrics for new session
     this.metrics = this.createMetrics();
     this.currentSession = this.createSession();
   }
@@ -158,9 +151,6 @@ getMetrics() {
   }
 }
 
-// ========================================================================
-// CORE GRAPH CLASSES
-// ========================================================================
 
 class Node {
   constructor(title) {
@@ -315,9 +305,6 @@ class Graph {
   }
 }
 
-// ========================================================================
-// SCHEMA GRAPH
-// ========================================================================
 
 class SchemaGraph extends Graph {
   constructor(eventBus) {
@@ -344,7 +331,7 @@ class SchemaGraph extends Graph {
       };
       this._generateNodes(schemaName, parsed, indexType);
       
-      this.enabledSchemas.add(schemaName); // ✨ NEW: Auto-enable on registration
+      this.enabledSchemas.add(schemaName);
       
       this.eventBus.emit('schema:registered', { schemaName, rootType });
       return true;
@@ -633,7 +620,7 @@ class SchemaGraph extends Graph {
                 const defaultValue = self._getDefaultValueForType(baseType);
                 this.nativeInputs[i] = {
                   type: baseType,
-                  value: defaultValue,  // ← NOW USES DEFAULT VALUE
+                  value: defaultValue,
                   optional: isOptional
                 };
               }
@@ -670,7 +657,6 @@ class SchemaGraph extends Graph {
                 const isOptional = this.nativeInputs[i].optional;
                 const baseType = this.nativeInputs[i].type;
                 
-                // FIX: Handle boolean values correctly
                 if (baseType === 'bool') {
                   if (val === true || val === false) {
                     data[this.inputs[i].name] = val;
@@ -935,12 +921,10 @@ class SchemaGraph extends Graph {
         nodeData.nativeInputs = JSON.parse(JSON.stringify(node.nativeInputs));
       }
       
-      // 🔧 FIX: Save multi-input configuration
       if (node.multiInputs) {
         nodeData.multiInputs = JSON.parse(JSON.stringify(node.multiInputs));
       }
       
-      // 🔧 FIX: Save workflow-specific properties
       if (node.color) {
         nodeData.color = node.color;
       }
@@ -963,7 +947,6 @@ class SchemaGraph extends Graph {
           type: link.type
         };
         
-        // 🔧 FIX: Save workflow-specific link data
         if (link.workflowData) {
           linkData.workflowData = JSON.parse(JSON.stringify(link.workflowData));
         }
@@ -1034,12 +1017,10 @@ class SchemaGraph extends Graph {
         node.nativeInputs = JSON.parse(JSON.stringify(nodeData.nativeInputs));
       }
       
-      // 🔧 FIX: Restore multi-input configuration
       if (nodeData.multiInputs) {
         node.multiInputs = JSON.parse(JSON.stringify(nodeData.multiInputs));
       }
       
-      // 🔧 FIX: Restore workflow-specific properties
       if (nodeData.color) {
         node.color = nodeData.color;
       }
@@ -1070,14 +1051,12 @@ class SchemaGraph extends Graph {
           this.links[linkData.id] = link;
           originNode.outputs[linkData.origin_slot].links.push(linkData.id);
           
-          // 🔧 FIX: Restore multi-input links properly
           if (targetNode.multiInputs && targetNode.multiInputs[linkData.target_slot]) {
             targetNode.multiInputs[linkData.target_slot].links.push(linkData.id);
           } else {
             targetNode.inputs[linkData.target_slot].link = linkData.id;
           }
           
-          // 🔧 FIX: Restore workflow-specific link data
           if (linkData.workflowData) {
             link.workflowData = JSON.parse(JSON.stringify(linkData.workflowData));
           }
@@ -1112,9 +1091,6 @@ class SchemaGraph extends Graph {
   }
 }
 
-// ========================================================================
-// CONTROLLERS
-// ========================================================================
 
 class MouseTouchController {
   constructor(canvas, eventBus) {
@@ -1382,9 +1358,6 @@ class DrawingStyleManager {
   }
 }
 
-// ========================================================================
-// MAIN APPLICATION
-// ========================================================================
 
 class SchemaGraphApp {
   constructor(canvasId) {
@@ -1407,13 +1380,12 @@ class SchemaGraphApp {
     this.api = this._createAPI();
     this.ui = this._createUI();
     
-    // Setup core events and UI
-    this.setupEventListeners();  // Mouse, keyboard, graph events
+    this.setupEventListeners();
     this.setupCanvasLeaveHandler();
     this.setupVoiceCommands();
     this.registerNativeNodes();
     
-    this.ui.init();  // All UI button/dialog setup
+    this.ui.init();
     
     this.ui.util.resizeCanvas();
     this.draw();
@@ -1426,12 +1398,12 @@ class SchemaGraphApp {
     this.graph = new SchemaGraph(this.eventBus);
     this.camera = { x: 0, y: 0, scale: 1.0 };
     
-    this.selectedNodes = new Set(); // Multi-selection support
-    this.selectedNode = null; // Keep for backward compatibility
-    this.selectionRect = null; // For drag-to-select
+    this.selectedNodes = new Set();
+    this.selectedNode = null;
+    this.selectionRect = null;
     this.selectionStart = null;
     this.isMouseDown = false;
-    this.previewSelection = new Set(); // Nodes currently in selection rect
+    this.previewSelection = new Set();
     this.dragNode = null;
     this.dragOffset = [0, 0];
     this.connecting = null;
@@ -1450,17 +1422,15 @@ class SchemaGraphApp {
     this.drawingStyleManager = new DrawingStyleManager();
     this.drawingStyleManager.loadSavedStyle();
     
-    this.textScalingMode = 'fixed';  // Default to fixed text size
+    this.textScalingMode = 'fixed';
     this.loadTextScalingMode();
   }
 
   injectDialogHTML() {
-    // Check if dialogs already exist (prevent duplicates)
     if (document.getElementById('sg-messageDialog')) {
       return;
     }
 
-    // Create message dialog
     const messageDialog = document.createElement('div');
     messageDialog.id = 'sg-messageDialog';
     messageDialog.className = 'sg-dialog-overlay';
@@ -1476,7 +1446,6 @@ class SchemaGraphApp {
       </div>
     `;
 
-    // Create confirm dialog
     const confirmDialog = document.createElement('div');
     confirmDialog.id = 'sg-confirmDialog';
     confirmDialog.className = 'sg-dialog-overlay';
@@ -1493,11 +1462,9 @@ class SchemaGraphApp {
       </div>
     `;
 
-    // Inject into DOM
     document.body.appendChild(messageDialog);
     document.body.appendChild(confirmDialog);
 
-    // Setup click-outside-to-close for message dialog
     messageDialog.addEventListener('click', (e) => {
       if (e.target === messageDialog) {
         const okBtn = document.getElementById('sg-messageDialogOk');
@@ -1505,7 +1472,6 @@ class SchemaGraphApp {
       }
     });
 
-    // Setup click-outside-to-close for confirm dialog (acts as cancel)
     confirmDialog.addEventListener('click', (e) => {
       if (e.target === confirmDialog) {
         const cancelBtn = document.getElementById('sg-confirmDialogCancel');
@@ -1522,19 +1488,16 @@ class SchemaGraphApp {
    * @private
    */
   injectToolbarHTML() {
-    // Find canvas container
     const canvasContainer = this.canvas.parentElement;
     if (!canvasContainer) {
       console.warn('Cannot inject toolbar: canvas container not found');
       return;
     }
   
-    // Check if toolbar already exists
     if (document.getElementById('sg-toolbarToggle')) {
       return;
     }
   
-    // Create small toggle button in corner
     const toggleBtn = document.createElement('button');
     toggleBtn.id = 'sg-toolbarToggle';
     toggleBtn.className = 'sg-toolbar-toggle-corner';
@@ -1543,7 +1506,6 @@ class SchemaGraphApp {
       <span class="sg-toolbar-toggle-icon">⚙️</span>
     `;
   
-    // Create floating toolbar panel
     const toolbarPanel = document.createElement('div');
     toolbarPanel.id = 'sg-toolbarPanel';
     toolbarPanel.className = 'sg-toolbar-panel';
@@ -1621,11 +1583,9 @@ class SchemaGraphApp {
       </div>
     `;
   
-    // Inject both into canvas container
     canvasContainer.appendChild(toggleBtn);
     canvasContainer.appendChild(toolbarPanel);
   
-    // Setup toggle functionality
     const closeBtn = document.getElementById('sg-toolbarClose');
     
     const showToolbar = () => {
@@ -1655,7 +1615,6 @@ class SchemaGraphApp {
       hideToolbar();
     });
   
-    // Click outside to close
     document.addEventListener('click', (e) => {
       const isVisible = toolbarPanel.classList.contains('show');
       if (!isVisible) return;
@@ -1665,13 +1624,11 @@ class SchemaGraphApp {
       const clickedDialog = e.target.closest('.sg-dialog-overlay');
       const clickedAnalytics = e.target.closest('#sg-analyticsPanel');
       
-      // Close if clicked outside (but not on dialogs or analytics)
       if (!clickedInsidePanel && !clickedToggle && !clickedDialog && !clickedAnalytics) {
         hideToolbar();
       }
     });
   
-    // Create hidden file inputs
     const hiddenInputs = document.createElement('div');
     hiddenInputs.style.display = 'none';
     hiddenInputs.innerHTML = `
@@ -1690,12 +1647,10 @@ class SchemaGraphApp {
    * @private
    */
   injectAnalyticsPanelHTML() {
-    // Check if panel already exists
     if (document.getElementById('sg-analyticsPanel')) {
       return;
     }
   
-    // Create analytics panel
     const panel = document.createElement('div');
     panel.id = 'sg-analyticsPanel';
     panel.className = 'sg-analytics-panel';
@@ -1794,14 +1749,12 @@ class SchemaGraphApp {
       <button id="sg-resetAnalyticsBtn" class="sg-analytics-btn">🗑️ Reset Session</button>
     `;
   
-    // Inject into body
     document.body.appendChild(panel);
   
     console.log('✨ SchemaGraph analytics panel injected');
   }
 
   setupEventListeners() {
-    // Mouse events
     this.eventBus.on('mouse:down', (data) => this.handleMouseDown(data));
     this.eventBus.on('mouse:move', (data) => this.handleMouseMove(data));
     this.eventBus.on('mouse:up', (data) => this.handleMouseUp(data));
@@ -1809,11 +1762,9 @@ class SchemaGraphApp {
     this.eventBus.on('mouse:wheel', (data) => this.handleWheel(data));
     this.eventBus.on('mouse:contextmenu', (data) => this.handleContextMenu(data));
     
-    // Keyboard events
     this.eventBus.on('keyboard:down', (data) => this.handleKeyDown(data));
     this.eventBus.on('keyboard:up', (data) => this.handleKeyUp(data));
     
-    // *** UI update events ***
     this.eventBus.on('ui:update', (data) => {
       const element = document.getElementById('sg-' + data.id);
       if (element && data.content !== undefined) {
@@ -1821,7 +1772,6 @@ class SchemaGraphApp {
       }
     });
     
-    // Graph events (for auto-updating displays)
     this.eventBus.on('node:created', () => {
       this.ui.update.schemaList();
       this.ui.update.nodeTypesList();
@@ -1848,7 +1798,6 @@ class SchemaGraphApp {
       this.draw();
     });
     
-    // Input events
     const nodeInput = document.getElementById('sg-nodeInput');
     nodeInput.addEventListener('blur', () => this.handleInputBlur());
     nodeInput.addEventListener('keydown', (e) => this.handleInputKeyDown(e));
@@ -1856,7 +1805,6 @@ class SchemaGraphApp {
 
   setupCanvasLeaveHandler() {
     this.canvas.addEventListener('mouseleave', () => {
-      // Clean up selection rectangle if mouse leaves canvas
       if (this.selectionRect) {
         this.selectionRect = null;
         this.selectionStart = null;
@@ -1883,9 +1831,6 @@ class SchemaGraphApp {
   }
 
   getTextScale() {
-    // Returns the scale factor for text
-    // - 'fixed' mode: always 1 (text divided by camera scale to stay same size)
-    // - 'scaled' mode: text scales naturally with zoom
     return this.textScalingMode === 'fixed' ? (1 / this.camera.scale) : 1;
   }
 
@@ -1936,7 +1881,6 @@ class SchemaGraphApp {
       const transcript = data.transcript.toLowerCase().trim();
       console.log('Voice command received:', transcript);
       
-      // Create node commands
       if (transcript.includes('create') || transcript.includes('add')) {
         if (transcript.includes('string')) {
           this.executeVoiceCommand('create', 'Native.String');
@@ -1954,7 +1898,6 @@ class SchemaGraphApp {
           this.showContextMenu(null, 0, 0, { clientX: this.canvas.width / 2, clientY: this.canvas.height / 2 });
         }
       }
-      // Delete commands
       else if (transcript.includes('delete') || transcript.includes('remove')) {
         if (this.selectedNode) {
           this.executeVoiceCommand('delete');
@@ -1962,7 +1905,6 @@ class SchemaGraphApp {
           this.showError('No node selected');
         }
       }
-      // Export/Import commands
       else if (transcript.includes('export')) {
         if (transcript.includes('config')) {
           this.executeVoiceCommand('export-config');
@@ -1977,7 +1919,6 @@ class SchemaGraphApp {
           this.executeVoiceCommand('import-graph');
         }
       }
-      // View commands
       else if (transcript.includes('center') || transcript.includes('focus')) {
         this.executeVoiceCommand('center-view');
       }
@@ -1990,7 +1931,6 @@ class SchemaGraphApp {
           this.executeVoiceCommand('reset-zoom');
         }
       }
-      // Layout commands
       else if (transcript.includes('layout')) {
         if (transcript.includes('hierarchical') || transcript.includes('hierarchy')) {
           if (transcript.includes('horizontal')) {
@@ -2006,15 +1946,12 @@ class SchemaGraphApp {
           this.executeVoiceCommand('layout', 'circular');
         }
       }
-      // Theme commands
       else if (transcript.includes('theme') || transcript.includes('color')) {
         this.executeVoiceCommand('cycle-theme');
       }
-      // Help command
       else if (transcript.includes('help') || transcript.includes('commands')) {
         this.showVoiceHelp();
       }
-      // Layout commands
       else if (transcript.includes('layout')) {
         if (transcript.includes('hierarchical') || transcript.includes('hierarchy')) {
           if (transcript.includes('horizontal')) {
@@ -2030,7 +1967,6 @@ class SchemaGraphApp {
           this.executeVoiceCommand('layout', 'circular');
         }
       }
-      // Unknown command
       else {
         this.showError('Unknown voice command: ' + transcript);
       }
@@ -2202,7 +2138,7 @@ class SchemaGraphApp {
     
     if (node) {
       this.selectedNodes.add(node);
-      this.selectedNode = node; // Keep last selected for compatibility
+      this.selectedNode = node;
     }
     
     this.draw();
@@ -2243,7 +2179,6 @@ class SchemaGraphApp {
     this.clearSelection();
   }
 
-  // Mouse/Touch handlers
   handleMouseDown(data) {
     this.isMouseDown = true;
     document.getElementById('sg-contextMenu').classList.remove('show');
@@ -2260,7 +2195,6 @@ class SchemaGraphApp {
     
     if (data.button !== 0 || this.spacePressed) return;
     
-    // Check for output slot drag
     for (const node of this.graph.nodes) {
       for (let j = 0; j < node.outputs.length; j++) {
         const slotY = node.pos[1] + 30 + j * 25;
@@ -2273,7 +2207,6 @@ class SchemaGraphApp {
       }
     }
     
-    // Check for input slot drag
     for (const node of this.graph.nodes) {
       for (let j = 0; j < node.inputs.length; j++) {
         const slotY = node.pos[1] + 30 + j * 25;
@@ -2291,7 +2224,6 @@ class SchemaGraphApp {
       }
     }
     
-    // Check for node selection/drag
     let clickedNode = null;
     for (let i = this.graph.nodes.length - 1; i >= 0; i--) {
       const node = this.graph.nodes[i];
@@ -2303,11 +2235,9 @@ class SchemaGraphApp {
     }
     
     if (clickedNode) {
-      // Multi-select with Ctrl/Cmd key
       if (data.event.ctrlKey || data.event.metaKey) {
         this.toggleNodeSelection(clickedNode);
       } else {
-        // If clicking an already selected node, prepare to drag all selected
         if (!this.selectedNodes.has(clickedNode)) {
           this.selectNode(clickedNode, false);
         }
@@ -2318,11 +2248,9 @@ class SchemaGraphApp {
       return;
     }
     
-    // Clicked on empty space - prepare for selection rectangle or clear selection
     if (!data.event.ctrlKey && !data.event.metaKey) {
       this.clearSelection();
     }
-    // Store potential selection start (will only create rect if mouse moves)
     this.selectionStart = [wx, wy];
   }
 
@@ -2338,7 +2266,6 @@ class SchemaGraphApp {
       const dx = wx - this.dragOffset[0] - this.dragNode.pos[0];
       const dy = wy - this.dragOffset[1] - this.dragNode.pos[1];
       
-      // Move all selected nodes together
       for (const node of this.selectedNodes) {
         node.pos[0] += dx;
         node.pos[1] += dy;
@@ -2348,12 +2275,10 @@ class SchemaGraphApp {
     } else if (this.connecting) {
       this.draw();
     } else if (this.selectionStart && this.isMouseDown) {
-      // Draw selection rectangle only if mouse is down and dragging
       const [wx, wy] = this.screenToWorld(data.coords.screenX, data.coords.screenY);
       const dx = Math.abs(wx - this.selectionStart[0]);
       const dy = Math.abs(wy - this.selectionStart[1]);
       
-      // Only show selection rect if moved at least 5 pixels (prevents accidental rect on click)
       if (dx > 5 || dy > 5) {
         this.selectionRect = {
           x: Math.min(this.selectionStart[0], wx),
@@ -2362,7 +2287,6 @@ class SchemaGraphApp {
           h: dy
         };
         
-        // Update preview selection - find nodes in rectangle
         this.previewSelection.clear();
         for (const node of this.graph.nodes) {
           const nodeRect = {
@@ -2372,7 +2296,6 @@ class SchemaGraphApp {
             h: node.size[1]
           };
           
-          // Check if node intersects with selection rectangle
           if (!(nodeRect.x > this.selectionRect.x + this.selectionRect.w ||
                 nodeRect.x + nodeRect.w < this.selectionRect.x ||
                 nodeRect.y > this.selectionRect.y + this.selectionRect.h ||
@@ -2383,7 +2306,6 @@ class SchemaGraphApp {
       }
       this.draw();
     } else {
-      // Redraw to update hover effects on editable fields
       this.draw();
     }
   }
@@ -2399,10 +2321,8 @@ class SchemaGraphApp {
     }
     
     if (this.connecting) {
-      // Handle connection logic
       for (const node of this.graph.nodes) {
         if (this.connecting.isOutput) {
-          // Connecting from output to input
           for (let j = 0; j < node.inputs.length; j++) {
             const slotY = node.pos[1] + 30 + j * 25;
             const dist = Math.sqrt(Math.pow(wx - node.pos[0], 2) + Math.pow(wy - slotY, 2));
@@ -2437,7 +2357,6 @@ class SchemaGraphApp {
             }
           }
         } else {
-          // Connecting from input to output
           for (let j = 0; j < node.outputs.length; j++) {
             const slotY = node.pos[1] + 30 + j * 25;
             const dist = Math.sqrt(Math.pow(wx - (node.pos[0] + node.size[0]), 2) + Math.pow(wy - slotY, 2));
@@ -2481,16 +2400,13 @@ class SchemaGraphApp {
       return;
     }
     
-    // Handle selection rectangle
     if (this.selectionStart && this.selectionRect) {
       const rect = this.selectionRect;
       
-      // Don't clear existing selection if Ctrl/Cmd is held
       if (!data.event.ctrlKey && !data.event.metaKey) {
         this.clearSelection();
       }
       
-      // Select all nodes within rectangle (always add to selection)
       for (const node of this.graph.nodes) {
         const nodeRect = {
           x: node.pos[0],
@@ -2499,22 +2415,19 @@ class SchemaGraphApp {
           h: node.size[1]
         };
         
-        // Check if node intersects with selection rectangle
         if (!(nodeRect.x > rect.x + rect.w ||
               nodeRect.x + nodeRect.w < rect.x ||
               nodeRect.y > rect.y + rect.h ||
               nodeRect.y + nodeRect.h < rect.y)) {
-          this.selectNode(node, true); // Always ADD to selection when in rect
+          this.selectNode(node, true);
         }
       }
     }
     
-    // Always clear selection rectangle state on mouse up
     this.selectionStart = null;
     this.selectionRect = null;
     this.previewSelection.clear();
     
-    // Clear drag state
     this.dragNode = null;
     this.canvas.classList.remove('dragging');
     
@@ -2524,7 +2437,6 @@ class SchemaGraphApp {
   handleDoubleClick(data) {
     const [wx, wy] = this.screenToWorld(data.coords.screenX, data.coords.screenY);
     
-    // Check for native input editing
     for (const node of this.graph.nodes) {
       if (node.nativeInputs) {
         for (let j = 0; j < node.inputs.length; j++) {
@@ -2550,7 +2462,6 @@ class SchemaGraphApp {
       }
     }
     
-    // Check for native node value editing
     for (const node of this.graph.nodes) {
       if (!node.isNative) continue;
       const valueY = node.pos[1] + node.size[1] - 18;
@@ -2617,10 +2528,9 @@ class SchemaGraphApp {
       }
     }
     
-    // Check for custom context menu handler
     if (this.customContextMenuHandler) {
       const handled = this.customContextMenuHandler(clickedNode, wx, wy, data.coords);
-      if (handled) return; // Custom handler took over
+      if (handled) return;
     }
     
     this.showContextMenu(clickedNode, wx, wy, data.coords);
@@ -2642,7 +2552,6 @@ class SchemaGraphApp {
         html += '<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete">❌ Delete Node</div>';
       }
       
-      // Check if node has multi-input slots with connections
       let hasMultiInputs = false;
       let multiInputCount = 0;
       if (node.multiInputs) {
@@ -2695,7 +2604,6 @@ class SchemaGraphApp {
         }
       }
     } else {
-      // Canvas context menu - show ONLY ENABLED schemas
       html += '<div class="sg-context-menu-category">Native Types</div>';
       const natives = ['Native.String', 'Native.Integer', 'Native.Boolean', 'Native.Float', 'Native.List', 'Native.Dict'];
       for (const nativeType of natives) {
@@ -2703,10 +2611,8 @@ class SchemaGraphApp {
         html += '<div class="sg-context-menu-item" data-type="' + nativeType + '">' + name + '</div>';
       }
       
-      // ✨ CHANGED: Only show enabled schemas
       const registeredSchemas = Object.keys(this.graph.schemas);
       for (const schemaName of registeredSchemas) {
-        // Skip if schema is disabled
         if (!this.graph.isSchemaEnabled(schemaName)) {
           console.log('Skipping disabled schema in context menu:', schemaName);
           continue;
@@ -2764,9 +2670,7 @@ class SchemaGraphApp {
     }
   }
 
-  // Keyboard handlers
   handleKeyDown(data) {
-    // Don't handle keyboard shortcuts if user is typing in an input/textarea
     const isTyping = data.event.target.tagName === 'INPUT' || 
                      data.event.target.tagName === 'TEXTAREA' ||
                      data.event.target.isContentEditable;
@@ -2782,7 +2686,6 @@ class SchemaGraphApp {
       this.deleteSelectedNodes();
     }
     
-    // Select all with Ctrl+A
     if ((data.event.ctrlKey || data.event.metaKey) && data.key === 'a' && !this.editingNode && !isTyping) {
       data.event.preventDefault();
       this.clearSelection();
@@ -2791,7 +2694,6 @@ class SchemaGraphApp {
       }
     }
     
-    // Escape to clear selection
     if (data.key === 'Escape' && !this.editingNode) {
       this.clearSelection();
     }
@@ -2861,7 +2763,6 @@ class SchemaGraphApp {
     }
   }
 
-  // File handlers
   handleSchemaFileUpload(data) {
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -3007,7 +2908,6 @@ class SchemaGraphApp {
     this.eventBus.emit('ui:hide', { id: 'schemaRemovalDialog' });
   }
 
-  // Export/Import
   exportGraph() {
     try {
       const data = this.graph.serialize(true, this.camera);
@@ -3110,23 +3010,19 @@ class SchemaGraphApp {
   }
 
   processValueForConfig(value, nodeToIndex) {
-    // Process a value that might contain nested objects or arrays
     if (value === null || value === undefined) return value;
     if (typeof value !== 'object') return value;
     
-    // Handle arrays
     if (Array.isArray(value)) {
       return value.map(v => this.processValueForConfig(v, nodeToIndex));
     }
     
-    // Check if this object corresponds to a known node
     for (const [node, info] of nodeToIndex.entries()) {
       if (node.outputs && node.outputs[0] && node.outputs[0].value === value) {
         return info.index;
       }
     }
     
-    // Process object properties recursively
     const processed = {};
     for (const key in value) {
       if (value.hasOwnProperty(key)) {
@@ -3143,13 +3039,11 @@ class SchemaGraphApp {
     let workingType = fieldType;
     console.log('          Extracting model type from:', workingType);
     
-    // Strip Optional wrapper
     if (workingType.kind === 'optional') {
       workingType = workingType.inner;
       console.log('          After stripping Optional:', workingType);
     }
     
-    // Direct model reference (not a union, not a list)
     if (workingType.kind === 'basic' && workingType.name) {
       const primitives = ['str', 'int', 'bool', 'float', 'Any', 'Index', 'string', 'integer'];
       if (primitives.indexOf(workingType.name) === -1) {
@@ -3158,7 +3052,6 @@ class SchemaGraphApp {
       }
     }
     
-    // Strip List/Set/Dict/Tuple wrapper to get the inner type
     if (workingType.kind === 'list' || workingType.kind === 'set' || workingType.kind === 'tuple') {
       workingType = workingType.inner;
       console.log('          After stripping collection:', workingType);
@@ -3166,16 +3059,13 @@ class SchemaGraphApp {
     
     const dictMatch = workingType.kind === 'dict';
     if (dictMatch) {
-      // For Dict, we don't expect model references in the key-value structure
       return null;
     }
     
-    // Now extract from Union if present
     if (workingType.kind === 'union') {
       const types = workingType.types;
       console.log('          Union contains types:', types.map(t => t.name || t.kind));
       
-      // Find the non-Index type (the actual model type)
       for (const t of types) {
         if (t.kind === 'basic' && t.name) {
           const trimmed = t.name.trim();
@@ -3286,21 +3176,18 @@ class SchemaGraphApp {
     this.graph.last_link_id = 0;
   
     const createdNodes = {};
-    const alNodesForField = {}; // Track ALL nodes for each field, including embedded
+    const alNodesForField = {};
     let xOffset = 50;
     const yOffset = 100;
     const xSpacing = 250;
   
-    // NEW: Analyze root type to determine which fields should be arrays
     let rootType = schemaInfo.rootType;
     let rootListFields = new Set();
-    let singleReferenceFields = {}; // Maps single-ref field to its array field
+    let singleReferenceFields = {};
     
     if (rootType && schemaInfo.parsed[rootType]) {
       const rootFields = schemaInfo.parsed[rootType];
       
-      // Build a map of model type -> list field name
-      // e.g., InfoConfig -> "infos", AppOptionsConfig -> "app_options"
       const modelTypeToListField = {};
       
       for (const field of rootFields) {
@@ -3315,14 +3202,11 @@ class SchemaGraphApp {
         }
       }
       
-      // Now find single-reference fields and map them to their corresponding list fields
       for (const field of rootFields) {
         const fieldType = field.type;
         if (!this.graph._isListFieldType(fieldType)) {
-          // Extract the model type from this single-reference field
           const modelType = this._extractModelTypeFromUnionField(fieldType);
           if (modelType) {
-            // Look up which list field contains this model type
             const listFieldName = modelTypeToListField[modelType];
             if (listFieldName) {
               singleReferenceFields[field.name] = listFieldName;
@@ -3338,12 +3222,10 @@ class SchemaGraphApp {
     console.log('Root list fields:', Array.from(rootListFields));
     console.log('Single reference mappings:', singleReferenceFields);
 
-    // First pass: create top-level nodes (only for array fields)
     for (const fieldName in configData) {
       if (!configData.hasOwnProperty(fieldName)) continue;
       const items = configData[fieldName];
       
-      // NEW: Skip single reference fields - we'll handle them by moving to arrays
       if (singleReferenceFields[fieldName]) {
         console.log(`Skipping single reference field: ${fieldName} (will be added to ${singleReferenceFields[fieldName]})`);
         continue;
@@ -3396,7 +3278,6 @@ class SchemaGraphApp {
       xOffset += xSpacing;
     }
     
-    // NEW: Handle single reference fields - add them to their corresponding arrays
     for (const singleField in singleReferenceFields) {
       if (!configData[singleField]) continue;
       
@@ -3413,7 +3294,6 @@ class SchemaGraphApp {
         continue;
       }
       
-      // Create node and add to the array field
       const node = this.graph.createNode(nodeType);
       node.pos = [xOffset, yOffset];
       
@@ -3424,7 +3304,6 @@ class SchemaGraphApp {
         alNodesForField[arrayField] = [];
       }
       
-      // Insert at beginning so it gets index 0
       createdNodes[arrayField].unshift(node);
       alNodesForField[arrayField].unshift(node);
       
@@ -3442,17 +3321,14 @@ class SchemaGraphApp {
       }
     }
   
-    // Second pass: populate nodes with data
     const nodesBefore = this.graph.nodes.length;
     
     for (const fieldName in configData) {
       if (!configData.hasOwnProperty(fieldName)) continue;
       
-      // NEW: Skip single reference fields - they've been moved to arrays
       if (singleReferenceFields[fieldName]) {
         const arrayField = singleReferenceFields[fieldName];
         const item = configData[fieldName];
-        // Populate the first node in the array field with this data
         if (createdNodes[arrayField] && createdNodes[arrayField][0]) {
           this.populateNodeFromConfig(createdNodes[arrayField][0], item, createdNodes, fieldMapping);
         }
@@ -3483,7 +3359,6 @@ class SchemaGraphApp {
     const nodesAfter = this.graph.nodes.length;
     console.log('Nodes created during population:', nodesAfter - nodesBefore, '(embedded nodes)');
   
-    // Third pass: create root type node if applicable
     if (schemaInfo && schemaInfo.rootType) {
       const rootNodeType = targetSchema + '.' + schemaInfo.rootType;
       if (this.graph.nodeTypes[rootNodeType]) {
@@ -3491,7 +3366,6 @@ class SchemaGraphApp {
         rootNode.pos = [-300, yOffset];
         console.log('Created root node:', rootNodeType, 'at', rootNode.pos);
         
-        // Connect root node to all field nodes
         console.log('🔗 Connecting root node to field nodes...');
         console.log('   Root node has', rootNode.inputs.length, 'inputs');
         console.log('   Config has', Object.keys(configData).length, 'fields');
@@ -3502,7 +3376,6 @@ class SchemaGraphApp {
           console.log('');
           console.log('🔌 Processing field:', fieldName);
           
-          // Find the input slot for this field
           const inputIdx = rootNode.inputs.findIndex(inp => inp.name === fieldName);
           if (inputIdx === -1) {
             console.warn('⚠️ No input slot found on root node for field:', fieldName);
@@ -3512,13 +3385,12 @@ class SchemaGraphApp {
           
           console.log('   ✔ Found input slot:', inputIdx, '(type:', rootNode.inputs[inputIdx].type + ')');
           
-          // NEW: Check if this is a single reference field that was moved to an array
           let targetFieldName = fieldName;
           let useIndex = null;
           
           if (singleReferenceFields[fieldName]) {
             targetFieldName = singleReferenceFields[fieldName];
-            useIndex = 0; // Always reference the first item (which we inserted)
+            useIndex = 0;
             console.log(`   Single reference field - using ${targetFieldName}[0]`);
           }
           
@@ -3527,7 +3399,6 @@ class SchemaGraphApp {
           
           console.log('   Value is', isListField ? 'array with ' + items.length + ' items' : typeof items);
           
-          // Get all nodes for this field
           const fieldNodes = alNodesForField[targetFieldName] || [];
           
           console.log('   Looking for nodes in alNodesForField["' + targetFieldName + '"]');
@@ -3536,7 +3407,6 @@ class SchemaGraphApp {
           if (fieldNodes.length === 0) {
             console.warn('⚠️ No nodes in alNodesForField for:', targetFieldName);
             console.warn('   Available field keys:', Object.keys(alNodesForField).join(', '));
-            // Check if this field even needs nodes
             if (rootNode.nativeInputs && rootNode.nativeInputs[inputIdx] !== undefined) {
               console.log('   → Field is a native input, setting value directly');
               if (typeof items === 'object') {
@@ -3552,7 +3422,6 @@ class SchemaGraphApp {
           const nodeInfo = fieldNodes.map(n => n.id + ':' + n.title).join(', ');
           console.log('   Node details:', nodeInfo);
           
-          // NEW: Single reference field - connect to index 0
           if (useIndex !== null) {
             console.log('   ✔ Connecting single reference to index', useIndex);
             const refNode = fieldNodes[useIndex];
@@ -3561,9 +3430,7 @@ class SchemaGraphApp {
               console.log('   ✅ Connected', refNode.title, 'to root at slot', inputIdx);
             }
           }
-          // Multi-input list field
           else if (isListField) {
-            // Connect all nodes to multi-input
             if (rootNode.multiInputs && rootNode.multiInputs[inputIdx]) {
               console.log('   ✔ Field is multi-input (list field)');
               for (const node of fieldNodes) {
@@ -3585,12 +3452,9 @@ class SchemaGraphApp {
               console.warn('   ⚠️ Expected multi-input but not found for field:', fieldName);
             }
           }
-          // Single value field
           else {
-            // Connect single node or set native value
             console.log('   ✔ Field is single-input');
             if (typeof items === 'number') {
-              // This is an index reference to another node
               console.log('   → Value is an index reference:', items);
               const modelName = fieldMapping.fieldToModel[fieldName];
               const refNode = this.findNodeByTypeAndIndex(modelName, items, createdNodes, fieldMapping);
@@ -3604,7 +3468,6 @@ class SchemaGraphApp {
               this.graph.connect(fieldNodes[0], 0, rootNode, inputIdx);
               console.log('   ✅ Connected', fieldNodes[0].title, 'to root at slot', inputIdx);
             } else if (rootNode.nativeInputs && rootNode.nativeInputs[inputIdx] !== undefined) {
-              // Set native value
               console.log('   → Setting native value');
               if (typeof items === 'object') {
                 rootNode.nativeInputs[inputIdx].value = JSON.stringify(items);
@@ -3655,7 +3518,6 @@ class SchemaGraphApp {
       }
     }
   
-    // Execute all nodes
     for (const node of this.graph.nodes) {
       node.onExecute();
     }
@@ -3753,7 +3615,6 @@ class SchemaGraphApp {
           if (typeof value === 'object') {
             node.nativeInputs[i].value = JSON.stringify(value);
           } else if (typeof value === 'boolean') {
-            // Handle boolean explicitly - false is a valid value!
             node.nativeInputs[i].value = value;
           } else {
             node.nativeInputs[i].value = value;
@@ -3821,39 +3682,30 @@ class SchemaGraphApp {
   isNativeCollectionType(typeString) {
     if (!typeString) return false;
     
-    // Check for Dict[str, Any], List[str], Set[int], Tuple[str, ...], etc.
     const collectionMatch = typeString.match(/^(Optional\[)?(List|Set|Tuple|Dict|dict)\[(.+)\]$/);
     if (!collectionMatch) return false;
     
     const innerType = collectionMatch[3];
     
-    // For Dict, check if it's Dict[primitive, primitive] or Dict[str, Any]
     if (collectionMatch[2] === 'Dict' || collectionMatch[2] === 'dict') {
-      // If it contains 'Union[' with a model type, it's not a native collection
       if (innerType.indexOf('Union[') !== -1 && innerType.match(/[A-Z][a-zA-Z]*Config/)) {
         return false;
       }
-      // Dict[str, Any], Dict[str, int], etc. are native
       return true;
     }
     
-    // For List/Set/Tuple, check if the inner type is primitive
     const primitives = ['str', 'int', 'bool', 'float', 'Any', 'string', 'integer'];
     
-    // Strip Optional if present
     let checkType = innerType;
     const optMatch = checkType.match(/^Optional\[(.+)\]$/);
     if (optMatch) checkType = optMatch[1];
     
-    // Check if it's a primitive
     if (primitives.indexOf(checkType) !== -1) {
       return true;
     }
     
-    // Check if it's a Union that doesn't contain model types
     const unionMatch = checkType.match(/^Union\[(.+)\]$/);
     if (unionMatch) {
-      // If it contains a Config type, it's not a native collection
       if (unionMatch[1].match(/[A-Z][a-zA-Z]*Config/)) {
         return false;
       }
@@ -3869,14 +3721,12 @@ class SchemaGraphApp {
     let workingType = typeString.trim();
     console.log('          Extracting model type from:', workingType);
     
-    // Strip Optional wrapper
     const optionalMatch = workingType.match(/^Optional\[(.+)\]$/);
     if (optionalMatch) {
       workingType = optionalMatch[1].trim();
       console.log('          After stripping Optional:', workingType);
     }
     
-    // Strip List/Set/Dict/Tuple wrapper to get the inner type
     const listMatch = workingType.match(/^(List|Set|Tuple)\[(.+)\]$/);
     if (listMatch) {
       workingType = listMatch[2].trim();
@@ -3885,7 +3735,6 @@ class SchemaGraphApp {
     
     const dictMatch = workingType.match(/^(Dict|dict)\[(.+)\]$/);
     if (dictMatch) {
-      // For Dict, extract the value type (second parameter)
       const dictContent = dictMatch[2];
       const parts = this.splitTypeParameters(dictContent);
       if (parts.length >= 2) {
@@ -3894,14 +3743,12 @@ class SchemaGraphApp {
       }
     }
     
-    // Now extract from Union if present
     const unionMatch = workingType.match(/^Union\[(.+)\]$/);
     if (unionMatch) {
       const unionContent = unionMatch[1];
       const types = this.splitTypeParameters(unionContent);
       console.log('          Union contains types:', types);
       
-      // Find the non-Index type (the actual model type)
       for (const t of types) {
         const trimmed = t.trim();
         if (trimmed !== 'Index' && trimmed !== 'int' && !trimmed.startsWith('int ')) {
@@ -3913,7 +3760,6 @@ class SchemaGraphApp {
       return null;
     }
     
-    // If no Union, return the working type if it's not a primitive
     const primitives = ['str', 'int', 'bool', 'float', 'Any', 'Index', 'string', 'integer'];
     if (primitives.indexOf(workingType) === -1) {
       console.log('          ✅ Direct model type:', workingType);
@@ -3925,7 +3771,6 @@ class SchemaGraphApp {
   }
 
   splitTypeParameters(str) {
-    // Split by comma, but respect nested brackets
     const result = [];
     let current = '';
     let depth = 0;
@@ -3952,13 +3797,11 @@ class SchemaGraphApp {
     console.log('         Expected type from schema:', expectedType);
     console.log('         Config item keys:', Object.keys(configItem).join(', '));
     
-    // CHECK: If this is a native collection type, don't create a node
     if (this.isNativeCollectionType(expectedType)) {
       console.log('         ℹ️ Skipping node creation - native collection type:', expectedType);
       return null;
     }
     
-    // Use the proper type extraction method
     const targetModelType = this.extractModelTypeFromUnionOrOptional(expectedType);
     
     if (targetModelType) {
@@ -3979,7 +3822,6 @@ class SchemaGraphApp {
       console.warn('         ⚠️ Could not extract model type from:', expectedType);
     }
     
-    // Fallback: try to match by fields (but warn it's ambiguous)
     console.log('         ⚠️ FALLBACK: Trying field matching (ambiguous!)');
     let bestMatch = null;
     let bestMatchScore = 0;
@@ -4017,7 +3859,6 @@ class SchemaGraphApp {
     return null;
   }
 
-  // Utility methods
   removeLink(linkId, targetNode, targetSlot) {
     const link = this.graph.links[linkId];
     if (link) {
@@ -4240,7 +4081,6 @@ class SchemaGraphApp {
       html += '<div><span class="sg-schema-item-name">' + schemaName + '</span>';
       html += '<span class="sg-schema-item-count">(' + typeCount + ' types, ' + nodeCount + ' nodes)</span></div>';
       html += '<div style="display: flex; gap: 4px;">';
-      // ✨ NEW: Enable/Disable toggle button
       html += '<button class="sg-schema-toggle-btn ' + (isEnabled ? 'enabled' : 'disabled') + '" data-schema="' + schemaName + '" title="' + (isEnabled ? 'Disable schema' : 'Enable schema') + '">';
       html += (isEnabled ? '👁️ Enabled' : '🚫 Disabled');
       html += '</button>';
@@ -4251,14 +4091,13 @@ class SchemaGraphApp {
     
     listEl.innerHTML = html;
     
-    // Setup toggle buttons
     const toggleButtons = listEl.querySelectorAll('.sg-schema-toggle-btn');
     for (const button of toggleButtons) {
       button.addEventListener('click', (e) => {
         e.stopPropagation();
         const schemaName = button.getAttribute('data-schema');
         this.graph.toggleSchema(schemaName);
-        this.updateSchemaList(); // Refresh the list
+        this.updateSchemaList();
         this.eventBus.emit('ui:update', { 
           id: 'status', 
           content: `Schema "${schemaName}" ${this.graph.isSchemaEnabled(schemaName) ? 'enabled' : 'disabled'}` 
@@ -4395,7 +4234,6 @@ class SchemaGraphApp {
   }
 
   applyHierarchicalLayout(vertical = false) {
-    // Find root nodes (nodes with no inputs connected or nodes marked as root)
     const rootNodes = [];
     const processedNodes = new Set();
     
@@ -4412,7 +4250,6 @@ class SchemaGraphApp {
       }
     }
     
-    // If no root nodes found, use all nodes as roots
     if (rootNodes.length === 0) {
       rootNodes.push(...this.graph.nodes);
     }
@@ -4420,7 +4257,6 @@ class SchemaGraphApp {
     const layers = [];
     const nodeToLayer = new Map();
     
-    // Build layers using BFS
     const queue = [];
     for (const root of rootNodes) {
       queue.push({ node: root, layer: 0 });
@@ -4436,7 +4272,6 @@ class SchemaGraphApp {
       layers[layer].push(node);
       nodeToLayer.set(node, layer);
       
-      // Find connected nodes through outputs
       for (const output of node.outputs) {
         for (const linkId of output.links) {
           const link = this.graph.links[linkId];
@@ -4451,7 +4286,6 @@ class SchemaGraphApp {
       }
     }
     
-    // Add any unconnected nodes to the last layer
     for (const node of this.graph.nodes) {
       if (!processedNodes.has(node)) {
         const lastLayer = layers.length;
@@ -4462,7 +4296,6 @@ class SchemaGraphApp {
       }
     }
     
-    // Position nodes
     const layerSpacing = vertical ? 300 : 200;
     const nodeSpacing = vertical ? 150 : 250;
     const startX = 100;
@@ -4486,20 +4319,17 @@ class SchemaGraphApp {
   }
 
   applyForceDirectedLayout() {
-    // Simple force-directed layout using spring forces
     const iterations = 100;
     const repulsionStrength = 50000;
     const attractionStrength = 0.01;
     const damping = 0.9;
     const minDistance = 200;
     
-    // Initialize velocities
     const velocities = new Map();
     for (const node of this.graph.nodes) {
       velocities.set(node, { x: 0, y: 0 });
     }
     
-    // Initial random positions if nodes are clustered
     const spread = 400;
     for (const node of this.graph.nodes) {
       if (node.pos[0] === 0 && node.pos[1] === 0) {
@@ -4508,9 +4338,7 @@ class SchemaGraphApp {
       }
     }
     
-    // Run simulation
     for (let iter = 0; iter < iterations; iter++) {
-      // Calculate repulsion forces between all nodes
       for (let i = 0; i < this.graph.nodes.length; i++) {
         const nodeA = this.graph.nodes[i];
         const vel = velocities.get(nodeA);
@@ -4537,7 +4365,6 @@ class SchemaGraphApp {
         }
       }
       
-      // Calculate attraction forces for connected nodes
       for (const linkId in this.graph.links) {
         const link = this.graph.links[linkId];
         const nodeA = this.graph.getNodeById(link.origin_id);
@@ -4564,7 +4391,6 @@ class SchemaGraphApp {
         velB.y -= fy;
       }
       
-      // Update positions and apply damping
       for (const node of this.graph.nodes) {
         const vel = velocities.get(node);
         node.pos[0] += vel.x;
@@ -4598,7 +4424,6 @@ class SchemaGraphApp {
     const radius = Math.max(300, this.graph.nodes.length * 30);
     const angleStep = (2 * Math.PI) / this.graph.nodes.length;
     
-    // Separate root nodes and regular nodes
     const rootNodes = [];
     const regularNodes = [];
     
@@ -4610,7 +4435,6 @@ class SchemaGraphApp {
       }
     }
     
-    // Place root nodes in the center
     if (rootNodes.length > 0) {
       const rootRadius = 100;
       const rootAngleStep = (2 * Math.PI) / rootNodes.length;
@@ -4621,7 +4445,6 @@ class SchemaGraphApp {
       }
     }
     
-    // Place regular nodes in a circle
     for (let i = 0; i < regularNodes.length; i++) {
       const angle = i * angleStep;
       regularNodes[i].pos[0] = centerX + Math.cos(angle) * radius;
@@ -4629,7 +4452,6 @@ class SchemaGraphApp {
     }
   }
 
-  // Drawing
   getCanvasColors() {
     const style = getComputedStyle(document.documentElement);
     return {
@@ -4666,7 +4488,6 @@ class SchemaGraphApp {
     this.ctx.translate(this.camera.x, this.camera.y);
     this.ctx.scale(this.camera.scale, this.camera.scale);
     
-    // Reset cursor at start of draw
     if (!this.connecting && !this.dragNode && !this.isPanning) {
       this.canvas.style.cursor = 'default';
     }
@@ -4679,7 +4500,6 @@ class SchemaGraphApp {
       this.drawConnecting(colors);
     }
     
-    // Draw selection rectangle
     if (this.selectionRect) {
       this.ctx.strokeStyle = colors.borderHighlight;
       this.ctx.fillStyle = 'rgba(70, 162, 218, 0.1)';
@@ -4750,14 +4570,12 @@ class SchemaGraphApp {
         const x2 = targ.pos[0];
         const y2 = targ.pos[1] + 33 + link.target_slot * 25;
         
-        // Better curve calculation - limit control point distance
         const distance = Math.abs(x2 - x1);
-        const maxControlDistance = 400; // Maximum control point offset
+        const maxControlDistance = 400;
         const controlOffset = Math.min(distance * style.linkCurve, maxControlDistance);
         const cx1 = x1 + controlOffset;
         const cx2 = x2 - controlOffset;
         
-        // Shadow layer
         if (style.linkShadowBlur > 0) {
           this.ctx.strokeStyle = colors.linkColor;
           this.ctx.lineWidth = (style.linkWidth + 3) / this.camera.scale;
@@ -4779,7 +4597,6 @@ class SchemaGraphApp {
           this.ctx.stroke();
         }
         
-        // Main line
         this.ctx.strokeStyle = colors.linkColor;
         this.ctx.lineWidth = style.linkWidth / this.camera.scale;
         this.ctx.globalAlpha = 1.0;
@@ -4823,7 +4640,6 @@ class SchemaGraphApp {
     const radius = style.nodeCornerRadius;
     const textScale = this.getTextScale();
     
-    // Shadow
     if (style.nodeShadowBlur > 0) {
       this.ctx.shadowColor = colors.nodeShadow;
       this.ctx.shadowBlur = style.nodeShadowBlur / this.camera.scale;
@@ -4831,7 +4647,6 @@ class SchemaGraphApp {
       this.ctx.shadowOffsetY = style.nodeShadowOffset / this.camera.scale;
     }
     
-    // Body with adjustable corner radius
     const isSelected = this.isNodeSelected(node);
     const isPreviewSelected = this.previewSelection.has(node);
     const bodyColor = isSelected ? colors.nodeBgSelected : 
@@ -4866,7 +4681,6 @@ class SchemaGraphApp {
       this.ctx.fill();
     }
     
-    // Show preview selection with dashed border
     if (isPreviewSelected && !isSelected) {
       this.ctx.strokeStyle = colors.accentGreen;
       this.ctx.lineWidth = 2 / this.camera.scale;
@@ -4887,12 +4701,10 @@ class SchemaGraphApp {
     this.ctx.shadowOffsetY = 0;
     this.ctx.stroke();
     
-    // Reset dash pattern
     if (isPreviewSelected && !isSelected) {
       this.ctx.setLineDash([]);
     }
     
-    // Header
     const hasOwnColor = node.hasOwnProperty('color') && (node.color !== null) && (node.color !== undefined);
     const headerColor = hasOwnColor ? node.color : (node.isNative ? colors.accentPurple : 
                         (node.isRootType ? colors.accentOrange : colors.nodeHeader));
@@ -4928,7 +4740,6 @@ class SchemaGraphApp {
       this.ctx.stroke();
     }
     
-    // Title with text scaling
     this.ctx.save();
     this.ctx.beginPath();
     this.ctx.rect(x + 4, y, w - 8, 26);
@@ -4969,11 +4780,9 @@ class SchemaGraphApp {
     this.ctx.fillText(displayTitle, x + 8, y + 13);
     this.ctx.restore();
     
-    // Reset shadow
     this.ctx.shadowColor = 'transparent';
     this.ctx.shadowBlur = 0;
     
-    // Slots
     const worldMouse = this.screenToWorld(this.mousePos[0], this.mousePos[1]);
     if (node.inputs) {
         for (let j = 0; j < node.inputs.length; j++) {
@@ -4986,7 +4795,6 @@ class SchemaGraphApp {
         }
     }
     
-    // Native value display with rounded corners
     if (node.isNative && node.properties.value !== undefined) {
       const valueY = y + h - 18;
       const valueX = x + 8;
@@ -4994,12 +4802,10 @@ class SchemaGraphApp {
       const valueH = 18;
       const valueRadius = 4;
       
-      // Check if mouse is hovering over the value box
       const isValueHovered = !this.connecting && 
         worldMouse[0] >= valueX && worldMouse[0] <= valueX + valueW &&
         worldMouse[1] >= valueY - 10 && worldMouse[1] <= valueY - 10 + valueH;
       
-      // Background with rounded corners
       if (style.currentStyle !== 'wireframe') {
         this.ctx.fillStyle = isValueHovered ? 'rgba(0, 0, 0, 0.5)' : 'rgba(0, 0, 0, 0.4)';
         this.ctx.beginPath();
@@ -5016,12 +4822,10 @@ class SchemaGraphApp {
         this.ctx.fill();
       }
       
-      // Border with rounded corners
       this.ctx.strokeStyle = isValueHovered ? colors.borderHighlight : colors.borderColor;
       this.ctx.lineWidth = (isValueHovered ? 2 : 1.5) / this.camera.scale;
       this.ctx.stroke();
       
-      // Inner highlight
       if (isValueHovered) {
         this.ctx.strokeStyle = 'rgba(70, 162, 218, 0.3)';
         this.ctx.lineWidth = 2.5 / this.camera.scale;
@@ -5032,7 +4836,6 @@ class SchemaGraphApp {
         this.ctx.stroke();
       }
       
-      // Value text
       this.ctx.fillStyle = colors.textPrimary;
       this.ctx.font = (10 * textScale) + 'px ' + style.textFont;
       this.ctx.textAlign = 'center';
@@ -5041,7 +4844,6 @@ class SchemaGraphApp {
       if (displayValue.length > 20) displayValue = displayValue.substring(0, 20) + '...';
       this.ctx.fillText(displayValue, valueX + valueW / 2, valueY);
       
-      // Edit cursor hint
       if (isValueHovered) {
         this.canvas.style.cursor = 'text';
       }
@@ -5052,7 +4854,6 @@ class SchemaGraphApp {
     const style = this.drawingStyleManager.getStyle();
     const textScale = this.getTextScale();
     
-    // 🔧 FIX: Guard against undefined inputs
     if (!node.inputs || !node.inputs[j]) {
         return;
     }
@@ -5106,19 +4907,16 @@ class SchemaGraphApp {
       }
     }
     
-    // Field name with text scaling
     this.ctx.fillStyle = colors.textSecondary;
     this.ctx.font = (10 * textScale) + 'px Arial, sans-serif';
     this.ctx.textAlign = 'left';
     this.ctx.textBaseline = 'middle';
     this.ctx.fillText(inp.name, x + 10, sy);
     
-    // Field type with text scaling and rounded box
     if (!node.isNative || (!!node.nativeInputs && node.nativeInputs[j] === undefined)) {
       const compactType = this.graph.compactType(inp.type);
       let typeText = compactType.length > 20 ? compactType.substring(0, 20) + '...' : compactType;
       
-      // Measure text to create properly sized box
       this.ctx.font = (8 * textScale) + 'px "Courier New", monospace';
       const textWidth = this.ctx.measureText(typeText).width;
       const typeBoxX = x + 10;
@@ -5127,7 +4925,6 @@ class SchemaGraphApp {
       const typeBoxH = 10;
       const typeBoxRadius = 2;
       
-      // Background with rounded corners
       this.ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
       this.ctx.beginPath();
       this.ctx.moveTo(typeBoxX + typeBoxRadius, typeBoxY);
@@ -5142,18 +4939,15 @@ class SchemaGraphApp {
       this.ctx.closePath();
       this.ctx.fill();
       
-      // Border
       this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
       this.ctx.lineWidth = 0.5 / this.camera.scale;
       this.ctx.stroke();
       
-      // Type text
       this.ctx.fillStyle = colors.textTertiary;
       this.ctx.textAlign = 'left';
       this.ctx.fillText(typeText, typeBoxX + 4, sy + 10);
     }
     
-    // Native input value box with rounded corners
     if (!isMulti && !inp.link && node.nativeInputs && node.nativeInputs[j] !== undefined) {
       const boxX = x + w - 70;
       const boxY = sy - 8;
@@ -5162,12 +4956,10 @@ class SchemaGraphApp {
       const boxRadius = 4;
       const isOptional = node.nativeInputs[j].optional;
       
-      // Check if mouse is hovering over the box
       const isBoxHovered = !this.connecting && 
         worldMouse[0] >= boxX && worldMouse[0] <= boxX + boxW &&
         worldMouse[1] >= boxY && worldMouse[1] <= boxY + boxH;
       
-      // Background with rounded corners
       this.ctx.fillStyle = isBoxHovered 
         ? (isOptional ? 'rgba(0, 120, 180, 0.35)' : 'rgba(0, 0, 0, 0.6)')
         : (isOptional ? 'rgba(0, 100, 150, 0.25)' : 'rgba(0, 0, 0, 0.5)');
@@ -5184,14 +4976,12 @@ class SchemaGraphApp {
       this.ctx.closePath();
       this.ctx.fill();
       
-      // Border with rounded corners
       this.ctx.strokeStyle = isBoxHovered
         ? (isOptional ? 'rgba(100, 180, 230, 0.8)' : colors.borderHighlight)
         : (isOptional ? 'rgba(70, 162, 218, 0.6)' : (colors.borderColor || '#1a1a1a'));
       this.ctx.lineWidth = (isBoxHovered ? 2 : 1.5) / this.camera.scale;
       this.ctx.stroke();
       
-      // Inner glow for optional fields
       if (isOptional && isBoxHovered) {
         this.ctx.strokeStyle = 'rgba(70, 162, 218, 0.4)';
         this.ctx.lineWidth = 3 / this.camera.scale;
@@ -5224,24 +5014,20 @@ class SchemaGraphApp {
         this.ctx.fillText(displayValue, boxX + 6, sy);
       }
       
-      // Optional indicator badge
       if (isOptional) {
         const badgeSize = 10;
         const badgeX = boxX + boxW - badgeSize / 2;
         const badgeY = boxY - badgeSize / 2;
         
-        // Badge circle
         this.ctx.fillStyle = isBoxHovered ? 'rgba(100, 180, 230, 1.0)' : 'rgba(70, 162, 218, 0.9)';
         this.ctx.beginPath();
         this.ctx.arc(badgeX, badgeY, badgeSize / 2, 0, Math.PI * 2);
         this.ctx.fill();
         
-        // Badge border
         this.ctx.strokeStyle = colors.textPrimary;
         this.ctx.lineWidth = 1 / this.camera.scale;
         this.ctx.stroke();
         
-        // Question mark
         this.ctx.fillStyle = '#ffffff';
         this.ctx.font = 'bold ' + (7 * textScale) + 'px Arial, sans-serif';
         this.ctx.textAlign = 'center';
@@ -5249,7 +5035,6 @@ class SchemaGraphApp {
         this.ctx.fillText('?', badgeX, badgeY);
       }
       
-      // Edit cursor hint
       if (isBoxHovered) {
         this.canvas.style.cursor = 'text';
       }
@@ -5260,13 +5045,12 @@ class SchemaGraphApp {
     const style = this.drawingStyleManager.getStyle();
     const textScale = this.getTextScale();
     
-    // 🔧 FIX: Guard against undefined outputs
     if (!node.outputs || !node.outputs[j]) {
         return;
     }
     
     const out = node.outputs[j];
-    const sy = y + 38 + j * 25;  // Start slots 5px lower
+    const sy = y + 38 + j * 25;
     const hovered = this.connecting && this.connecting.isOutput && 
       Math.abs(worldMouse[0] - (x + w)) < 10 && Math.abs(worldMouse[1] - sy) < 10;
     const compat = this.isSlotCompatible(node, j, true);
@@ -5298,19 +5082,16 @@ class SchemaGraphApp {
     this.ctx.arc(x + w, sy - 1, 1.5, 0, Math.PI * 2);
     this.ctx.fill();
     
-    // Output name with text scaling
     this.ctx.fillStyle = colors.textSecondary;
     this.ctx.font = (10 * textScale) + 'px Arial, sans-serif';
     this.ctx.textAlign = 'right';
     this.ctx.textBaseline = 'middle';
     this.ctx.fillText(out.name, x + w - 10, sy);
     
-    // Output type with text scaling and rounded box
     if (!node.isNative) {
       const compactType = this.graph.compactType(out.type);
       let typeText = compactType.length > 15 ? compactType.substring(0, 15) + '...' : compactType;
       
-      // Measure text to create properly sized box
       this.ctx.font = (8 * textScale) + 'px "Courier New", monospace';
       const textWidth = this.ctx.measureText(typeText).width;
       const typeBoxX = x + w - 10 - textWidth - 8;
@@ -5319,7 +5100,6 @@ class SchemaGraphApp {
       const typeBoxH = 10;
       const typeBoxRadius = 2;
       
-      // Background with rounded corners
       this.ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
       this.ctx.beginPath();
       this.ctx.moveTo(typeBoxX + typeBoxRadius, typeBoxY);
@@ -5334,12 +5114,10 @@ class SchemaGraphApp {
       this.ctx.closePath();
       this.ctx.fill();
       
-      // Border
       this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
       this.ctx.lineWidth = 0.5 / this.camera.scale;
       this.ctx.stroke();
       
-      // Type text
       this.ctx.fillStyle = colors.textTertiary;
       this.ctx.textAlign = 'right';
       this.ctx.fillText(typeText, x + w - 10 - 4, sy + 10);
@@ -5359,7 +5137,6 @@ class SchemaGraphApp {
       y1 = node.pos[1] + 33 + this.connecting.slot * 25;
     }
     
-    // Better curve calculation - limit control point distance
     const distance = Math.abs(worldMouse[0] - x1);
     const maxControlDistance = 400;
     const controlOffset = Math.min(distance * 0.5, maxControlDistance);
@@ -5379,8 +5156,6 @@ class SchemaGraphApp {
   }
 
   adjustColorBrightness(color, amount) {
-    // Simple color brightness adjustment
-    // This is a helper for gradient effects
     const hex = color.replace('#', '');
     const num = parseInt(hex, 16);
     const r = Math.max(0, Math.min(255, (num >> 16) + amount));
@@ -5389,9 +5164,6 @@ class SchemaGraphApp {
     return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
   }
 
-  // ========================================================================
-  // PUBLIC API - Programmatic Access to All Operations
-  // ========================================================================
 
   /**
    * Create the SchemaGraph API object
@@ -5400,7 +5172,6 @@ class SchemaGraphApp {
    */
   _createAPI() {
     return {
-      // Schema Management
       schema: {
         /**
          * Register a schema from code string
@@ -5508,7 +5279,6 @@ class SchemaGraphApp {
         }
       },
 
-      // Node Management
       node: {
         /**
          * Create a new node
@@ -5636,7 +5406,6 @@ class SchemaGraphApp {
         }
       },
 
-      // Link Management
       link: {
         /**
          * Create a link between nodes
@@ -5714,7 +5483,6 @@ class SchemaGraphApp {
         }
       },
 
-      // Graph Operations
       graph: {
         /**
          * Export graph to JSON
@@ -5785,7 +5553,6 @@ class SchemaGraphApp {
         }
       },
 
-      // Config Operations
       config: {
         /**
          * Build config from current graph
@@ -5959,7 +5726,6 @@ class SchemaGraphApp {
         }
       },
 
-      // View Operations
       view: {
         /**
          * Center view on all nodes
@@ -6113,7 +5879,6 @@ class SchemaGraphApp {
         }
       },
 
-      // Layout Operations
       layout: {
         /**
          * Apply a layout algorithm
@@ -6143,7 +5908,6 @@ class SchemaGraphApp {
         }
       },
 
-      // Theme Operations
       theme: {
         /**
          * Set theme
@@ -6184,7 +5948,6 @@ class SchemaGraphApp {
         }
       },
 
-      // Style Operations
       style: {
         /**
          * Set drawing style
@@ -6224,7 +5987,6 @@ class SchemaGraphApp {
         }
       },
 
-      // Text Scaling
       textScaling: {
         /**
          * Set text scaling mode
@@ -6236,7 +5998,7 @@ class SchemaGraphApp {
           this.textScalingMode = mode;
           this.saveTextScalingMode();
           this.updateTextScalingUI();
-          this.draw(); // ← Redraw
+          this.draw();
           return true;
         },
       
@@ -6256,12 +6018,11 @@ class SchemaGraphApp {
           this.textScalingMode = this.textScalingMode === 'fixed' ? 'scaled' : 'fixed';
           this.saveTextScalingMode();
           this.updateTextScalingUI();
-          this.draw(); // ← Redraw
+          this.draw();
           return this.textScalingMode;
         }
       },
 
-      // Voice Control
       voice: {
         /**
          * Start voice recognition
@@ -6298,7 +6059,6 @@ class SchemaGraphApp {
         }
       },
 
-      // Analytics
       analytics: {
         /**
          * Get current metrics
@@ -6344,7 +6104,6 @@ class SchemaGraphApp {
         }
       },
 
-      // Utility Functions
       util: {
         /**
          * Convert screen coordinates to world coordinates
@@ -6409,7 +6168,6 @@ class SchemaGraphApp {
         }
       },
 
-      // Help System
       help: {
         /**
          * Print help for all modules or a specific module
@@ -6427,7 +6185,6 @@ class SchemaGraphApp {
             console.log(`\nMethods: ${Object.keys(this.api[module]).join(', ')}`);
             console.log('\nExamples:');
             
-            // Module-specific examples
             const examples = {
               schema: [
                 'gApp.api.schema.register("MySchema", schemaCode, "int", "AppConfig")',
@@ -6542,37 +6299,31 @@ class SchemaGraphApp {
           console.log('%c🎯 Running API Example...', 'color: #46a2da; font-weight: bold; font-size: 14px;');
           
           try {
-            // Create some native nodes
             console.log('\n1. Creating nodes...');
             const str1 = this.api.node.create('Native.String', 100, 100);
             const str2 = this.api.node.create('Native.String', 100, 200);
             const int1 = this.api.node.create('Native.Integer', 400, 150);
             console.log('  ✓ Created 3 nodes');
             
-            // Set some values
             console.log('\n2. Setting node values...');
             this.api.node.setProperty(str1, 'value', 'Hello');
             this.api.node.setProperty(str2, 'value', 'World');
             this.api.node.setProperty(int1, 'value', 42);
             console.log('  ✓ Values set');
             
-            // Select nodes
             console.log('\n3. Selecting nodes...');
             this.api.node.select(str1);
             this.api.node.select(str2, true);
             console.log('  ✓ Selected 2 nodes');
             
-            // Apply layout
             console.log('\n4. Applying layout...');
             this.api.layout.apply('grid');
             console.log('  ✓ Grid layout applied');
             
-            // Center view
             console.log('\n5. Centering view...');
             this.api.view.center();
             console.log('  ✓ View centered');
             
-            // Get metrics
             console.log('\n6. Getting analytics...');
             const metrics = this.api.analytics.getMetrics();
             console.log('  ✓ Metrics:', metrics);
@@ -6609,7 +6360,6 @@ class SchemaGraphApp {
    */
   _createUI() {
     return {
-      // Button Handlers
       buttons: {
         /**
          * Setup upload schema button
@@ -6631,11 +6381,9 @@ class SchemaGraphApp {
             reader.onload = (event) => {
               this.pendingSchemaCode = event.target.result;
               
-              // Auto-fill dialog fields
               const fileName = file.name.replace(/\.py$/, '');
               const suggestedName = fileName.charAt(0).toUpperCase() + fileName.slice(1);
               
-              // Try to detect root type
               const rootTypeRegex = /class\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g;
               let lastMatch = null;
               let match;
@@ -6651,7 +6399,7 @@ class SchemaGraphApp {
               this.ui.dialogs.showSchemaDialog();
             };
             reader.readAsText(file);
-            e.target.value = ''; // Reset file input
+            e.target.value = '';
           });
         },
   
@@ -6786,7 +6534,7 @@ class SchemaGraphApp {
             if (value) {
               this.api.layout.apply(value);
               this.ui.messages.showSuccess(`Applied ${value} layout`, 1500);
-              e.target.value = ''; // Reset selector
+              e.target.value = '';
             }
           });
         },
@@ -6799,7 +6547,6 @@ class SchemaGraphApp {
           const select = document.getElementById('sg-drawingStyleSelect');
           if (!select) return;
           
-          // Set initial value
           select.value = this.api.style.get();
           
           select.addEventListener('change', (e) => {
@@ -6844,7 +6591,6 @@ class SchemaGraphApp {
         }
       },
   
-      // Dialog Management
       dialogs: {
         /**
          * Show schema registration dialog
@@ -6976,7 +6722,6 @@ class SchemaGraphApp {
           let html = '';
           
           if (node) {
-            // Node context menu
             const selectionCount = this.api.node.getSelected().length;
             
             html += '<div class="sg-context-menu-category">Node Actions</div>';
@@ -6987,7 +6732,6 @@ class SchemaGraphApp {
               html += '<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete">✖ Delete Node</div>';
             }
             
-            // Check for multi-input links
             if (node.multiInputs) {
               let totalLinks = 0;
               for (const slotIdx in node.multiInputs) {
@@ -7004,7 +6748,6 @@ class SchemaGraphApp {
               }
             }
           } else {
-            // Canvas context menu - show node types
             html += '<div class="sg-context-menu-category">Native Types</div>';
             const natives = ['Native.String', 'Native.Integer', 'Native.Boolean', 'Native.Float', 'Native.List', 'Native.Dict'];
             for (const type of natives) {
@@ -7012,7 +6755,6 @@ class SchemaGraphApp {
               html += `<div class="sg-context-menu-item" data-type="${type}">${name}</div>`;
             }
             
-            // Add schema types
             const schemas = this.api.schema.list();
             for (const schemaName of schemas) {
               const info = this.api.schema.info(schemaName);
@@ -7020,13 +6762,11 @@ class SchemaGraphApp {
               
               html += `<div class="sg-context-menu-category">${schemaName} Schema</div>`;
               
-              // Show root type first
               if (info.rootType) {
                 const rootType = `${schemaName}.${info.rootType}`;
                 html += `<div class="sg-context-menu-item" data-type="${rootType}" style="font-weight: bold; color: var(--sg-accent-orange);">★ ${info.rootType} (Root)</div>`;
               }
               
-              // Show other models
               for (const model of info.models) {
                 if (model !== info.rootType) {
                   const type = `${schemaName}.${model}`;
@@ -7043,7 +6783,6 @@ class SchemaGraphApp {
           menu.dataset.worldX = wx;
           menu.dataset.worldY = wy;
           
-          // Setup click handlers
           if (node) {
             menu.querySelector('[data-action="delete"]')?.addEventListener('click', () => {
               this.api.node.delete(node);
@@ -7114,7 +6853,6 @@ class SchemaGraphApp {
             
             okBtn.addEventListener('click', handleOk);
             
-            // Focus OK button
             setTimeout(() => okBtn.focus(), 100);
           });
         },
@@ -7156,7 +6894,6 @@ class SchemaGraphApp {
             okBtn.addEventListener('click', handleOk);
             cancelBtn.addEventListener('click', handleCancel);
             
-            // Focus Cancel button (safer default)
             setTimeout(() => cancelBtn.focus(), 100);
           });
         },
@@ -7165,23 +6902,19 @@ class SchemaGraphApp {
           this.ui.dialogs.setupSchemaDialog();
           this.ui.dialogs.setupSchemaRemovalDialog();
           
-          // Close context menu when clicking outside
           document.addEventListener('click', (e) => {
             if (!e.target.closest('#sg-contextMenu')) {
               this.ui.dialogs.hideContextMenu();
             }
           });
           
-          // ESC key closes dialogs
           document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
-              // Close message dialog
               const messageDialog = document.getElementById('sg-messageDialog');
               if (messageDialog?.classList.contains('show')) {
                 document.getElementById('sg-messageDialogOk')?.click();
               }
               
-              // Close confirm dialog (as cancel)
               const confirmDialog = document.getElementById('sg-confirmDialog');
               if (confirmDialog?.classList.contains('show')) {
                 document.getElementById('sg-confirmDialogCancel')?.click();
@@ -7191,7 +6924,6 @@ class SchemaGraphApp {
         }
       },
   
-      // Display Updates
       update: {
         /**
          * Update node types list in header
@@ -7238,7 +6970,6 @@ class SchemaGraphApp {
           
           listEl.innerHTML = html;
           
-          // Setup remove buttons
           listEl.querySelectorAll('.sg-schema-remove-btn').forEach(btn => {
             btn.addEventListener('click', () => {
               this.ui.dialogs.showSchemaRemovalDialog();
@@ -7329,7 +7060,6 @@ class SchemaGraphApp {
         }
       },
   
-      // Voice & Analytics
       voice: {
         /**
          * Setup voice controls
@@ -7357,7 +7087,6 @@ class SchemaGraphApp {
             if (status) status.textContent = '';
           });
           
-          // Voice event listeners
           this.eventBus.on('voice:result', (data) => {
             if (status) {
               status.textContent = `Heard: "${data.transcript}"`;
@@ -7395,7 +7124,7 @@ class SchemaGraphApp {
           const resetBtn = document.getElementById('sg-resetAnalyticsBtn');
           
           toggleBtn?.addEventListener('click', (e) => {
-            e.stopPropagation(); // Prevent click from bubbling
+            e.stopPropagation();
             panel?.classList.toggle('show');
             if (panel?.classList.contains('show')) {
               this.ui.update.analytics();
@@ -7405,13 +7134,11 @@ class SchemaGraphApp {
           closeBtn?.addEventListener('click', () => {
             if (!panel) return;
             
-            // Add hiding class for animation
             panel.classList.add('hiding');
             
-            // Remove show class after animation completes
             setTimeout(() => {
               panel.classList.remove('show', 'hiding');
-            }, 300); // Match animation duration
+            }, 300);
           });
           
           refreshBtn?.addEventListener('click', () => {
@@ -7434,7 +7161,6 @@ class SchemaGraphApp {
             }
           });
           
-          // Click outside to close
           document.addEventListener('click', (e) => {
             if (!panel) return;
             
@@ -7442,19 +7168,15 @@ class SchemaGraphApp {
             const clickedInsidePanel = panel.contains(e.target);
             const clickedToggleBtn = toggleBtn?.contains(e.target);
             
-            // Close if visible and clicked outside (but not on toggle button)
             if (isVisible && !clickedInsidePanel && !clickedToggleBtn) {
-              // Add hiding class for animation
               panel.classList.add('hiding');
               
-              // Remove show class after animation completes
               setTimeout(() => {
                 panel.classList.remove('show', 'hiding');
-              }, 300); // Match animation duration
+              }, 300);
             }
           });
           
-          // Auto-refresh every 5 seconds if open
           setInterval(() => {
             if (panel?.classList.contains('show')) {
               this.ui.update.analytics();
@@ -7463,7 +7185,6 @@ class SchemaGraphApp {
         }
       },
   
-      // Messages & Notifications
       messages: {
         /**
          * Show error message
@@ -7495,7 +7216,6 @@ class SchemaGraphApp {
         }
       },
   
-      // Utilities
       util: {
         /**
          * Format duration
@@ -7539,10 +7259,8 @@ class SchemaGraphApp {
         this.ui.voice.setup();
         this.ui.analytics.setup();
         
-        // Window resize
         window.addEventListener('resize', () => this.ui.util.resizeCanvas());
         
-        // Initial updates
         this.ui.update.textScaling();
         this.ui.update.nodeTypesList();
         this.ui.update.schemaList();
