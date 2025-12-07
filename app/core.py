@@ -4,8 +4,9 @@ import copy
 import json
 
 
+from   collections.abc import Callable
 from   fastapi         import FastAPI
-from   typing          import Any, Dict, List, Tuple
+from   typing          import Dict, List, Tuple
 
 
 from   schema          import *
@@ -231,47 +232,6 @@ def unroll_config(config: AppConfig) -> AppConfig:
 					prompt.embedding = len(config_copy.embeddings) - 1
 				if not isinstance(prompt.embedding, int) or prompt.embedding < 0 or prompt.embedding >= len(config_copy.embeddings):
 					raise ValueError("Invalid prompt embedding")
-
-	# ========================================================================
-	# WORKFLOW PROCESSING - Add after existing code
-	# ========================================================================
-
-	if True:
-		for workflow in config_copy.workflows:
-			# Process workflow nodes
-			if workflow.nodes:
-				for node in workflow.nodes:
-					# If node references agents/tools, validate indices
-					if node.type == NodeType.AGENT:
-						agent_ref = node.config.get("agent", {}).get("agent_ref")
-						if agent_ref is not None:
-							if not isinstance(agent_ref, int) or agent_ref < 0 or agent_ref >= len(config_copy.agents):
-								raise ValueError(f"Invalid agent reference in workflow node {node.id}")
-					
-					elif node.type == NodeType.TOOL_CALL:
-						tool_ref = node.config.get("tool", {}).get("tool_ref")
-						if tool_ref is not None:
-							if not isinstance(tool_ref, int) or tool_ref < 0 or tool_ref >= len(config_copy.tools):
-								raise ValueError(f"Invalid tool reference in workflow node {node.id}")
-			
-			# Process workflow edges - validate node references
-			if workflow.edges:
-				node_ids = {node.id for node in workflow.nodes}
-				for edge in workflow.edges:
-					if edge.source_node_id not in node_ids:
-						raise ValueError(f"Edge {edge.id} references non-existent source node {edge.source_node_id}")
-					if edge.target_node_id not in node_ids:
-						raise ValueError(f"Edge {edge.id} references non-existent target node {edge.target_node_id}")
-			
-			# Validate start and end nodes exist
-			if workflow.start_node_id:
-				node_ids = {node.id for node in workflow.nodes}
-				if workflow.start_node_id not in node_ids:
-					raise ValueError(f"Workflow start node {workflow.start_node_id} not found")
-			
-			for end_node_id in workflow.end_node_ids:
-				if end_node_id not in node_ids:
-					raise ValueError(f"Workflow end node {end_node_id} not found")
 
 	return config_copy
 
@@ -704,43 +664,6 @@ def get_backends() -> Dict[Tuple[str, str], Callable]:
 	global _backends
 	result = copy.deepcopy(_backends)
 	return result
-
-
-class AppContext:
-	"""Context providing access to app resources"""
-
-	def __init__(self, config: AppConfig, agents: List[Callable], tools: List[Callable]):
-		self.config = copy.deepcopy (config)
-		self.agents = copy.copy     (agents)
-		self.tools  = copy.copy     (tools )
-
-
-	def get_agent(self, ref: int) -> Callable:
-		"""Get agent by reference"""
-		if ref is None:
-			raise ValueError("Agent reference cannot be None")
-		if not isinstance(ref, int):
-			raise ValueError(f"Agent reference must be int, got {type(ref)}")
-		if ref < 0 or ref >= len(self.agents):
-			raise ValueError(f"Agent reference {ref} out of bounds (0-{len(self.agents)-1})")
-		agent = self.agents[ref]
-		if agent is None:
-			raise ValueError(f"Agent at index {ref} is None")
-		return agent
-
-
-	def get_tool(self, ref: int) -> Callable:
-		"""Get tool by reference"""
-		if ref is None:
-			raise ValueError("Tool reference cannot be None")
-		if not isinstance(ref, int):
-			raise ValueError(f"Tool reference must be int, got {type(ref)}")
-		if ref < 0 or ref >= len(self.tools):
-			raise ValueError(f"Tool reference {ref} out of bounds (0-{len(self.tools)-1})")
-		tool = self.tools[ref]
-		if tool is None:
-			raise ValueError(f"Tool at index {ref} is None")
-		return tool
 
 
 class AgentApp:

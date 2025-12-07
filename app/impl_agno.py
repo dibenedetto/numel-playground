@@ -307,6 +307,7 @@ class _AgnoAgentApp(AgentApp):
 			interfaces = [AGUI(agent=agent)]
 		)
 		app = agent_os.get_app()
+		agent.agent_os = agent_os
 		return app
 
 

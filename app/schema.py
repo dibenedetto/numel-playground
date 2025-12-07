@@ -65,11 +65,6 @@ class ConfigModel(BaseModel):
 	data : Optional[Any] = None  # custom data
 
 
-class MessageModel(ConfigModel):
-	content_type : str
-	content      : Optional[Any] = None
-
-
 class InfoConfig(ConfigModel):
 	version      : Optional[str      ] = None
 	name         : Optional[str      ] = None
