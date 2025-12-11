@@ -1,0 +1,318 @@
+{
+	"type" : "workflow",
+	"info" : {
+		"name"        : "Customer Support Workflow",
+		"version"     : "1.0.0",
+		"author"      : "marco@numel.app",
+		"description" : "Customer support workflow with decision routing"
+	},
+	"options" : {
+		"tag" : 123
+	},
+	"nodes" : [
+		{
+			"type"    : "info_config",
+			"version" : "1.0.0",
+			"name"    : "Numel Agent One",
+			"author"  : "marco@numel.app"
+		},
+		{
+			"type"    : "backend_config",
+			"name"    : "agno",
+			"version" : ""
+		},
+		{
+			"type"   : "model_config",
+			"source" : "ollama",
+			"id"     : "mistral"
+		},
+		{
+			"type"   : "embedding_config",
+			"source" : "ollama",
+			"id"     : "mistral"
+		},
+		{
+			"type"         : "prompt_config",
+			"description"  : "Standard prompt.",
+			"instructions" : ["Be proactive.", "Provide detailed responses."]
+		},
+		{
+			"type"   : "content_db_config",
+			"engine" : "postgres",
+			"url"    : "storage/content_db_postgres_1.db"
+		},
+		{
+			"type"        : "index_db_config",
+			"engine"      : "chromadb",
+			"url"         : "storage/index_db_chromadb_1",
+			"search_type" : "hybrid"
+		},
+		{
+			"type"    : "memory_mgr_config",
+			"query"   : true,
+			"update"  : true,
+			"managed" : true
+		},
+		{
+			"type"         : "session_mgr_config",
+			"query"        : true,
+			"update"       : false,
+			"summarize"    : true,
+			"history_size" : 8
+		},
+		{
+			"type"         : "knowledge_mgr_config",
+			"query"        : false,
+			"description"  : null,
+			"max_results"  : 5,
+			"urls"         : []
+		},
+		{
+			"type" : "tool_config",
+			"name" : "wikimods",
+			"args" : null,
+			"ref"  : null
+		},
+		{
+			"type"     : "agent_options_config",
+			"markdown" : true
+		},
+		{
+			"type"  : "agent_config",
+			"tools" : ["t1"]
+		},
+
+
+
+
+		{
+			"type" : "start_node"
+		},
+		{
+			"type"  : "user_input_node",
+			"extra" : {
+				"title"   : "User INPUT Message",
+				"message" : "Enter your name: ",
+				"color"   : "yellow"
+			}
+		},
+		{
+			"type"   : "transform_node",
+			"lang"   : "python",
+			"script" : "__target = 'general'\nif 'password' in str(input).lower():\n\t__target = 'technical'\nelif 'payment' in str(input).lower():\n\t__target = 'billing'",
+			"extra" : {
+				"name"  : "The Transformer",
+				"color" : "#FFA500"
+			}
+		},
+		{
+			"type"    : "switch",
+			"lang"    : "python",
+			"script"  : "val = {'general': 'v1', 'technical: 'v2', 'billing': 'v3'}.get(__value, 'v4')",
+			"cases"   : ["c1", "c2", "c3"]
+		},
+		{
+			"type"  : "agent",
+			"extra" : {
+				"name" : "Tech Support Agent"
+			}
+		},
+		{
+			"type"  : "agent",
+			"extra" : {
+				"name" : "Billing Support Agent"
+			}
+		},
+		{
+			"type"  : "agent",
+			"extra" : {
+				"name" : "General Support Agent"
+			}
+		},
+		{
+			"type"     : "merge",
+			"strategy" : "first",
+			"sources"  : ["a1", "a2", "a3"],
+			"extra" : {
+				"color" : "#BCD4E6"
+			}
+		},
+		{
+			"type"  : "user_output_node",
+			"extra" : {
+				"title" : "User OUTPUT Message"
+			}
+		},
+		{
+			"type" : "end"
+		}
+	],
+	"edges" : [
+		{
+			"source"      : 0,
+			"target"      : 12,
+			"source_slot" : "get",
+			"target_slot" : "info",
+			"extra"       : {
+				"name"  : "Test edge",
+				"color" : "#01FF2A"
+			}
+		},
+		{
+			"source"      : 1,
+			"target"      : 12,
+			"source_slot" : "get",
+			"target_slot" : "backend"
+		},
+		{
+			"source"      : 2,
+			"target"      : 4,
+			"source_slot" : "get",
+			"target_slot" : "model",
+			"extra"       : {
+				"name" : "nutri-3"
+			}
+		},
+		{
+			"source"      : 4,
+			"target"      : 7,
+			"source_slot" : "get",
+			"target_slot" : "prompt"
+		},
+		{
+			"source"      : 4,
+			"target"      : 12,
+			"source_slot" : "get",
+			"target_slot" : "prompt"
+		},
+		{
+			"source"      : 5,
+			"target"      : 9,
+			"source_slot" : "get",
+			"target_slot" : "content_db",
+			"extra"       : {
+				"color" : "#FF5733"
+			}
+		},
+		{
+			"source"      : 5,
+			"target"      : 12,
+			"source_slot" : "get",
+			"target_slot" : "content_db",
+			"extra"       : {
+				"color" : "#FF5733"
+			}
+		},
+		{
+			"source"      : 6,
+			"target"      : 9,
+			"source_slot" : "get",
+			"target_slot" : "index_db"
+		},
+		{
+			"source"      : 7,
+			"target"      : 12,
+			"source_slot" : "get",
+			"target_slot" : "memory_mgr"
+		},
+		{
+			"source"      : 8,
+			"target"      : 12,
+			"source_slot" : "get",
+			"target_slot" : "session_mgr"
+		},
+		{
+			"source"      : 9,
+			"target"      : 12,
+			"source_slot" : "get",
+			"target_slot" : "knowledge_mgr"
+		},
+		{
+			"source"      : 10,
+			"target"      : 12,
+			"source_slot" : "get",
+			"target_slot" : "tools.t1"
+		},
+		{
+			"source"      : 11,
+			"target"      : 12,
+			"source_slot" : "get",
+			"target_slot" : "options"
+		},
+
+
+
+		{
+			"source"      : 13,
+			"target"      : 14,
+			"source_slot" : "start",
+			"target_slot" : "query"
+		},
+		{
+			"source"      : 14,
+			"target"      : 15,
+			"source_slot" : "message",
+			"target_slot" : "source"
+		},
+		{
+			"source"      : 15,
+			"target"      : 16,
+			"source_slot" : "target",
+			"target_slot" : "value"
+		},
+		{
+			"source"      : 16,
+			"target"      : 17,
+			"source_slot" : "cases.c1",
+			"target_slot" : "request"
+		},
+		{
+			"source"      : 16,
+			"target"      : 18,
+			"source_slot" : "cases.c2",
+			"target_slot" : "request"
+		},
+		{
+			"source"      : 16,
+			"target"      : 19,
+			"source_slot" : "cases.c3",
+			"target_slot" : "request"
+		},
+		{
+			"source"      : 16,
+			"target"      : 22,
+			"source_slot" : "default",
+			"target_slot" : "end"
+		},
+		{
+			"source"      : 17,
+			"target"      : 20,
+			"source_slot" : "response",
+			"target_slot" : "sources.a1"
+		},
+		{
+			"source"      : 18,
+			"target"      : 20,
+			"source_slot" : "response",
+			"target_slot" : "sources.a2"
+		},
+		{
+			"source"      : 19,
+			"target"      : 20,
+			"source_slot" : "response",
+			"target_slot" : "sources.a3"
+		},
+		{
+			"source"      : 20,
+			"target"      : 21,
+			"source_slot" : "target",
+			"target_slot" : "message"
+		},
+		{
+			"source"      : 21,
+			"target"      : 22,
+			"source_slot" : "get",
+			"target_slot" : "end"
+		}
+	]
+}
