@@ -1,0 +1,89 @@
+{
+	"type"  : "workflow",
+	"nodes" : [
+		{
+			"type"    : "backend_config",
+			"name"    : "agno",
+			"version" : ""
+		},
+		{
+			"type"   : "model_config",
+			"source" : "ollama",
+			"id"     : "mistral"
+		},
+		{
+			"type"   : "embedding_config",
+			"source" : "ollama",
+			"id"     : "mistral"
+		},
+		{
+			"type"         : "prompt_config",
+			"description"  : "Standard prompt.",
+			"instructions" : ["Be proactive.", "Provide detailed responses."]
+		},
+		{
+			"type" : "agent_config"
+		},
+
+
+
+
+		{
+			"type" : "start_node"
+		},
+		{
+			"type" : "agent_node"
+		},
+		{
+			"type" : "end_node"
+		}
+	],
+	"edges" : [
+		{
+			"source"      : 0,
+			"target"      : 4,
+			"source_slot" : "get",
+			"target_slot" : "backend"
+		},
+		{
+			"source"      : 1,
+			"target"      : 3,
+			"source_slot" : "get",
+			"target_slot" : "model"
+		},
+		{
+			"source"      : 2,
+			"target"      : 3,
+			"source_slot" : "get",
+			"target_slot" : "embedding"
+		},
+		{
+			"source"      : 3,
+			"target"      : 4,
+			"source_slot" : "get",
+			"target_slot" : "prompt"
+		},
+
+
+		{
+			"source"      : 4,
+			"target"      : 6,
+			"source_slot" : "get",
+			"target_slot" : "config"
+		},
+
+
+		{
+			"source"      : 5,
+			"target"      : 6,
+			"source_slot" : "start",
+			"target_slot" : "request"
+		},
+		{
+			"source"      : 6,
+			"target"      : 7,
+			"source_slot" : "response",
+			"target_slot" : "end"
+		}
+	]
+}

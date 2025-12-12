@@ -174,65 +174,6 @@ async def export_schema():
 	return schema
 
 
-# @ctrl_app.post("/workflow/schema")
-# async def export_workflow_schema():
-# 	"""Export workflow schema with node type definitions from Pydantic"""
-# 	global workflow_schema
-	
-# 	# Import the Pydantic enum to get valid node types
-# 	from workflow_schema import WorkflowNodeType
-	
-# 	# Build node type metadata from the Pydantic schema
-# 	node_types = {}
-# 	for node_type in WorkflowNodeType:
-# 		type_name = node_type.value
-		
-# 		# Define slot configurations based on node type
-# 		if type_name == "start":
-# 			node_types[type_name] = {
-# 				"inputs": [],
-# 				"outputs": ["output"],
-# 				"description": "Start node - outputs initial workflow variables"
-# 			}
-# 		elif type_name == "end":
-# 			node_types[type_name] = {
-# 				"inputs": ["input"],
-# 				"outputs": [],
-# 				"description": "End node - collects final outputs"
-# 			}
-# 		elif type_name in ["agent", "prompt", "tool", "transform"]:
-# 			node_types[type_name] = {
-# 				"inputs": ["input"],
-# 				"outputs": ["output"],
-# 				"description": f"{type_name.title()} node - processes input data"
-# 			}
-# 		elif type_name == "decision":
-# 			node_types[type_name] = {
-# 				"inputs": ["input"],
-# 				"outputs": ["dynamic"],  # Outputs determined by branches config
-# 				"description": "Decision node - routes data based on conditions"
-# 			}
-# 		elif type_name == "merge":
-# 			node_types[type_name] = {
-# 				"inputs": ["dynamic"],  # Multiple inputs
-# 				"outputs": ["output"],
-# 				"description": "Merge node - combines multiple inputs"
-# 			}
-# 		elif type_name == "user_input":
-# 			node_types[type_name] = {
-# 				"inputs": [],
-# 				"outputs": ["output"],
-# 				"description": "User input node - waits for user input"
-# 			}
-	
-# 	# Return both the schema text and node type metadata
-# 	return {
-# 		"schema": workflow_schema["schema"],
-# 		"node_types": node_types,
-# 		"valid_types": [t.value for t in WorkflowNodeType]
-# 	}
-
-
 @ctrl_app.post("/workflow/schema")
 async def export_workflow_schema():
 	"""Export workflow schema"""

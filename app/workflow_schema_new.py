@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from enum     import Enum
 from pydantic import BaseModel, ConfigDict
-from typing   import Annotated, Any, Dict, Generic, List, Optional, TypeVar
+from typing   import Annotated, Any, Dict, Generic, List, Optional, TypeVar, Union
 
 
 class FieldRole(str, Enum):
@@ -254,13 +254,13 @@ class Message(BaseModel, Generic[TValue]):
 	value : Optional[TValue] = None
 
 
-MessageAny   = Message[Any]
-MessageBool  = Message[bool]
-MessageInt   = Message[int]
-MessageFloat = Message[float]
-MessageStr   = Message[str]
-MessageList  = Message[List[Any]]
-MessageDict  = Message[Dict[str, Any]]
+MessageAny   = Union[Any           , Message[Any           ]]
+MessageBool  = Union[bool          , Message[bool          ]]
+MessageInt   = Union[int           , Message[int           ]]
+MessageFloat = Union[float         , Message[float         ]]
+MessageStr   = Union[str           , Message[str           ]]
+MessageList  = Union[List[Any]     , Message[List[Any]     ]]
+MessageDict  = Union[Dict[str, Any], Message[Dict[str, Any]]]
 
 
 SkipMessage : MessageAny = Message(type="skip", value=None)
@@ -335,20 +335,6 @@ class MergeNode(BaseNode):
 	target   : Annotated[MessageAny           , FieldRole.OUTPUT     ]
 
 
-MessageToolConfig = Message[ToolConfig]
-
-
-class ToolNode(BaseNode):
-	type      : Annotated[str              , FieldRole.CONSTANT] = "tool_node"
-	config    : Annotated[MessageToolConfig, FieldRole.INPUT   ]
-	arguments : Annotated[MessageDict      , FieldRole.INPUT   ]
-	source    : Annotated[MessageAny       , FieldRole.INPUT   ]
-	target    : Annotated[MessageAny       , FieldRole.OUTPUT  ]
-
-
-MessageAgentConfig = Message[AgentConfig]
-
-
 class UserInputNode(BaseNode):
 	type    : Annotated[str       , FieldRole.CONSTANT] = "user_input_node"
 	query   : Annotated[MessageAny, FieldRole.INPUT   ]
@@ -359,6 +345,20 @@ class UserOutputNode(BaseNode):
 	type    : Annotated[str       , FieldRole.CONSTANT] = "user_output_node"
 	message : Annotated[MessageAny, FieldRole.INPUT   ]
 	get     : Annotated[MessageAny, FieldRole.OUTPUT  ]
+
+
+MessageToolConfig = Union[ToolConfig, Message[ToolConfig]]
+
+
+class ToolNode(BaseNode):
+	type      : Annotated[str              , FieldRole.CONSTANT] = "tool_node"
+	config    : Annotated[MessageToolConfig, FieldRole.INPUT   ]
+	arguments : Annotated[MessageDict      , FieldRole.INPUT   ]
+	source    : Annotated[MessageAny       , FieldRole.INPUT   ]
+	target    : Annotated[MessageAny       , FieldRole.OUTPUT  ]
+
+
+MessageAgentConfig = Union[AgentConfig, Message[AgentConfig]]
 
 
 class AgentNode(BaseNode):
@@ -380,9 +380,13 @@ class WorkflowOptionsConfig(BaseConfig):
 		return self
 
 
-class Workflow(BaseModel):
+class Workflow(BaseConfig):
 	type     : Annotated[str                            , FieldRole.CONSTANT] = "workflow"
 	info     : Annotated[Optional[InfoConfig]           , FieldRole.INPUT   ] = None
 	options  : Annotated[Optional[WorkflowOptionsConfig], FieldRole.INPUT   ] = None
 	nodes    : Annotated[Optional[List[BaseNode]]       , FieldRole.INPUT   ] = []
 	edges    : Annotated[Optional[List[Edge]]           , FieldRole.INPUT   ] = []
+
+	@property
+	def get(self) -> Annotated[Workflow, FieldRole.OUTPUT]: # type: ignore
+		return self

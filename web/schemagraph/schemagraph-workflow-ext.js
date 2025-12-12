@@ -1,7 +1,7 @@
 // ========================================================================
 // SCHEMAGRAPH WORKFLOW EXTENSION
 // Adds support for workflow-style schemas with FieldRole annotations
-// and nodes/edges JSON format
+// and nodes/edges JSON format. Supports class inheritance and type aliases.
 // 
 // Usage: Add this file after schemagraph.js
 // ========================================================================
@@ -29,19 +29,17 @@ class WorkflowNode extends Node {
     this.workflowType = config.workflowType || '';
     this.fieldRoles = config.fieldRoles || {};
     this.constantFields = config.constantFields || {};
+    this.nativeInputs = {};
+    this.multiInputs = {};
     this.multiOutputs = {};
     this.workflowIndex = null;
     this.extra = {};
   }
 
-  /**
-   * Get slot index by field name for inputs
-   */
   getInputSlotByName(name) {
     for (let i = 0; i < this.inputs.length; i++) {
       if (this.inputs[i].name === name) return i;
     }
-    // Check for dotted notation (e.g., "tools.t1")
     const dotIdx = name.indexOf('.');
     if (dotIdx !== -1) {
       const baseName = name.substring(0, dotIdx);
@@ -52,14 +50,10 @@ class WorkflowNode extends Node {
     return -1;
   }
 
-  /**
-   * Get slot index by field name for outputs
-   */
   getOutputSlotByName(name) {
     for (let i = 0; i < this.outputs.length; i++) {
       if (this.outputs[i].name === name) return i;
     }
-    // Check for dotted notation (e.g., "cases.c1")
     const dotIdx = name.indexOf('.');
     if (dotIdx !== -1) {
       const baseName = name.substring(0, dotIdx);
@@ -70,19 +64,14 @@ class WorkflowNode extends Node {
     return -1;
   }
 
-  /**
-   * Execute node and build output data
-   */
   onExecute() {
     const data = { ...this.constantFields };
 
     for (let i = 0; i < this.inputs.length; i++) {
       const input = this.inputs[i];
       const fieldName = input.name;
-      const role = this.fieldRoles[fieldName];
 
       if (this.multiInputs && this.multiInputs[i]) {
-        // Collect multi-input values with their keys
         const mi = this.multiInputs[i];
         if (mi.keys && Object.keys(mi.keys).length > 0) {
           const values = {};
@@ -100,7 +89,6 @@ class WorkflowNode extends Node {
             data[fieldName] = values;
           }
         } else if (mi.links && mi.links.length > 0) {
-          // Unnamed multi-inputs (array)
           const values = [];
           for (const linkId of mi.links) {
             const link = this.graph.links[linkId];
@@ -116,7 +104,6 @@ class WorkflowNode extends Node {
           }
         }
       } else {
-        // Regular input
         const connectedVal = this.getInputData(i);
         if (connectedVal !== null && connectedVal !== undefined) {
           data[fieldName] = connectedVal;
@@ -132,7 +119,6 @@ class WorkflowNode extends Node {
       }
     }
 
-    // Set output data for all outputs
     for (let i = 0; i < this.outputs.length; i++) {
       this.setOutputData(i, data);
     }
@@ -157,24 +143,35 @@ class WorkflowNode extends Node {
 
 /**
  * WorkflowSchemaParser - Parses Python schemas with FieldRole annotations
+ * Supports class inheritance and type aliases
  */
 class WorkflowSchemaParser {
   constructor() {
     this.models = {};
     this.fieldRoles = {};
     this.defaults = {};
+    this.parents = {};
+    this.rawModels = {};
+    this.rawRoles = {};
+    this.rawDefaults = {};
+    this.typeAliases = {};
   }
 
-  /**
-   * Parse schema code and extract models with field roles
-   */
   parse(code) {
     this.models = {};
     this.fieldRoles = {};
     this.defaults = {};
+    this.parents = {};
+    this.rawModels = {};
+    this.rawRoles = {};
+    this.rawDefaults = {};
+
+    // First pass: extract type aliases
+    this.typeAliases = this._extractTypeAliases(code);
 
     const lines = code.split('\n');
     let currentModel = null;
+    let currentParent = null;
     let currentFields = [];
     let currentRoles = {};
     let currentDefaults = {};
@@ -184,14 +181,23 @@ class WorkflowSchemaParser {
       const line = lines[i];
       const trimmed = line.trim();
 
-      // Skip empty lines and comments
       if (!trimmed || trimmed.startsWith('#')) continue;
 
-      // Match class definition
-      const classMatch = trimmed.match(/^class\s+(\w+)\s*\(/);
+      // Match class definition with parent class
+      const classMatch = trimmed.match(/^class\s+(\w+)\s*\(([^)]+)\)/);
       if (classMatch) {
-        this._saveCurrentModel(currentModel, currentFields, currentRoles, currentDefaults);
+        this._saveRawModel(currentModel, currentParent, currentFields, currentRoles, currentDefaults);
         currentModel = classMatch[1];
+        const parentStr = classMatch[2].trim();
+        const parentParts = parentStr.split(',').map(p => p.trim());
+        currentParent = null;
+        for (const p of parentParts) {
+          const cleanParent = p.split('[')[0].trim();
+          if (!['BaseModel', 'Generic', 'Enum', 'str'].includes(cleanParent)) {
+            currentParent = cleanParent;
+            break;
+          }
+        }
         currentFields = [];
         currentRoles = {};
         currentDefaults = {};
@@ -199,21 +205,20 @@ class WorkflowSchemaParser {
         continue;
       }
 
-      // Match @property decorator
       if (trimmed === '@property') {
         inPropertyDef = true;
         continue;
       }
 
-      // Match property definition with FieldRole annotation
       if (inPropertyDef && currentModel) {
         const propMatch = trimmed.match(/def\s+(\w+)\s*\([^)]*\)\s*->\s*Annotated\[([^,\]]+),\s*FieldRole\.(\w+)\]/);
         if (propMatch) {
           const [, propName, propType, role] = propMatch;
+          const resolvedType = this._resolveTypeAlias(propType.trim());
           currentFields.push({
             name: propName,
-            type: this._parseType(propType.trim()),
-            rawType: propType.trim(),
+            type: this._parseType(resolvedType),
+            rawType: resolvedType,
             isProperty: true
           });
           currentRoles[propName] = role.toLowerCase();
@@ -222,7 +227,6 @@ class WorkflowSchemaParser {
         continue;
       }
 
-      // Match field with Annotated type and FieldRole
       if (currentModel && trimmed.includes(':') && !trimmed.startsWith('def ')) {
         const fieldData = this._parseFieldLine(trimmed);
         if (fieldData) {
@@ -239,8 +243,12 @@ class WorkflowSchemaParser {
       }
     }
 
-    // Save last model
-    this._saveCurrentModel(currentModel, currentFields, currentRoles, currentDefaults);
+    this._saveRawModel(currentModel, currentParent, currentFields, currentRoles, currentDefaults);
+
+    // Resolve inheritance for all models
+    for (const modelName in this.rawModels) {
+      this._resolveInheritance(modelName);
+    }
 
     return {
       models: this.models,
@@ -249,37 +257,115 @@ class WorkflowSchemaParser {
     };
   }
 
-  _saveCurrentModel(name, fields, roles, defaults) {
+  _saveRawModel(name, parent, fields, roles, defaults) {
     if (name && fields.length > 0) {
-      this.models[name] = fields;
-      this.fieldRoles[name] = roles;
-      this.defaults[name] = defaults;
+      this.rawModels[name] = fields;
+      this.rawRoles[name] = roles;
+      this.rawDefaults[name] = defaults;
+      this.parents[name] = parent;
     }
   }
 
+  _resolveInheritance(modelName) {
+    if (this.models[modelName]) return;
+
+    const chain = [];
+    let current = modelName;
+    while (current && this.rawModels[current]) {
+      chain.push(current);
+      current = this.parents[current];
+    }
+
+    const mergedFields = [];
+    const mergedRoles = {};
+    const mergedDefaults = {};
+    const seenFields = new Set();
+
+    for (let i = chain.length - 1; i >= 0; i--) {
+      const className = chain[i];
+      const fields = this.rawModels[className] || [];
+      const roles = this.rawRoles[className] || {};
+      const defaults = this.rawDefaults[className] || {};
+
+      for (const field of fields) {
+        if (seenFields.has(field.name)) {
+          const idx = mergedFields.findIndex(f => f.name === field.name);
+          if (idx !== -1) {
+            mergedFields[idx] = { ...field };
+          }
+        } else {
+          mergedFields.push({ ...field });
+          seenFields.add(field.name);
+        }
+        mergedRoles[field.name] = roles[field.name];
+        if (defaults[field.name] !== undefined) {
+          mergedDefaults[field.name] = defaults[field.name];
+        }
+      }
+    }
+
+    this.models[modelName] = mergedFields;
+    this.fieldRoles[modelName] = mergedRoles;
+    this.defaults[modelName] = mergedDefaults;
+  }
+
+  _extractTypeAliases(code) {
+    const aliases = {};
+    const lines = code.split('\n');
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      const aliasMatch = trimmed.match(/^(\w+)\s*=\s*(Union\[.+\]|[A-Z]\w+(?:\[.+\])?)$/);
+      if (aliasMatch) {
+        const [, name, value] = aliasMatch;
+        if (!/^[A-Z_]+$/.test(name) && !name.startsWith('DEFAULT_')) {
+          aliases[name] = value;
+        }
+      }
+    }
+    
+    return aliases;
+  }
+
+  _resolveTypeAlias(typeStr) {
+    if (!typeStr || !this.typeAliases) return typeStr;
+    
+    if (this.typeAliases[typeStr]) {
+      return this.typeAliases[typeStr];
+    }
+    
+    for (const [alias, resolved] of Object.entries(this.typeAliases)) {
+      if (typeStr.includes(alias)) {
+        typeStr = typeStr.replace(new RegExp(`\\b${alias}\\b`, 'g'), resolved);
+      }
+    }
+    
+    return typeStr;
+  }
+
   _parseFieldLine(line) {
-    // Pattern: field_name : Annotated[Type, FieldRole.ROLE] = default
     const annotatedMatch = line.match(
       /^(\w+)\s*:\s*Annotated\[\s*([^,\]]+(?:\[[^\]]*\])?)\s*,\s*FieldRole\.(\w+)\s*\](?:\s*=\s*(.+))?$/
     );
 
     if (annotatedMatch) {
       const [, name, type, role, defaultVal] = annotatedMatch;
+      const resolvedType = this._resolveTypeAlias(type.trim());
       return {
         name,
-        type: type.trim(),
+        type: resolvedType,
         role: role.toLowerCase(),
         default: defaultVal ? this._parseDefaultValue(defaultVal.trim()) : undefined
       };
     }
 
-    // Simple field without Annotated (treat as INPUT)
     const simpleMatch = line.match(/^(\w+)\s*:\s*([^=]+?)(?:\s*=\s*(.+))?$/);
     if (simpleMatch && !simpleMatch[1].startsWith('_')) {
       const [, name, type, defaultVal] = simpleMatch;
+      const resolvedType = this._resolveTypeAlias(type.trim());
       return {
         name,
-        type: type.trim(),
+        type: resolvedType,
         role: FieldRole.INPUT,
         default: defaultVal ? this._parseDefaultValue(defaultVal.trim()) : undefined
       };
@@ -296,25 +382,23 @@ class WorkflowSchemaParser {
     if (valStr === 'True') return true;
     if (valStr === 'False') return false;
 
-    // String literals
     if ((valStr.startsWith('"') && valStr.endsWith('"')) ||
         (valStr.startsWith("'") && valStr.endsWith("'"))) {
       return valStr.slice(1, -1);
     }
 
-    // Numbers
     const num = parseFloat(valStr);
     if (!isNaN(num) && valStr.match(/^-?\d+\.?\d*$/)) return num;
 
-    // Empty collections
     if (valStr === '[]') return [];
     if (valStr === '{}') return {};
 
-    // Message type: Message("type", "value")
-    const msgMatch = valStr.match(/Message\s*\(\s*["']([^"']*)["']\s*,\s*["']([^"']*)["']\s*\)/);
+    const msgMatch = valStr.match(/Message\s*\(\s*type\s*=\s*["']([^"']*)["']\s*,\s*value\s*=\s*["']([^"']*)["']\s*\)/);
     if (msgMatch) return msgMatch[2];
+    
+    const msgMatch2 = valStr.match(/Message\s*\(\s*["']([^"']*)["']\s*,\s*["']([^"']*)["']\s*\)/);
+    if (msgMatch2) return msgMatch2[2];
 
-    // Reference to constant
     if (valStr.match(/^[A-Z_]+$/)) return { _ref: valStr };
 
     return valStr;
@@ -326,6 +410,11 @@ class WorkflowSchemaParser {
     if (typeStr.startsWith('Optional[')) {
       const inner = this._extractBracketContent(typeStr, 9);
       return { kind: 'optional', inner: this._parseType(inner) };
+    }
+    if (typeStr.startsWith('Union[')) {
+      const inner = this._extractBracketContent(typeStr, 6);
+      const types = this._splitUnionTypes(inner);
+      return { kind: 'union', types: types.map(t => this._parseType(t)), inner };
     }
     if (typeStr.startsWith('List[')) {
       const inner = this._extractBracketContent(typeStr, 5);
@@ -341,6 +430,25 @@ class WorkflowSchemaParser {
     }
 
     return { kind: 'basic', name: typeStr };
+  }
+
+  _splitUnionTypes(str) {
+    const result = [];
+    let depth = 0;
+    let current = '';
+    for (let i = 0; i < str.length; i++) {
+      const c = str[i];
+      if (c === '[') depth++;
+      if (c === ']') depth--;
+      if (c === ',' && depth === 0) {
+        if (current.trim()) result.push(current.trim());
+        current = '';
+      } else {
+        current += c;
+      }
+    }
+    if (current.trim()) result.push(current.trim());
+    return result;
   }
 
   _extractBracketContent(str, startIdx) {
@@ -364,9 +472,6 @@ class WorkflowNodeGenerator {
     this.graph = graph;
   }
 
-  /**
-   * Generate node types for all models in parsed schema
-   */
   generate(schemaName, parsed) {
     const { models, fieldRoles, defaults } = parsed;
 
@@ -385,7 +490,6 @@ class WorkflowNodeGenerator {
     const graph = this.graph;
     const fullTypeName = `${schemaName}.${modelName}`;
 
-    // Determine the workflow type from constant 'type' field
     let workflowType = modelName.toLowerCase();
     for (const field of fields) {
       if (field.name === 'type' && roles[field.name] === FieldRole.CONSTANT) {
@@ -394,7 +498,6 @@ class WorkflowNodeGenerator {
       }
     }
 
-    // Create node class dynamically
     const nodeConfig = {
       schemaName,
       modelName,
@@ -403,7 +506,6 @@ class WorkflowNodeGenerator {
       constantFields: {}
     };
 
-    // Separate fields by role
     const inputFields = [];
     const outputFields = [];
     const multiInputFields = [];
@@ -432,17 +534,15 @@ class WorkflowNodeGenerator {
       }
     }
 
-    // Create the node class
     const GeneratedWorkflowNode = class extends WorkflowNode {
       constructor() {
         super(`${schemaName}.${modelName}`, nodeConfig);
 
-        let inputIdx = 0;
-
         this.nativeInputs = {};
         this.multiInputs = {};
 
-        // Add regular inputs
+        let inputIdx = 0;
+
         for (const field of inputFields) {
           this.addInput(field.name, field.rawType);
           
@@ -456,7 +556,6 @@ class WorkflowNodeGenerator {
           inputIdx++;
         }
 
-        // Add multi-inputs
         for (const field of multiInputFields) {
           this.addInput(field.name, field.rawType);
           this.multiInputs[inputIdx] = {
@@ -467,14 +566,12 @@ class WorkflowNodeGenerator {
           inputIdx++;
         }
 
-        // Add regular outputs
         let outputIdx = 0;
         for (const field of outputFields) {
           this.addOutput(field.name, field.rawType);
           outputIdx++;
         }
 
-        // Add multi-outputs
         for (const field of multiOutputFields) {
           this.addOutput(field.name, field.rawType);
           this.multiOutputs[outputIdx] = {
@@ -485,7 +582,6 @@ class WorkflowNodeGenerator {
           outputIdx++;
         }
 
-        // Calculate node size
         const maxSlots = Math.max(this.inputs.length, this.outputs.length, 1);
         this.size = [220, Math.max(80, 35 + maxSlots * 25)];
       }
@@ -493,23 +589,81 @@ class WorkflowNodeGenerator {
       _isNativeType(typeStr) {
         if (!typeStr) return false;
         const natives = ['str', 'int', 'bool', 'float', 'string', 'integer', 'Any'];
-        const base = typeStr.replace(/Optional\[|\]/g, '').split('[')[0].trim();
         
-        // Check Message types
-        if (typeStr.includes('Message')) {
-          const msgMatch = typeStr.match(/Message\w*$/);
-          if (msgMatch) return true;
+        let base = typeStr.replace(/Optional\[|\]/g, '').trim();
+        
+        if (base.startsWith('Union[') || base.includes('|')) {
+          const unionContent = base.startsWith('Union[') 
+            ? base.slice(6, -1) 
+            : base;
+          const parts = this._splitUnionTypes(unionContent);
+          for (const part of parts) {
+            const trimmed = part.trim();
+            if (trimmed.startsWith('Message')) return true;
+            if (natives.includes(trimmed.split('[')[0])) return true;
+          }
+          return false;
         }
         
+        if (typeStr.includes('Message')) {
+          return true;
+        }
+        
+        base = base.split('[')[0].trim();
         return natives.includes(base);
       }
 
+      _splitUnionTypes(str) {
+        const result = [];
+        let depth = 0;
+        let current = '';
+        for (let i = 0; i < str.length; i++) {
+          const c = str[i];
+          if (c === '[') depth++;
+          if (c === ']') depth--;
+          if ((c === ',' || c === '|') && depth === 0) {
+            if (current.trim()) result.push(current.trim());
+            current = '';
+          } else {
+            current += c;
+          }
+        }
+        if (current.trim()) result.push(current.trim());
+        return result;
+      }
+
       _getNativeBaseType(typeStr) {
+        if (!typeStr) return 'str';
+        
+        if (typeStr.includes('Message[')) {
+          const match = typeStr.match(/Message\[([^\]]+)\]/);
+          if (match) {
+            return this._getNativeBaseType(match[1]);
+          }
+        }
+        
+        if (typeStr.includes('Union[') || typeStr.includes('|')) {
+          const parts = this._splitUnionTypes(
+            typeStr.replace(/^Union\[|\]$/g, '')
+          );
+          for (const part of parts) {
+            const trimmed = part.trim();
+            if (!trimmed.startsWith('Message')) {
+              return this._getNativeBaseType(trimmed);
+            }
+          }
+          if (parts.length > 0 && parts[0].includes('Message[')) {
+            const match = parts[0].match(/Message\[([^\]]+)\]/);
+            if (match) return this._getNativeBaseType(match[1]);
+          }
+        }
+        
         if (typeStr.includes('int') || typeStr.includes('Int')) return 'int';
         if (typeStr.includes('bool') || typeStr.includes('Bool')) return 'bool';
         if (typeStr.includes('float') || typeStr.includes('Float')) return 'float';
         if (typeStr.includes('Dict') || typeStr.includes('dict')) return 'dict';
         if (typeStr.includes('List') || typeStr.includes('list')) return 'list';
+        if (typeStr.includes('Any')) return 'str';
         return 'str';
       }
 
@@ -521,12 +675,12 @@ class WorkflowNodeGenerator {
           case 'float': return 0.0;
           case 'dict': return '{}';
           case 'list': return '[]';
+          case 'str':
           default: return '';
         }
       }
     };
 
-    // Register the node type
     graph.nodeTypes[fullTypeName] = GeneratedWorkflowNode;
     console.log(`  ✓ Registered workflow node type: ${fullTypeName}`);
   }
@@ -541,9 +695,6 @@ class WorkflowImporter {
     this.eventBus = eventBus;
   }
 
-  /**
-   * Import workflow from JSON data
-   */
   import(workflowData, schemaName, schema, camera = null) {
     console.log('=== WORKFLOW IMPORT STARTED ===');
     console.log('Schema:', schemaName);
@@ -554,22 +705,22 @@ class WorkflowImporter {
       throw new Error('Invalid workflow data: missing nodes array');
     }
 
-    // Clear current graph
     this.graph.nodes = [];
     this.graph.links = {};
     this.graph._nodes_by_id = {};
     this.graph.last_link_id = 0;
 
-    // Calculate layout positions
     const positions = this._calculateLayout(workflowData);
 
-    // Create type map
     const typeMap = {};
-    for (let [key, value] of Object.entries(schema.defaults)) {
-        typeMap[value.type] = key;
+    if (schema && schema.defaults) {
+      for (let [key, value] of Object.entries(schema.defaults)) {
+        if (value && value.type) {
+          typeMap[value.type] = key;
+        }
+      }
     }
 
-    // Create nodes
     const createdNodes = [];
     for (let i = 0; i < workflowData.nodes.length; i++) {
       const nodeData = workflowData.nodes[i];
@@ -583,14 +734,12 @@ class WorkflowImporter {
       }
     }
 
-    // Create edges
     if (workflowData.edges) {
       for (const edgeData of workflowData.edges) {
         this._createEdge(edgeData, createdNodes);
       }
     }
 
-    // Execute all nodes to propagate data
     for (const node of this.graph.nodes) {
       if (node) node.onExecute();
     }
@@ -620,7 +769,6 @@ class WorkflowImporter {
       node.pos = [position.x, position.y];
       node.workflowIndex = index;
 
-      // Apply extra properties
       if (nodeData.extra) {
         node.extra = { ...nodeData.extra };
         if (nodeData.extra.title || nodeData.extra.name) {
@@ -631,7 +779,6 @@ class WorkflowImporter {
         }
       }
 
-      // Populate field values
       this._populateNodeFields(node, nodeData);
 
       return node;
@@ -642,15 +789,14 @@ class WorkflowImporter {
   }
 
   _resolveNodeType(nodeType, schemaName, typeMap) {
-    // Try direct match
-    let fullType = `${schemaName}.${typeMap[nodeType]}`;
+    if (typeMap && typeMap[nodeType]) {
+      const fullType = `${schemaName}.${typeMap[nodeType]}`;
+      if (this.graph.nodeTypes[fullType]) return fullType;
+    }
+
+    let fullType = `${schemaName}.${this._snakeToPascal(nodeType)}`;
     if (this.graph.nodeTypes[fullType]) return fullType;
 
-    // Try with PascalCase conversion
-    fullType = `${schemaName}.${this._snakeToPascal(nodeType)}`;
-    if (this.graph.nodeTypes[fullType]) return fullType;
-
-    // Try without _config/_node suffix
     const baseName = nodeType.replace(/_config$|_node$/, '');
     fullType = `${schemaName}.${this._snakeToPascal(baseName)}Config`;
     if (this.graph.nodeTypes[fullType]) return fullType;
@@ -658,7 +804,6 @@ class WorkflowImporter {
     fullType = `${schemaName}.${this._snakeToPascal(baseName)}Node`;
     if (this.graph.nodeTypes[fullType]) return fullType;
 
-    // Try exact pascal case
     fullType = `${schemaName}.${this._snakeToPascal(nodeType)}`;
     if (this.graph.nodeTypes[fullType]) return fullType;
 
@@ -700,7 +845,6 @@ class WorkflowImporter {
       return;
     }
 
-    // Resolve slot indices
     const sourceSlotIdx = this._resolveOutputSlot(sourceNode, source_slot);
     const targetSlotIdx = this._resolveInputSlot(targetNode, target_slot);
 
@@ -713,7 +857,6 @@ class WorkflowImporter {
       return;
     }
 
-    // Create the link
     const linkId = ++this.graph.last_link_id;
     const link = new Link(
       linkId,
@@ -724,7 +867,6 @@ class WorkflowImporter {
       sourceNode.outputs[sourceSlotIdx]?.type || 'Any'
     );
 
-    // Store extra info on link
     if (extra) {
       link.extra = { ...extra };
     }
@@ -732,7 +874,6 @@ class WorkflowImporter {
     this.graph.links[linkId] = link;
     sourceNode.outputs[sourceSlotIdx].links.push(linkId);
 
-    // Handle multi-input with key
     const slotKey = this._extractSlotKey(target_slot);
     if (targetNode.multiInputs && targetNode.multiInputs[targetSlotIdx]) {
       targetNode.multiInputs[targetSlotIdx].links.push(linkId);
@@ -743,7 +884,6 @@ class WorkflowImporter {
       targetNode.inputs[targetSlotIdx].link = linkId;
     }
 
-    // Handle multi-output with key
     const sourceKey = this._extractSlotKey(source_slot);
     if (sourceNode.multiOutputs && sourceNode.multiOutputs[sourceSlotIdx]) {
       if (sourceKey) {
@@ -759,11 +899,9 @@ class WorkflowImporter {
   }
 
   _resolveOutputSlot(node, slotName) {
-    // Direct match
     for (let i = 0; i < node.outputs.length; i++) {
       if (node.outputs[i].name === slotName) return i;
     }
-    // Dotted notation (e.g., "cases.c1")
     const baseName = slotName.split('.')[0];
     for (let i = 0; i < node.outputs.length; i++) {
       if (node.outputs[i].name === baseName) return i;
@@ -772,11 +910,9 @@ class WorkflowImporter {
   }
 
   _resolveInputSlot(node, slotName) {
-    // Direct match
     for (let i = 0; i < node.inputs.length; i++) {
       if (node.inputs[i].name === slotName) return i;
     }
-    // Dotted notation (e.g., "sources.a1")
     const baseName = slotName.split('.')[0];
     for (let i = 0; i < node.inputs.length; i++) {
       if (node.inputs[i].name === baseName) return i;
@@ -793,7 +929,6 @@ class WorkflowImporter {
     const positions = [];
     const nodeCount = workflowData.nodes.length;
 
-    // Simple grid layout, can be improved with DAG layout
     const cols = Math.ceil(Math.sqrt(nodeCount));
     const spacingX = 280;
     const spacingY = 180;
@@ -819,9 +954,6 @@ class WorkflowExporter {
     this.graph = graph;
   }
 
-  /**
-   * Export graph to workflow JSON format
-   */
   export(schemaName, workflowInfo = {}) {
     console.log('=== WORKFLOW EXPORT STARTED ===');
 
@@ -833,13 +965,11 @@ class WorkflowExporter {
       edges: []
     };
 
-    // Build node index map
     const nodeToIndex = new Map();
     const workflowNodes = this.graph.nodes.filter(n => 
       n.schemaName === schemaName || n.isWorkflowNode
     );
 
-    // Sort by workflowIndex if available, otherwise by creation order
     workflowNodes.sort((a, b) => {
       if (a.workflowIndex !== undefined && b.workflowIndex !== undefined) {
         return a.workflowIndex - b.workflowIndex;
@@ -847,14 +977,12 @@ class WorkflowExporter {
       return 0;
     });
 
-    // Export nodes
     for (let i = 0; i < workflowNodes.length; i++) {
       const node = workflowNodes[i];
       nodeToIndex.set(node.id, i);
       workflow.nodes.push(this._exportNode(node));
     }
 
-    // Export edges
     for (const linkId in this.graph.links) {
       const link = this.graph.links[linkId];
       const edge = this._exportEdge(link, nodeToIndex);
@@ -874,7 +1002,6 @@ class WorkflowExporter {
       type: node.workflowType || node.constantFields?.type || node.modelName?.toLowerCase() || 'unknown'
     };
 
-    // Add constant fields
     if (node.constantFields) {
       for (const key in node.constantFields) {
         if (key !== 'type') {
@@ -883,16 +1010,13 @@ class WorkflowExporter {
       }
     }
 
-    // Add input field values
     for (let i = 0; i < node.inputs.length; i++) {
       const input = node.inputs[i];
       const fieldName = input.name;
 
-      // Skip if it's a multi-input with connections (handled via edges)
       if (node.multiInputs && node.multiInputs[i]) {
         const mi = node.multiInputs[i];
         if (mi.links.length > 0 || Object.keys(mi.keys).length > 0) {
-          // Export the keys as field names for reference
           if (Object.keys(mi.keys).length > 0) {
             nodeData[fieldName] = Object.keys(mi.keys);
           }
@@ -900,10 +1024,8 @@ class WorkflowExporter {
         }
       }
 
-      // Skip if it has a connection (value comes from edge)
       if (input.link) continue;
 
-      // Export native input value
       if (node.nativeInputs && node.nativeInputs[i] !== undefined) {
         const val = node.nativeInputs[i].value;
         if (val !== null && val !== undefined && val !== '') {
@@ -912,7 +1034,6 @@ class WorkflowExporter {
       }
     }
 
-    // Add extra properties
     if (node.extra && Object.keys(node.extra).length > 0) {
       nodeData.extra = { ...node.extra };
     } else if (node.color || node.title !== `${node.schemaName}.${node.modelName}`) {
@@ -937,11 +1058,9 @@ class WorkflowExporter {
 
     if (sourceIdx === undefined || targetIdx === undefined) return null;
 
-    // Get slot names
     let sourceSlot = sourceNode.outputs[link.origin_slot]?.name || 'output';
     let targetSlot = targetNode.inputs[link.target_slot]?.name || 'input';
 
-    // Add key suffix for multi-outputs
     if (sourceNode.multiOutputs && sourceNode.multiOutputs[link.origin_slot]) {
       const mo = sourceNode.multiOutputs[link.origin_slot];
       for (const key in mo.keys) {
@@ -952,7 +1071,6 @@ class WorkflowExporter {
       }
     }
 
-    // Add key suffix for multi-inputs
     if (targetNode.multiInputs && targetNode.multiInputs[link.target_slot]) {
       const mi = targetNode.multiInputs[link.target_slot];
       for (const key in mi.keys) {
@@ -970,7 +1088,6 @@ class WorkflowExporter {
       target_slot: targetSlot
     };
 
-    // Add extra if present
     if (link.extra && Object.keys(link.extra).length > 0) {
       edge.extra = { ...link.extra };
     }
@@ -992,27 +1109,16 @@ class WorkflowExporter {
 // INTEGRATION WITH SCHEMAGRAPH
 // ========================================================================
 
-/**
- * Extend SchemaGraph with workflow capabilities
- */
 function extendSchemaGraphWithWorkflow(SchemaGraphClass) {
   const originalRegisterSchema = SchemaGraphClass.prototype.registerSchema;
 
-  /**
-   * Enhanced registerSchema that detects workflow schemas
-   */
   SchemaGraphClass.prototype.registerSchema = function(schemaName, schemaCode, indexType = 'int', rootType = null) {
-    // Check if this is a workflow schema (contains FieldRole annotations)
     if (schemaCode.includes('FieldRole.')) {
       return this.registerWorkflowSchema(schemaName, schemaCode);
     }
-    // Fall back to original method
     return originalRegisterSchema.call(this, schemaName, schemaCode, indexType, rootType);
   };
 
-  /**
-   * Register a workflow schema with FieldRole annotations
-   */
   SchemaGraphClass.prototype.registerWorkflowSchema = function(schemaName, schemaCode) {
     try {
       console.log('=== REGISTERING WORKFLOW SCHEMA:', schemaName, '===');
@@ -1045,51 +1151,32 @@ function extendSchemaGraphWithWorkflow(SchemaGraphClass) {
     }
   };
 
-  /**
-   * Import workflow JSON
-   */
   SchemaGraphClass.prototype.importWorkflow = function(workflowData, schemaName) {
     const importer = new WorkflowImporter(this, this.eventBus);
     return importer.import(workflowData, schemaName, this.schemas[schemaName]);
   };
 
-  /**
-   * Export to workflow JSON format
-   */
   SchemaGraphClass.prototype.exportWorkflow = function(schemaName, workflowInfo = {}) {
     const exporter = new WorkflowExporter(this);
     return exporter.export(schemaName, workflowInfo);
   };
 
-  /**
-   * Check if schema is a workflow schema
-   */
   SchemaGraphClass.prototype.isWorkflowSchema = function(schemaName) {
     return this.schemas[schemaName]?.isWorkflow === true;
   };
 }
 
-/**
- * Extend SchemaGraphApp with workflow UI support
- */
 function extendSchemaGraphAppWithWorkflow(SchemaGraphAppClass) {
   const originalCreateAPI = SchemaGraphAppClass.prototype._createAPI;
 
   SchemaGraphAppClass.prototype._createAPI = function() {
     const api = originalCreateAPI.call(this);
 
-    // Add workflow API methods
     api.workflow = {
-      /**
-       * Register a workflow schema
-       */
       registerSchema: (name, code) => {
         return this.graph.registerWorkflowSchema(name, code);
       },
 
-      /**
-       * Import workflow from JSON
-       */
       import: (workflowData, schemaName) => {
         try {
           this.graph.importWorkflow(workflowData, schemaName);
@@ -1104,16 +1191,10 @@ function extendSchemaGraphAppWithWorkflow(SchemaGraphAppClass) {
         }
       },
 
-      /**
-       * Export graph to workflow JSON
-       */
       export: (schemaName, workflowInfo = {}) => {
         return this.graph.exportWorkflow(schemaName, workflowInfo);
       },
 
-      /**
-       * Download workflow as JSON file
-       */
       download: (schemaName, workflowInfo = {}, filename = null) => {
         const workflow = this.graph.exportWorkflow(schemaName, workflowInfo);
         const jsonString = JSON.stringify(workflow, null, '\t');
@@ -1129,9 +1210,6 @@ function extendSchemaGraphAppWithWorkflow(SchemaGraphAppClass) {
         this.eventBus.emit('workflow:exported', {});
       },
 
-      /**
-       * Check if schema is workflow type
-       */
       isWorkflowSchema: (schemaName) => {
         return this.graph.isWorkflowSchema(schemaName);
       }
@@ -1145,7 +1223,6 @@ function extendSchemaGraphAppWithWorkflow(SchemaGraphAppClass) {
 // AUTO-INITIALIZATION
 // ========================================================================
 
-// Apply extensions when SchemaGraph classes are available
 if (typeof SchemaGraph !== 'undefined') {
   extendSchemaGraphWithWorkflow(SchemaGraph);
   console.log('✓ SchemaGraph workflow extension loaded');
@@ -1156,7 +1233,6 @@ if (typeof SchemaGraphApp !== 'undefined') {
   console.log('✓ SchemaGraphApp workflow extension loaded');
 }
 
-// Export for module usage
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     FieldRole,
