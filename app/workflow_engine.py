@@ -1,19 +1,31 @@
-# workflow_engine
+# workflow_engine.py
+# Updated for workflow_schema_new.py
 
 import asyncio
 import uuid
 
+from collections import defaultdict
+from datetime import datetime
+from enum import Enum
+from functools import partial
+from pydantic import BaseModel
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-from   collections     import defaultdict
-from   datetime        import datetime
-from   functools       import partial
-from   pydantic        import BaseModel
-from   typing          import Any, Callable, Dict, List, Optional, Set, Tuple
+from core import AgentApp
+from event_bus import EventBus, EventType, get_event_bus
+from workflow_nodes import create_node, NodeExecutionContext, NodeExecutionResult
+from workflow_schema_new import Workflow
 
-from   core            import AgentApp
-from   event_bus       import EventBus, EventType, get_event_bus
-from   workflow_nodes  import create_node, NodeExecutionContext, NodeExecutionResult
-from   workflow_schema import WorkflowConfig, WorkflowNodeStatus
+
+class WorkflowNodeStatus(str, Enum):
+	"""Status of a workflow node during execution"""
+	PENDING = "pending"
+	READY = "ready"
+	RUNNING = "running"
+	COMPLETED = "completed"
+	FAILED = "failed"
+	SKIPPED = "skipped"
+	WAITING = "waiting"
 
 
 class WorkflowExecutionState(BaseModel):
@@ -54,14 +66,12 @@ class WorkflowContext:
 			for global_idx, (app_idx, local_idx) in tool_remap.items()
 		}
 
-
 	def get_agent(self, ref: int) -> Callable:
 		"""Get agent by reference"""
 		agent = self._agents.get(ref)
 		if agent is None:
 			raise ValueError(f"Agent at index {ref} is None")
 		return agent
-
 
 	def get_tool(self, ref: int) -> Callable:
 		"""Get tool by reference"""
@@ -72,24 +82,21 @@ class WorkflowContext:
 
 
 class WorkflowEngine:
-	"""Simplified frontier-based workflow execution engine"""
+	"""Frontier-based workflow execution engine"""
 	
 	def __init__(self, context: WorkflowContext, event_bus: Optional[EventBus] = None):
-		self.context   = context
+		self.context = context
 		self.event_bus = event_bus or get_event_bus()
 		self.executions: Dict[str, WorkflowExecutionState] = {}
 		self.execution_tasks: Dict[str, asyncio.Task] = {}
-		
-		# User input handling
 		self.pending_user_inputs: Dict[str, asyncio.Future] = {}
 		
-	async def start_workflow(self, workflow: WorkflowConfig, 
+	async def start_workflow(self, workflow: Workflow, 
 							initial_data: Optional[Dict[str, Any]] = None) -> str:
 		"""Start a new workflow execution"""
 		execution_id = str(uuid.uuid4())
 		workflow_id = workflow.info.name if workflow.info else "workflow"
 		
-		# Initialize execution state
 		state = WorkflowExecutionState(
 			workflow_id=workflow_id,
 			execution_id=execution_id,
@@ -99,7 +106,6 @@ class WorkflowEngine:
 		
 		self.executions[execution_id] = state
 		
-		# Emit started event
 		await self.event_bus.emit(
 			event_type=EventType.WORKFLOW_STARTED,
 			workflow_id=workflow_id,
@@ -107,7 +113,6 @@ class WorkflowEngine:
 			data={"initial_data": initial_data}
 		)
 		
-		# Start execution task
 		task = asyncio.create_task(
 			self._execute_workflow(workflow, state, initial_data or {})
 		)
@@ -115,17 +120,20 @@ class WorkflowEngine:
 		
 		return execution_id
 	
-	async def _execute_workflow(self, workflow: WorkflowConfig, 
-								state: WorkflowExecutionState,
-								initial_data: Dict[str, Any]):
+	async def _execute_workflow(self, workflow: Workflow, 
+							state: WorkflowExecutionState,
+							initial_data: Dict[str, Any]):
 		"""Main execution loop - frontier-based"""
 		try:
-			# Build dependency graph
-			dependencies = self._build_dependencies(workflow)
-			dependents = self._build_dependents(workflow)
+			nodes = workflow.nodes or []
+			edges = workflow.edges or []
 			
-			# Initialize frontier
-			pending = set(range(len(workflow.nodes)))
+			# Build dependency graph from edges
+			dependencies = self._build_dependencies(edges)
+			dependents = self._build_dependents(edges)
+			
+			# Track node states
+			pending = set(range(len(nodes)))
 			ready = set()
 			running = set()
 			completed = set()
@@ -134,77 +142,68 @@ class WorkflowEngine:
 			node_outputs: Dict[int, Dict[str, Any]] = {}
 			
 			# Find start nodes (no dependencies)
-			for idx in range(len(workflow.nodes)):
+			for idx in range(len(nodes)):
 				if not dependencies[idx]:
 					ready.add(idx)
 					pending.discard(idx)
 			
-			# Instantiate nodes
-			node_instances = self._instantiate_nodes(workflow)
+			# Instantiate node executors
+			node_instances = self._instantiate_nodes(nodes)
 			
 			# Global variables
-			variables = workflow.variables or {}
-			variables.update(initial_data)
+			variables = dict(initial_data)
 			
 			# Main execution loop
 			while ready or running:
-				await asyncio.sleep(1)  # Yield control
+				await asyncio.sleep(0.01)
 
-				# Update state
 				state.pending_nodes = list(pending)
 				state.ready_nodes = list(ready)
 				state.running_nodes = list(running)
 				state.completed_nodes = list(completed)
 				state.node_outputs = node_outputs
 				
-				# Execute ready nodes
 				if ready:
 					tasks = []
+					
 					for node_idx in list(ready):
 						ready.discard(node_idx)
 						running.add(node_idx)
 						
 						task = asyncio.create_task(self._execute_node(
-							workflow, node_idx, node_instances[node_idx],
+							nodes, edges, node_idx, node_instances[node_idx],
 							node_outputs, dependencies, variables, state
 						))
 						tasks.append(task)
 					
-					# Wait for at least one completion
-					done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-					
-					# Process completed nodes
-					for task in done:
-						node_idx, result = await task
+					if tasks:
+						done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
 						
-						running.discard(node_idx)
-						
-						if result.success:
-							completed.add(node_idx)
-							node_outputs[node_idx] = result.outputs
+						for task in done:
+							node_idx, result = await task
+							running.discard(node_idx)
 							
-							# Check which dependent nodes are now ready
-							for dep_idx in dependents[node_idx]:
-								if dep_idx not in completed and dep_idx not in running:
-									# Check if all dependencies completed
-									if dependencies[dep_idx].issubset(completed):
-										pending.discard(dep_idx)
-										ready.add(dep_idx)
-						else:
-							# Node failed
-							state.failed_nodes.append(node_idx)
-							await self.event_bus.emit(
-								event_type=EventType.NODE_FAILED,
-								workflow_id=state.workflow_id,
-								execution_id=state.execution_id,
-								node_id=str(node_idx),
-								error=result.error
-							)
+							if result.success:
+								completed.add(node_idx)
+								node_outputs[node_idx] = result.outputs
+								
+								for dep_idx in dependents[node_idx]:
+									if dep_idx not in completed and dep_idx not in running:
+										if dependencies[dep_idx].issubset(completed):
+											pending.discard(dep_idx)
+											ready.add(dep_idx)
+							else:
+								state.failed_nodes.append(node_idx)
+								await self.event_bus.emit(
+									event_type=EventType.NODE_FAILED,
+									workflow_id=state.workflow_id,
+									execution_id=state.execution_id,
+									node_id=str(node_idx),
+									error=result.error
+								)
 				else:
-					# Wait for running nodes
 					await asyncio.sleep(0.1)
 			
-			# Workflow complete
 			state.status = WorkflowNodeStatus.COMPLETED
 			state.end_time = datetime.now().isoformat()
 			
@@ -227,71 +226,132 @@ class WorkflowEngine:
 				error=str(e)
 			)
 	
-	def _build_dependencies(self, workflow: WorkflowConfig) -> Dict[int, Set[int]]:
+	def _build_dependencies(self, edges: List) -> Dict[int, Set[int]]:
 		"""Build dependency graph: target -> set of sources"""
 		deps = defaultdict(set)
-		for edge in workflow.edges:
-			deps[edge.target].add(edge.source)
+		for edge in edges:
+			# Handle both dict and Pydantic model
+			if hasattr(edge, 'target'):
+				deps[edge.target].add(edge.source)
+			elif isinstance(edge, dict):
+				deps[edge['target']].add(edge['source'])
 		return deps
 	
-	def _build_dependents(self, workflow: WorkflowConfig) -> Dict[int, Set[int]]:
+	def _build_dependents(self, edges: List) -> Dict[int, Set[int]]:
 		"""Build dependent graph: source -> set of targets"""
 		deps = defaultdict(set)
-		for edge in workflow.edges:
-			deps[edge.source].add(edge.target)
+		for edge in edges:
+			if hasattr(edge, 'source'):
+				deps[edge.source].add(edge.target)
+			elif isinstance(edge, dict):
+				deps[edge['source']].add(edge['target'])
 		return deps
 	
-	def _instantiate_nodes(self, workflow: WorkflowConfig) -> List[Any]:
-		"""Create node instances"""
-		nodes = []
-		for node_config in workflow.nodes:
-			config = node_config.config or {}
-			
-			# Add node-specific resources
-			kwargs = {}
-			if node_config.type == "agent" and config.get('agent') is not None:
-				agent_idx = config.get('agent')
-				kwargs['agent'] = self.context.get_agent(agent_idx)
-			
-			elif node_config.type == "tool" and config.get('tool') is not None:
-				tool_idx = config.get('tool')
-				kwargs['tool'] = self.context.get_tool(tool_idx)
-			
-			node = create_node(node_config.type, config, **kwargs)
-			nodes.append(node)
+	def _instantiate_nodes(self, nodes: List) -> List[Any]:
+		"""Create node instances from workflow definition"""
+		instances = []
 		
-		return nodes
+		for idx, node in enumerate(nodes):
+			# Handle both dict and Pydantic model
+			if hasattr(node, 'model_dump'):
+				node_config = node.model_dump()
+			elif hasattr(node, 'dict'):
+				node_config = node.dict()
+			elif isinstance(node, dict):
+				node_config = node
+			else:
+				node_config = {}
+			
+			node_type = node_config.get("type", "base_node")
+			
+			kwargs = {}
+			
+			# Inject agent for agent_node
+			if node_type == "agent_node":
+				extra = node_config.get("extra")
+				if extra:
+					# extra might be a string (JSON) or dict
+					if isinstance(extra, str):
+						import json
+						try:
+							extra = json.loads(extra)
+						except:
+							extra = {}
+					agent_ref = extra.get("agent_ref") if isinstance(extra, dict) else None
+					if agent_ref is not None:
+						try:
+							kwargs["agent"] = self.context.get_agent(agent_ref)
+						except ValueError:
+							pass
+			
+			# Inject tool for tool_node
+			if node_type == "tool_node":
+				config_field = node_config.get("config")
+				if config_field:
+					if isinstance(config_field, dict):
+						tool_ref = config_field.get("value", {}).get("ref") if isinstance(config_field.get("value"), dict) else None
+					else:
+						tool_ref = None
+					if tool_ref is not None:
+						try:
+							kwargs["tool"] = self.context.get_tool(int(tool_ref))
+						except (ValueError, TypeError):
+							pass
+			
+			instance = create_node(node_type, node_config, **kwargs)
+			instances.append(instance)
+		
+		return instances
 	
-	async def _execute_node(self, workflow: WorkflowConfig, node_idx: int, 
-						   node: Any, node_outputs: Dict[int, Dict[str, Any]],
-						   dependencies: Dict[int, Set[int]],
-						   variables: Dict[str, Any],
-						   state: WorkflowExecutionState):
+	async def _execute_node(self, nodes: List, edges: List, node_idx: int, 
+						node: Any, node_outputs: Dict[int, Dict[str, Any]],
+						dependencies: Dict[int, Set[int]],
+						variables: Dict[str, Any],
+						state: WorkflowExecutionState):
 		"""Execute a single node"""
-		node_config = workflow.nodes[node_idx]
+		node_data = nodes[node_idx]
+		
+		if hasattr(node_data, 'model_dump'):
+			node_config = node_data.model_dump()
+		elif hasattr(node_data, 'dict'):
+			node_config = node_data.dict()
+		elif isinstance(node_data, dict):
+			node_config = node_data
+		else:
+			node_config = {}
+		
+		node_type = node_config.get("type", "unknown")
+		extra = node_config.get("extra")
+		
+		# Parse extra if it's a string
+		if isinstance(extra, str):
+			import json
+			try:
+				extra = json.loads(extra)
+			except:
+				extra = {}
+		
+		node_label = extra.get("name") if isinstance(extra, dict) else None
+		node_label = node_label or node_type
 		
 		await self.event_bus.emit(
 			event_type=EventType.NODE_STARTED,
 			workflow_id=state.workflow_id,
 			execution_id=state.execution_id,
 			node_id=str(node_idx),
-			data={"node_type": node_config.type, "node_label": node_config.label}
+			data={"node_type": node_type, "node_label": node_label}
 		)
 		
 		try:
-			# Gather inputs from dependencies
 			context = NodeExecutionContext()
-			context.inputs = self._gather_inputs(
-				workflow, node_idx, node_outputs, dependencies
-			)
+			context.inputs = self._gather_inputs(edges, node_idx, node_outputs)
 			context.variables = variables
 			context.node_index = node_idx
+			context.node_config = node_config
 			
-			# Handle user input nodes specially
-			if node_config.type == "user_input":
+			if node_type == "user_input_node":
 				result = await self._handle_user_input(node_idx, node, context, state)
 			else:
-				# Execute node
 				result = await node.execute(context)
 			
 			if result.success:
@@ -300,7 +360,7 @@ class WorkflowEngine:
 					workflow_id=state.workflow_id,
 					execution_id=state.execution_id,
 					node_id=str(node_idx),
-					data={"outputs": result.outputs}
+					data={"outputs": result.outputs, "node_label": node_label}
 				)
 			
 			return node_idx, result
@@ -311,53 +371,66 @@ class WorkflowEngine:
 			result.error = str(e)
 			return node_idx, result
 	
-	def _gather_inputs(self, workflow: WorkflowConfig, node_idx: int,
-					  node_outputs: Dict[int, Dict[str, Any]],
-					  dependencies: Dict[int, Set[int]]) -> Dict[str, Any]:
+	def _gather_inputs(self, edges: List, node_idx: int,
+					node_outputs: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
 		"""Gather input data from connected edges"""
 		inputs = {}
 		
-		for edge in workflow.edges:
-			if edge.target == node_idx:
-				source_idx = edge.source
+		for edge in edges:
+			# Handle both dict and Pydantic model
+			if hasattr(edge, 'target'):
+				target = edge.target
+				source = edge.source
+				source_slot = edge.source_slot
+				target_slot = edge.target_slot
+			elif isinstance(edge, dict):
+				target = edge['target']
+				source = edge['source']
+				source_slot = edge.get('source_slot', 'output')
+				target_slot = edge.get('target_slot', 'input')
+			else:
+				continue
+			
+			if target != node_idx:
+				continue
+			
+			if source in node_outputs:
+				source_data = node_outputs[source]
 				
-				if source_idx in node_outputs:
-					source_data = node_outputs[source_idx]
-					data = source_data.get(edge.source_slot, None)
-					
-					# Apply filter if present
-					if edge.filter:
-						try:
-							if not self._evaluate_filter(edge.filter, data):
-								continue  # Skip this edge
-						except:
-							continue
-					
-					# Store in target slot
-					inputs[edge.target_slot] = data
+				# Handle dotted slot names
+				data = None
+				if source_slot in source_data:
+					data = source_data[source_slot]
+				else:
+					base_slot = source_slot.split(".")[0]
+					if base_slot in source_data:
+						data = source_data[base_slot]
+				
+				if data is not None:
+					inputs[target_slot] = data
 		
 		return inputs
 	
-	def _evaluate_filter(self, filter_expr: str, data: Any) -> bool:
-		"""Evaluate edge filter expression"""
-		try:
-			return eval(filter_expr, {"data": data})
-		except:
-			return True  # Default to passing data through
-	
 	async def _handle_user_input(self, node_idx: int, node: Any,
-								 context: NodeExecutionContext,
-								 state: WorkflowExecutionState) -> NodeExecutionResult:
+								context: NodeExecutionContext,
+								state: WorkflowExecutionState) -> NodeExecutionResult:
 		"""Handle user input node"""
-		config = node.config
-		prompt = config.get('prompt', 'Please provide input:')
+		extra = context.node_config.get("extra")
+		if isinstance(extra, str):
+			import json
+			try:
+				extra = json.loads(extra)
+			except:
+				extra = {}
 		
-		# Create future for user input
+		prompt = "Please provide input:"
+		if isinstance(extra, dict):
+			prompt = extra.get("message") or extra.get("title") or prompt
+		
 		future = asyncio.Future()
 		input_key = f"{state.execution_id}:{node_idx}"
 		self.pending_user_inputs[input_key] = future
 		
-		# Emit event requesting input
 		await self.event_bus.emit(
 			event_type=EventType.USER_INPUT_REQUESTED,
 			workflow_id=state.workflow_id,
@@ -366,13 +439,12 @@ class WorkflowEngine:
 			data={"prompt": prompt}
 		)
 		
-		# Wait for input
 		try:
-			timeout = config.get('timeout', 300)
+			timeout = context.node_config.get("timeout", 300)
 			user_input = await asyncio.wait_for(future, timeout=timeout)
 			
 			result = NodeExecutionResult()
-			result.outputs = {"output": user_input}
+			result.outputs = {"message": user_input}
 			return result
 			
 		except asyncio.TimeoutError:
@@ -389,13 +461,15 @@ class WorkflowEngine:
 			future = self.pending_user_inputs.pop(input_key)
 			future.set_result(user_input)
 			
-			await self.event_bus.emit(
-				event_type=EventType.USER_INPUT_RECEIVED,
-				workflow_id=self.executions[execution_id].workflow_id,
-				execution_id=execution_id,
-				node_id=node_id,
-				data={"input": user_input}
-			)
+			state = self.executions.get(execution_id)
+			if state:
+				await self.event_bus.emit(
+					event_type=EventType.USER_INPUT_RECEIVED,
+					workflow_id=state.workflow_id,
+					execution_id=execution_id,
+					node_id=node_id,
+					data={"input": user_input}
+				)
 	
 	async def cancel_execution(self, execution_id: str):
 		"""Cancel a running workflow"""
@@ -416,9 +490,7 @@ class WorkflowEngine:
 				)
 	
 	def get_execution_state(self, execution_id: str) -> Optional[WorkflowExecutionState]:
-		"""Get current execution state"""
 		return self.executions.get(execution_id)
 	
 	def list_executions(self) -> List[WorkflowExecutionState]:
-		"""List all executions"""
 		return list(self.executions.values())

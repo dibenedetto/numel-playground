@@ -1,18 +1,18 @@
-# workflow_api
+# workflow_api.py
+# Updated for workflow_schema_new.py
 
-from fastapi         import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic        import BaseModel
-from typing          import Any, Dict, Optional
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
+from typing import Any, Dict, Optional
 
-
-from event_bus       import EventBus
-from utils           import log_print
+from event_bus import EventBus
+from utils import log_print
 from workflow_engine import WorkflowEngine
-from workflow_schema import WorkflowConfig
+from workflow_schema_new import Workflow
 
 
 class WorkflowStartRequest(BaseModel):
-	workflow: WorkflowConfig
+	workflow: Workflow
 	initial_data: Optional[Dict[str, Any]] = None
 
 

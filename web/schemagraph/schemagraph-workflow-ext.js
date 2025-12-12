@@ -439,6 +439,9 @@ class WorkflowNodeGenerator {
 
         let inputIdx = 0;
 
+        this.nativeInputs = {};
+        this.multiInputs = {};
+
         // Add regular inputs
         for (const field of inputFields) {
           this.addInput(field.name, field.rawType);
@@ -541,7 +544,7 @@ class WorkflowImporter {
   /**
    * Import workflow from JSON data
    */
-  import(workflowData, schemaName, camera = null) {
+  import(workflowData, schemaName, schema, camera = null) {
     console.log('=== WORKFLOW IMPORT STARTED ===');
     console.log('Schema:', schemaName);
     console.log('Nodes:', workflowData.nodes?.length || 0);
@@ -560,11 +563,17 @@ class WorkflowImporter {
     // Calculate layout positions
     const positions = this._calculateLayout(workflowData);
 
+    // Create type map
+    const typeMap = {};
+    for (let [key, value] of Object.entries(schema.defaults)) {
+        typeMap[value.type] = key;
+    }
+
     // Create nodes
     const createdNodes = [];
     for (let i = 0; i < workflowData.nodes.length; i++) {
       const nodeData = workflowData.nodes[i];
-      const node = this._createNode(nodeData, i, schemaName, positions[i]);
+      const node = this._createNode(nodeData, i, schemaName, typeMap, positions[i]);
       createdNodes.push(node);
       
       if (node) {
@@ -597,9 +606,9 @@ class WorkflowImporter {
     return true;
   }
 
-  _createNode(nodeData, index, schemaName, position) {
+  _createNode(nodeData, index, schemaName, typeMap, position) {
     const nodeType = nodeData.type;
-    const fullType = this._resolveNodeType(nodeType, schemaName);
+    const fullType = this._resolveNodeType(nodeType, schemaName, typeMap);
 
     if (!fullType || !this.graph.nodeTypes[fullType]) {
       console.error(`Node type not found: ${nodeType}`);
@@ -632,9 +641,13 @@ class WorkflowImporter {
     }
   }
 
-  _resolveNodeType(nodeType, schemaName) {
+  _resolveNodeType(nodeType, schemaName, typeMap) {
     // Try direct match
-    let fullType = `${schemaName}.${this._snakeToPascal(nodeType)}`;
+    let fullType = `${schemaName}.${typeMap[nodeType]}`;
+    if (this.graph.nodeTypes[fullType]) return fullType;
+
+    // Try with PascalCase conversion
+    fullType = `${schemaName}.${this._snakeToPascal(nodeType)}`;
     if (this.graph.nodeTypes[fullType]) return fullType;
 
     // Try without _config/_node suffix
@@ -1037,7 +1050,7 @@ function extendSchemaGraphWithWorkflow(SchemaGraphClass) {
    */
   SchemaGraphClass.prototype.importWorkflow = function(workflowData, schemaName) {
     const importer = new WorkflowImporter(this, this.eventBus);
-    return importer.import(workflowData, schemaName);
+    return importer.import(workflowData, schemaName, this.schemas[schemaName]);
   };
 
   /**

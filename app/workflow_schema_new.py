@@ -1,7 +1,9 @@
 # schema_workflow
 
+from __future__ import annotations
+
 from enum     import Enum
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from typing   import Annotated, Any, Dict, Generic, List, Optional, TypeVar
 
 
@@ -245,10 +247,11 @@ class AgentConfig(BaseConfig):
 TValue = TypeVar("TValue")
 
 
-class Message(Generic[TValue]):
-	def __init__(self, message_type: str, message_value: TValue):
-		self.type  : str    = message_type
-		self.value : TValue = message_value
+class Message(BaseModel, Generic[TValue]):
+	model_config = ConfigDict(arbitrary_types_allowed=True)
+
+	type  : str
+	value : Optional[TValue] = None
 
 
 MessageAny   = Message[Any]
@@ -260,7 +263,7 @@ MessageList  = Message[List[Any]]
 MessageDict  = Message[Dict[str, Any]]
 
 
-SkipMessage : MessageAny = Message("skip", None)
+SkipMessage : MessageAny = Message(type="skip", value=None)
 
 
 class Edge(BaseType):
@@ -292,8 +295,8 @@ class SinkNode(BaseNode):
 	sink : Annotated[MessageAny, FieldRole.INPUT   ]
 
 
-DEFAULT_SCRIPT_NODE_LANG   : MessageStr = Message("", "python")
-DEFAULT_SCRIPT_NODE_SCRIPT : MessageStr = Message("", "return None")
+DEFAULT_SCRIPT_NODE_LANG   : MessageStr = Message(type="", value="python")
+DEFAULT_SCRIPT_NODE_SCRIPT : MessageStr = Message(type="", value="return None")
 
 
 class ScriptNode(BaseNode):
@@ -322,7 +325,7 @@ class SplitNode(ScriptNode):
 	targets  : Annotated[Dict[str, MessageAny], FieldRole.MULTI_OUTPUT]
 
 
-DEFAULT_MERGE_NODE_STRATEGY : MessageStr = Message("", "first")
+DEFAULT_MERGE_NODE_STRATEGY : MessageStr = Message(type="", value="first")
 
 
 class MergeNode(BaseNode):
