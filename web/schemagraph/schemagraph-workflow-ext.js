@@ -6,9 +6,6 @@
 // Usage: Add this file after schemagraph.js
 // ========================================================================
 
-/**
- * FieldRole enum - matches Python schema annotations
- */
 const FieldRole = Object.freeze({
   CONSTANT: 'constant',
   INPUT: 'input',
@@ -17,9 +14,6 @@ const FieldRole = Object.freeze({
   MULTI_OUTPUT: 'multi_output'
 });
 
-/**
- * WorkflowNode - Extended node class for workflow schemas
- */
 class WorkflowNode extends Node {
   constructor(title, config = {}) {
     super(title);
@@ -141,10 +135,6 @@ class WorkflowNode extends Node {
   }
 }
 
-/**
- * WorkflowSchemaParser - Parses Python schemas with FieldRole annotations
- * Supports class inheritance and type aliases
- */
 class WorkflowSchemaParser {
   constructor() {
     this.models = {};
@@ -155,6 +145,7 @@ class WorkflowSchemaParser {
     this.rawRoles = {};
     this.rawDefaults = {};
     this.typeAliases = {};
+    this.moduleConstants = {};
   }
 
   parse(code) {
@@ -166,8 +157,9 @@ class WorkflowSchemaParser {
     this.rawRoles = {};
     this.rawDefaults = {};
 
-    // First pass: extract type aliases
+    // First pass: extract type aliases and module-level constants
     this.typeAliases = this._extractTypeAliases(code);
+    this.moduleConstants = this._extractModuleConstants(code);
 
     const lines = code.split('\n');
     let currentModel = null;
@@ -182,6 +174,9 @@ class WorkflowSchemaParser {
       const trimmed = line.trim();
 
       if (!trimmed || trimmed.startsWith('#')) continue;
+
+      // Check indentation - class fields are indented, module-level code is not
+      const isIndented = line.length > 0 && (line[0] === '\t' || line[0] === ' ');
 
       // Match class definition with parent class
       const classMatch = trimmed.match(/^class\s+(\w+)\s*\(([^)]+)\)/);
@@ -205,12 +200,27 @@ class WorkflowSchemaParser {
         continue;
       }
 
+      // If we hit a non-indented line (not a class def), we're outside any class
+      if (!isIndented && currentModel && !classMatch) {
+        this._saveRawModel(currentModel, currentParent, currentFields, currentRoles, currentDefaults);
+        currentModel = null;
+        currentParent = null;
+        currentFields = [];
+        currentRoles = {};
+        currentDefaults = {};
+        inPropertyDef = false;
+        continue;
+      }
+
+      // Only process class body content if we're inside a class and line is indented
+      if (!currentModel || !isIndented) continue;
+
       if (trimmed === '@property') {
         inPropertyDef = true;
         continue;
       }
 
-      if (inPropertyDef && currentModel) {
+      if (inPropertyDef) {
         const propMatch = trimmed.match(/def\s+(\w+)\s*\([^)]*\)\s*->\s*Annotated\[([^,\]]+),\s*FieldRole\.(\w+)\]/);
         if (propMatch) {
           const [, propName, propType, role] = propMatch;
@@ -227,7 +237,7 @@ class WorkflowSchemaParser {
         continue;
       }
 
-      if (currentModel && trimmed.includes(':') && !trimmed.startsWith('def ')) {
+      if (trimmed.includes(':') && !trimmed.startsWith('def ') && !trimmed.startsWith('return ')) {
         const fieldData = this._parseFieldLine(trimmed);
         if (fieldData) {
           currentFields.push({
@@ -281,6 +291,7 @@ class WorkflowSchemaParser {
     const mergedDefaults = {};
     const seenFields = new Set();
 
+    // Process from root parent to child (so child overrides parent)
     for (let i = chain.length - 1; i >= 0; i--) {
       const className = chain[i];
       const fields = this.rawModels[className] || [];
@@ -314,6 +325,9 @@ class WorkflowSchemaParser {
     const lines = code.split('\n');
     
     for (const line of lines) {
+      // Only match non-indented lines (module level)
+      if (line.length > 0 && (line[0] === '\t' || line[0] === ' ')) continue;
+      
       const trimmed = line.trim();
       const aliasMatch = trimmed.match(/^(\w+)\s*=\s*(Union\[.+\]|[A-Z]\w+(?:\[.+\])?)$/);
       if (aliasMatch) {
@@ -325,6 +339,49 @@ class WorkflowSchemaParser {
     }
     
     return aliases;
+  }
+
+  _extractModuleConstants(code) {
+    const constants = {};
+    const lines = code.split('\n');
+    
+    for (const line of lines) {
+      // Only match non-indented lines (module level)
+      if (line.length > 0 && (line[0] === '\t' || line[0] === ' ')) continue;
+      
+      const trimmed = line.trim();
+      
+      // Match: CONSTANT_NAME : type = value  or  CONSTANT_NAME = value
+      const constMatch = trimmed.match(/^(DEFAULT_[A-Z_0-9]+|[A-Z][A-Z_0-9]*[A-Z0-9])\s*(?::\s*\w+)?\s*=\s*(.+)$/);
+      if (constMatch) {
+        const [, name, value] = constMatch;
+        constants[name] = this._parseConstantValue(value.trim());
+      }
+    }
+    
+    return constants;
+  }
+
+  _parseConstantValue(valStr) {
+    if (!valStr) return undefined;
+    valStr = valStr.trim();
+
+    if (valStr === 'None') return null;
+    if (valStr === 'True') return true;
+    if (valStr === 'False') return false;
+
+    if ((valStr.startsWith('"') && valStr.endsWith('"')) ||
+        (valStr.startsWith("'") && valStr.endsWith("'"))) {
+      return valStr.slice(1, -1);
+    }
+
+    const num = parseFloat(valStr);
+    if (!isNaN(num) && valStr.match(/^-?\d+\.?\d*$/)) return num;
+
+    if (valStr === '[]') return [];
+    if (valStr === '{}') return {};
+
+    return valStr;
   }
 
   _resolveTypeAlias(typeStr) {
@@ -393,13 +450,19 @@ class WorkflowSchemaParser {
     if (valStr === '[]') return [];
     if (valStr === '{}') return {};
 
+    // Handle Message(...) constructor
     const msgMatch = valStr.match(/Message\s*\(\s*type\s*=\s*["']([^"']*)["']\s*,\s*value\s*=\s*["']([^"']*)["']\s*\)/);
     if (msgMatch) return msgMatch[2];
     
     const msgMatch2 = valStr.match(/Message\s*\(\s*["']([^"']*)["']\s*,\s*["']([^"']*)["']\s*\)/);
     if (msgMatch2) return msgMatch2[2];
 
-    if (valStr.match(/^[A-Z_]+$/)) return { _ref: valStr };
+    // Resolve module-level constant reference (e.g., DEFAULT_MODEL_ID)
+    if (this.moduleConstants && valStr.match(/^[A-Z][A-Z_0-9]*[A-Z0-9]?$|^DEFAULT_[A-Z_0-9]+$/)) {
+      if (this.moduleConstants[valStr] !== undefined) {
+        return this.moduleConstants[valStr];
+      }
+    }
 
     return valStr;
   }
@@ -464,9 +527,6 @@ class WorkflowSchemaParser {
   }
 }
 
-/**
- * WorkflowNodeGenerator - Generates node types from parsed schema
- */
 class WorkflowNodeGenerator {
   constructor(graph) {
     this.graph = graph;
@@ -686,9 +746,6 @@ class WorkflowNodeGenerator {
   }
 }
 
-/**
- * WorkflowImporter - Imports workflow JSON with nodes/edges format
- */
 class WorkflowImporter {
   constructor(graph, eventBus) {
     this.graph = graph;
@@ -802,9 +859,6 @@ class WorkflowImporter {
     if (this.graph.nodeTypes[fullType]) return fullType;
 
     fullType = `${schemaName}.${this._snakeToPascal(baseName)}Node`;
-    if (this.graph.nodeTypes[fullType]) return fullType;
-
-    fullType = `${schemaName}.${this._snakeToPascal(nodeType)}`;
     if (this.graph.nodeTypes[fullType]) return fullType;
 
     return null;
@@ -946,9 +1000,6 @@ class WorkflowImporter {
   }
 }
 
-/**
- * WorkflowExporter - Exports graph to workflow JSON format
- */
 class WorkflowExporter {
   constructor(graph) {
     this.graph = graph;
