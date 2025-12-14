@@ -626,7 +626,7 @@ class SchemaGraph extends Graph {
               }
             }
           }
-          this.size = [200, Math.max(80, 30 + fields.length * 25)];
+          this.size = [200, Math.max(80, 40 + fields.length * 25)];
         }
   
         onExecute() {
@@ -2442,10 +2442,12 @@ class SchemaGraphApp {
         for (let j = 0; j < node.inputs.length; j++) {
           if (!node.inputs[j].link && node.nativeInputs[j] !== undefined) {
             const slotY = node.pos[1] + 30 + j * 25;
-            const boxX = node.pos[0] + node.size[0] - 70;
-            const boxY = slotY - 8;
-            const boxW = 65;
-            const boxH = 16;
+            
+            // Edit box on type label row
+            const boxX = node.pos[0] + 10;
+            const boxY = slotY + 6;
+            const boxW = 70;
+            const boxH = 12;
             
             if (wx >= boxX && wx <= boxX + boxW && wy >= boxY && wy <= boxY + boxH) {
               if (node.nativeInputs[j].type === 'bool') {
@@ -2462,6 +2464,7 @@ class SchemaGraphApp {
       }
     }
     
+    // Native node value editing (unchanged)
     for (const node of this.graph.nodes) {
       if (!node.isNative) continue;
       const valueY = node.pos[1] + node.size[1] - 18;
@@ -4873,6 +4876,7 @@ class SchemaGraphApp {
     else if (hasConnections) color = colors.slotConnected;
     else color = colors.slotInput;
     
+    // Slot highlight when connecting
     if (this.connecting && compat) {
       this.ctx.fillStyle = color;
       this.ctx.globalAlpha = 0.3;
@@ -4882,16 +4886,19 @@ class SchemaGraphApp {
       this.ctx.globalAlpha = 1.0;
     }
     
+    // Slot circle
     this.ctx.fillStyle = color;
     this.ctx.beginPath();
     this.ctx.arc(x - 1, sy, style.slotRadius || 4, 0, Math.PI * 2);
     this.ctx.fill();
     
+    // Slot highlight dot
     this.ctx.fillStyle = 'rgba(255, 255, 255, 0.4)';
     this.ctx.beginPath();
     this.ctx.arc(x - 2, sy - 1, 1.5, 0, Math.PI * 2);
     this.ctx.fill();
     
+    // Multi-input indicator
     if (isMulti) {
       this.ctx.strokeStyle = colors.accentPurple || '#9370db';
       this.ctx.lineWidth = 1.5 / this.camera.scale;
@@ -4907,22 +4914,27 @@ class SchemaGraphApp {
       }
     }
     
+    // Field name
     this.ctx.fillStyle = colors.textSecondary;
     this.ctx.font = (10 * textScale) + 'px Arial, sans-serif';
     this.ctx.textAlign = 'left';
     this.ctx.textBaseline = 'middle';
     this.ctx.fillText(inp.name, x + 10, sy);
     
-    if (!node.isNative || (!!node.nativeInputs && node.nativeInputs[j] === undefined)) {
+    // Check if this slot has a native input edit box
+    const hasEditBox = !isMulti && !inp.link && node.nativeInputs && node.nativeInputs[j] !== undefined;
+    
+    // Type label (only show if no edit box, or for non-native nodes)
+    if (!hasEditBox && (!node.isNative || (!!node.nativeInputs && node.nativeInputs[j] === undefined))) {
       const compactType = this.graph.compactType(inp.type);
       let typeText = compactType.length > 20 ? compactType.substring(0, 20) + '...' : compactType;
       
       this.ctx.font = (8 * textScale) + 'px "Courier New", monospace';
       const textWidth = this.ctx.measureText(typeText).width;
       const typeBoxX = x + 10;
-      const typeBoxY = sy + 10 - 5;
+      const typeBoxY = sy + 6;
       const typeBoxW = textWidth + 8;
-      const typeBoxH = 10;
+      const typeBoxH = 12;
       const typeBoxRadius = 2;
       
       this.ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
@@ -4945,15 +4957,17 @@ class SchemaGraphApp {
       
       this.ctx.fillStyle = colors.textTertiary;
       this.ctx.textAlign = 'left';
-      this.ctx.fillText(typeText, typeBoxX + 4, sy + 10);
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText(typeText, typeBoxX + 4, typeBoxY + typeBoxH / 2);
     }
     
-    if (!isMulti && !inp.link && node.nativeInputs && node.nativeInputs[j] !== undefined) {
-      const boxX = x + w - 70;
-      const boxY = sy - 8;
-      const boxW = 65;
-      const boxH = 16;
-      const boxRadius = 4;
+    // Native input edit box (on same row where type label would be)
+    if (hasEditBox) {
+      const boxX = x + 10;
+      const boxY = sy + 6;
+      const boxW = 70;
+      const boxH = 12;
+      const boxRadius = 2;
       const isOptional = node.nativeInputs[j].optional;
       
       const isBoxHovered = !this.connecting && 
@@ -4961,8 +4975,8 @@ class SchemaGraphApp {
         worldMouse[1] >= boxY && worldMouse[1] <= boxY + boxH;
       
       this.ctx.fillStyle = isBoxHovered 
-        ? (isOptional ? 'rgba(0, 120, 180, 0.35)' : 'rgba(0, 0, 0, 0.6)')
-        : (isOptional ? 'rgba(0, 100, 150, 0.25)' : 'rgba(0, 0, 0, 0.5)');
+        ? (isOptional ? 'rgba(0, 120, 180, 0.4)' : 'rgba(0, 0, 0, 0.6)')
+        : (isOptional ? 'rgba(0, 100, 150, 0.3)' : 'rgba(0, 0, 0, 0.4)');
       this.ctx.beginPath();
       this.ctx.moveTo(boxX + boxRadius, boxY);
       this.ctx.lineTo(boxX + boxW - boxRadius, boxY);
@@ -4978,59 +4992,40 @@ class SchemaGraphApp {
       
       this.ctx.strokeStyle = isBoxHovered
         ? (isOptional ? 'rgba(100, 180, 230, 0.8)' : colors.borderHighlight)
-        : (isOptional ? 'rgba(70, 162, 218, 0.6)' : (colors.borderColor || '#1a1a1a'));
-      this.ctx.lineWidth = (isBoxHovered ? 2 : 1.5) / this.camera.scale;
+        : (isOptional ? 'rgba(70, 162, 218, 0.5)' : 'rgba(255, 255, 255, 0.15)');
+      this.ctx.lineWidth = (isBoxHovered ? 1.5 : 1) / this.camera.scale;
       this.ctx.stroke();
-      
-      if (isOptional && isBoxHovered) {
-        this.ctx.strokeStyle = 'rgba(70, 162, 218, 0.4)';
-        this.ctx.lineWidth = 3 / this.camera.scale;
-        this.ctx.stroke();
-      }
       
       const displayVal = node.nativeInputs[j].value;
       const isEmpty = displayVal === '' || displayVal === null || displayVal === undefined;
+      const textY = boxY + boxH / 2;
+      
+      this.ctx.textBaseline = 'middle';
       
       if (isEmpty) {
-        if (isOptional) {
-          this.ctx.fillStyle = colors.textTertiary;
-          this.ctx.font = 'italic ' + (8 * textScale) + 'px Arial, sans-serif';
-          this.ctx.textAlign = 'center';
-          this.ctx.fillText('null', boxX + boxW / 2, sy);
-        } else {
-          this.ctx.fillStyle = colors.textSecondary;
-          this.ctx.font = 'italic ' + (8 * textScale) + 'px Arial, sans-serif';
-          this.ctx.textAlign = 'center';
-          this.ctx.fillText('empty', boxX + boxW / 2, sy);
-        }
+        this.ctx.fillStyle = colors.textTertiary;
+        this.ctx.font = 'italic ' + (8 * textScale) + 'px Arial, sans-serif';
+        this.ctx.textAlign = 'left';
+        this.ctx.fillText(isOptional ? 'null' : 'empty', boxX + 4, textY);
       } else {
         this.ctx.fillStyle = colors.textPrimary;
-        this.ctx.font = (9 * textScale) + 'px "Courier New", monospace';
+        this.ctx.font = (8 * textScale) + 'px "Courier New", monospace';
         this.ctx.textAlign = 'left';
         let displayValue = String(displayVal);
-        if (displayValue.length > 8) {
-          displayValue = displayValue.substring(0, 8) + '...';
+        if (displayValue.length > 10) {
+          displayValue = displayValue.substring(0, 10) + '..';
         }
-        this.ctx.fillText(displayValue, boxX + 6, sy);
+        this.ctx.fillText(displayValue, boxX + 4, textY);
       }
       
+      // Optional badge (small, top-right of edit box)
       if (isOptional) {
-        const badgeSize = 10;
-        const badgeX = boxX + boxW - badgeSize / 2;
-        const badgeY = boxY - badgeSize / 2;
+        const badgeX = boxX + boxW + 4;
+        const badgeY = boxY + boxH / 2;
         
-        this.ctx.fillStyle = isBoxHovered ? 'rgba(100, 180, 230, 1.0)' : 'rgba(70, 162, 218, 0.9)';
-        this.ctx.beginPath();
-        this.ctx.arc(badgeX, badgeY, badgeSize / 2, 0, Math.PI * 2);
-        this.ctx.fill();
-        
-        this.ctx.strokeStyle = colors.textPrimary;
-        this.ctx.lineWidth = 1 / this.camera.scale;
-        this.ctx.stroke();
-        
-        this.ctx.fillStyle = '#ffffff';
+        this.ctx.fillStyle = 'rgba(70, 162, 218, 0.8)';
         this.ctx.font = 'bold ' + (7 * textScale) + 'px Arial, sans-serif';
-        this.ctx.textAlign = 'center';
+        this.ctx.textAlign = 'left';
         this.ctx.textBaseline = 'middle';
         this.ctx.fillText('?', badgeX, badgeY);
       }
