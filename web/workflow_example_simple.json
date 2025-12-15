@@ -32,7 +32,8 @@
 			"type" : "start_node"
 		},
 		{
-			"type" : "agent_node"
+			"type"   : "agent_node",
+			"config" : 4
 		},
 		{
 			"type" : "end_node"

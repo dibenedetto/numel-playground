@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from core import AgentApp
 from event_bus import EventBus, EventType, get_event_bus
 from workflow_nodes import create_node, NodeExecutionContext, NodeExecutionResult
-from workflow_schema_new import Workflow
+from workflow_schema_new import BaseNode, Workflow
 
 
 class WorkflowNodeStatus(str, Enum):
@@ -125,15 +125,18 @@ class WorkflowEngine:
 							initial_data: Dict[str, Any]):
 		"""Main execution loop - frontier-based"""
 		try:
-			nodes = workflow.nodes or []
-			edges = workflow.edges or []
+			all_nodes = workflow.nodes or []
+			nodes     = list(filter(lambda n: isinstance(n, BaseNode), all_nodes))
+			all_edges = workflow.edges or []
+			edges     = [e for e in all_edges if isinstance(all_nodes[e.source], BaseNode) and isinstance(all_nodes[e.target], BaseNode)]
 			
 			# Build dependency graph from edges
-			dependencies = self._build_dependencies(edges)
-			dependents = self._build_dependents(edges)
+			dependencies = self._build_dependencies (edges)
+			dependents   = self._build_dependents   (edges)
 			
 			# Track node states
-			pending = set(range(len(nodes)))
+			# pending = set(range(len(nodes)))
+			pending = set(nodes)
 			ready = set()
 			running = set()
 			completed = set()
@@ -171,7 +174,7 @@ class WorkflowEngine:
 						running.add(node_idx)
 						
 						task = asyncio.create_task(self._execute_node(
-							nodes, edges, node_idx, node_instances[node_idx],
+							nodes, all_edges, node_idx, node_instances[node_idx],
 							node_outputs, dependencies, variables, state
 						))
 						tasks.append(task)
@@ -261,43 +264,38 @@ class WorkflowEngine:
 				node_config = node
 			else:
 				node_config = {}
-			
+
 			node_type = node_config.get("type", "base_node")
-			
-			kwargs = {}
-			
-			# Inject agent for agent_node
-			if node_type == "agent_node":
-				extra = node_config.get("extra")
-				if extra:
-					# extra might be a string (JSON) or dict
-					if isinstance(extra, str):
-						import json
-						try:
-							extra = json.loads(extra)
-						except:
-							extra = {}
-					agent_ref = extra.get("agent_ref") if isinstance(extra, dict) else None
-					if agent_ref is not None:
-						try:
-							kwargs["agent"] = self.context.get_agent(agent_ref)
-						except ValueError:
-							pass
-			
+			kwargs    = {}
+
 			# Inject tool for tool_node
 			if node_type == "tool_node":
 				config_field = node_config.get("config")
 				if config_field:
+					ref = None
 					if isinstance(config_field, dict):
-						tool_ref = config_field.get("value", {}).get("ref") if isinstance(config_field.get("value"), dict) else None
+						ref = config_field.get("value", {}).get("ref") if isinstance(config_field.get("value"), dict) else None
 					else:
-						tool_ref = None
-					if tool_ref is not None:
+						ref = None
+					if ref is not None:
 						try:
-							kwargs["tool"] = self.context.get_tool(int(tool_ref))
-						except (ValueError, TypeError):
+							kwargs["tool"] = self.context.get_tool(int(ref))
+						except:
 							pass
 			
+			# Inject agent for agent_node
+			elif node_type == "agent_node":
+				config_field = node_config.get("config")
+				if config_field:
+					ref = None
+					if isinstance(config_field, dict):
+						ref = config_field.get("value", {}).get("ref") if isinstance(config_field.get("value"), dict) else None
+					if ref is not None:
+						try:
+							kwargs["agent"] = self.context.get_agent(int(ref))
+						except:
+							pass
+
 			instance = create_node(node_type, node_config, **kwargs)
 			instances.append(instance)
 		
@@ -341,7 +339,9 @@ class WorkflowEngine:
 			node_id=str(node_idx),
 			data={"node_type": node_type, "node_label": node_label}
 		)
-		
+
+		await asyncio.sleep(1)
+
 		try:
 			context = NodeExecutionContext()
 			context.inputs = self._gather_inputs(edges, node_idx, node_outputs)

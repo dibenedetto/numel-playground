@@ -1,7 +1,7 @@
 # workflow_api.py
 # Updated for workflow_schema_new.py
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Body
 from pydantic import BaseModel
 from typing import Any, Dict, Optional
 
@@ -23,8 +23,12 @@ class UserInputRequest(BaseModel):
 
 def setup_workflow_api(app: FastAPI, workflow_engine: WorkflowEngine, event_bus: EventBus):
 	"""Setup workflow API endpoints"""
-	
-	@app.post("/workflow/start")
+
+	# current_routes = [route.path for route in app.routes]
+	# if "/workflow/start" in current_routes:
+	# 	return
+
+	# @app.post("/workflow/start")
 	async def start_workflow(request: WorkflowStartRequest):
 		"""Start a new workflow execution"""
 		try:
@@ -39,8 +43,8 @@ def setup_workflow_api(app: FastAPI, workflow_engine: WorkflowEngine, event_bus:
 		except Exception as e:
 			log_print(f"Error starting workflow: {e}")
 			raise HTTPException(status_code=500, detail=str(e))
-	
-	@app.post("/workflow/{execution_id}/cancel")
+
+	# @app.post("/workflow/{execution_id}/cancel")
 	async def cancel_workflow(execution_id: str):
 		"""Cancel a running workflow"""
 		try:
@@ -49,21 +53,21 @@ def setup_workflow_api(app: FastAPI, workflow_engine: WorkflowEngine, event_bus:
 		except Exception as e:
 			log_print(f"Error cancelling workflow: {e}")
 			raise HTTPException(status_code=500, detail=str(e))
-	
-	@app.post("/workflow/{execution_id}/status")
+
+	# @app.post("/workflow/{execution_id}/status")
 	async def get_workflow_status(execution_id: str):
 		"""Get workflow execution status"""
 		state = workflow_engine.get_execution_state(execution_id)
 		if not state:
 			raise HTTPException(status_code=404, detail="Execution not found")
 		return state
-	
-	@app.post("/workflow/list")
+
+	# @app.post("/workflow/list")
 	async def list_workflows():
 		"""List all workflow executions"""
 		return workflow_engine.list_executions()
-	
-	@app.post("/workflow/{execution_id}/input")
+
+	# @app.post("/workflow/{execution_id}/input")
 	async def provide_user_input(execution_id: str, request: UserInputRequest):
 		"""Provide user input for waiting workflow"""
 		try:
@@ -76,8 +80,8 @@ def setup_workflow_api(app: FastAPI, workflow_engine: WorkflowEngine, event_bus:
 		except Exception as e:
 			log_print(f"Error providing user input: {e}")
 			raise HTTPException(status_code=500, detail=str(e))
-	
-	@app.websocket("/workflow/events")
+
+	# @app.websocket("/workflow/events")
 	async def workflow_events_websocket(websocket: WebSocket):
 		"""WebSocket endpoint for real-time workflow events"""
 		await event_bus.add_websocket_client(websocket)
@@ -95,5 +99,15 @@ def setup_workflow_api(app: FastAPI, workflow_engine: WorkflowEngine, event_bus:
 		except Exception as e:
 			log_print(f"WebSocket error: {e}")
 			event_bus.remove_websocket_client(websocket)
+
+	app.add_api_route("/workflow/start"                , start_workflow     , methods=["POST"], tags=["Dynamic"])
+	app.add_api_route("/workflow/{execution_id}/cancel", cancel_workflow    , methods=["POST"], tags=["Dynamic"])
+	app.add_api_route("/workflow/{execution_id}/status", get_workflow_status, methods=["POST"], tags=["Dynamic"])
+	app.add_api_route("/workflow/list"                 , list_workflows     , methods=["POST"], tags=["Dynamic"])
+	app.add_api_route("/workflow/{execution_id}/input" , provide_user_input , methods=["POST"], tags=["Dynamic"])
+
+	app.add_api_websocket_route("/workflow/events", workflow_events_websocket)
+
+	app.openapi_schema = None
 	
 	log_print("✅ Workflow API endpoints registered")

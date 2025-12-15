@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from enum     import Enum
-from pydantic import BaseModel, ConfigDict
-from typing   import Annotated, Any, Dict, Generic, List, Optional, TypeVar, Union
+from pydantic import BaseModel, ConfigDict, Field
+from typing   import Annotated, Any, Dict, Generic, List, Literal, Optional, TypeVar, Union
 
 
 class FieldRole(str, Enum):
@@ -16,12 +16,12 @@ class FieldRole(str, Enum):
 
 
 class BaseType(BaseModel):
-	type : Annotated[str          , FieldRole.CONSTANT] = "base_type"
-	data : Annotated[Optional[Any], FieldRole.INPUT   ] = None
+	type : Annotated[Literal["base_type"], FieldRole.CONSTANT] = "base_type"
+	data : Annotated[Optional[Any]       , FieldRole.INPUT   ] = None
 
 
 class BaseConfig(BaseType):
-	type : Annotated[str, FieldRole.CONSTANT] = "base_config"
+	type : Annotated[Literal["base_config"], FieldRole.CONSTANT] = "base_config"
 
 	@property
 	def get(self) -> Annotated[BaseConfig, FieldRole.OUTPUT]: # type: ignore
@@ -29,12 +29,12 @@ class BaseConfig(BaseType):
 
 
 class InfoConfig(BaseConfig):
-	type         : Annotated[str                , FieldRole.CONSTANT] = "info_config"
-	version      : Annotated[Optional[str      ], FieldRole.INPUT   ] = None
-	name         : Annotated[Optional[str      ], FieldRole.INPUT   ] = None
-	author       : Annotated[Optional[str      ], FieldRole.INPUT   ] = None
-	description  : Annotated[Optional[str      ], FieldRole.INPUT   ] = None
-	instructions : Annotated[Optional[List[str]], FieldRole.INPUT   ] = None
+	type         : Annotated[Literal["info_config"], FieldRole.CONSTANT] = "info_config"
+	version      : Annotated[Optional[str      ]   , FieldRole.INPUT   ] = None
+	name         : Annotated[Optional[str      ]   , FieldRole.INPUT   ] = None
+	author       : Annotated[Optional[str      ]   , FieldRole.INPUT   ] = None
+	description  : Annotated[Optional[str      ]   , FieldRole.INPUT   ] = None
+	instructions : Annotated[Optional[List[str]]   , FieldRole.INPUT   ] = None
 
 	@property
 	def get(self) -> Annotated[InfoConfig, FieldRole.OUTPUT]: # type: ignore
@@ -47,10 +47,10 @@ DEFAULT_BACKEND_FALLBACK : bool = False
 
 
 class BackendConfig(BaseConfig):
-	type     : Annotated[str , FieldRole.CONSTANT] = "backend_config"
-	name     : Annotated[str , FieldRole.INPUT   ] = DEFAULT_BACKEND_NAME
-	version  : Annotated[str , FieldRole.INPUT   ] = DEFAULT_BACKEND_VERSION
-	fallback : Annotated[bool, FieldRole.INPUT   ] = DEFAULT_BACKEND_FALLBACK
+	type     : Annotated[Literal["backend_config"], FieldRole.CONSTANT] = "backend_config"
+	name     : Annotated[str                      , FieldRole.INPUT   ] = DEFAULT_BACKEND_NAME
+	version  : Annotated[str                      , FieldRole.INPUT   ] = DEFAULT_BACKEND_VERSION
+	fallback : Annotated[bool                     , FieldRole.INPUT   ] = DEFAULT_BACKEND_FALLBACK
 
 	@property
 	def get(self) -> Annotated[BackendConfig, FieldRole.OUTPUT]: # type: ignore
@@ -64,11 +64,11 @@ DEFAULT_MODEL_FALLBACK : bool = False
 
 
 class ModelConfig(BaseConfig):
-	type     : Annotated[str , FieldRole.CONSTANT] = "model_config"
-	source   : Annotated[str , FieldRole.INPUT   ] = DEFAULT_MODEL_SOURCE
-	id       : Annotated[str , FieldRole.INPUT   ] = DEFAULT_MODEL_ID
-	version  : Annotated[str , FieldRole.INPUT   ] = DEFAULT_MODEL_VERSION
-	fallback : Annotated[bool, FieldRole.INPUT   ] = DEFAULT_MODEL_FALLBACK
+	type     : Annotated[Literal["model_config"], FieldRole.CONSTANT] = "model_config"
+	source   : Annotated[str                    , FieldRole.INPUT   ] = DEFAULT_MODEL_SOURCE
+	id       : Annotated[str                    , FieldRole.INPUT   ] = DEFAULT_MODEL_ID
+	version  : Annotated[str                    , FieldRole.INPUT   ] = DEFAULT_MODEL_VERSION
+	fallback : Annotated[bool                   , FieldRole.INPUT   ] = DEFAULT_MODEL_FALLBACK
 
 	@property
 	def get(self) -> Annotated[ModelConfig, FieldRole.OUTPUT]: # type: ignore
@@ -82,11 +82,11 @@ DEFAULT_EMBEDDING_FALLBACK : bool = False
 
 
 class EmbeddingConfig(BaseConfig):
-	type     : Annotated[str , FieldRole.CONSTANT] = "embedding_config"
-	source   : Annotated[str , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_SOURCE
-	id       : Annotated[str , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_ID
-	version  : Annotated[str , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_VERSION
-	fallback : Annotated[bool, FieldRole.INPUT   ] = DEFAULT_EMBEDDING_FALLBACK
+	type     : Annotated[Literal["embedding_config"], FieldRole.CONSTANT] = "embedding_config"
+	source   : Annotated[str                        , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_SOURCE
+	id       : Annotated[str                        , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_ID
+	version  : Annotated[str                        , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_VERSION
+	fallback : Annotated[bool                       , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_FALLBACK
 
 	@property
 	def get(self) -> Annotated[EmbeddingConfig, FieldRole.OUTPUT]: # type: ignore
@@ -94,7 +94,7 @@ class EmbeddingConfig(BaseConfig):
 
 
 class PromptConfig(BaseConfig):
-	type         : Annotated[str                      , FieldRole.CONSTANT] = "prompt_config"
+	type         : Annotated[Literal["prompt_config"] , FieldRole.CONSTANT] = "prompt_config"
 	model        : Annotated[Optional[ModelConfig    ], FieldRole.INPUT   ] = None
 	embedding    : Annotated[Optional[EmbeddingConfig], FieldRole.INPUT   ] = None
 	description  : Annotated[Optional[str            ], FieldRole.INPUT   ] = None
@@ -115,13 +115,13 @@ DEFAULT_CONTENT_DB_FALLBACK             : bool = False
 
 
 class ContentDBConfig(BaseConfig):
-	type                 : Annotated[str , FieldRole.CONSTANT] = "content_db_config"
-	engine               : Annotated[str , FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_ENGINE
-	url                  : Annotated[str , FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_URL
-	memory_table_name    : Annotated[str , FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_MEMORY_TABLE_NAME
-	session_table_name   : Annotated[str , FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_SESSION_TABLE_NAME
-	knowledge_table_name : Annotated[str , FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_KNOWLEDGE_TABLE_NAME
-	fallback             : Annotated[bool, FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_FALLBACK
+	type                 : Annotated[Literal["content_db_config"], FieldRole.CONSTANT] = "content_db_config"
+	engine               : Annotated[str                         , FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_ENGINE
+	url                  : Annotated[str                         , FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_URL
+	memory_table_name    : Annotated[str                         , FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_MEMORY_TABLE_NAME
+	session_table_name   : Annotated[str                         , FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_SESSION_TABLE_NAME
+	knowledge_table_name : Annotated[str                         , FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_KNOWLEDGE_TABLE_NAME
+	fallback             : Annotated[bool                        , FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_FALLBACK
 
 	@property
 	def get(self) -> Annotated[ContentDBConfig, FieldRole.OUTPUT]: # type: ignore
@@ -135,12 +135,12 @@ DEFAULT_INDEX_DB_FALLBACK    : bool = False
 
 
 class IndexDBConfig(BaseConfig):
-	type        : Annotated[str                      , FieldRole.CONSTANT] = "index_db_config"
-	engine      : Annotated[str                      , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_ENGINE
-	url         : Annotated[str                      , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_URL
-	embedding   : Annotated[Optional[EmbeddingConfig], FieldRole.INPUT   ] = None
-	search_type : Annotated[str                      , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_SEARCH_TYPE
-	fallback    : Annotated[bool                     , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_FALLBACK
+	type        : Annotated[Literal["index_db_config"], FieldRole.CONSTANT] = "index_db_config"
+	engine      : Annotated[str                       , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_ENGINE
+	url         : Annotated[str                       , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_URL
+	embedding   : Annotated[Optional[EmbeddingConfig] , FieldRole.INPUT   ] = None
+	search_type : Annotated[str                       , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_SEARCH_TYPE
+	fallback    : Annotated[bool                      , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_FALLBACK
 
 	@property
 	def get(self) -> Annotated[IndexDBConfig, FieldRole.OUTPUT]: # type: ignore
@@ -153,11 +153,11 @@ DEFAULT_MEMORY_MANAGER_MANAGED : bool = False
 
 
 class MemoryManagerConfig(BaseConfig):
-	type    : Annotated[str                   , FieldRole.CONSTANT] = "memory_manager_config"
-	query   : Annotated[bool                  , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_QUERY
-	update  : Annotated[bool                  , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_UPDATE
-	managed : Annotated[bool                  , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_MANAGED
-	prompt  : Annotated[Optional[PromptConfig], FieldRole.INPUT   ] = None
+	type    : Annotated[Literal["memory_manager_config"], FieldRole.CONSTANT] = "memory_manager_config"
+	query   : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_QUERY
+	update  : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_UPDATE
+	managed : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_MANAGED
+	prompt  : Annotated[Optional[PromptConfig]          , FieldRole.INPUT   ] = None
 
 	@property
 	def get(self) -> Annotated[MemoryManagerConfig, FieldRole.OUTPUT]: # type: ignore
@@ -171,12 +171,12 @@ DEFAULT_SESSION_MANAGER_SUMMARIZE    : bool = False
 
 
 class SessionManagerConfig(BaseConfig):
-	type         : Annotated[str                   , FieldRole.CONSTANT] = "session_manager_config"
-	query        : Annotated[bool                  , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_QUERY
-	update       : Annotated[bool                  , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_UPDATE
-	summarize    : Annotated[bool                  , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_SUMMARIZE
-	history_size : Annotated[int                   , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_HISTORY_SIZE
-	prompt       : Annotated[Optional[PromptConfig], FieldRole.INPUT   ] = None
+	type         : Annotated[Literal["session_manager_config"], FieldRole.CONSTANT] = "session_manager_config"
+	query        : Annotated[bool                             , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_QUERY
+	update       : Annotated[bool                             , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_UPDATE
+	summarize    : Annotated[bool                             , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_SUMMARIZE
+	history_size : Annotated[int                              , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_HISTORY_SIZE
+	prompt       : Annotated[Optional[PromptConfig]           , FieldRole.INPUT   ] = None
 
 	@property
 	def get(self) -> Annotated[SessionManagerConfig, FieldRole.OUTPUT]: # type: ignore
@@ -187,13 +187,13 @@ DEFAULT_KNOWLEDGE_MANAGER_QUERY       : bool = True
 DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS : int  = 10
 
 class KnowledgeManagerConfig(BaseConfig):
-	type        : Annotated[str                      , FieldRole.CONSTANT] = "knowledge_manager_config"
-	query       : Annotated[bool                     , FieldRole.INPUT   ] = DEFAULT_KNOWLEDGE_MANAGER_QUERY
-	description : Annotated[Optional[str]            , FieldRole.INPUT   ] = None
-	content_db  : Annotated[Optional[ContentDBConfig], FieldRole.INPUT   ] = None
-	index_db    : Annotated[IndexDBConfig            , FieldRole.INPUT   ] = None
-	max_results : Annotated[int                      , FieldRole.INPUT   ] = DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS
-	urls        : Annotated[Optional[List[str]]      , FieldRole.INPUT   ] = None
+	type        : Annotated[Literal["knowledge_manager_config"], FieldRole.CONSTANT] = "knowledge_manager_config"
+	query       : Annotated[bool                               , FieldRole.INPUT   ] = DEFAULT_KNOWLEDGE_MANAGER_QUERY
+	description : Annotated[Optional[str]                      , FieldRole.INPUT   ] = None
+	content_db  : Annotated[Optional[ContentDBConfig]          , FieldRole.INPUT   ] = None
+	index_db    : Annotated[IndexDBConfig                      , FieldRole.INPUT   ] = None
+	max_results : Annotated[int                                , FieldRole.INPUT   ] = DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS
+	urls        : Annotated[Optional[List[str]]                , FieldRole.INPUT   ] = None
 
 	@property
 	def get(self) -> Annotated[KnowledgeManagerConfig, FieldRole.OUTPUT]: # type: ignore
@@ -204,8 +204,8 @@ DEFAULT_TOOL_FALLBACK : bool = False
 
 
 class ToolConfig(BaseConfig):
-	type     : Annotated[str                     , FieldRole.CONSTANT] = "tool_config"
-	name     : Annotated[str                     , FieldRole.INPUT   ]
+	type     : Annotated[Literal["tool_config"]  , FieldRole.CONSTANT] = "tool_config"
+	name     : Annotated[str                     , FieldRole.INPUT   ] = None
 	args     : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
 	ref      : Annotated[str                     , FieldRole.INPUT   ] = None
 	fallback : Annotated[bool                    , FieldRole.INPUT   ] = DEFAULT_TOOL_FALLBACK
@@ -219,8 +219,8 @@ DEFAULT_AGENT_OPTIONS_MARKDOWN : bool = True
 
 
 class AgentOptionsConfig(BaseConfig):
-	type     : Annotated[str , FieldRole.CONSTANT] = "agent_options_config"
-	markdown : Annotated[bool, FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_MARKDOWN
+	type     : Annotated[Literal["agent_options_config"], FieldRole.CONSTANT] = "agent_options_config"
+	markdown : Annotated[bool                           , FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_MARKDOWN
 
 	@property
 	def get(self) -> Annotated[AgentOptionsConfig, FieldRole.OUTPUT]: # type: ignore
@@ -228,16 +228,16 @@ class AgentOptionsConfig(BaseConfig):
 
 
 class AgentConfig(BaseConfig):
-	type          : Annotated[str                             , FieldRole.CONSTANT   ] = "agent_config"
+	type          : Annotated[Literal["agent_config"]         , FieldRole.CONSTANT   ] = "agent_config"
 	info          : Annotated[Optional[InfoConfig]            , FieldRole.INPUT      ] = None
 	options       : Annotated[Optional[AgentOptionsConfig]    , FieldRole.INPUT      ] = None
-	backend       : Annotated[BackendConfig                   , FieldRole.INPUT      ]
-	prompt        : Annotated[PromptConfig                    , FieldRole.INPUT      ]
+	backend       : Annotated[BackendConfig                   , FieldRole.INPUT      ] = None
+	prompt        : Annotated[PromptConfig                    , FieldRole.INPUT      ] = None
 	content_db    : Annotated[Optional[ContentDBConfig]       , FieldRole.INPUT      ] = None
 	memory_mgr    : Annotated[Optional[MemoryManagerConfig]   , FieldRole.INPUT      ] = None
 	session_mgr   : Annotated[Optional[SessionManagerConfig]  , FieldRole.INPUT      ] = None
 	knowledge_mgr : Annotated[Optional[KnowledgeManagerConfig], FieldRole.INPUT      ] = None
-	tools         : Annotated[Optional[List[ToolConfig]]      , FieldRole.MULTI_INPUT] = []
+	tools         : Annotated[Optional[List[ToolConfig]]      , FieldRole.MULTI_INPUT] = None
 
 	@property
 	def get(self) -> Annotated[AgentConfig, FieldRole.OUTPUT]: # type: ignore
@@ -267,32 +267,32 @@ SkipMessage : MessageAny = Message(type="skip", value=None)
 
 
 class Edge(BaseType):
-	type        : Annotated[str          , FieldRole.CONSTANT] = "edge"
-	source      : Annotated[int          , FieldRole.INPUT   ]
-	target      : Annotated[int          , FieldRole.INPUT   ]
-	source_slot : Annotated[str          , FieldRole.INPUT   ]
-	target_slot : Annotated[str          , FieldRole.INPUT   ]
-	extra       : Annotated[Optional[str], FieldRole.INPUT   ]
+	type        : Annotated[Literal["edge"]         , FieldRole.CONSTANT] = "edge"
+	source      : Annotated[int                     , FieldRole.INPUT   ]
+	target      : Annotated[int                     , FieldRole.INPUT   ]
+	source_slot : Annotated[str                     , FieldRole.INPUT   ]
+	target_slot : Annotated[str                     , FieldRole.INPUT   ]
+	# extra       : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
 
 
 class BaseNode(BaseType):
-	type   : Annotated[str          , FieldRole.CONSTANT] = "base_node"
-	extra  : Annotated[Optional[str], FieldRole.INPUT   ]
+	type  : Annotated[Literal["base_node"]    , FieldRole.CONSTANT] = "base_node"
+	# extra : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ]
 
 
 class StartNode(BaseNode):
-	type  : Annotated[str       , FieldRole.CONSTANT] = "start_node"
-	start : Annotated[MessageAny, FieldRole.OUTPUT  ]
+	type  : Annotated[Literal["start_node"], FieldRole.CONSTANT] = "start_node"
+	start : Annotated[MessageAny           , FieldRole.OUTPUT  ] = None
 
 
 class EndNode(BaseNode):
-	type : Annotated[str       , FieldRole.CONSTANT] = "end_node"
-	end  : Annotated[MessageAny, FieldRole.INPUT   ]
+	type : Annotated[Literal["end_node"], FieldRole.CONSTANT] = "end_node"
+	end  : Annotated[MessageAny         , FieldRole.INPUT   ] = None
 
 
 class SinkNode(BaseNode):
-	type : Annotated[str       , FieldRole.CONSTANT] = "sink_node"
-	sink : Annotated[MessageAny, FieldRole.INPUT   ]
+	type : Annotated[Literal["sink_node"], FieldRole.CONSTANT] = "sink_node"
+	sink : Annotated[MessageAny          , FieldRole.INPUT   ] = None
 
 
 DEFAULT_SCRIPT_NODE_LANG   : MessageStr = Message(type="", value="python")
@@ -300,80 +300,108 @@ DEFAULT_SCRIPT_NODE_SCRIPT : MessageStr = Message(type="", value="return None")
 
 
 class ScriptNode(BaseNode):
-	type   : Annotated[str       , FieldRole.CONSTANT] = "script_node"
-	lang   : Annotated[MessageStr, FieldRole.INPUT   ] = DEFAULT_SCRIPT_NODE_LANG
-	script : Annotated[MessageStr, FieldRole.INPUT   ] = DEFAULT_SCRIPT_NODE_SCRIPT
+	type   : Annotated[Literal["script_node"], FieldRole.CONSTANT] = "script_node"
+	lang   : Annotated[MessageStr            , FieldRole.INPUT   ] = DEFAULT_SCRIPT_NODE_LANG
+	script : Annotated[MessageStr            , FieldRole.INPUT   ] = DEFAULT_SCRIPT_NODE_SCRIPT
 
 
 class TransformNode(ScriptNode):
-	type   : Annotated[str       , FieldRole.CONSTANT] = "transform_node"
-	source : Annotated[MessageAny, FieldRole.INPUT   ]
-	target : Annotated[MessageAny, FieldRole.OUTPUT  ]
+	type   : Annotated[Literal["transform_node"], FieldRole.CONSTANT] = "transform_node"
+	source : Annotated[MessageAny               , FieldRole.INPUT   ] = None
+	target : Annotated[MessageAny               , FieldRole.OUTPUT  ] = None
 
 
 class SwitchNode(ScriptNode):
-	type     : Annotated[str                  , FieldRole.CONSTANT    ] = "switch_node"
-	value    : Annotated[MessageAny           , FieldRole.INPUT       ]
-	cases    : Annotated[Dict[str, MessageAny], FieldRole.MULTI_OUTPUT]
-	default  : Annotated[MessageAny           , FieldRole.OUTPUT      ]
+	type     : Annotated[Literal["switch_node"], FieldRole.CONSTANT    ] = "switch_node"
+	value    : Annotated[MessageAny            , FieldRole.INPUT       ] = None
+	cases    : Annotated[Dict[str, MessageAny] , FieldRole.MULTI_OUTPUT] = None
+	default  : Annotated[MessageAny            , FieldRole.OUTPUT      ] = None
 
 
 class SplitNode(ScriptNode):
-	type     : Annotated[str                  , FieldRole.CONSTANT    ] = "split_node"
-	mapping  : Annotated[Dict[str, str       ], FieldRole.INPUT       ]
-	source   : Annotated[Dict[str, MessageAny], FieldRole.INPUT       ]
-	targets  : Annotated[Dict[str, MessageAny], FieldRole.MULTI_OUTPUT]
+	type     : Annotated[Literal["split_node"], FieldRole.CONSTANT    ] = "split_node"
+	mapping  : Annotated[Dict[str, str       ], FieldRole.INPUT       ] = None
+	source   : Annotated[Dict[str, MessageAny], FieldRole.INPUT       ] = None
+	targets  : Annotated[Dict[str, MessageAny], FieldRole.MULTI_OUTPUT] = None
 
 
 DEFAULT_MERGE_NODE_STRATEGY : MessageStr = Message(type="", value="first")
 
 
 class MergeNode(BaseNode):
-	type     : Annotated[str                  , FieldRole.CONSTANT   ] = "merge_node"
+	type     : Annotated[Literal["merge_node"], FieldRole.CONSTANT   ] = "merge_node"
 	strategy : Annotated[MessageAny           , FieldRole.INPUT      ] = DEFAULT_MERGE_NODE_STRATEGY
-	sources  : Annotated[Dict[str, MessageAny], FieldRole.MULTI_INPUT]
-	target   : Annotated[MessageAny           , FieldRole.OUTPUT     ]
+	sources  : Annotated[Dict[str, MessageAny], FieldRole.MULTI_INPUT] = None
+	target   : Annotated[MessageAny           , FieldRole.OUTPUT     ] = None
 
 
 class UserInputNode(BaseNode):
-	type    : Annotated[str       , FieldRole.CONSTANT] = "user_input_node"
-	query   : Annotated[MessageAny, FieldRole.INPUT   ]
-	message : Annotated[MessageAny, FieldRole.OUTPUT  ]
+	type    : Annotated[Literal["user_input_node"], FieldRole.CONSTANT] = "user_input_node"
+	query   : Annotated[MessageAny                , FieldRole.INPUT   ] = None
+	message : Annotated[MessageAny                , FieldRole.OUTPUT  ] = None
 
 
 class UserOutputNode(BaseNode):
-	type    : Annotated[str       , FieldRole.CONSTANT] = "user_output_node"
-	message : Annotated[MessageAny, FieldRole.INPUT   ]
-	get     : Annotated[MessageAny, FieldRole.OUTPUT  ]
+	type    : Annotated[Literal["user_output_node"], FieldRole.CONSTANT] = "user_output_node"
+	message : Annotated[MessageAny                 , FieldRole.INPUT   ] = None
+	get     : Annotated[MessageAny                 , FieldRole.OUTPUT  ] = None
 
 
 MessageToolConfig = Union[ToolConfig, Message[ToolConfig]]
 
 
 class ToolNode(BaseNode):
-	type      : Annotated[str              , FieldRole.CONSTANT] = "tool_node"
-	config    : Annotated[MessageToolConfig, FieldRole.INPUT   ]
-	arguments : Annotated[MessageDict      , FieldRole.INPUT   ]
-	source    : Annotated[MessageAny       , FieldRole.INPUT   ]
-	target    : Annotated[MessageAny       , FieldRole.OUTPUT  ]
+	type      : Annotated[Literal["tool_node"]         , FieldRole.CONSTANT] = "tool_node"
+	config    : Annotated[Union[int, MessageToolConfig], FieldRole.INPUT   ]
+	arguments : Annotated[MessageDict                  , FieldRole.INPUT   ]
+	source    : Annotated[MessageAny                   , FieldRole.INPUT   ]
+	target    : Annotated[MessageAny                   , FieldRole.OUTPUT  ] = None
 
 
 MessageAgentConfig = Union[AgentConfig, Message[AgentConfig]]
 
 
 class AgentNode(BaseNode):
-	type     : Annotated[str               , FieldRole.CONSTANT] = "agent_node"
-	config   : Annotated[MessageAgentConfig, FieldRole.INPUT   ]
-	request  : Annotated[MessageAny        , FieldRole.INPUT   ]
-	response : Annotated[MessageAny        , FieldRole.OUTPUT  ]
+	type     : Annotated[Literal["agent_node"]         , FieldRole.CONSTANT] = "agent_node"
+	config   : Annotated[Union[int, MessageAgentConfig], FieldRole.INPUT   ]
+	request  : Annotated[MessageAny                    , FieldRole.INPUT   ] = None
+	response : Annotated[MessageAny                    , FieldRole.OUTPUT  ] = None
+
+
+WorkflowNodeUnion = Union[
+	InfoConfig             ,
+	BackendConfig          ,
+	ModelConfig            ,
+	EmbeddingConfig        ,
+	PromptConfig           ,
+	ContentDBConfig        ,
+	IndexDBConfig          ,
+	MemoryManagerConfig    ,
+	SessionManagerConfig   ,
+	KnowledgeManagerConfig ,
+	ToolConfig             ,
+	AgentConfig            ,
+ 
+	StartNode              ,
+	EndNode                ,
+	SinkNode               ,
+	TransformNode          ,
+	SwitchNode             ,
+	SplitNode              ,
+	MergeNode              ,
+	UserInputNode          ,
+	UserOutputNode         ,
+	ToolNode               ,
+	AgentNode              ,
+]
 
 
 DEFAULT_WORKFLOW_OPTIONS_TAG : int = 0
 
 
 class WorkflowOptionsConfig(BaseConfig):
-	type : Annotated[str, FieldRole.CONSTANT] = "workflow_options_config"
-	tag  : Annotated[int, FieldRole.INPUT   ] = DEFAULT_WORKFLOW_OPTIONS_TAG
+	type : Annotated[Literal["workflow_options_config"], FieldRole.CONSTANT] = "workflow_options_config"
+	tag  : Annotated[int                               , FieldRole.INPUT   ] = DEFAULT_WORKFLOW_OPTIONS_TAG
 
 	@property
 	def get(self) -> Annotated[WorkflowOptionsConfig, FieldRole.OUTPUT]: # type: ignore
@@ -381,12 +409,22 @@ class WorkflowOptionsConfig(BaseConfig):
 
 
 class Workflow(BaseConfig):
-	type     : Annotated[str                            , FieldRole.CONSTANT] = "workflow"
-	info     : Annotated[Optional[InfoConfig]           , FieldRole.INPUT   ] = None
-	options  : Annotated[Optional[WorkflowOptionsConfig], FieldRole.INPUT   ] = None
-	nodes    : Annotated[Optional[List[BaseNode]]       , FieldRole.INPUT   ] = []
-	edges    : Annotated[Optional[List[Edge]]           , FieldRole.INPUT   ] = []
+	type     : Annotated[Literal["workflow"]              , FieldRole.CONSTANT] = "workflow"
+	info     : Annotated[Optional[InfoConfig]             , FieldRole.INPUT   ] = None
+	options  : Annotated[Optional[WorkflowOptionsConfig]  , FieldRole.INPUT   ] = None
+	nodes    : Annotated[Optional[List[Annotated[WorkflowNodeUnion, Field(discriminator="type")]]], FieldRole.INPUT] = None
+	edges    : Annotated[Optional[List[Edge]]             , FieldRole.INPUT   ] = None
 
 	@property
 	def get(self) -> Annotated[Workflow, FieldRole.OUTPUT]: # type: ignore
 		return self
+
+
+if __name__ == "__main__":
+	import json
+	import os
+	current_dir = os.path.dirname(os.path.abspath(__file__))
+	with open(f"{current_dir}/../web/workflow_example_simple.json") as f:
+		data = json.load(f)
+		workflow = Workflow(**data)
+		print(workflow)

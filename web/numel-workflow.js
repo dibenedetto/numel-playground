@@ -766,10 +766,11 @@ class WorkflowClient {
 	// ====================================================================
 	
 	async startWorkflow(workflow, initialData = null) {
+		const wf = JSON.stringify({ workflow: workflow, initial_data: initialData });
 		const response = await fetch(`${this.baseUrl}/workflow/start`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ workflow, initial_data: initialData })
+			body: wf
 		});
 		
 		if (!response.ok) {
