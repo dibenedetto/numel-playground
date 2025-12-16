@@ -548,9 +548,7 @@ NODE_TYPES = {
 
 def create_node(node_type: str, config: Dict[str, Any] = None, **kwargs) -> BaseNode:
 	"""Factory function to create nodes"""
-	node_class = NODE_TYPES.get(node_type)
-	if not node_class:
-		return ConfigNode(config, **kwargs)
+	node_class = NODE_TYPES.get(node_type, ConfigNode)
 	return node_class(config, **kwargs)
 
 

@@ -1,7 +1,7 @@
 # workflow_api.py
 # Updated for workflow_schema_new.py
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Body
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 from typing import Any, Dict, Optional
 

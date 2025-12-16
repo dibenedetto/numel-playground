@@ -268,10 +268,10 @@ SkipMessage : MessageAny = Message(type="skip", value=None)
 
 class Edge(BaseType):
 	type        : Annotated[Literal["edge"]         , FieldRole.CONSTANT] = "edge"
-	source      : Annotated[int                     , FieldRole.INPUT   ]
-	target      : Annotated[int                     , FieldRole.INPUT   ]
-	source_slot : Annotated[str                     , FieldRole.INPUT   ]
-	target_slot : Annotated[str                     , FieldRole.INPUT   ]
+	source      : Annotated[int                     , FieldRole.INPUT   ] = None
+	target      : Annotated[int                     , FieldRole.INPUT   ] = None
+	source_slot : Annotated[str                     , FieldRole.INPUT   ] = None
+	target_slot : Annotated[str                     , FieldRole.INPUT   ] = None
 	# extra       : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
 
 
@@ -352,9 +352,9 @@ MessageToolConfig = Union[ToolConfig, Message[ToolConfig]]
 
 class ToolNode(BaseNode):
 	type      : Annotated[Literal["tool_node"]         , FieldRole.CONSTANT] = "tool_node"
-	config    : Annotated[Union[int, MessageToolConfig], FieldRole.INPUT   ]
-	arguments : Annotated[MessageDict                  , FieldRole.INPUT   ]
-	source    : Annotated[MessageAny                   , FieldRole.INPUT   ]
+	config    : Annotated[Union[int, MessageToolConfig], FieldRole.INPUT   ] = None
+	arguments : Annotated[MessageDict                  , FieldRole.INPUT   ] = None
+	source    : Annotated[MessageAny                   , FieldRole.INPUT   ] = None
 	target    : Annotated[MessageAny                   , FieldRole.OUTPUT  ] = None
 
 
@@ -363,7 +363,7 @@ MessageAgentConfig = Union[AgentConfig, Message[AgentConfig]]
 
 class AgentNode(BaseNode):
 	type     : Annotated[Literal["agent_node"]         , FieldRole.CONSTANT] = "agent_node"
-	config   : Annotated[Union[int, MessageAgentConfig], FieldRole.INPUT   ]
+	config   : Annotated[Union[int, MessageAgentConfig], FieldRole.INPUT   ] = None
 	request  : Annotated[MessageAny                    , FieldRole.INPUT   ] = None
 	response : Annotated[MessageAny                    , FieldRole.OUTPUT  ] = None
 

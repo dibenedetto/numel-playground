@@ -126,32 +126,38 @@ class WorkflowEngine:
 		"""Main execution loop - frontier-based"""
 		try:
 			all_nodes = workflow.nodes or []
-			nodes     = list(filter(lambda n: isinstance(n, BaseNode), all_nodes))
+			pending   = set()
+			completed = set()
+			nodes     = []
+			for i, n in enumerate(all_nodes):
+				if isinstance(n, BaseNode):
+					pending.add(i)
+					nodes.append(n)
+				else:
+					completed.add(i)
+
 			all_edges = workflow.edges or []
 			edges     = [e for e in all_edges if isinstance(all_nodes[e.source], BaseNode) and isinstance(all_nodes[e.target], BaseNode)]
+			
+			# Instantiate node executors
+			node_instances = self._instantiate_nodes(all_nodes, all_edges)
 			
 			# Build dependency graph from edges
 			dependencies = self._build_dependencies (edges)
 			dependents   = self._build_dependents   (edges)
 			
 			# Track node states
-			# pending = set(range(len(nodes)))
-			pending = set(nodes)
-			ready = set()
+			ready   = set()
 			running = set()
-			completed = set()
 			
 			# Node outputs storage
 			node_outputs: Dict[int, Dict[str, Any]] = {}
 			
 			# Find start nodes (no dependencies)
-			for idx in range(len(nodes)):
+			for idx in list(pending):
 				if not dependencies[idx]:
 					ready.add(idx)
 					pending.discard(idx)
-			
-			# Instantiate node executors
-			node_instances = self._instantiate_nodes(nodes)
 			
 			# Global variables
 			variables = dict(initial_data)
@@ -250,7 +256,7 @@ class WorkflowEngine:
 				deps[edge['source']].add(edge['target'])
 		return deps
 	
-	def _instantiate_nodes(self, nodes: List) -> List[Any]:
+	def _instantiate_nodes(self, nodes: List, edges: List) -> List[Any]:
 		"""Create node instances from workflow definition"""
 		instances = []
 		
