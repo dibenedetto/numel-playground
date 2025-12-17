@@ -574,23 +574,42 @@ def build_backend_agno(workflow: Workflow) -> List[BaseNode]:
 		impl[index] = item
 
 
+	configs = {
+		"model_config"             : [],
+		"embedding_config"         : [],
+		"content_db_config"        : [],
+		"index_db_config"          : [],
+		"tool_config"              : [],
+		"agent_options_config"     : [],
+		"prompt_config"            : [],
+		"memory_manager_config"    : [],
+		"session_manager_config"   : [],
+		"knowledge_manager_config" : [],
+		"agent_config"             : [],
+	}
+
+	unused_nodes = []
+	for i, node in enumerate(workflow.nodes):
+		configs.get(node.type, unused_nodes).append(i)
+
 	links = [({}, {}) for _ in range(len(workflow.nodes))]
 	for edge in workflow.edges:
 		links[edge.source][0][edge.source_slot] = (edge.target, edge.target_slot)
 		links[edge.target][1][edge.target_slot] = (edge.source, edge.source_slot)
 
-	config_impl = copy.deepcopy(self.config)
+	impl  = [None] * len(workflow.nodes)
+	nodes = [None] * len(workflow.nodes)
 
-	config_impl.models         = [self._build_model             (self.config, config_impl, i) for i in range(len(self.config.models        ))]
-	config_impl.embeddings     = [self._build_embedding         (self.config, config_impl, i) for i in range(len(self.config.embeddings    ))]
-	config_impl.content_dbs    = [self._build_content_db        (self.config, config_impl, i) for i in range(len(self.config.content_dbs   ))]
-	config_impl.index_dbs      = [self._build_index_db          (self.config, config_impl, i) for i in range(len(self.config.index_dbs     ))]
-	config_impl.tools          = [self._build_tool              (self.config, config_impl, i) for i in range(len(self.config.tools         ))]
-	config_impl.agent_options  = [self._build_agent_options     (self.config, config_impl, i) for i in range(len(self.config.agent_options ))]
+	for i in configs["model_config"            ]: _build_model             (workflow, links, impl, i, nodes)
+	for i in configs["embedding_config"        ]: _build_embedding         (workflow, links, impl, i, nodes)
+	for i in configs["content_db_config"       ]: _build_content_db        (workflow, links, impl, i, nodes)
+	for i in configs["index_db_config"         ]: _build_index_db          (workflow, links, impl, i, nodes)
+	for i in configs["tool_config"             ]: _build_tool              (workflow, links, impl, i, nodes)
+	for i in configs["agent_options_config"    ]: _build_agent_options     (workflow, links, impl, i, nodes)
+	for i in configs["prompt_config"           ]: _build_prompt            (workflow, links, impl, i, nodes)
+	for i in configs["memory_manager_config"   ]: _build_memory_manager    (workflow, links, impl, i, nodes)
+	for i in configs["session_manager_config"  ]: _build_session_manager   (workflow, links, impl, i, nodes)
+	for i in configs["knowledge_manager_config"]: _build_knowledge_manager (workflow, links, impl, i, nodes)
+	for i in configs["agent_config"            ]: _build_agent             (workflow, links, impl, i, nodes)
 
-	config_impl.prompts        = [self._build_prompt            (self.config, config_impl, i) for i in range(len(self.config.prompts       ))]
-	config_impl.memory_mgrs    = [self._build_memory_manager    (self.config, config_impl, i) for i in range(len(self.config.memory_mgrs   ))]
-	config_impl.session_mgrs   = [self._build_session_manager   (self.config, config_impl, i) for i in range(len(self.config.session_mgrs  ))]
-	config_impl.knowledge_mgrs = [self._build_knowledge_manager (self.config, config_impl, i) for i in range(len(self.config.knowledge_mgrs))]
-
-	config_impl.agents         = [self._build_agent             (self.config, config_impl, i) for i in range(len(self.config.agents        ))]
+	return nodes
