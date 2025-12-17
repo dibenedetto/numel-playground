@@ -272,12 +272,12 @@ class Edge(BaseType):
 	target      : Annotated[int                     , FieldRole.INPUT   ] = None
 	source_slot : Annotated[str                     , FieldRole.INPUT   ] = None
 	target_slot : Annotated[str                     , FieldRole.INPUT   ] = None
-	# extra       : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
+	extra       : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
 
 
 class BaseNode(BaseType):
 	type  : Annotated[Literal["base_node"]    , FieldRole.CONSTANT] = "base_node"
-	# extra : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ]
+	extra : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
 
 
 class StartNode(BaseNode):

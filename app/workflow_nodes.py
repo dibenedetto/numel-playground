@@ -5,6 +5,9 @@ from typing import Any, Callable, Dict, List, Optional
 from jinja2 import Template
 
 
+from workflow_schema_new import BaseNode as SchemaBaseNode
+
+
 class NodeExecutionContext:
 	"""Data flowing into a node"""
 	def __init__(self):
@@ -423,6 +426,9 @@ class AgentNode(BaseNode):
 class ConfigNode(BaseNode):
 	"""Base class for config nodes"""
 	
+	def get_input_slots(self):
+		return []
+
 	def get_output_slots(self):
 		return ["get"]
 	
@@ -433,23 +439,19 @@ class ConfigNode(BaseNode):
 
 
 class InfoConfigNode(ConfigNode):
-	def get_input_slots(self):
-		return []
+	pass
 
 
 class BackendConfigNode(ConfigNode):
-	def get_input_slots(self):
-		return []
+	pass
 
 
 class ModelConfigNode(ConfigNode):
-	def get_input_slots(self):
-		return []
+	pass
 
 
 class EmbeddingConfigNode(ConfigNode):
-	def get_input_slots(self):
-		return []
+	pass
 
 
 class PromptConfigNode(ConfigNode):
@@ -458,8 +460,7 @@ class PromptConfigNode(ConfigNode):
 
 
 class ContentDBConfigNode(ConfigNode):
-	def get_input_slots(self):
-		return []
+	pass
 
 
 class IndexDBConfigNode(ConfigNode):
@@ -483,13 +484,11 @@ class KnowledgeManagerConfigNode(ConfigNode):
 
 
 class ToolConfigNode(ConfigNode):
-	def get_input_slots(self):
-		return []
+	pass
 
 
 class AgentOptionsConfigNode(ConfigNode):
-	def get_input_slots(self):
-		return []
+	pass
 
 
 class AgentConfigNode(ConfigNode):
@@ -499,8 +498,7 @@ class AgentConfigNode(ConfigNode):
 
 
 class WorkflowOptionsConfigNode(ConfigNode):
-	def get_input_slots(self):
-		return []
+	pass
 
 
 # ========================================================================
@@ -546,10 +544,10 @@ NODE_TYPES = {
 }
 
 
-def create_node(node_type: str, config: Dict[str, Any] = None, **kwargs) -> BaseNode:
+def create_node(node: SchemaBaseNode, **kwargs) -> BaseNode:
 	"""Factory function to create nodes"""
-	node_class = NODE_TYPES.get(node_type, ConfigNode)
-	return node_class(config, **kwargs)
+	node_class = NODE_TYPES.get(node.type, ConfigNode)
+	return node_class(node, **kwargs)
 
 
 def get_node_types() -> List[str]:
