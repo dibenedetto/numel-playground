@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, List, Optional
 from jinja2 import Template
 
 
-from workflow_schema_new import BaseNode as SchemaBaseNode
+from workflow_schema_new import BaseNode
 
 
 class NodeExecutionContext:
@@ -26,12 +26,12 @@ class NodeExecutionResult:
 		self.next_target: Optional[str] = None  # For switch nodes
 
 
-class BaseNode:
+class WFBaseNode:
 	"""All nodes inherit from this"""
 	
 	def __init__(self, config: Dict[str, Any] = None, **kwargs):
 		self.config = config or {}
-		self.extra = self.config.get("extra")
+		self.extra  = self.config.get("extra")
 		
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		"""Override this - pure function: input data → output data"""
@@ -48,7 +48,7 @@ class BaseNode:
 # CONTROL FLOW NODES
 # ========================================================================
 
-class StartNode(BaseNode):
+class WFStartNode(WFBaseNode):
 	"""Outputs initial workflow variables via 'start' slot"""
 	
 	def get_input_slots(self):
@@ -63,7 +63,7 @@ class StartNode(BaseNode):
 		return result
 
 
-class EndNode(BaseNode):
+class WFEndNode(WFBaseNode):
 	"""Receives final output via 'end' slot"""
 	
 	def get_input_slots(self):
@@ -77,7 +77,7 @@ class EndNode(BaseNode):
 		return result
 
 
-class SinkNode(BaseNode):
+class WFSinkNode(WFBaseNode):
 	"""Receives data via 'sink' slot (discards it)"""
 	
 	def get_input_slots(self):
@@ -95,7 +95,7 @@ class SinkNode(BaseNode):
 # USER INTERACTION NODES
 # ========================================================================
 
-class UserInputNode(BaseNode):
+class WFUserInputNode(WFBaseNode):
 	"""Waits for user input"""
 	
 	def get_input_slots(self):
@@ -110,7 +110,7 @@ class UserInputNode(BaseNode):
 		return result
 
 
-class UserOutputNode(BaseNode):
+class WFUserOutputNode(WFBaseNode):
 	"""Displays output to user"""
 	
 	def get_input_slots(self):
@@ -130,7 +130,7 @@ class UserOutputNode(BaseNode):
 # SCRIPT-BASED NODES
 # ========================================================================
 
-class ScriptNode(BaseNode):
+class WFScriptNode(WFBaseNode):
 	"""Base class for script-executing nodes"""
 	
 	def _get_lang(self) -> str:
@@ -147,7 +147,7 @@ class ScriptNode(BaseNode):
 		return script
 
 
-class TransformNode(ScriptNode):
+class WFTransformNode(WFScriptNode):
 	"""Transforms data using Python code"""
 	
 	def get_input_slots(self):
@@ -192,7 +192,7 @@ class TransformNode(ScriptNode):
 		return result
 
 
-class SwitchNode(ScriptNode):
+class WFSwitchNode(WFScriptNode):
 	"""Routes data based on script evaluation to cases or default"""
 	
 	def get_input_slots(self):
@@ -254,7 +254,7 @@ class SwitchNode(ScriptNode):
 		return result
 
 
-class SplitNode(ScriptNode):
+class WFSplitNode(WFScriptNode):
 	"""Splits data to multiple outputs based on mapping"""
 	
 	def get_input_slots(self):
@@ -292,7 +292,7 @@ class SplitNode(ScriptNode):
 		return result
 
 
-class MergeNode(BaseNode):
+class WFMergeNode(WFBaseNode):
 	"""Merges multiple inputs into one output"""
 	
 	def get_input_slots(self):
@@ -344,7 +344,7 @@ class MergeNode(BaseNode):
 # TOOL & AGENT NODES
 # ========================================================================
 
-class ToolNode(BaseNode):
+class WFToolNode(WFBaseNode):
 	"""Executes a tool"""
 	
 	def __init__(self, config: Dict[str, Any], tool: Callable = None, **kwargs):
@@ -381,7 +381,7 @@ class ToolNode(BaseNode):
 		return result
 
 
-class AgentNode(BaseNode):
+class WFAgentNode(WFBaseNode):
 	"""Executes an agent"""
 	
 	def __init__(self, config: Dict[str, Any], agent: Callable = None, **kwargs):
@@ -423,7 +423,7 @@ class AgentNode(BaseNode):
 # CONFIG NODES (passthrough their configuration)
 # ========================================================================
 
-class ConfigNode(BaseNode):
+class WFBaseConfig(WFBaseNode):
 	"""Base class for config nodes"""
 	
 	def get_input_slots(self):
@@ -438,66 +438,66 @@ class ConfigNode(BaseNode):
 		return result
 
 
-class InfoConfigNode(ConfigNode):
+class WFInfoConfig(WFBaseConfig):
 	pass
 
 
-class BackendConfigNode(ConfigNode):
+class WFBackendConfig(WFBaseConfig):
 	pass
 
 
-class ModelConfigNode(ConfigNode):
+class WFModelConfig(WFBaseConfig):
 	pass
 
 
-class EmbeddingConfigNode(ConfigNode):
+class WFEmbeddingConfig(WFBaseConfig):
 	pass
 
 
-class PromptConfigNode(ConfigNode):
+class WFPromptConfig(WFBaseConfig):
 	def get_input_slots(self):
 		return ["model", "embedding"]
 
 
-class ContentDBConfigNode(ConfigNode):
+class WFContentDBConfig(WFBaseConfig):
 	pass
 
 
-class IndexDBConfigNode(ConfigNode):
+class WFIndexDBConfig(WFBaseConfig):
 	def get_input_slots(self):
 		return ["embedding"]
 
 
-class MemoryManagerConfigNode(ConfigNode):
+class WFMemoryManagerConfig(WFBaseConfig):
 	def get_input_slots(self):
 		return ["prompt"]
 
 
-class SessionManagerConfigNode(ConfigNode):
+class WFSessionManagerConfig(WFBaseConfig):
 	def get_input_slots(self):
 		return ["prompt"]
 
 
-class KnowledgeManagerConfigNode(ConfigNode):
+class WFKnowledgeManagerConfig(WFBaseConfig):
 	def get_input_slots(self):
 		return ["content_db", "index_db"]
 
 
-class ToolConfigNode(ConfigNode):
+class WFToolConfig(WFBaseConfig):
 	pass
 
 
-class AgentOptionsConfigNode(ConfigNode):
+class WFAgentOptionsConfig(WFBaseConfig):
 	pass
 
 
-class AgentConfigNode(ConfigNode):
+class WFAgentConfig(WFBaseConfig):
 	def get_input_slots(self):
 		return ["info", "options", "backend", "prompt", "content_db", 
 				"memory_mgr", "session_mgr", "knowledge_mgr", "tools"]
 
 
-class WorkflowOptionsConfigNode(ConfigNode):
+class WFWorkflowOptionsConfig(WFBaseConfig):
 	pass
 
 
@@ -507,46 +507,46 @@ class WorkflowOptionsConfigNode(ConfigNode):
 
 NODE_TYPES = {
 	# Control flow
-	"start_node": StartNode,
-	"end_node": EndNode,
-	"sink_node": SinkNode,
-	
+	"start_node"               : WFStartNode,
+	"end_node"                 : WFEndNode,
+	"sink_node"                : WFSinkNode,
+
 	# User interaction
-	"user_input_node": UserInputNode,
-	"user_output_node": UserOutputNode,
-	
+	"user_input_node"          : WFUserInputNode,
+	"user_output_node"         : WFUserOutputNode,
+
 	# Script-based
-	"script_node": ScriptNode,
-	"transform_node": TransformNode,
-	"switch_node": SwitchNode,
-	"split_node": SplitNode,
-	"merge_node": MergeNode,
-	
+	"script_node"              : WFScriptNode,
+	"transform_node"           : WFTransformNode,
+	"switch_node"              : WFSwitchNode,
+	"split_node"               : WFSplitNode,
+	"merge_node"               : WFMergeNode,
+
 	# Tool & Agent
-	"tool_node": ToolNode,
-	"agent_node": AgentNode,
-	
+	"tool_node"                : WFToolNode,
+	"agent_node"               : WFAgentNode,
+
 	# Config nodes
-	"info_config": InfoConfigNode,
-	"backend_config": BackendConfigNode,
-	"model_config": ModelConfigNode,
-	"embedding_config": EmbeddingConfigNode,
-	"prompt_config": PromptConfigNode,
-	"content_db_config": ContentDBConfigNode,
-	"index_db_config": IndexDBConfigNode,
-	"memory_manager_config": MemoryManagerConfigNode,
-	"session_manager_config": SessionManagerConfigNode,
-	"knowledge_manager_config": KnowledgeManagerConfigNode,
-	"tool_config": ToolConfigNode,
-	"agent_options_config": AgentOptionsConfigNode,
-	"agent_config": AgentConfigNode,
-	"workflow_options_config": WorkflowOptionsConfigNode,
+	"info_config"              : WFInfoConfig,
+	"backend_config"           : WFBackendConfig,
+	"model_config"             : WFModelConfig,
+	"embedding_config"         : WFEmbeddingConfig,
+	"prompt_config"            : WFPromptConfig,
+	"content_db_config"        : WFContentDBConfig,
+	"index_db_config"          : WFIndexDBConfig,
+	"memory_manager_config"    : WFMemoryManagerConfig,
+	"session_manager_config"   : WFSessionManagerConfig,
+	"knowledge_manager_config" : WFKnowledgeManagerConfig,
+	"tool_config"              : WFToolConfig,
+	"agent_options_config"     : WFAgentOptionsConfig,
+	"agent_config"             : WFAgentConfig,
+	"workflow_options_config"  : WFWorkflowOptionsConfig,
 }
 
 
-def create_node(node: SchemaBaseNode, **kwargs) -> BaseNode:
+def create_node(node: BaseNode, **kwargs) -> WFBaseNode:
 	"""Factory function to create nodes"""
-	node_class = NODE_TYPES.get(node.type, ConfigNode)
+	node_class = NODE_TYPES.get(node.type, WFBaseConfig)
 	return node_class(node, **kwargs)
 
 
