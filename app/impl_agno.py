@@ -342,7 +342,7 @@ def register() -> bool:
 from workflow_schema_new import *
 
 
-def build_backend_agno(workflow: Workflow) -> List[BaseNode]:
+def build_backend_agno(workflow: Workflow) -> List[BaseType]:
 
 	def _get_search_type(value: str) -> SearchType:
 		if value == "hybrid":
@@ -354,7 +354,7 @@ def build_backend_agno(workflow: Workflow) -> List[BaseNode]:
 		raise ValueError(f"Invalid Agno db search type: {value}")
 
 
-	def _build_model(workflow: Workflow, links: List[Any], impl: List[BaseNode], index: int):
+	def _build_model(workflow: Workflow, links: List[Any], impl: List[BaseType], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "model_config", "Invalid Agno model"
 		if item_config.source == "ollama":
@@ -366,7 +366,7 @@ def build_backend_agno(workflow: Workflow) -> List[BaseNode]:
 		impl[index] = item
 
 
-	def _build_embedding(workflow: Workflow, links: List[Any], impl: List[BaseNode], index: int):
+	def _build_embedding(workflow: Workflow, links: List[Any], impl: List[BaseType], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "embedding_config", "Invalid Agno embedding"
 		if item_config.source == "ollama":
@@ -378,14 +378,14 @@ def build_backend_agno(workflow: Workflow) -> List[BaseNode]:
 		impl[index] = item
 
 
-	def _build_prompt(workflow: Workflow, links: List[Any], impl: List[BaseNode], index: int):
+	def _build_prompt(workflow: Workflow, links: List[Any], impl: List[BaseType], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "prompt_config", "Invalid Agno prompt"
 		item = copy.deepcopy(item_config)
 		impl[index] = item
 
 
-	def _build_content_db(workflow: Workflow, links: List[Any], impl: List[BaseNode], index: int):
+	def _build_content_db(workflow: Workflow, links: List[Any], impl: List[BaseType], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "content_db_config", "Invalid Agno content db"
 		if item_config.engine == "sqlite":
@@ -406,7 +406,7 @@ def build_backend_agno(workflow: Workflow) -> List[BaseNode]:
 		impl[index] = item
 
 
-	def _build_index_db(workflow: Workflow, links: List[Any], impl: List[BaseNode], index: int):
+	def _build_index_db(workflow: Workflow, links: List[Any], impl: List[BaseType], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "index_db_config", "Invalid Agno index db"
 		if item_config.engine == "lancedb":
@@ -422,7 +422,7 @@ def build_backend_agno(workflow: Workflow) -> List[BaseNode]:
 		impl[index] = item
 
 
-	def _build_memory_manager(workflow: Workflow, links: List[Any], impl: List[BaseNode], index: int):
+	def _build_memory_manager(workflow: Workflow, links: List[Any], impl: List[BaseType], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "memory_manager_config", "Invalid Agno memory manager"
 		model          = None
@@ -438,14 +438,14 @@ def build_backend_agno(workflow: Workflow) -> List[BaseNode]:
 		impl[index] = item
 
 
-	def _build_session_manager(workflow: Workflow, links: List[Any], impl: List[BaseNode], index: int):
+	def _build_session_manager(workflow: Workflow, links: List[Any], impl: List[BaseType], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "session_manager_config", "Invalid Agno session manager"
 		item = copy.deepcopy(item_config)
 		impl[index] = item
 
 
-	def _build_knowledge_manager(workflow: Workflow, links: List[Any], impl: List[BaseNode], index: int):
+	def _build_knowledge_manager(workflow: Workflow, links: List[Any], impl: List[BaseType], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "knowledge_manager_config", "Invalid Agno knowledge manager"
 		description = item_config.description
@@ -460,7 +460,7 @@ def build_backend_agno(workflow: Workflow) -> List[BaseNode]:
 		impl[index] = item
 
 
-	def _build_tool(workflow: Workflow, links: List[Any], impl: List[BaseNode], index: int):
+	def _build_tool(workflow: Workflow, links: List[Any], impl: List[BaseType], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "tool_config", "Invalid Agno tool"
 		item_config = config.tools[index]
@@ -476,14 +476,14 @@ def build_backend_agno(workflow: Workflow) -> List[BaseNode]:
 		impl[index] = item
 
 
-	def _build_agent_options(workflow: Workflow, links: List[Any], impl: List[BaseNode], index: int):
+	def _build_agent_options(workflow: Workflow, links: List[Any], impl: List[BaseType], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "agent_options_config", "Invalid Agno agent options"
 		item = copy.deepcopy(item_config)
 		impl[index] = item
 
 
-	def _build_agent(workflow: Workflow, links: List[Any], impl: List[BaseNode], index: int):
+	def _build_agent(workflow: Workflow, links: List[Any], impl: List[BaseType], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "agent_config", "Invalid Agno agent"
 		item_config = config.agents[index]

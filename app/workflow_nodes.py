@@ -11,22 +11,26 @@ from workflow_schema_new import BaseNode
 class NodeExecutionContext:
 	"""Data flowing into a node"""
 	def __init__(self):
-		self.inputs: Dict[str, Any] = {}      # {slot_name: data}
-		self.variables: Dict[str, Any] = {}   # Global workflow variables
-		self.node_index: int = 0
-		self.node_config: Dict[str, Any] = {} # Full node configuration
+		self.inputs      : Dict[str, Any] = {} # {slot_name: data}
+		self.variables   : Dict[str, Any] = {} # Global workflow variables
+		self.node_index  : int            = 0
+		self.node_config : Dict[str, Any] = {} # Full node configuration
 
 
 class NodeExecutionResult:
 	"""Data flowing out of a node"""
 	def __init__(self):
-		self.outputs: Dict[str, Any] = {}  # {slot_name: data}
-		self.success: bool = True
-		self.error: Optional[str] = None
-		self.next_target: Optional[str] = None  # For switch nodes
+		self.outputs     : Dict[str, Any] = {}  # {slot_name: data}
+		self.success     : bool           = True
+		self.error       : Optional[str]  = None
+		self.next_target : Optional[str]  = None  # For switch nodes
 
 
-class WFBaseNode:
+# ========================================================================
+# BASE TYPE
+# ========================================================================
+
+class WFBaseType:
 	"""All nodes inherit from this"""
 	
 	def __init__(self, config: Dict[str, Any] = None, **kwargs):
@@ -36,12 +40,88 @@ class WFBaseNode:
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		"""Override this - pure function: input data → output data"""
 		raise NotImplementedError
-		
-	def get_input_slots(self) -> List[str]:
-		return ["data"]
-		
-	def get_output_slots(self) -> List[str]:
-		return ["get"]
+
+
+# ========================================================================
+# CONFIG NODE
+# ========================================================================
+
+class WFBaseConfig(WFBaseType):
+	"""Base class for config nodes"""
+	
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+		result.outputs = {"get": self.config}
+		return result
+
+
+# ========================================================================
+# CONFIG NODES (passthrough their configuration)
+# ========================================================================
+
+class WFInfoConfig(WFBaseConfig):
+	pass
+
+
+class WFBackendConfig(WFBaseConfig):
+	pass
+
+
+class WFModelConfig(WFBaseConfig):
+	pass
+
+
+class WFEmbeddingConfig(WFBaseConfig):
+	pass
+
+
+class WFPromptConfig(WFBaseConfig):
+	pass
+
+
+class WFContentDBConfig(WFBaseConfig):
+	pass
+
+
+class WFIndexDBConfig(WFBaseConfig):
+	pass
+
+
+class WFMemoryManagerConfig(WFBaseConfig):
+	pass
+
+
+class WFSessionManagerConfig(WFBaseConfig):
+	pass
+
+
+class WFKnowledgeManagerConfig(WFBaseConfig):
+	pass
+
+
+class WFToolConfig(WFBaseConfig):
+	pass
+
+
+class WFAgentOptionsConfig(WFBaseConfig):
+	pass
+
+
+class WFAgentConfig(WFBaseConfig):
+	pass
+
+
+class WFWorkflowOptionsConfig(WFBaseConfig):
+	pass
+
+
+# ========================================================================
+# BASE NODE
+# ========================================================================
+
+class WFBaseNode(WFBaseType):
+	"""All nodes inherit from this"""
+	pass
 
 
 # ========================================================================
@@ -50,12 +130,6 @@ class WFBaseNode:
 
 class WFStartNode(WFBaseNode):
 	"""Outputs initial workflow variables via 'start' slot"""
-	
-	def get_input_slots(self):
-		return []
-	
-	def get_output_slots(self):
-		return ["start"]
 	
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
@@ -66,12 +140,6 @@ class WFStartNode(WFBaseNode):
 class WFEndNode(WFBaseNode):
 	"""Receives final output via 'end' slot"""
 	
-	def get_input_slots(self):
-		return ["end"]
-	
-	def get_output_slots(self):
-		return []
-	
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
 		return result
@@ -80,49 +148,8 @@ class WFEndNode(WFBaseNode):
 class WFSinkNode(WFBaseNode):
 	"""Receives data via 'sink' slot (discards it)"""
 	
-	def get_input_slots(self):
-		return ["sink"]
-	
-	def get_output_slots(self):
-		return []
-	
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
-		return result
-
-
-# ========================================================================
-# USER INTERACTION NODES
-# ========================================================================
-
-class WFUserInputNode(WFBaseNode):
-	"""Waits for user input"""
-	
-	def get_input_slots(self):
-		return ["query"]
-	
-	def get_output_slots(self):
-		return ["message"]
-	
-	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
-		result.outputs = {"message": {"awaiting_input": True}}
-		return result
-
-
-class WFUserOutputNode(WFBaseNode):
-	"""Displays output to user"""
-	
-	def get_input_slots(self):
-		return ["message"]
-	
-	def get_output_slots(self):
-		return ["get"]
-	
-	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
-		message = context.inputs.get("message", "")
-		result.outputs = {"get": message}
 		return result
 
 
@@ -149,12 +176,6 @@ class WFScriptNode(WFBaseNode):
 
 class WFTransformNode(WFScriptNode):
 	"""Transforms data using Python code"""
-	
-	def get_input_slots(self):
-		return ["source"]
-	
-	def get_output_slots(self):
-		return ["target"]
 	
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
@@ -194,15 +215,6 @@ class WFTransformNode(WFScriptNode):
 
 class WFSwitchNode(WFScriptNode):
 	"""Routes data based on script evaluation to cases or default"""
-	
-	def get_input_slots(self):
-		return ["value"]
-	
-	def get_output_slots(self):
-		cases = self.config.get("cases", {})
-		if isinstance(cases, dict):
-			return [f"cases.{k}" for k in cases.keys()] + ["default"]
-		return ["default"]
 	
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
@@ -257,15 +269,6 @@ class WFSwitchNode(WFScriptNode):
 class WFSplitNode(WFScriptNode):
 	"""Splits data to multiple outputs based on mapping"""
 	
-	def get_input_slots(self):
-		return ["source"]
-	
-	def get_output_slots(self):
-		targets = self.config.get("targets", {})
-		if isinstance(targets, dict):
-			return [f"targets.{k}" for k in targets.keys()]
-		return []
-	
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
 		
@@ -294,15 +297,6 @@ class WFSplitNode(WFScriptNode):
 
 class WFMergeNode(WFBaseNode):
 	"""Merges multiple inputs into one output"""
-	
-	def get_input_slots(self):
-		sources = self.config.get("sources", {})
-		if isinstance(sources, dict):
-			return [f"sources.{k}" for k in sources.keys()]
-		return ["sources.0", "sources.1"]
-	
-	def get_output_slots(self):
-		return ["target"]
 	
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
@@ -341,6 +335,29 @@ class WFMergeNode(WFBaseNode):
 
 
 # ========================================================================
+# USER INTERACTION NODES
+# ========================================================================
+
+class WFUserInputNode(WFBaseNode):
+	"""Waits for user input"""
+	
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+		result.outputs = {"message": {"awaiting_input": True}}
+		return result
+
+
+class WFUserOutputNode(WFBaseNode):
+	"""Displays output to user"""
+	
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+		message = context.inputs.get("message", "")
+		result.outputs = {"get": message}
+		return result
+
+
+# ========================================================================
 # TOOL & AGENT NODES
 # ========================================================================
 
@@ -350,12 +367,6 @@ class WFToolNode(WFBaseNode):
 	def __init__(self, config: Dict[str, Any], tool: Callable = None, **kwargs):
 		super().__init__(config, **kwargs)
 		self.tool = tool
-	
-	def get_input_slots(self):
-		return ["config", "arguments", "source"]
-	
-	def get_output_slots(self):
-		return ["target"]
 	
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
@@ -388,12 +399,6 @@ class WFAgentNode(WFBaseNode):
 		super().__init__(config, **kwargs)
 		self.agent = agent
 	
-	def get_input_slots(self):
-		return ["config", "request"]
-	
-	def get_output_slots(self):
-		return ["response"]
-		
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
 		
@@ -420,112 +425,10 @@ class WFAgentNode(WFBaseNode):
 
 
 # ========================================================================
-# CONFIG NODES (passthrough their configuration)
-# ========================================================================
-
-class WFBaseConfig(WFBaseNode):
-	"""Base class for config nodes"""
-	
-	def get_input_slots(self):
-		return []
-
-	def get_output_slots(self):
-		return ["get"]
-	
-	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
-		result.outputs = {"get": self.config}
-		return result
-
-
-class WFInfoConfig(WFBaseConfig):
-	pass
-
-
-class WFBackendConfig(WFBaseConfig):
-	pass
-
-
-class WFModelConfig(WFBaseConfig):
-	pass
-
-
-class WFEmbeddingConfig(WFBaseConfig):
-	pass
-
-
-class WFPromptConfig(WFBaseConfig):
-	def get_input_slots(self):
-		return ["model", "embedding"]
-
-
-class WFContentDBConfig(WFBaseConfig):
-	pass
-
-
-class WFIndexDBConfig(WFBaseConfig):
-	def get_input_slots(self):
-		return ["embedding"]
-
-
-class WFMemoryManagerConfig(WFBaseConfig):
-	def get_input_slots(self):
-		return ["prompt"]
-
-
-class WFSessionManagerConfig(WFBaseConfig):
-	def get_input_slots(self):
-		return ["prompt"]
-
-
-class WFKnowledgeManagerConfig(WFBaseConfig):
-	def get_input_slots(self):
-		return ["content_db", "index_db"]
-
-
-class WFToolConfig(WFBaseConfig):
-	pass
-
-
-class WFAgentOptionsConfig(WFBaseConfig):
-	pass
-
-
-class WFAgentConfig(WFBaseConfig):
-	def get_input_slots(self):
-		return ["info", "options", "backend", "prompt", "content_db", 
-				"memory_mgr", "session_mgr", "knowledge_mgr", "tools"]
-
-
-class WFWorkflowOptionsConfig(WFBaseConfig):
-	pass
-
-
-# ========================================================================
 # NODE FACTORY
 # ========================================================================
 
 NODE_TYPES = {
-	# Control flow
-	"start_node"               : WFStartNode,
-	"end_node"                 : WFEndNode,
-	"sink_node"                : WFSinkNode,
-
-	# User interaction
-	"user_input_node"          : WFUserInputNode,
-	"user_output_node"         : WFUserOutputNode,
-
-	# Script-based
-	"script_node"              : WFScriptNode,
-	"transform_node"           : WFTransformNode,
-	"switch_node"              : WFSwitchNode,
-	"split_node"               : WFSplitNode,
-	"merge_node"               : WFMergeNode,
-
-	# Tool & Agent
-	"tool_node"                : WFToolNode,
-	"agent_node"               : WFAgentNode,
-
 	# Config nodes
 	"info_config"              : WFInfoConfig,
 	"backend_config"           : WFBackendConfig,
@@ -541,6 +444,26 @@ NODE_TYPES = {
 	"agent_options_config"     : WFAgentOptionsConfig,
 	"agent_config"             : WFAgentConfig,
 	"workflow_options_config"  : WFWorkflowOptionsConfig,
+
+	# Control flow
+	"start_node"               : WFStartNode,
+	"end_node"                 : WFEndNode,
+	"sink_node"                : WFSinkNode,
+
+	# Script-based
+	"script_node"              : WFScriptNode,
+	"transform_node"           : WFTransformNode,
+	"switch_node"              : WFSwitchNode,
+	"split_node"               : WFSplitNode,
+	"merge_node"               : WFMergeNode,
+
+	# User interaction
+	"user_input_node"          : WFUserInputNode,
+	"user_output_node"         : WFUserOutputNode,
+
+	# Tool & Agent
+	"tool_node"                : WFToolNode,
+	"agent_node"               : WFAgentNode,
 }
 
 

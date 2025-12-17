@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 from core import AgentApp
 from event_bus import EventBus, EventType, get_event_bus
 from workflow_nodes import create_node, NodeExecutionContext, NodeExecutionResult
-from workflow_schema_new import Edge, BaseNode, Workflow
+from workflow_schema_new import Edge, BaseType, BaseNode, Workflow
 
 
 class WorkflowNodeStatus(str, Enum):
@@ -81,7 +81,7 @@ class WorkflowContext:
 		return tool
 
 
-def build_backend(workflow: Workflow) -> List[BaseNode]:
+def build_backend(workflow: Workflow) -> List[BaseType]:
 	return None
 
 
@@ -253,7 +253,7 @@ class WorkflowEngine:
 			deps[edge.source].add(edge.target)
 		return deps
 	
-	def _instantiate_nodes(self, nodes: List[BaseNode], edges: List[Edge]) -> List[Any]:
+	def _instantiate_nodes(self, nodes: List[BaseType], edges: List[Edge]) -> List[Any]:
 		"""Create node instances from workflow definition"""
 		instances = []
 		
@@ -294,7 +294,7 @@ class WorkflowEngine:
 		return instances
 
 	async def _execute_node(self,
-		nodes        : List[BaseNode],
+		nodes        : List[BaseType],
 		edges        : List[Edge],
 		node_idx     : int,
 		node         : Any,
