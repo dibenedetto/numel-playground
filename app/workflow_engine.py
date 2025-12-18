@@ -144,9 +144,10 @@ class WorkflowEngine:
 
 			all_edges = workflow.edges or []
 			edges     = [e for e in all_edges if isinstance(all_nodes[e.source], BaseNode) and isinstance(all_nodes[e.target], BaseNode)]
-			
+
 			# Instantiate node executors
-			node_instances = self._instantiate_nodes(all_nodes, all_edges)
+			config_instances = build_backend(workflow)
+			node_instances   = self._instantiate_nodes(all_nodes, all_edges)
 			
 			# Build dependency graph from edges
 			dependencies = self._build_dependencies (edges)
@@ -278,19 +279,19 @@ class WorkflowEngine:
 			# 				pass
 			
 			# Inject agent for agent_node
-			if node.type == "agent_node":
-				config_field = node_config.get("config")
-				if config_field:
-					ref = None
-					if isinstance(config_field, dict):
-						ref = config_field.get("value", {}).get("ref") if isinstance(config_field.get("value"), dict) else None
-					if ref is not None:
-						try:
-							kwargs["agent"] = self.context.get_agent(int(ref))
-						except:
-							pass
+			# if node.type == "agent_node":
+			# 	config_field = node_config.get("config")
+			# 	if config_field:
+			# 		ref = None
+			# 		if isinstance(config_field, dict):
+			# 			ref = config_field.get("value", {}).get("ref") if isinstance(config_field.get("value"), dict) else None
+			# 		if ref is not None:
+			# 			try:
+			# 				kwargs["agent"] = self.context.get_agent(int(ref))
+			# 			except:
+			# 				pass
 
-			instance = create_node(node, **kwargs)
+			instance = create_node(node, None, **kwargs)
 			instances.append(instance)
 		
 		return instances
@@ -308,7 +309,7 @@ class WorkflowEngine:
 		"""Execute a single node"""
 		node_config = nodes[node_idx]
 		node_type   = node_config.type
-		node_label  = (node_config.extra or {}).get("name")
+		node_label  = (node_config.config.extra or {}).get("name")
 
 		await self.event_bus.emit(
 			event_type   = EventType.NODE_STARTED,
@@ -393,7 +394,7 @@ class WorkflowEngine:
 								context: NodeExecutionContext,
 								state: WorkflowExecutionState) -> NodeExecutionResult:
 		"""Handle user input node"""
-		extra = context.node_config.get("extra")
+		extra = context.node_config.config.extra
 		if isinstance(extra, str):
 			import json
 			try:

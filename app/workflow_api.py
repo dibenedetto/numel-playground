@@ -12,13 +12,20 @@ from workflow_schema_new import Workflow
 
 
 class WorkflowStartRequest(BaseModel):
-	workflow: Workflow
-	initial_data: Optional[Dict[str, Any]] = None
+	workflow     : Workflow
+	initial_data : Optional[Dict[str, Any]] = None
+
+	def prepare(self):
+		if self.workflow:
+			self.workflow.link()
 
 
 class UserInputRequest(BaseModel):
-	node_id: str
-	input_data: Any
+	node_id    : str
+	input_data : Any
+
+	def prepare(self):
+		pass
 
 
 def setup_workflow_api(app: FastAPI, workflow_engine: WorkflowEngine, event_bus: EventBus):
@@ -32,6 +39,7 @@ def setup_workflow_api(app: FastAPI, workflow_engine: WorkflowEngine, event_bus:
 	async def start_workflow(request: WorkflowStartRequest):
 		"""Start a new workflow execution"""
 		try:
+			request.prepare()
 			execution_id = await workflow_engine.start_workflow(
 				workflow=request.workflow,
 				initial_data=request.initial_data
@@ -71,6 +79,7 @@ def setup_workflow_api(app: FastAPI, workflow_engine: WorkflowEngine, event_bus:
 	async def provide_user_input(execution_id: str, request: UserInputRequest):
 		"""Provide user input for waiting workflow"""
 		try:
+			request.prepare()
 			await workflow_engine.provide_user_input(
 				execution_id=execution_id,
 				node_id=request.node_id,

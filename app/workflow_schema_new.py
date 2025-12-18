@@ -16,8 +16,9 @@ class FieldRole(str, Enum):
 
 
 class BaseType(BaseModel):
-	type : Annotated[Literal["base_type"], FieldRole.CONSTANT] = "base_type"
-	data : Annotated[Optional[Any]       , FieldRole.INPUT   ] = None
+	type  : Annotated[Literal["base_type"]    , FieldRole.CONSTANT] = "base_type"
+	data  : Annotated[Optional[Any]           , FieldRole.INPUT   ] = None
+	extra : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
 
 
 class BaseConfig(BaseType):
@@ -272,12 +273,10 @@ class Edge(BaseType):
 	target      : Annotated[int                     , FieldRole.INPUT   ] = None
 	source_slot : Annotated[str                     , FieldRole.INPUT   ] = None
 	target_slot : Annotated[str                     , FieldRole.INPUT   ] = None
-	extra       : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
 
 
 class BaseNode(BaseType):
 	type  : Annotated[Literal["base_node"]    , FieldRole.CONSTANT] = "base_node"
-	extra : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
 
 
 class StartNode(BaseNode):
@@ -418,6 +417,12 @@ class Workflow(BaseConfig):
 	@property
 	def get(self) -> Annotated[Workflow, FieldRole.OUTPUT]: # type: ignore
 		return self
+
+	def link(self):
+		for edge in self.edges or []:
+			source_node = self.nodes[edge.source]
+			target_node = self.nodes[edge.target]
+			setattr(target_node, edge.target_slot, getattr(source_node, edge.source_slot))
 
 
 if __name__ == "__main__":

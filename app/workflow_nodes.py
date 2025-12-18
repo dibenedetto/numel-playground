@@ -35,7 +35,6 @@ class WFBaseType:
 	
 	def __init__(self, config: Dict[str, Any] = None, impl: Any = None, **kwargs):
 		self.config = config or {}
-		self.extra  = self.config.get("extra")
 		self.impl   = impl
 		
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:

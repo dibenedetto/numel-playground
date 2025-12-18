@@ -581,7 +581,7 @@ def build_backend_agno(workflow: Workflow) -> List[WFBaseType]:
 		configs[index] = create_config(item_config, item)
 
 
-	configs = {
+	indices = {
 		"model_config"             : [],
 		"embedding_config"         : [],
 		"content_db_config"        : [],
@@ -597,24 +597,24 @@ def build_backend_agno(workflow: Workflow) -> List[WFBaseType]:
 
 	unused_nodes = []
 	for i, node in enumerate(workflow.nodes):
-		configs.get(node.type, unused_nodes).append(i)
+		indices.get(node.type, unused_nodes).append(i)
 
 	links = [dict() for _ in range(len(workflow.nodes))]
 	for edge in workflow.edges:
-		links[edge.source][edge.source_slot] = edge.target
+		links[edge.target][edge.target_slot] = edge.source
 
 	configs = [None] * len(workflow.nodes)
 
-	for i in configs["model_config"            ]: _build_model             (workflow, links, configs, i)
-	for i in configs["embedding_config"        ]: _build_embedding         (workflow, links, configs, i)
-	for i in configs["content_db_config"       ]: _build_content_db        (workflow, links, configs, i)
-	for i in configs["index_db_config"         ]: _build_index_db          (workflow, links, configs, i)
-	for i in configs["tool_config"             ]: _build_tool              (workflow, links, configs, i)
-	for i in configs["agent_options_config"    ]: _build_agent_options     (workflow, links, configs, i)
-	for i in configs["prompt_config"           ]: _build_prompt            (workflow, links, configs, i)
-	for i in configs["memory_manager_config"   ]: _build_memory_manager    (workflow, links, configs, i)
-	for i in configs["session_manager_config"  ]: _build_session_manager   (workflow, links, configs, i)
-	for i in configs["knowledge_manager_config"]: _build_knowledge_manager (workflow, links, configs, i)
-	for i in configs["agent_config"            ]: _build_agent             (workflow, links, configs, i)
+	for i in indices["model_config"            ]: _build_model             (workflow, links, configs, i)
+	for i in indices["embedding_config"        ]: _build_embedding         (workflow, links, configs, i)
+	for i in indices["content_db_config"       ]: _build_content_db        (workflow, links, configs, i)
+	for i in indices["index_db_config"         ]: _build_index_db          (workflow, links, configs, i)
+	for i in indices["tool_config"             ]: _build_tool              (workflow, links, configs, i)
+	for i in indices["agent_options_config"    ]: _build_agent_options     (workflow, links, configs, i)
+	for i in indices["prompt_config"           ]: _build_prompt            (workflow, links, configs, i)
+	for i in indices["memory_manager_config"   ]: _build_memory_manager    (workflow, links, configs, i)
+	for i in indices["session_manager_config"  ]: _build_session_manager   (workflow, links, configs, i)
+	for i in indices["knowledge_manager_config"]: _build_knowledge_manager (workflow, links, configs, i)
+	for i in indices["agent_config"            ]: _build_agent             (workflow, links, configs, i)
 
 	return configs
