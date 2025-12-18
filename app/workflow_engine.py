@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from core import AgentApp
 from event_bus import EventBus, EventType, get_event_bus
-from workflow_nodes import create_node, NodeExecutionContext, NodeExecutionResult
+from workflow_nodes import NodeExecutionContext, NodeExecutionResult, WFBaseType, create_node
 from workflow_schema_new import Edge, BaseType, BaseNode, Workflow
 
 
@@ -81,8 +81,10 @@ class WorkflowContext:
 		return tool
 
 
-def build_backend(workflow: Workflow) -> List[BaseType]:
-	return None
+from impl_agno import build_backend_agno
+
+def build_backend(workflow: Workflow) -> List[(WFBaseType, Any)]:
+	return build_backend_agno(workflow)
 
 
 class WorkflowEngine:

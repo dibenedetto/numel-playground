@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, List, Optional
 from jinja2 import Template
 
 
-from workflow_schema_new import BaseNode
+from workflow_schema_new import BaseConfig, BaseNode
 
 
 class NodeExecutionContext:
@@ -467,12 +467,13 @@ NODE_TYPES = {
 }
 
 
+def create_config(config: BaseConfig, **kwargs) -> WFBaseConfig:
+	"""Factory function to create nodes"""
+	config_class = NODE_TYPES.get(config.type, WFBaseConfig)
+	return config_class(config, **kwargs)
+
+
 def create_node(node: BaseNode, **kwargs) -> WFBaseNode:
 	"""Factory function to create nodes"""
-	node_class = NODE_TYPES.get(node.type, WFBaseConfig)
+	node_class = NODE_TYPES.get(node.type, WFBaseNode)
 	return node_class(node, **kwargs)
-
-
-def get_node_types() -> List[str]:
-	"""Get list of all registered node types"""
-	return list(NODE_TYPES.keys())

@@ -351,11 +351,11 @@ MessageToolConfig = Union[ToolConfig, Message[ToolConfig]]
 
 
 class ToolNode(BaseNode):
-	type      : Annotated[Literal["tool_node"]         , FieldRole.CONSTANT] = "tool_node"
-	config    : Annotated[Union[int, MessageToolConfig], FieldRole.INPUT   ] = None
-	arguments : Annotated[MessageDict                  , FieldRole.INPUT   ] = None
-	source    : Annotated[MessageAny                   , FieldRole.INPUT   ] = None
-	target    : Annotated[MessageAny                   , FieldRole.OUTPUT  ] = None
+	type   : Annotated[Literal["tool_node"]         , FieldRole.CONSTANT] = "tool_node"
+	config : Annotated[Union[int, MessageToolConfig], FieldRole.INPUT   ] = None
+	args   : Annotated[MessageDict                  , FieldRole.INPUT   ] = None
+	source : Annotated[MessageAny                   , FieldRole.INPUT   ] = None
+	target : Annotated[MessageAny                   , FieldRole.OUTPUT  ] = None
 
 
 MessageAgentConfig = Union[AgentConfig, Message[AgentConfig]]
