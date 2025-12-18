@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, List, Optional
 from jinja2 import Template
 
 
-from workflow_schema_new import BaseConfig, BaseNode
+from workflow_schema_new import BaseType
 
 
 class NodeExecutionContext:
@@ -364,9 +364,9 @@ class WFUserOutputNode(WFBaseNode):
 class WFToolNode(WFBaseNode):
 	"""Executes a tool"""
 	
-	def __init__(self, config: Dict[str, Any], tool: Callable = None, **kwargs):
+	def __init__(self, config: Dict[str, Any], ref: Callable = None, **kwargs):
 		super().__init__(config, **kwargs)
-		self.tool = tool
+		self.ref = ref
 	
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
@@ -378,8 +378,8 @@ class WFToolNode(WFBaseNode):
 			if isinstance(arguments, dict) and "value" in arguments:
 				arguments = arguments["value"]
 			
-			if self.tool:
-				tool_result = await self.tool(**arguments)
+			if self.ref:
+				tool_result = await self.ref(**arguments)
 			else:
 				tool_result = {"error": "No tool configured"}
 			
@@ -387,7 +387,7 @@ class WFToolNode(WFBaseNode):
 			
 		except Exception as e:
 			result.success = False
-			result.error = str(e)
+			result.error   = str(e)
 			
 		return result
 
@@ -395,9 +395,9 @@ class WFToolNode(WFBaseNode):
 class WFAgentNode(WFBaseNode):
 	"""Executes an agent"""
 	
-	def __init__(self, config: Dict[str, Any], agent: Callable = None, **kwargs):
+	def __init__(self, config: Dict[str, Any], ref: Callable = None, **kwargs):
 		super().__init__(config, **kwargs)
-		self.agent = agent
+		self.ref = ref
 	
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
@@ -410,8 +410,8 @@ class WFAgentNode(WFBaseNode):
 			else:
 				message = str(request)
 			
-			if self.agent:
-				response = await self.agent(message)
+			if self.ref:
+				response = await self.ref(message)
 			else:
 				response = {"error": "No agent configured"}
 			
@@ -419,7 +419,7 @@ class WFAgentNode(WFBaseNode):
 			
 		except Exception as e:
 			result.success = False
-			result.error = str(e)
+			result.error   = str(e)
 			
 		return result
 
@@ -467,13 +467,7 @@ NODE_TYPES = {
 }
 
 
-def create_config(config: BaseConfig, impl: Any = None, **kwargs) -> WFBaseConfig:
+def create_node(node: BaseType, impl: Any = None, **kwargs) -> WFBaseType:
 	"""Factory function to create nodes"""
-	config_class = NODE_TYPES.get(config.type, WFBaseConfig)
-	return config_class(config, impl, **kwargs)
-
-
-def create_node(node: BaseNode, impl: Any = None, **kwargs) -> WFBaseNode:
-	"""Factory function to create nodes"""
-	node_class = NODE_TYPES.get(node.type, WFBaseNode)
+	node_class = NODE_TYPES.get(node.type, WFBaseType)
 	return node_class(node, impl, **kwargs)

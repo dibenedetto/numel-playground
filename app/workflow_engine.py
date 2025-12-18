@@ -83,7 +83,7 @@ class WorkflowContext:
 
 from impl_agno import build_backend_agno
 
-def build_backend(workflow: Workflow) -> List[WFBaseConfig]:
+def build_backend(workflow: Workflow) -> List[Any]:
 	return build_backend_agno(workflow)
 
 
@@ -146,8 +146,8 @@ class WorkflowEngine:
 			edges     = [e for e in all_edges if isinstance(all_nodes[e.source], BaseNode) and isinstance(all_nodes[e.target], BaseNode)]
 
 			# Instantiate node executors
-			config_instances = build_backend(workflow)
-			node_instances   = self._instantiate_nodes(all_nodes, config_instances)
+			backend_instances = build_backend(workflow)
+			node_instances    = self._instantiate_nodes(all_nodes, backend_instances)
 			
 			# Build dependency graph from edges
 			dependencies = self._build_dependencies (edges)
@@ -256,11 +256,11 @@ class WorkflowEngine:
 			deps[edge.source].add(edge.target)
 		return deps
 	
-	def _instantiate_nodes(self, nodes: List[BaseType], configs: List[WFBaseConfig]) -> List[Any]:
+	def _instantiate_nodes(self, nodes: List[BaseType], backend_instances: List[Any]) -> List[Any]:
 		"""Create node instances from workflow definition"""
 		instances = []
-		
-		for node, impl in zip(nodes, configs):
+
+		for i, (node, impl) in enumerate(zip(nodes, backend_instances)):
 			kwargs = {}
 
 			# Inject tool for tool_node
@@ -284,7 +284,7 @@ class WorkflowEngine:
 
 			instance = create_node(node, impl, **kwargs)
 			instances.append(instance)
-		
+
 		return instances
 
 	async def _execute_node(self,
