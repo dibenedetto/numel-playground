@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from core import AgentApp
 from event_bus import EventBus, EventType, get_event_bus
-from workflow_nodes import NodeExecutionContext, NodeExecutionResult, WFBaseType, create_node
+from workflow_nodes import NodeExecutionContext, NodeExecutionResult, WFBaseConfig, create_node
 from workflow_schema_new import Edge, BaseType, BaseNode, Workflow
 
 
@@ -83,7 +83,7 @@ class WorkflowContext:
 
 from impl_agno import build_backend_agno
 
-def build_backend(workflow: Workflow) -> List[WFBaseType]:
+def build_backend(workflow: Workflow) -> List[WFBaseConfig]:
 	return build_backend_agno(workflow)
 
 
@@ -147,7 +147,7 @@ class WorkflowEngine:
 
 			# Instantiate node executors
 			config_instances = build_backend(workflow)
-			node_instances   = self._instantiate_nodes(all_nodes, all_edges)
+			node_instances   = self._instantiate_nodes(all_nodes, config_instances)
 			
 			# Build dependency graph from edges
 			dependencies = self._build_dependencies (edges)
@@ -256,11 +256,11 @@ class WorkflowEngine:
 			deps[edge.source].add(edge.target)
 		return deps
 	
-	def _instantiate_nodes(self, nodes: List[BaseType], edges: List[Edge]) -> List[Any]:
+	def _instantiate_nodes(self, nodes: List[BaseType], configs: List[WFBaseConfig]) -> List[Any]:
 		"""Create node instances from workflow definition"""
 		instances = []
 		
-		for idx, node in enumerate(nodes):
+		for node, impl in zip(nodes, configs):
 			kwargs = {}
 
 			# Inject tool for tool_node
@@ -279,19 +279,10 @@ class WorkflowEngine:
 			# 				pass
 			
 			# Inject agent for agent_node
-			# if node.type == "agent_node":
-			# 	config_field = node_config.get("config")
-			# 	if config_field:
-			# 		ref = None
-			# 		if isinstance(config_field, dict):
-			# 			ref = config_field.get("value", {}).get("ref") if isinstance(config_field.get("value"), dict) else None
-			# 		if ref is not None:
-			# 			try:
-			# 				kwargs["agent"] = self.context.get_agent(int(ref))
-			# 			except:
-			# 				pass
+			if node.type == "agent_node":
+				kwargs["agent"] = impl
 
-			instance = create_node(node, None, **kwargs)
+			instance = create_node(node, impl, **kwargs)
 			instances.append(instance)
 		
 		return instances

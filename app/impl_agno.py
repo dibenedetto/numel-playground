@@ -340,10 +340,10 @@ def register() -> bool:
 
 
 from workflow_schema_new import *
-from workflow_nodes import WFBaseType, WFBaseConfig, create_config
+from workflow_nodes import WFBaseConfig, create_config
 
 
-def build_backend_agno(workflow: Workflow) -> List[WFBaseType]:
+def build_backend_agno(workflow: Workflow) -> List[WFBaseConfig]:
 
 	def _get_search_type(value: str) -> SearchType:
 		if value == "hybrid":
