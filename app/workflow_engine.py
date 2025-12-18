@@ -83,7 +83,7 @@ class WorkflowContext:
 
 from impl_agno import build_backend_agno
 
-def build_backend(workflow: Workflow) -> List[(WFBaseType, Any)]:
+def build_backend(workflow: Workflow) -> List[WFBaseType]:
 	return build_backend_agno(workflow)
 
 

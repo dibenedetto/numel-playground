@@ -343,7 +343,7 @@ from workflow_schema_new import *
 from workflow_nodes import WFBaseType, WFBaseConfig, create_config
 
 
-def build_backend_agno(workflow: Workflow) -> List[(WFBaseType, Any)]:
+def build_backend_agno(workflow: Workflow) -> List[WFBaseType]:
 
 	def _get_search_type(value: str) -> SearchType:
 		if value == "hybrid":
@@ -355,7 +355,7 @@ def build_backend_agno(workflow: Workflow) -> List[(WFBaseType, Any)]:
 		raise ValueError(f"Invalid Agno db search type: {value}")
 
 
-	def _build_model(workflow: Workflow, links: List[Any], impl: List[BaseType], configs: List[WFBaseConfig], index: int):
+	def _build_model(workflow: Workflow, links: List[Any], configs: List[WFBaseConfig], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "model_config", "Invalid Agno model"
 		if item_config.source == "ollama":
@@ -364,11 +364,10 @@ def build_backend_agno(workflow: Workflow) -> List[(WFBaseType, Any)]:
 			item = OpenAIChat(id=item_config.id)
 		else:
 			raise ValueError(f"Unsupported Agno model")
-		impl    [index] = item
-		configs [index] = create_config(item_config)
+		configs[index] = create_config(item_config, item)
 
 
-	def _build_embedding(workflow: Workflow, links: List[Any], impl: List[BaseType], configs: List[WFBaseConfig], index: int):
+	def _build_embedding(workflow: Workflow, links: List[Any], configs: List[WFBaseConfig], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "embedding_config", "Invalid Agno embedding"
 		if item_config.source == "ollama":
@@ -377,19 +376,17 @@ def build_backend_agno(workflow: Workflow) -> List[(WFBaseType, Any)]:
 			item = OpenAIEmbedder()
 		else:
 			raise ValueError(f"Unsupported Agno embedding")
-		impl    [index] = item
-		configs [index] = create_config(item_config)
+		configs[index] = create_config(item_config, item)
 
 
-	def _build_prompt(workflow: Workflow, links: List[Any], impl: List[BaseType], configs: List[WFBaseConfig], index: int):
+	def _build_prompt(workflow: Workflow, links: List[Any], configs: List[WFBaseConfig], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "prompt_config", "Invalid Agno prompt"
 		item = copy.deepcopy(item_config)
-		impl    [index] = item
-		configs [index] = create_config(item_config)
+		configs[index] = create_config(item_config, item)
 
 
-	def _build_content_db(workflow: Workflow, links: List[Any], impl: List[BaseType], configs: List[WFBaseConfig], index: int):
+	def _build_content_db(workflow: Workflow, links: List[Any], configs: List[WFBaseConfig], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "content_db_config", "Invalid Agno content db"
 		if item_config.engine == "sqlite":
@@ -407,70 +404,65 @@ def build_backend_agno(workflow: Workflow) -> List[(WFBaseType, Any)]:
 			)
 		else:
 			raise ValueError(f"Unsupported Agno content db")
-		impl    [index] = item
-		configs [index] = create_config(item_config)
+		configs[index] = create_config(item_config, item)
 
 
-	def _build_index_db(workflow: Workflow, links: List[Any], impl: List[BaseType], configs: List[WFBaseConfig], index: int):
+	def _build_index_db(workflow: Workflow, links: List[Any], configs: List[WFBaseConfig], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "index_db_config", "Invalid Agno index db"
 		if item_config.engine == "lancedb":
 			search_type = _get_search_type(item_config.search_type)
 			item = LanceDb(
-				embedder    = impl[links[index][0]["embedding"][0]] if item_config.embedding is not None else None,
+				embedder    = configs[links[index]["embedding"]].impl if item_config.embedding is not None else None,
 				uri         = item_config.url,
 				table_name  = DEFAULT_KNOWLEDGE_MANAGER_INDEX_DB_TABLE_NAME,
 				search_type = search_type,
 			)
 		else:
 			raise ValueError(f"Unsupported Agno index db")
-		impl    [index] = item
-		configs [index] = create_config(item_config)
+		configs[index] = create_config(item_config, item)
 
 
-	def _build_memory_manager(workflow: Workflow, links: List[Any], impl: List[BaseType], configs: List[WFBaseConfig], index: int):
+	def _build_memory_manager(workflow: Workflow, links: List[Any], configs: List[WFBaseConfig], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "memory_manager_config", "Invalid Agno memory manager"
 		model          = None
 		system_message = None
 		if item_config.prompt is not None:
-			prompt_index   = links[index][0]["prompt"][0]
-			prompt         = impl[prompt_index]
-			model          = impl[links[prompt_index][0]["model"][0]]
+			prompt_index   = links[index]["prompt"]
+			prompt         = configs[prompt_index].impl
+			model          = configs[links[prompt_index]["model"]].impl
 			system_message = prompt.override
 		item = MemoryManager(
 			model          = model,
 			system_message = system_message,
 		)
-		impl    [index] = item
-		configs [index] = create_config(item_config)
+		configs[index] = create_config(item_config), item
 
 
-	def _build_session_manager(workflow: Workflow, links: List[Any], impl: List[BaseType], configs: List[WFBaseConfig], index: int):
+	def _build_session_manager(workflow: Workflow, links: List[Any], configs: List[WFBaseConfig], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "session_manager_config", "Invalid Agno session manager"
 		item = copy.deepcopy(item_config)
-		impl    [index] = item
-		configs [index] = create_config(item_config)
+		configs[index] = create_config(item_config, item)
 
 
-	def _build_knowledge_manager(workflow: Workflow, links: List[Any], impl: List[BaseType], configs: List[WFBaseConfig], index: int):
+	def _build_knowledge_manager(workflow: Workflow, links: List[Any], configs: List[WFBaseConfig], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "knowledge_manager_config", "Invalid Agno knowledge manager"
 		description = item_config.description
-		content_db  = impl[links[index][0]["content_db"][0]] if item_config.content_db is not None else None
-		index_db    = impl[links[index][0]["index_db"  ][0]] if item_config.index_db   is not None else None
+		content_db  = configs[links[index]["content_db"]].impl if item_config.content_db is not None else None
+		index_db    = configs[links[index]["index_db"  ]].impl if item_config.index_db   is not None else None
 		item = Knowledge(
 			description = description,
 			contents_db = content_db,
 			vector_db   = index_db,
 			max_results = item_config.max_results,
 		)
-		impl    [index] = item
-		configs [index] = create_config(item_config)
+		configs[index] = create_config(item_config, item)
 
 
-	def _build_tool(workflow: Workflow, links: List[Any], impl: List[BaseType], configs: List[WFBaseConfig], index: int):
+	def _build_tool(workflow: Workflow, links: List[Any], configs: List[WFBaseConfig], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "tool_config", "Invalid Agno tool"
 		args = item_config.args if item_config.args is not None else dict()
@@ -481,19 +473,17 @@ def build_backend_agno(workflow: Workflow) -> List[(WFBaseType, Any)]:
 			item = DuckDuckGoTools(fixed_max_results=max_results)
 		else:
 			raise ValueError(f"Unsupported Agno tool")
-		impl    [index] = item
-		configs [index] = create_config(item_config)
+		configs[index] = create_config(item_config, item)
 
 
-	def _build_agent_options(workflow: Workflow, links: List[Any], impl: List[BaseType], configs: List[WFBaseConfig], index: int):
+	def _build_agent_options(workflow: Workflow, links: List[Any], configs: List[WFBaseConfig], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "agent_options_config", "Invalid Agno agent options"
 		item = copy.deepcopy(item_config)
-		impl    [index] = item
-		configs [index] = create_config(item_config)
+		configs[index] = create_config(item_config, item)
 
 
-	def _build_agent(workflow: Workflow, links: List[Any], impl: List[BaseType], configs: List[WFBaseConfig], index: int):
+	def _build_agent(workflow: Workflow, links: List[Any], configs: List[WFBaseConfig], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "agent_config", "Invalid Agno agent"
 
@@ -502,27 +492,27 @@ def build_backend_agno(workflow: Workflow) -> List[(WFBaseType, Any)]:
 			description  = None
 			instructions = None
 			if item_config.info is not None:
-				info = impl[links[index][0]["info"][0]]
+				info = configs[links[index]["info"]]
 				if info.name:
 					name = info.name
 				description  = info.description
 				instructions = info.instructions
 
 		if True:
-			prompt_index = links[index][0]["prompt"][0] if item_config.prompt is not None else None
+			prompt_index = links[index]["prompt"] if item_config.prompt is not None else None
 			if prompt_index is None:
 				raise ValueError(f"Agno agent prompt is required")
-			prompt = impl[prompt_index]
-			model  = impl[links[prompt_index][0]["model"][0]] if prompt.model is not None else None
+			prompt = configs[prompt_index].impl
+			model  = configs[links[prompt_index]["model"]].impl if prompt.model is not None else None
 			if model is None:
 				raise ValueError(f"Agno agent prompt model is required")
 
 		if True:
-			options  = impl[links[index][0]["info"][0]] if item_config.info is not None else AgentOptionsConfig()
+			options  = configs[links[index]["info"]].impl if item_config.info is not None else AgentOptionsConfig()
 			markdown = options.markdown
 
 		if True:
-			content_db = impl[links[index][0]["content_db"][0]] if item_config.content_db is not None else None
+			content_db = configs[links[index]["content_db"]].impl if item_config.content_db is not None else None
 
 		# TODO
 		tools = None
@@ -535,30 +525,30 @@ def build_backend_agno(workflow: Workflow) -> List[(WFBaseType, Any)]:
 			add_memories_to_context = False
 			memory_mgr              = None
 			if item_config.memory_mgr is not None:
-				memory_mgr_index        = links[index][0]["memory_mgr"][0]
+				memory_mgr_index        = links[index]["memory_mgr"]
 				memory_mgr_config       = workflow.nodes[memory_mgr_index]
 				enable_agentic_memory   = memory_mgr_config.managed
 				add_memories_to_context = memory_mgr_config.query
 				enable_user_memories    = memory_mgr_config.update
-				memory_mgr              = impl[memory_mgr_index]
+				memory_mgr              = configs[memory_mgr_index].impl
 
 		if True:
 			search_session_history  = False
 			num_history_sessions    = None
 			session_summary_manager = None
 			if item_config.session_mgr is not None:
-				session_mgr_config     = workflow.nodes[links[index][0]["memory_mgr"][0]]
+				session_mgr_config     = workflow.nodes[links[index]["memory_mgr"]].impl
 				search_session_history = session_mgr_config.query
 				num_history_sessions   = session_mgr_config.history_size
 				if session_mgr_config.summarize:
 					session_model          = None
 					session_summary_prompt = None
 					if item_config.session_mgr.prompt is not None:
-						session_prompt_index = links[index][0]["prompt"][0] if item_config.prompt is not None else None
+						session_prompt_index = links[index]["prompt"] if item_config.prompt is not None else None
 						if session_prompt_index is None:
 							raise ValueError(f"Agno agent session prompt is required")
-						session_prompt = impl[session_prompt_index]
-						session_model  = impl[links[session_prompt_index][0]["model"][0]] if session_prompt.model is not None else None
+						session_prompt = configs[session_prompt_index].impl
+						session_model  = configs[links[session_prompt_index]["model"]].impl if session_prompt.model is not None else None
 						if session_model is None:
 							raise ValueError(f"Agno agent session prompt model is required")
 						session_summary_prompt = session_prompt.override
@@ -588,8 +578,7 @@ def build_backend_agno(workflow: Workflow) -> List[(WFBaseType, Any)]:
 				session_summary_manager = session_summary_manager,
 			)
 
-		impl    [index] = item
-		configs [index] = create_config(item_config)
+		configs[index] = create_config(item_config, item)
 
 
 	configs = {
@@ -610,26 +599,22 @@ def build_backend_agno(workflow: Workflow) -> List[(WFBaseType, Any)]:
 	for i, node in enumerate(workflow.nodes):
 		configs.get(node.type, unused_nodes).append(i)
 
-	links = [({}, {}) for _ in range(len(workflow.nodes))]
+	links = [dict() for _ in range(len(workflow.nodes))]
 	for edge in workflow.edges:
-		links[edge.source][0][edge.source_slot] = (edge.target, edge.target_slot)
-		links[edge.target][1][edge.target_slot] = (edge.source, edge.source_slot)
+		links[edge.source][edge.source_slot] = edge.target
 
-	impl    = [None] * len(workflow.nodes)
 	configs = [None] * len(workflow.nodes)
 
-	for i in configs["model_config"            ]: _build_model             (workflow, links, impl, configs, i)
-	for i in configs["embedding_config"        ]: _build_embedding         (workflow, links, impl, configs, i)
-	for i in configs["content_db_config"       ]: _build_content_db        (workflow, links, impl, configs, i)
-	for i in configs["index_db_config"         ]: _build_index_db          (workflow, links, impl, configs, i)
-	for i in configs["tool_config"             ]: _build_tool              (workflow, links, impl, configs, i)
-	for i in configs["agent_options_config"    ]: _build_agent_options     (workflow, links, impl, configs, i)
-	for i in configs["prompt_config"           ]: _build_prompt            (workflow, links, impl, configs, i)
-	for i in configs["memory_manager_config"   ]: _build_memory_manager    (workflow, links, impl, configs, i)
-	for i in configs["session_manager_config"  ]: _build_session_manager   (workflow, links, impl, configs, i)
-	for i in configs["knowledge_manager_config"]: _build_knowledge_manager (workflow, links, impl, configs, i)
-	for i in configs["agent_config"            ]: _build_agent             (workflow, links, impl, configs, i)
+	for i in configs["model_config"            ]: _build_model             (workflow, links, configs, i)
+	for i in configs["embedding_config"        ]: _build_embedding         (workflow, links, configs, i)
+	for i in configs["content_db_config"       ]: _build_content_db        (workflow, links, configs, i)
+	for i in configs["index_db_config"         ]: _build_index_db          (workflow, links, configs, i)
+	for i in configs["tool_config"             ]: _build_tool              (workflow, links, configs, i)
+	for i in configs["agent_options_config"    ]: _build_agent_options     (workflow, links, configs, i)
+	for i in configs["prompt_config"           ]: _build_prompt            (workflow, links, configs, i)
+	for i in configs["memory_manager_config"   ]: _build_memory_manager    (workflow, links, configs, i)
+	for i in configs["session_manager_config"  ]: _build_session_manager   (workflow, links, configs, i)
+	for i in configs["knowledge_manager_config"]: _build_knowledge_manager (workflow, links, configs, i)
+	for i in configs["agent_config"            ]: _build_agent             (workflow, links, configs, i)
 
-	result = [(config, imp) for config, imp in zip(configs, impl)]
-
-	return result
+	return configs

@@ -33,9 +33,10 @@ class NodeExecutionResult:
 class WFBaseType:
 	"""All nodes inherit from this"""
 	
-	def __init__(self, config: Dict[str, Any] = None, **kwargs):
+	def __init__(self, config: Dict[str, Any] = None, impl: Any = None, **kwargs):
 		self.config = config or {}
 		self.extra  = self.config.get("extra")
+		self.impl   = impl
 		
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		"""Override this - pure function: input data → output data"""
@@ -467,13 +468,13 @@ NODE_TYPES = {
 }
 
 
-def create_config(config: BaseConfig, **kwargs) -> WFBaseConfig:
+def create_config(config: BaseConfig, impl: Any = None, **kwargs) -> WFBaseConfig:
 	"""Factory function to create nodes"""
 	config_class = NODE_TYPES.get(config.type, WFBaseConfig)
-	return config_class(config, **kwargs)
+	return config_class(config, impl, **kwargs)
 
 
-def create_node(node: BaseNode, **kwargs) -> WFBaseNode:
+def create_node(node: BaseNode, impl: Any = None, **kwargs) -> WFBaseNode:
 	"""Factory function to create nodes"""
 	node_class = NODE_TYPES.get(node.type, WFBaseNode)
-	return node_class(node, **kwargs)
+	return node_class(node, impl, **kwargs)
