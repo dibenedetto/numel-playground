@@ -14,7 +14,7 @@ from   fastapi.middleware.cors import CORSMiddleware
 from   api                     import setup_workflow_api
 from   engine                  import WorkflowContext, WorkflowEngine
 from   event_bus               import get_event_bus
-from   schema                  import DEFAULT_APP_PORT, Workflow
+from   schema                  import DEFAULT_APP_PORT, DEFAULT_APP_SEED, Workflow
 from   utils                   import get_time_str, log_print, seed_everything
 
 
@@ -33,11 +33,9 @@ def add_middleware(app: FastAPI):
 	)
 
 
-def apply_seed_if_present(workflow: Workflow):
-	if workflow.options is not None:
-		seed = workflow.options.seed
-		if seed is not None:
-			seed_everything(seed)
+def apply_seed():
+	if DEFAULT_APP_SEED is not None:
+		seed_everything(DEFAULT_APP_SEED)
 
 
 if True:
@@ -61,35 +59,66 @@ if True:
 
 
 if True:
-	event_bus    = get_event_bus()
-	workflow_eng = None
+	event_bus = get_event_bus()
+	engine    = WorkflowEngine(event_bus)
 
 
-if True:
-	impl_modules = [os.path.splitext(f)[0] for f in os.listdir(current_dir) if (f.startswith("impl_") and f.endswith(".py"))]
-	for module_name in impl_modules:
-		try:
-			impl_module = __import__(module_name)
-			impl_module.register()
-		except Exception as e:
-			log_print(f"Error importing module '{module_name}': {e}")
+# if True:
+# 	impl_modules = [os.path.splitext(f)[0] for f in os.listdir(current_dir) if (f.startswith("impl_") and f.endswith(".py"))]
+# 	for module_name in impl_modules:
+# 		try:
+# 			impl_module = __import__(module_name)
+# 			impl_module.register()
+# 		except Exception as e:
+# 			log_print(f"Error importing module '{module_name}': {e}")
 
 
 if True:
 	ctrl_server     = None
-	ctrl_status     = {
-		"config" : None,
-		"status" : "waiting",
-	}
+	ctrl_status     = None
 	apps            = None
 	running_servers = []
 	ctrl_app        = FastAPI(title="Control")
 	add_middleware(ctrl_app)
 
 
-# ========================================================================
-# Original API Endpoints (App Schema & Config)
-# ========================================================================
+async def run_server():
+	global args, ctrl_app, ctrl_server, ctrl_status
+
+	host        = "0.0.0.0"
+	port        = args.port
+	ctrl_config = uvicorn.Config(ctrl_app, host=host, port=port)
+	ctrl_server = uvicorn.Server(ctrl_config)
+	ctrl_status = {"status" : "ready"}
+
+	await ctrl_server.serve()
+
+
+@ctrl_app.post("/shutdown")
+async def shutdown_server():
+	global ctrl_app, ctrl_server, ctrl_status, engine
+
+	await engine.cancel_all_executions()
+
+	if ctrl_server and ctrl_server.should_exit is False:
+		ctrl_server.should_exit = True
+
+	engine      = None
+	ctrl_app    = None
+	ctrl_server = None
+	ctrl_status = None
+	return {"message": "Server shut down"}
+
+
+@ctrl_app.post("/status")
+async def server_status():
+	global ctrl_status, engine
+	
+	status = dict(ctrl_status)
+	status["executions"] = engine.get_all_execution_states()
+	
+	return status
+
 
 @ctrl_app.post("/ping")
 async def ping():
@@ -108,43 +137,44 @@ async def export_schema():
 	return schema
 
 
-@ctrl_app.post("/workflow/schema")
-async def export_workflow_schema():
-	"""Export workflow schema"""
-	global workflow_schema
-	return workflow_schema
+@ctrl_app.post("/add/{id}")
+async def add_workflow():
+	"""Export app schema"""
+	global schema
+	return schema
 
 
-@ctrl_app.post("/import")
-async def import_config(cfg: dict):
-	global apps, config, ctrl_status
-	if apps is not None:
-		return {"error": "App is running"}
-	new_config = AppConfig(**cfg)
-	new_config = adjust_config(new_config)
-	if new_config is None:
-		return {"error": "Invalid app configuration"}
-	config = new_config
-	ctrl_status["status"] = "ready"
-	return config
+@ctrl_app.post("/remove/{id}")
+async def remove_workflow():
+	"""Export app schema"""
+	global schema
+	return schema
 
 
-@ctrl_app.post("/export")
-async def export_config():
-	global config
-	return config
+@ctrl_app.post("/get/{id}")
+async def get_workflow():
+	"""Export app schema"""
+	global schema
+	return schema
 
 
-@ctrl_app.post("/start")
-async def start_app():
+@ctrl_app.post("/list")
+async def list_workflows():
+	"""Export app schema"""
+	global schema
+	return schema
+
+
+@ctrl_app.post("/start/{id}")
+async def start_workflow():
 	global apps, config, ctrl_status, running_servers, workflow_eng
 	if apps is not None:
 		return {"error": "App is already running"}
 	try:
-		host       = "0.0.0.0"
-		agent_port = config.port + 1
+		host = "0.0.0.0"
+		port = DEFAULT_APP_PORT
 
-		try_apply_seed(config)
+		apply_seed(config)
 
 		active_agents = [True] * len(config.agents)
 		backends      = get_backends()
@@ -200,8 +230,8 @@ async def start_app():
 	return ctrl_status
 
 
-@ctrl_app.post("/stop")
-async def stop_app():
+@ctrl_app.post("/exec_status/{execution_id}")
+async def execution_status():
 	global apps, config, ctrl_status, running_servers, workflow_eng
 	if apps is None:
 		return {"error": "App is not running"}
@@ -232,56 +262,36 @@ async def stop_app():
 	return ctrl_status
 
 
-@ctrl_app.post("/restart")
-async def restart_app():
-	global ctrl_status
-	await stop_app()
-	await asyncio.sleep(1)
-	await start_app()
+@ctrl_app.post("/exec_cancel/{execution_id}")
+async def cancel_execution():
+	global apps, config, ctrl_status, running_servers, workflow_eng
+	if apps is None:
+		return {"error": "App is not running"}
+	try:
+		for item in running_servers:
+			server = item["server"]
+			task   = item["task"  ]
+			if server and server.should_exit is False:
+				server.should_exit = True
+			if task:
+				await task
+		for app in apps:
+			app.close()
+		for agent in config.agents:
+			agent.port = 0
+		
+		# Clean up workflow engine
+		workflow_eng = None
+		log_print("Workflow engine stopped")
+		
+		apps                  = None
+		running_servers       = []
+		ctrl_status["config"] = None
+		ctrl_status["status"] = "stopped"
+	except Exception as e:
+		log_print(f"Error stopping app: {e}")
+		return {"error": str(e)}
 	return ctrl_status
-
-
-@ctrl_app.post("/status")
-async def server_status():
-	global ctrl_status, workflow_eng
-	
-	status = dict(ctrl_status)
-	
-	# Add workflow engine status
-	if workflow_eng:
-		status["workflow_eng"] = {
-			"active_executions": len(workflow_eng.executions),
-			"event_history_size": len(event_bus._event_history)
-		}
-	
-	return status
-
-
-@ctrl_app.post("/shutdown")
-async def shutdown_server():
-	global apps, ctrl_app, ctrl_server, ctrl_status, workflow_eng
-	if apps is not None:
-		return {"error": "App is running"}
-	if ctrl_server and ctrl_server.should_exit is False:
-		ctrl_server.should_exit = True
-	
-	# Clean up workflow engine
-	workflow_eng = None
-	
-	ctrl_app    = None
-	ctrl_server = None
-	ctrl_status = None
-	return {"message": "Server shut down"}
-
-
-async def run_server():
-	global config, ctrl_app, ctrl_server
-
-	host        = "0.0.0.0"
-	ctrl_config = uvicorn.Config(ctrl_app, host=host, port=config.port)
-	ctrl_server = uvicorn.Server(ctrl_config)
-
-	await ctrl_server.serve()
 
 
 if __name__ == "__main__":

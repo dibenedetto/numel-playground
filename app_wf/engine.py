@@ -395,8 +395,22 @@ class WorkflowEngine:
 				)
 	
 
+	async def cancel_all_executions(self):
+		execs = list(self.execution_tasks.keys())
+		for execution_id in execs:
+			await self.cancel_execution(execution_id)
+
+
 	def get_execution_state(self, execution_id: str) -> Optional[WorkflowExecutionState]:
 		return self.executions.get(execution_id)
+
+
+	def get_all_execution_states(self) -> Optional[WorkflowExecutionState]:
+		execs  = list(self.execution_tasks.keys())
+		states = {}
+		for execution_id in execs:
+			states[execution_id] = self.get_execution_state(execution_id)
+		return states
 
 
 	def list_executions(self) -> List[WorkflowExecutionState]:

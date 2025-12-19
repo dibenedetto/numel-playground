@@ -8,6 +8,7 @@ from pydantic   import BaseModel, ConfigDict, Field
 from typing     import Annotated, Any, Dict, Generic, List, Literal, Optional, TypeVar, Union
 
 
+DEFAULT_APP_SEED               : int   = 777
 DEFAULT_APP_PORT               : int   = 8080
 DEFAULT_ENGINE_DEBUG_SLEEP_SEC : float = 1.0
 DEFAULT_ENGINE_WAIT_SEC        : float = 0.1
