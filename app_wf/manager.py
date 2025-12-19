@@ -39,11 +39,9 @@ class WorkflowManager:
 			edges   = [],
 		)
 		self._workflows[name] = workflow
-
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_CREATED,
 		)
-
 		return workflow
 
 
@@ -56,6 +54,7 @@ class WorkflowManager:
 				self._current_id += 1
 				wf.info.name = f"workflow_{self._current_id}"
 			name = wf.info.name
+		wf.link()
 		self.workflows[name] = workflow
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_ADDED,
@@ -63,20 +62,22 @@ class WorkflowManager:
 		return name
 
 
-	async def remove(self, name: Optional[str] = None):
+	async def remove(self, name: Optional[str] = None) -> bool:
 		if not name:
 			self._workflows = {}
-			return
+			return True
 		if name in self._workflows:
 			del self._workflows[name]
-		await self._event_bus.emit(
-			event_type = EventType.MANAGER_REMOVED,
-		)
+			await self._event_bus.emit(
+				event_type = EventType.MANAGER_REMOVED,
+			)
+			return True
+		return False
 
 
 	async def get(self, name: str) -> Optional[Workflow]:
 		await self._event_bus.emit(
-			event_type = EventType.MANAGER_GET,
+			event_type = EventType.MANAGER_GOT,
 		)
 		return self._workflows.get(name)
 

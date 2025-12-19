@@ -378,22 +378,30 @@ class WorkflowEngine:
 
 	async def cancel_execution(self, execution_id: str):
 		"""Cancel a running workflow"""
+		state = None
 		if execution_id in self.execution_tasks:
 			task = self.execution_tasks[execution_id]
 			task.cancel()
-
 			state = self.executions.get(execution_id)
 			if state:
 				state.status   = WorkflowNodeStatus.FAILED
 				state.error    = "Cancelled by user"
 				state.end_time = datetime.now().isoformat()
+		if state:
+			await self.event_bus.emit(
+				event_type   = EventType.WORKFLOW_CANCELLED,
+				workflow_id  = state.workflow_id,
+				execution_id = execution_id,
+				data         = state.model_dump()
+			)
+		else:
+			await self.event_bus.emit(
+				event_type   = EventType.ERROR,
+				workflow_id  = state.workflow_id,
+				execution_id = execution_id
+			)
+		return state
 
-				await self.event_bus.emit(
-					event_type   = EventType.WORKFLOW_CANCELLED,
-					workflow_id  = state.workflow_id,
-					execution_id = execution_id
-				)
-	
 
 	async def cancel_all_executions(self):
 		execs = list(self.execution_tasks.keys())
@@ -405,7 +413,7 @@ class WorkflowEngine:
 		return self.executions.get(execution_id)
 
 
-	def get_all_execution_states(self) -> Optional[WorkflowExecutionState]:
+	def get_all_execution_states(self) -> List[WorkflowExecutionState]:
 		execs  = list(self.execution_tasks.keys())
 		states = {}
 		for execution_id in execs:
@@ -413,5 +421,5 @@ class WorkflowEngine:
 		return states
 
 
-	def list_executions(self) -> List[WorkflowExecutionState]:
-		return list(self.executions.values())
+	def list_executions(self) -> List[str]:
+		return list(self.executions.keys())

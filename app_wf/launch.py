@@ -31,10 +31,7 @@ async def run_server(args: Any):
 
 	try:
 		with open(current_dir / "schema.py", "r", encoding="utf-8") as f:
-			schema_text = f.read()
-		schema = {
-			"schema" : schema_text,
-		}
+			schema = f.read()
 	except Exception as e:
 		log_print(f"Error reading schema definition: {e}")
 		raise HTTPException(status_code=500, detail=str(e))
@@ -52,8 +49,6 @@ async def run_server(args: Any):
 		allow_origins     = ["*"],
 	)
 
-	setup_api(app, event_bus, schema, manager, engine)
-
 	example_config_path = current_dir / "config.json"
 	await manager.load(example_config_path, "Simple Example")
 
@@ -61,6 +56,8 @@ async def run_server(args: Any):
 	port   = args.port
 	config = uvicorn.Config(app, host=host, port=port)
 	server = uvicorn.Server(config)
+
+	setup_api(server, app, event_bus, schema, manager, engine)
 
 	await server.serve()
 
