@@ -1,8 +1,9 @@
 # workflow_nodes.py
 # Node executors for workflow_schema_new.py
 
-from typing import Any, Callable, Dict, List, Optional
-from jinja2 import Template
+from jinja2   import Template
+from pydantic import BaseModel
+from typing   import Any, Callable, Dict, List, Optional
 
 
 from workflow_schema_new import BaseType
@@ -364,9 +365,10 @@ class WFUserOutputNode(WFBaseNode):
 class WFToolNode(WFBaseNode):
 	"""Executes a tool"""
 	
-	def __init__(self, config: Dict[str, Any], ref: Callable = None, **kwargs):
-		super().__init__(config, **kwargs)
-		self.ref = ref
+	def __init__(self, config: Dict[str, Any], impl: Any = None, **kwargs):
+		assert "ref" in kwargs, "WFToolNode requires 'ref' argument"
+		super().__init__(config, impl, **kwargs)
+		self.ref = kwargs["ref"]
 	
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
@@ -395,9 +397,10 @@ class WFToolNode(WFBaseNode):
 class WFAgentNode(WFBaseNode):
 	"""Executes an agent"""
 	
-	def __init__(self, config: Dict[str, Any], ref: Callable = None, **kwargs):
-		super().__init__(config, **kwargs)
-		self.ref = ref
+	def __init__(self, config: Dict[str, Any], impl: Any = None, **kwargs):
+		assert "ref" in kwargs, "WFAgentNode requires 'ref' argument"
+		super().__init__(config, impl, **kwargs)
+		self.ref = kwargs["ref"]
 	
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
@@ -422,6 +425,12 @@ class WFAgentNode(WFBaseNode):
 			result.error   = str(e)
 			
 		return result
+
+
+class ImplementedBackend(BaseModel):
+	handles   : List[Any]
+	run_tool  : Callable
+	run_agent : Callable
 
 
 # ========================================================================

@@ -1,10 +1,11 @@
 # impl_agno
 
+import asyncio
 import copy
 
 
 from   fastapi                         import FastAPI
-from   typing                          import Any, Dict, List, Tuple
+from   typing                          import Any, Callable, List, Tuple
 
 
 from   agno.agent                      import Agent
@@ -340,10 +341,10 @@ def register() -> bool:
 
 
 from workflow_schema_new import *
-from workflow_nodes import WFBaseConfig, create_config
+from workflow_nodes      import ImplementedBackend
 
 
-def build_backend_agno(workflow: Workflow) -> List[Any]:
+def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 
 	def _get_search_type(value: str) -> SearchType:
 		if value == "hybrid":
@@ -437,7 +438,7 @@ def build_backend_agno(workflow: Workflow) -> List[Any]:
 			model          = model,
 			system_message = system_message,
 		)
-		configs[index] = create_config(item_config), item
+		impl[index] = item
 
 
 	def _build_session_manager(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
@@ -492,7 +493,7 @@ def build_backend_agno(workflow: Workflow) -> List[Any]:
 			description  = None
 			instructions = None
 			if item_config.info is not None:
-				info = configs[links[index]["info"]]
+				info = impl[links[index]["info"]]
 				if info.name:
 					name = info.name
 				description  = info.description
@@ -617,4 +618,29 @@ def build_backend_agno(workflow: Workflow) -> List[Any]:
 	for i in indices["knowledge_manager_config"]: _build_knowledge_manager (workflow, links, impl, i)
 	for i in indices["agent_config"            ]: _build_agent             (workflow, links, impl, i)
 
-	return impl
+
+	async def run_tool(tool: Any, *args, **kwargs) -> dict:
+		raw    = await tool(*args, **kwargs)
+		result = dict(
+			content_type = "",
+			content      = raw,
+		)
+		return result
+
+
+	async def run_agent(agent: Any, *args, **kwargs) -> dict:
+		raw    = await agent.arun(input=args, **kwargs)
+		result = dict(
+			content_type = raw.content_type,
+			content      = raw.content,
+		)
+		return result
+
+
+	backend = ImplementedBackend(
+		handles   = impl,
+		run_tool  = run_tool,
+		run_agent = run_agent,
+	)
+
+	return backend

@@ -2,6 +2,7 @@
 # Updated for workflow_schema_new.py
 
 import asyncio
+import json
 import uuid
 
 from collections import defaultdict
@@ -13,7 +14,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from core import AgentApp
 from event_bus import EventBus, EventType, get_event_bus
-from workflow_nodes import NodeExecutionContext, NodeExecutionResult, WFBaseConfig, create_node
+from workflow_nodes import ImplementedBackend, NodeExecutionContext, NodeExecutionResult, create_node
 from workflow_schema_new import Edge, BaseType, BaseNode, Workflow
 
 
@@ -83,7 +84,7 @@ class WorkflowContext:
 
 from impl_agno import build_backend_agno
 
-def build_backend(workflow: Workflow) -> List[Any]:
+def build_backend(workflow: Workflow) -> ImplementedBackend:
 	return build_backend_agno(workflow)
 
 
@@ -131,27 +132,25 @@ class WorkflowEngine:
 							initial_data: Dict[str, Any]):
 		"""Main execution loop - frontier-based"""
 		try:
-			all_nodes = workflow.nodes or []
+			nodes     = workflow.nodes or []
 			pending   = set()
 			completed = set()
-			nodes     = []
-			for i, n in enumerate(all_nodes):
+			for i, n in enumerate(nodes):
 				if isinstance(n, BaseNode):
 					pending.add(i)
-					nodes.append(n)
 				else:
 					completed.add(i)
 
-			all_edges = workflow.edges or []
-			edges     = [e for e in all_edges if isinstance(all_nodes[e.source], BaseNode) and isinstance(all_nodes[e.target], BaseNode)]
+			edges = workflow.edges or []
+			active_edges = [e for e in edges if isinstance(nodes[e.source], BaseNode) and isinstance(nodes[e.target], BaseNode)]
 
 			# Instantiate node executors
-			backend_instances = build_backend(workflow)
-			node_instances    = self._instantiate_nodes(all_nodes, all_edges, backend_instances)
+			backend        = build_backend(workflow)
+			node_instances = self._instantiate_nodes(nodes, edges, backend)
 			
 			# Build dependency graph from edges
-			dependencies = self._build_dependencies (edges)
-			dependents   = self._build_dependents   (edges)
+			dependencies = self._build_dependencies (active_edges)
+			dependents   = self._build_dependents   (active_edges)
 			
 			# Track node states
 			ready   = set()
@@ -173,11 +172,11 @@ class WorkflowEngine:
 			while ready or running:
 				# await asyncio.sleep(0.01)
 
-				state.pending_nodes = list(pending)
-				state.ready_nodes = list(ready)
-				state.running_nodes = list(running)
+				state.pending_nodes   = list(pending)
+				state.ready_nodes     = list(ready)
+				state.running_nodes   = list(running)
 				state.completed_nodes = list(completed)
-				state.node_outputs = node_outputs
+				state.node_outputs    = node_outputs
 				
 				if ready:
 					tasks = []
@@ -187,7 +186,7 @@ class WorkflowEngine:
 						running.add(node_idx)
 						
 						task = asyncio.create_task(self._execute_node(
-							nodes, all_edges, node_idx, node_instances[node_idx],
+							nodes, edges, node_idx, node_instances[node_idx],
 							node_outputs, dependencies, variables, state
 						))
 						tasks.append(task)
@@ -217,6 +216,7 @@ class WorkflowEngine:
 									node_id=str(node_idx),
 									error=result.error
 								)
+								raise Exception(f"Node {node_idx} failed: {result.error}")
 				else:
 					await asyncio.sleep(0.1)
 			
@@ -255,14 +255,14 @@ class WorkflowEngine:
 		for edge in edges:
 			deps[edge.source].add(edge.target)
 		return deps
-	
-	def _instantiate_nodes(self, nodes: List[BaseType], edges: List[Edge], backend_instances: List[Any]) -> List[Any]:
+
+	def _instantiate_nodes(self, nodes: List[BaseType], edges: List[Edge], backend: ImplementedBackend) -> List[Any]:
 		"""Create node instances from workflow definition"""
 
 		instances      = [None] * len(nodes)
 		with_reference = []
 
-		for i, (node, impl) in enumerate(zip(nodes, backend_instances)):
+		for i, (node, impl) in enumerate(zip(nodes, backend.handles)):
 			if node.type == "agent_node" or node.type == "tool_node":
 				with_reference.append(i)
 				continue
@@ -274,8 +274,10 @@ class WorkflowEngine:
 
 		for i in with_reference:
 			node   = nodes[i]
-			impl   = backend_instances[i]
-			ref    = instances[links[i]["config"]]
+			impl   = backend.handles[i]
+			arg    = instances[links[i]["config"]].impl
+			fn     = backend.run_agent if node.type == "agent_node" else backend.run_tool
+			ref    = partial(fn, arg)
 			kwargs = {"ref": ref}
 			instances[i] = create_node(node, impl, **kwargs)
 
@@ -294,7 +296,7 @@ class WorkflowEngine:
 		"""Execute a single node"""
 		node_config = nodes[node_idx]
 		node_type   = node_config.type
-		node_label  = (node_config.config.extra or {}).get("name")
+		node_label  = (node_config.extra or {}).get("name", node_type)
 
 		await self.event_bus.emit(
 			event_type   = EventType.NODE_STARTED,
@@ -379,9 +381,8 @@ class WorkflowEngine:
 								context: NodeExecutionContext,
 								state: WorkflowExecutionState) -> NodeExecutionResult:
 		"""Handle user input node"""
-		extra = context.node_config.config.extra
+		extra = context.node_config.extra
 		if isinstance(extra, str):
-			import json
 			try:
 				extra = json.loads(extra)
 			except:
