@@ -47,7 +47,7 @@ class WorkflowManager:
 			filepath = self.storage_dir / filename
 		
 		with open(filepath, 'w') as f:
-			json.dump(workflow.dict(), f, indent=2)
+			json.dump(workflow.model_dump(), f, indent=2)
 	
 
 	def list_workflows(self) -> List[str]:

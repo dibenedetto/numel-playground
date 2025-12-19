@@ -106,10 +106,10 @@ class EventBus:
 		"""Broadcast event to all connected WebSocket clients"""
 		if not self._websocket_clients:
 			return
-			
+
 		message = json.dumps({
 			"type": "workflow_event",
-			"event": event.dict()
+			"event": event.model_dump()
 		})
 		
 		dead_clients = set()
@@ -131,7 +131,7 @@ class EventBus:
 		if self._event_history:
 			history_message = json.dumps({
 				"type": "event_history",
-				"events": [e.dict() for e in self._event_history[-50:]]
+				"events": [e.model_dump() for e in self._event_history[-50:]]
 			})
 			await websocket.send_text(history_message)
 			
