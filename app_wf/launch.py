@@ -11,42 +11,11 @@ from   fastapi                 import FastAPI, HTTPException
 from   fastapi.middleware.cors import CORSMiddleware
 
 
-from core import (
-	compact_config,
-	extract_config,
-	get_backends,
-	load_config,
-	unroll_config,
-	validate_config,
-)
-
-from event_bus import (
-	get_event_bus,
-)
-
-from schema import (
-	DEFAULT_APP_PORT,
-	AppConfig,
-)
-
-from utils import (
-	get_time_str,
-	log_print,
-	seed_everything,
-)
-
-from workflow_api import (
-	setup_workflow_api,
-)
-
-from workflow_engine import (
-	WorkflowContext,
-	WorkflowEngine,
-)
-
-from workflow_manager import (
-	WorkflowManager,
-)
+from   api                     import setup_workflow_api
+from   engine                  import WorkflowContext, WorkflowEngine
+from   event_bus               import get_event_bus
+from   schema                  import DEFAULT_APP_PORT, Workflow
+from   utils                   import get_time_str, log_print, seed_everything
 
 
 load_dotenv()
@@ -54,7 +23,7 @@ load_dotenv()
 current_dir = os.path.dirname(os.path.abspath(__file__))
 
 
-def add_middleware(app: FastAPI) -> None:
+def add_middleware(app: FastAPI):
 	app.add_middleware(
 		CORSMiddleware,
 		allow_credentials = False,
@@ -64,17 +33,9 @@ def add_middleware(app: FastAPI) -> None:
 	)
 
 
-def adjust_config(config: AppConfig) -> AppConfig:
-	config = unroll_config(config)
-	if not validate_config(config):
-		return None
-	config = compact_config(config)
-	return config
-
-
-def try_apply_seed(config: AppConfig) -> None:
-	if config.options is not None:
-		seed = config.app_options[config.options].seed
+def apply_seed_if_present(workflow: Workflow):
+	if workflow.options is not None:
+		seed = workflow.options.seed
 		if seed is not None:
 			seed_everything(seed)
 
@@ -82,7 +43,6 @@ def try_apply_seed(config: AppConfig) -> None:
 if True:
 	parser = argparse.ArgumentParser(description="App configuration")
 	parser .add_argument("--port", type=int, default=DEFAULT_APP_PORT, help="Listening port for control server")
-	parser .add_argument("--config-path", type=str, default="config.json", help="Path to configuration file")
 	args   = parser.parse_args()
 
 
@@ -97,38 +57,12 @@ if True:
 		}
 	except Exception as e:
 		log_print(f"Error reading schema definition: {e}")
-		raise e
-
-
-if True:
-	# Load workflow schema too
-	workflow_schema = None
-	try:
-		workflow_schema_path = os.path.join(current_dir, "workflow_schema_new.py")
-		with open(workflow_schema_path, "r", encoding="utf-8") as f:
-			workflow_schema_text = f.read()
-		workflow_schema = {
-			"schema": workflow_schema_text,
-		}
-	except Exception as e:
-		log_print(f"Error reading workflow schema: {e}")
 		raise HTTPException(status_code=500, detail=str(e))
 
 
 if True:
-	config = load_config(args.config_path) or AppConfig()
-	config.port = args.port
-	config = adjust_config(config)
-	if config is None:
-		raise ValueError("Invalid app configuration")
-	try_apply_seed(config)
-
-
-if True:
-	event_bus        = get_event_bus()
-	workflow_eng     = None
-	workflow_manager = WorkflowManager(config, storage_dir="workflows")
-	workflow_manager .load_all_from_directory()
+	event_bus    = get_event_bus()
+	workflow_eng = None
 
 
 if True:

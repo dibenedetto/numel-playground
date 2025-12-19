@@ -8,6 +8,11 @@ from pydantic   import BaseModel, ConfigDict, Field
 from typing     import Annotated, Any, Dict, Generic, List, Literal, Optional, TypeVar, Union
 
 
+DEFAULT_APP_PORT               : int   = 8080
+DEFAULT_ENGINE_DEBUG_SLEEP_SEC : float = 1.0
+DEFAULT_ENGINE_WAIT_SEC        : float = 0.1
+
+
 class FieldRole(str, Enum):
 	CONSTANT     = "constant"
 	INPUT        = "input"
@@ -337,6 +342,10 @@ class MergeNode(BaseNode):
 	target   : Annotated[MessageAny           , FieldRole.OUTPUT     ] = None
 
 
+DEFAULT_USER_INPUT_NODE_MESSAGE : MessageStr = Message(type="", value="Please provide input:")
+DEFAULT_USER_INPUT_TIMEOUT_SEC  : float      = 300.0
+
+
 class UserInputNode(BaseNode):
 	type    : Annotated[Literal["user_input_node"], FieldRole.CONSTANT] = "user_input_node"
 	query   : Annotated[MessageAny                , FieldRole.INPUT   ] = None
@@ -398,12 +407,12 @@ WorkflowNodeUnion = Union[
 ]
 
 
-DEFAULT_WORKFLOW_OPTIONS_TAG : int = 0
+DEFAULT_WORKFLOW_OPTIONS_SEED : int = 777
 
 
 class WorkflowOptionsConfig(BaseConfig):
 	type : Annotated[Literal["workflow_options_config"], FieldRole.CONSTANT] = "workflow_options_config"
-	tag  : Annotated[int                               , FieldRole.INPUT   ] = DEFAULT_WORKFLOW_OPTIONS_TAG
+	seed : Annotated[int                               , FieldRole.INPUT   ] = DEFAULT_WORKFLOW_OPTIONS_SEED
 
 	@property
 	def get(self) -> Annotated[WorkflowOptionsConfig, FieldRole.OUTPUT]: # type: ignore
