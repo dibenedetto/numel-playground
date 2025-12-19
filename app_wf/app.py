@@ -1,4 +1,4 @@
-# launch
+# app
 
 import argparse
 import asyncio
@@ -24,21 +24,27 @@ load_dotenv()
 
 
 async def run_server(args: Any):
-	current_dir = os.path.dirname(os.path.abspath(__file__))
+	log_print("Server starting...")
 
 	if args.seed != 0:
 		seed_everything(args.seed)
 
+	event_bus : EventBus        = get_event_bus   ()
+	manager   : WorkflowManager = WorkflowManager (event_bus)
+	engine    : WorkflowEngine  = WorkflowEngine  (event_bus)
+
+	current_dir = os.path.dirname(os.path.abspath(__file__))
+
 	try:
-		with open(current_dir / "schema.py", "r", encoding="utf-8") as f:
+		schema_path = os.path.join(current_dir, "schema.py")
+		with open(schema_path, "r", encoding="utf-8") as f:
 			schema = f.read()
 	except Exception as e:
 		log_print(f"Error reading schema definition: {e}")
 		raise HTTPException(status_code=500, detail=str(e))
 
-	event_bus : EventBus        = get_event_bus   ()
-	manager   : WorkflowManager = WorkflowManager (event_bus)
-	engine    : WorkflowEngine  = WorkflowEngine  (event_bus)
+	example_config_path = os.path.join(current_dir, "config.json")
+	manager.load(example_config_path, "Simple Example")
 
 	app : FastAPI = FastAPI(title="Control")
 	app.add_middleware(
@@ -49,9 +55,6 @@ async def run_server(args: Any):
 		allow_origins     = ["*"],
 	)
 
-	example_config_path = current_dir / "config.json"
-	await manager.load(example_config_path, "Simple Example")
-
 	host   = "0.0.0.0"
 	port   = args.port
 	config = uvicorn.Config(app, host=host, port=port)
@@ -61,6 +64,8 @@ async def run_server(args: Any):
 
 	await server.serve()
 
+	log_print("Server shut down")
+
 
 def main():
 	parser = argparse.ArgumentParser(description="Numel Playground App")
@@ -68,11 +73,7 @@ def main():
 	parser .add_argument("--seed", type=int, default=DEFAULT_APP_SEED, help="Seed for pseudorandom number generator")
 	args   = parser.parse_args()
 
-	log_print("Server starting...")
-
 	asyncio.run(run_server(args))
-
-	log_print("Server shut down")
 
 
 if __name__ == "__main__":

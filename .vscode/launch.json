@@ -8,7 +8,7 @@
 			"justMyCode" : false,
 			"request"    : "launch",
 			"program"    : "${file}",
-			"args"       : ["--port=8000", "--config-path=app/config.json"],
+			"args"       : ["--port=8000"],
 			"console"    : "internalConsole"
 		},
 		{

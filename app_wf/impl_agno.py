@@ -151,9 +151,9 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "tool_config", "Invalid Agno tool"
 		args = item_config.args if item_config.args is not None else dict()
-		if item_config.name == "reasoning":
+		if item_config.name == "@reasoning":
 			item = ReasoningTools()
-		elif item_config.name == "web_search":
+		elif item_config.name == "@web_search":
 			max_results = args.get("max_results", DEFAULT_TOOL_MAX_WEB_SEARCH_RESULTS)
 			item = DuckDuckGoTools(fixed_max_results=max_results)
 		else:

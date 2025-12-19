@@ -173,4 +173,24 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema: str, manag
 			raise HTTPException(status_code=500, detail=str(e))
 
 
+	@app.websocket("/events")
+	async def workflow_events(websocket: WebSocket):
+		nonlocal event_bus
+		await event_bus.add_websocket_client(websocket)
+		try:
+			while True:
+				try:
+					data = await websocket.receive_text()
+					log_print(f"Received WebSocket message: {data}")
+				except Exception as e:
+					log_print(f"WebSocket receive error: {e}")
+					break
+		except WebSocketDisconnect:
+			log_print("WebSocket client disconnected")
+			event_bus.remove_websocket_client(websocket)
+		except Exception as e:
+			log_print(f"WebSocket error: {e}")
+			event_bus.remove_websocket_client(websocket)
+
+
 	log_print("✅ Workflow API endpoints registered")

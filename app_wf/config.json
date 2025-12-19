@@ -69,9 +69,8 @@
 		},
 		{
 			"type" : "tool_config",
-			"name" : "wikimods",
-			"args" : null,
-			"ref"  : null
+			"name" : "@wikimods",
+			"args" : null
 		},
 		{
 			"type"     : "agent_options_config",

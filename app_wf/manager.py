@@ -1,6 +1,6 @@
 # manager
 
-# import json
+import json
 
 
 from   pathlib   import Path
@@ -9,6 +9,7 @@ from   typing    import Dict, List, Optional
 
 from   event_bus import EventBus, EventType, get_event_bus
 from   schema    import InfoConfig, Workflow, WorkflowOptionsConfig
+from   utils     import log_print
 
 
 class WorkflowManager:
@@ -89,16 +90,22 @@ class WorkflowManager:
 		return list(self._workflows.keys())
 
 
-	# def load(self, filepath: str) -> Workflow:
-	# 	with open(filepath, "r") as f:
-	# 		data = json.load(f)
-	# 	workflow = Workflow(**data)
-	# 	if not workflow.info:
-	# 		workflow.info = InfoConfig(name=filepath)
-	# 	elif not workflow.info.name:
-	# 		workflow.info.name = filepath
-	# 	self.workflows[workflow.info.name] = workflow
-	# 	return workflow
+	def load(self, filepath: str, name: Optional[str] = None) -> Workflow:
+		try:
+			with open(filepath, "r") as f:
+				data = json.load(f)
+			workflow = Workflow(**data)
+		except Exception as e:
+			log_print(f"Error reading workflow file: {e}")
+			return None
+		if not workflow.info:
+			workflow.info = InfoConfig(name=filepath)
+		if name:
+			workflow.info.name = name
+		elif not workflow.info.name:
+			workflow.info.name = filepath
+		self._workflows[workflow.info.name] = workflow
+		return workflow
 
 
 	# def load_all(self, directory: Optional[str] = None) -> bool:

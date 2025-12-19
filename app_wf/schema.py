@@ -215,9 +215,10 @@ DEFAULT_TOOL_FALLBACK               : bool = False
 
 class ToolConfig(BaseConfig):
 	type     : Annotated[Literal["tool_config"]  , FieldRole.CONSTANT] = "tool_config"
-	name     : Annotated[str                     , FieldRole.INPUT   ] = None
+	name     : Annotated[str                     , FieldRole.INPUT   ] = ""
 	args     : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
-	ref      : Annotated[str                     , FieldRole.INPUT   ] = None
+	lang     : Annotated[Optional[str]           , FieldRole.INPUT   ] = None
+	script   : Annotated[Optional[str]           , FieldRole.INPUT   ] = None
 	fallback : Annotated[bool                    , FieldRole.INPUT   ] = DEFAULT_TOOL_FALLBACK
 
 	@property
@@ -247,7 +248,7 @@ class AgentConfig(BaseConfig):
 	memory_mgr    : Annotated[Optional[MemoryManagerConfig]   , FieldRole.INPUT      ] = None
 	session_mgr   : Annotated[Optional[SessionManagerConfig]  , FieldRole.INPUT      ] = None
 	knowledge_mgr : Annotated[Optional[KnowledgeManagerConfig], FieldRole.INPUT      ] = None
-	tools         : Annotated[Optional[List[ToolConfig]]      , FieldRole.MULTI_INPUT] = None
+	tools         : Annotated[Optional[Union[List[str], List[ToolConfig]]], FieldRole.MULTI_INPUT] = None
 
 	@property
 	def get(self) -> Annotated[AgentConfig, FieldRole.OUTPUT]: # type: ignore
@@ -322,7 +323,7 @@ class TransformNode(ScriptNode):
 class SwitchNode(ScriptNode):
 	type     : Annotated[Literal["switch_node"], FieldRole.CONSTANT    ] = "switch_node"
 	value    : Annotated[MessageAny            , FieldRole.INPUT       ] = None
-	cases    : Annotated[Dict[str, MessageAny] , FieldRole.MULTI_OUTPUT] = None
+	cases    : Annotated[Union[List[str], Dict[str, MessageAny]], FieldRole.MULTI_OUTPUT] = None
 	default  : Annotated[MessageAny            , FieldRole.OUTPUT      ] = None
 
 
@@ -339,7 +340,7 @@ DEFAULT_MERGE_NODE_STRATEGY : MessageStr = Message(type="", value="first")
 class MergeNode(BaseNode):
 	type     : Annotated[Literal["merge_node"], FieldRole.CONSTANT   ] = "merge_node"
 	strategy : Annotated[MessageAny           , FieldRole.INPUT      ] = DEFAULT_MERGE_NODE_STRATEGY
-	sources  : Annotated[Dict[str, MessageAny], FieldRole.MULTI_INPUT] = None
+	sources  : Annotated[Union[List[str], Dict[str, MessageAny]], FieldRole.MULTI_INPUT] = None
 	target   : Annotated[MessageAny           , FieldRole.OUTPUT     ] = None
 
 
@@ -392,8 +393,9 @@ WorkflowNodeUnion = Union[
 	SessionManagerConfig   ,
 	KnowledgeManagerConfig ,
 	ToolConfig             ,
+	AgentOptionsConfig     ,
 	AgentConfig            ,
- 
+
 	StartNode              ,
 	EndNode                ,
 	SinkNode               ,
