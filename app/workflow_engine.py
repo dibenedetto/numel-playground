@@ -147,7 +147,7 @@ class WorkflowEngine:
 
 			# Instantiate node executors
 			backend_instances = build_backend(workflow)
-			node_instances    = self._instantiate_nodes(all_nodes, backend_instances)
+			node_instances    = self._instantiate_nodes(all_nodes, all_edges, backend_instances)
 			
 			# Build dependency graph from edges
 			dependencies = self._build_dependencies (edges)
@@ -256,34 +256,28 @@ class WorkflowEngine:
 			deps[edge.source].add(edge.target)
 		return deps
 	
-	def _instantiate_nodes(self, nodes: List[BaseType], backend_instances: List[Any]) -> List[Any]:
+	def _instantiate_nodes(self, nodes: List[BaseType], edges: List[Edge], backend_instances: List[Any]) -> List[Any]:
 		"""Create node instances from workflow definition"""
-		instances = []
+
+		instances      = [None] * len(nodes)
+		with_reference = []
 
 		for i, (node, impl) in enumerate(zip(nodes, backend_instances)):
-			kwargs = {}
+			if node.type == "agent_node" or node.type == "tool_node":
+				with_reference.append(i)
+				continue
+			instances[i] = create_node(node, impl)
 
-			# Inject tool for tool_node
-			# if node.type == "tool_node":
-			# 	config_field = node.config
-			# 	if config_field:
-			# 		ref = None
-			# 		if isinstance(config_field, dict):
-			# 			ref = config_field.get("value", {}).get("ref") if isinstance(config_field.get("value"), dict) else None
-			# 		else:
-			# 			ref = None
-			# 		if ref is not None:
-			# 			try:
-			# 				kwargs["tool"] = self.context.get_tool(int(ref))
-			# 			except:
-			# 				pass
-			
-			# Inject agent for agent_node
-			if node.type == "agent_node":
-				kwargs["agent"] = impl
+		links = [dict() for _ in range(len(nodes))]
+		for edge in edges:
+			links[edge.target][edge.target_slot] = edge.source
 
-			instance = create_node(node, impl, **kwargs)
-			instances.append(instance)
+		for i in with_reference:
+			node   = nodes[i]
+			impl   = backend_instances[i]
+			ref    = instances[links[i]["config"]]
+			kwargs = {"ref": ref}
+			instances[i] = create_node(node, impl, **kwargs)
 
 		return instances
 
