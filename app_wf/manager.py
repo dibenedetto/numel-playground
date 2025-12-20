@@ -50,14 +50,13 @@ class WorkflowManager:
 	async def add(self, workflow: Workflow, name: Optional[str] = None) -> str:
 		wf = copy.deepcopy(workflow)
 		if not name:
-			if not wf.info:
-				wf.info = InfoConfig()
-			if not wf.info.name:
+			if wf.info and wf.info.name:
+				name = wf.info.name
+			else:
 				self._current_id += 1
-				wf.info.name = f"workflow_{self._current_id}"
-			name = wf.info.name
+				name = f"workflow_{self._current_id}"
 		wf.link()
-		self._workflows[name] = workflow
+		self._workflows[name] = wf
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_ADDED,
 		)
