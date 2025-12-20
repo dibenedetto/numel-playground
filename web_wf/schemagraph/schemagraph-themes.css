@@ -1,0 +1,137 @@
+/* ========================================================================
+   SCHEMAGRAPH THEMES - Theme Variables Only
+   Can be included standalone for theme support
+   ======================================================================== */
+
+:root {
+  /* Dark Theme (Default) */
+  --sg-bg-primary: #1e1e1e;
+  --sg-bg-secondary: #2a2a2a;
+  --sg-bg-tertiary: #353535;
+  --sg-bg-quaternary: #404040;
+  --sg-canvas-bg: #212121;
+  
+  --sg-border-color: #1a1a1a;
+  --sg-border-highlight: #46a2da;
+  
+  --sg-text-primary: #ffffff;
+  --sg-text-secondary: #aaaaaa;
+  --sg-text-tertiary: #707070;
+  --sg-text-quaternary: #505050;
+  
+  --sg-node-bg: #2a2a2a;
+  --sg-node-bg-selected: #354a5f;
+  --sg-node-header: #4a5568;
+  --sg-node-shadow: rgba(0, 0, 0, 0.5);
+  
+  --sg-accent-blue: #46a2da;
+  --sg-accent-blue-light: #82c4ec;
+  --sg-accent-purple: #9370db;
+  --sg-accent-purple-light: #b19cd9;
+  --sg-accent-green: #92d050;
+  --sg-accent-red: #dc6464;
+  --sg-accent-orange: #d89614;
+  --sg-accent-yellow: #ffd700;
+  
+  --sg-slot-input: #7a7;
+  --sg-slot-output: #66d;
+  --sg-slot-default: #999;
+  --sg-slot-connected: #afa;
+  
+  --sg-link-color: #9a9;
+  --sg-link-selected: #efe;
+  
+  --sg-error-bg: rgba(220, 100, 100, 0.2);
+  --sg-error-border: #dc6464;
+  --sg-error-text: #ff9999;
+  
+  --sg-grid-color: rgba(255, 255, 255, 0.03);
+}
+
+[data-theme="light"] {
+  --sg-bg-primary: #f0f0f0;
+  --sg-bg-secondary: #ffffff;
+  --sg-bg-tertiary: #e8e8e8;
+  --sg-bg-quaternary: #d8d8d8;
+  --sg-canvas-bg: #e8e8e8;
+  
+  --sg-border-color: #c0c0c0;
+  --sg-border-highlight: #2563eb;
+  
+  --sg-text-primary: #1a1a1a;
+  --sg-text-secondary: #4a4a4a;
+  --sg-text-tertiary: #808080;
+  --sg-text-quaternary: #a0a0a0;
+  
+  --sg-node-bg: #ffffff;
+  --sg-node-bg-selected: #e3f2fd;
+  --sg-node-header: #90caf9;
+  --sg-node-shadow: rgba(0, 0, 0, 0.2);
+  
+  --sg-accent-blue: #2196f3;
+  --sg-accent-blue-light: #64b5f6;
+  --sg-accent-purple: #9c27b0;
+  --sg-accent-purple-light: #ba68c8;
+  --sg-accent-green: #4caf50;
+  --sg-accent-red: #f44336;
+  --sg-accent-orange: #ff9800;
+  --sg-accent-yellow: #ffc107;
+  
+  --sg-slot-input: #4a4;
+  --sg-slot-output: #44a;
+  --sg-slot-default: #888;
+  --sg-slot-connected: #6c6;
+  
+  --sg-link-color: #888;
+  --sg-link-selected: #333;
+  
+  --sg-error-bg: rgba(244, 67, 54, 0.1);
+  --sg-error-border: #f44336;
+  --sg-error-text: #c62828;
+  
+  --sg-grid-color: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme="ocean"] {
+  --sg-bg-primary: #0d1b2a;
+  --sg-bg-secondary: #1b263b;
+  --sg-bg-tertiary: #273852;
+  --sg-bg-quaternary: #344966;
+  --sg-canvas-bg: #0d1b2a;
+  
+  --sg-border-color: #1b263b;
+  --sg-border-highlight: #00b4d8;
+  
+  --sg-text-primary: #e0fbfc;
+  --sg-text-secondary: #b0d8e0;
+  --sg-text-tertiary: #778da9;
+  --sg-text-quaternary: #415a77;
+  
+  --sg-node-bg: #1b263b;
+  --sg-node-bg-selected: #2d4a68;
+  --sg-node-header: #415a77;
+  --sg-node-shadow: rgba(0, 0, 0, 0.6);
+  
+  --sg-accent-blue: #00b4d8;
+  --sg-accent-blue-light: #48cae4;
+  --sg-accent-purple: #7209b7;
+  --sg-accent-purple-light: #9d4edd;
+  --sg-accent-green: #06ffa5;
+  --sg-accent-red: #e63946;
+  --sg-accent-orange: #f77f00;
+  --sg-accent-yellow: #ffd60a;
+  
+  --sg-slot-input: #06ffa5;
+  --sg-slot-output: #00b4d8;
+  --sg-slot-default: #778da9;
+  --sg-slot-connected: #48cae4;
+  
+  --sg-link-color: #48cae4;
+  --sg-link-selected: #90e0ef;
+  
+  --sg-error-bg: rgba(230, 57, 70, 0.2);
+  --sg-error-border: #e63946;
+  --sg-error-text: #ff6b6b;
+  
+  --sg-grid-color: rgba(0, 180, 216, 0.05);
+}

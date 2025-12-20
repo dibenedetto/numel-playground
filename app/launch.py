@@ -44,10 +44,6 @@ from workflow_engine import (
 	WorkflowEngine,
 )
 
-from workflow_manager import (
-	WorkflowManager,
-)
-
 
 load_dotenv()
 
@@ -125,10 +121,8 @@ if True:
 
 
 if True:
-	event_bus        = get_event_bus()
-	workflow_eng     = None
-	workflow_manager = WorkflowManager(config, storage_dir="workflows")
-	workflow_manager .load_all_from_directory()
+	event_bus    = get_event_bus()
+	workflow_eng = None
 
 
 if True:

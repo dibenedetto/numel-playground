@@ -57,8 +57,8 @@ class WorkflowEvent(BaseModel):
 	event_id     : str
 	event_type   : EventType
 	timestamp    : str
-	workflow_id  : str
-	execution_id : str
+	workflow_id  : Optional[str]            = None
+	execution_id : Optional[str]            = None
 	node_id      : Optional[str]            = None
 	edge_id      : Optional[str]            = None
 	data         : Optional[Dict[str, Any]] = None
@@ -187,8 +187,8 @@ class EventBus:
 
 	async def emit(self,
 		event_type   : EventType,
-		workflow_id  : str,
-		execution_id : str,
+		workflow_id  : Optional[str]            = None,
+		execution_id : Optional[str]            = None,
 		node_id      : Optional[str]            = None,
 		edge_id      : Optional[str]            = None,
 		data         : Optional[Dict[str, Any]] = None,

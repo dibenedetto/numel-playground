@@ -1,0 +1,573 @@
+/* ========================================================================
+   SCHEMAGRAPH CANVAS - Core Canvas & Graph Functionality
+   Can be included standalone for embedding the graph in other pages
+   Requires: schemagraph-themes.css
+   ======================================================================== */
+
+/* Canvas Container */
+.sg-canvas-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--sg-canvas-bg, #212121);
+  border-radius: 6px;
+}
+
+.sg-canvas-container canvas {
+  display: block;
+  cursor: default;
+  width: 100%;
+  height: 100%;
+}
+
+.sg-canvas-container canvas.connecting {
+  cursor: crosshair;
+}
+
+.sg-canvas-container canvas.dragging {
+  cursor: grabbing;
+}
+
+/* Context Menu */
+.sg-context-menu {
+  position: fixed;
+  background: var(--sg-bg-secondary, #2a2a2a);
+  border: 1px solid var(--sg-border-color, #1a1a1a);
+  border-radius: 4px;
+  padding: 4px 0;
+  min-width: 180px;
+  max-height: 400px;
+  overflow-y: auto;
+  z-index: 1000;
+  display: none;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  font-size: 12px;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.sg-context-menu.show {
+  display: block;
+}
+
+.sg-context-menu-category {
+  padding: 6px 12px;
+  font-size: 10px;
+  color: var(--sg-text-tertiary, #707070);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--sg-border-color, #1a1a1a);
+  margin-bottom: 2px;
+  background: var(--sg-bg-tertiary, #353535);
+}
+
+.sg-context-menu-item {
+  padding: 6px 16px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--sg-text-secondary, #aaaaaa);
+  transition: all 0.1s ease;
+  border-left: 3px solid transparent;
+}
+
+.sg-context-menu-item:hover {
+  background: var(--sg-bg-tertiary, #353535);
+  color: var(--sg-text-primary, #ffffff);
+  border-left-color: var(--sg-accent-blue, #46a2da);
+}
+
+.sg-context-menu-delete {
+  color: var(--sg-accent-red, #dc6464);
+}
+
+.sg-context-menu-delete:hover {
+  background: var(--sg-accent-red, #dc6464);
+  color: var(--sg-text-primary, #ffffff);
+  border-left-color: var(--sg-accent-red, #dc6464);
+}
+
+/* Node Input Overlay */
+.sg-node-input-overlay {
+  position: fixed;
+  background: var(--sg-bg-secondary, #2a2a2a);
+  border: 2px solid var(--sg-accent-blue, #46a2da);
+  padding: 8px 12px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  color: var(--sg-text-primary, #ffffff);
+  outline: none;
+  z-index: 1000;
+  display: none;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6), 
+              0 0 0 1px rgba(70, 162, 218, 0.3);
+  backdrop-filter: blur(4px);
+  transition: all 0.2s ease;
+}
+
+.sg-node-input-overlay.show {
+  display: block;
+  animation: sg-inputFadeIn 0.2s ease;
+}
+
+.sg-node-input-overlay:focus {
+  border-color: var(--sg-accent-blue-light, #82c4ec);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.7), 
+              0 0 0 3px rgba(70, 162, 218, 0.4);
+}
+
+@keyframes sg-inputFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Zoom Indicator */
+/*
+.sg-zoom-indicator {
+  position: fixed;
+  bottom: 70px;
+  right: 30px;
+  background: var(--sg-bg-secondary, #2a2a2a);
+  border: 1px solid var(--sg-border-color, #1a1a1a);
+  padding: 6px 10px;
+  border-radius: 3px;
+  font-size: 11px;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  font-family: 'Courier New', monospace;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--sg-text-primary, #ffffff);
+  border-radius: 6px;
+}
+
+.sg-zoom-value {
+  color: var(--sg-accent-blue, #46a2da);
+}
+
+.sg-zoom-reset-btn {
+  background: var(--sg-bg-tertiary, #353535);
+  color: var(--sg-text-primary, #ffffff);
+  border: 1px solid var(--sg-border-color, #1a1a1a);
+  padding: 2px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.sg-zoom-reset-btn:hover {
+  background: var(--sg-bg-quaternary, #404040);
+  border-color: var(--sg-border-highlight, #46a2da);
+  transform: scale(1.1);
+}
+
+.sg-zoom-reset-btn:active {
+  transform: scale(0.95);
+}
+*/
+
+/* Scrollbar Styling */
+.sg-context-menu::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.sg-context-menu::-webkit-scrollbar-track {
+  background: var(--sg-bg-tertiary, #353535);
+}
+
+.sg-context-menu::-webkit-scrollbar-thumb {
+  background: var(--sg-bg-quaternary, #404040);
+  border-radius: 2px;
+}
+
+.sg-context-menu::-webkit-scrollbar-thumb:hover {
+  background: var(--sg-text-tertiary, #707070);
+}
+
+.sg-schema-toggle-btn {
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.sg-schema-toggle-btn.enabled {
+  background: var(--sg-accent-green);
+  color: white;
+}
+
+.sg-schema-toggle-btn.disabled {
+  background: var(--sg-text-tertiary);
+  color: var(--sg-canvas-bg);
+}
+
+.sg-schema-toggle-btn:hover {
+  opacity: 0.8;
+  transform: scale(1.05);
+}
+
+/* ========================================================================
+   TOOLBAR - Small Corner Toggle with Floating Panel
+   ======================================================================== */
+
+/* Small toggle button in corner */
+.sg-toolbar-toggle-corner {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  width: 48px;
+  height: 48px;
+  background: var(--sg-bg-secondary, #2a2a2a);
+  border: 1px solid var(--sg-border-color, #1a1a1a);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 20px;
+  color: var(--sg-text-primary, #ffffff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+  transition: all 0.3s ease;
+  animation: sg-toolbarToggleBounce 0.6s ease;
+}
+
+@keyframes sg-toolbarToggleBounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.sg-toolbar-toggle-corner:hover {
+  background: var(--sg-bg-tertiary, #353535);
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.8);
+}
+
+.sg-toolbar-toggle-corner:active {
+  transform: scale(0.95);
+}
+
+.sg-toolbar-toggle-corner.active {
+  background: var(--sg-accent-blue, #46a2da);
+  border-color: var(--sg-accent-blue, #46a2da);
+}
+
+.sg-toolbar-toggle-icon {
+  line-height: 1;
+}
+
+/* Floating toolbar panel */
+.sg-toolbar-panel {
+  position: absolute;
+  bottom: 80px;
+  right: 20px;
+  background: var(--sg-bg-secondary, #2a2a2a);
+  border: 1px solid var(--sg-border-color, #1a1a1a);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+  z-index: 99;
+  display: none;
+  flex-direction: column;
+  max-width: 90vw;
+  max-height: 70vh;
+  opacity: 0;
+  transform: translateY(10px) scale(0.95);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.sg-toolbar-panel.show {
+  display: flex;
+  animation: sg-toolbarSlideIn 0.3s ease forwards;
+}
+
+@keyframes sg-toolbarSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.sg-toolbar-panel.hiding {
+  animation: sg-toolbarSlideOut 0.3s ease forwards;
+}
+
+@keyframes sg-toolbarSlideOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(10px) scale(0.95);
+  }
+}
+
+.sg-toolbar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--sg-bg-tertiary, #353535);
+  border-bottom: 1px solid var(--sg-border-color, #1a1a1a);
+  border-radius: 8px 8px 0 0;
+}
+
+.sg-toolbar-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--sg-text-primary, #ffffff);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sg-toolbar-close {
+  background: var(--sg-accent-red, #dc6464);
+  color: var(--sg-text-primary, #ffffff);
+  border: none;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.sg-toolbar-close:hover {
+  background: #ff4444;
+  transform: scale(1.1);
+}
+
+.sg-toolbar-close:active {
+  transform: scale(0.95);
+}
+
+.sg-toolbar-content {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px;
+  align-items: center;
+  max-height: calc(70vh - 50px);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.sg-toolbar-section {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--sg-bg-tertiary, #353535);
+  border-radius: 6px;
+  border: 1px solid var(--sg-border-color, #1a1a1a);
+  animation: sg-toolbarItemFadeIn 0.4s ease backwards;
+}
+
+@keyframes sg-toolbarItemFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Stagger animation for sections */
+.sg-toolbar-section:nth-child(2) { animation-delay: 0.05s; }
+.sg-toolbar-section:nth-child(4) { animation-delay: 0.1s; }
+.sg-toolbar-section:nth-child(6) { animation-delay: 0.15s; }
+.sg-toolbar-section:nth-child(8) { animation-delay: 0.2s; }
+.sg-toolbar-section:nth-child(10) { animation-delay: 0.25s; }
+.sg-toolbar-section:nth-child(12) { animation-delay: 0.3s; }
+.sg-toolbar-section:nth-child(14) { animation-delay: 0.35s; }
+
+.sg-toolbar-label {
+  font-size: 10px;
+  color: var(--sg-text-tertiary, #707070);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.sg-toolbar-btn {
+  background: var(--sg-bg-quaternary, #404040);
+  color: var(--sg-text-primary, #ffffff);
+  border: 1px solid var(--sg-border-color, #1a1a1a);
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.sg-toolbar-btn:hover {
+  background: var(--sg-accent-blue, #46a2da);
+  border-color: var(--sg-accent-blue, #46a2da);
+  transform: translateY(-1px);
+}
+
+.sg-toolbar-btn:active {
+  transform: translateY(0);
+}
+
+.sg-toolbar-btn-primary {
+  background: var(--sg-accent-blue, #46a2da);
+  border-color: var(--sg-accent-blue, #46a2da);
+}
+
+.sg-toolbar-btn-primary:hover {
+  background: var(--sg-accent-blue-light, #82c4ec);
+  border-color: var(--sg-accent-blue-light, #82c4ec);
+}
+
+.sg-toolbar-btn-toggle {
+  background: var(--sg-bg-quaternary, #404040);
+  transition: all 0.2s ease;
+}
+
+.sg-toolbar-btn-toggle.active {
+  background: var(--sg-accent-blue, #46a2da);
+  border-color: var(--sg-accent-blue, #46a2da);
+}
+
+.sg-toolbar-select {
+  background: var(--sg-bg-quaternary, #404040);
+  color: var(--sg-text-primary, #ffffff);
+  border: 1px solid var(--sg-border-color, #1a1a1a);
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  outline: none;
+  transition: all 0.15s ease;
+}
+
+.sg-toolbar-select:hover {
+  background: var(--sg-bg-tertiary, #353535);
+  border-color: var(--sg-accent-blue, #46a2da);
+}
+
+.sg-toolbar-select:focus {
+  border-color: var(--sg-accent-blue, #46a2da);
+  box-shadow: 0 0 0 2px rgba(70, 162, 218, 0.2);
+}
+
+.sg-toolbar-status {
+  font-size: 9px;
+  color: var(--sg-text-tertiary, #707070);
+  font-style: italic;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sg-toolbar-zoom-value {
+  font-family: 'Courier New', monospace;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--sg-accent-blue, #46a2da);
+  min-width: 45px;
+  text-align: center;
+}
+
+.sg-toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--sg-border-color, #1a1a1a);
+  margin: 0 4px;
+}
+
+.sg-toolbar-toggle-label {
+  font-size: 10px;
+}
+
+/* Voice button active state */
+#sg-voiceStopBtn {
+  background: var(--sg-accent-red, #dc6464);
+  border-color: var(--sg-accent-red, #dc6464);
+  animation: sg-pulse 1.5s infinite;
+}
+
+@keyframes sg-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Responsive adjustments */
+@media (max-width: 1200px) {
+  .sg-toolbar-panel {
+    max-width: 95vw;
+  }
+}
+
+@media (max-width: 768px) {
+  .sg-toolbar-toggle-corner {
+    bottom: 10px;
+    right: 10px;
+    width: 44px;
+    height: 44px;
+    font-size: 18px;
+  }
+  
+  .sg-toolbar-panel {
+    bottom: 65px;
+    right: 10px;
+    left: 10px;
+    max-width: none;
+  }
+  
+  .sg-toolbar-section {
+    flex-wrap: wrap;
+  }
+}
+
+/* Scrollbar for toolbar content */
+.sg-toolbar-content::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.sg-toolbar-content::-webkit-scrollbar-track {
+  background: var(--sg-bg-tertiary, #353535);
+}
+
+.sg-toolbar-content::-webkit-scrollbar-thumb {
+  background: var(--sg-bg-quaternary, #404040);
+  border-radius: 3px;
+}
+
+.sg-toolbar-content::-webkit-scrollbar-thumb:hover {
+  background: var(--sg-text-tertiary, #707070);
+}

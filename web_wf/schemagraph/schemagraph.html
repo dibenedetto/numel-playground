@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>SchemaGraph - Complete Interface</title>
+
+		<!-- Modular CSS: Load in order - Themes, Canvas, UI -->
+		<link rel="stylesheet" href="schemagraph-themes.css">
+		<link rel="stylesheet" href="schemagraph-canvas.css">
+		<link rel="stylesheet" href="schemagraph-ui.css">
+	</head>
+	<body class="sg-app">
+		<!-- Application Header -->
+		<div class="sg-header">
+			<div class="sg-header-top">
+				<h1>SchemaGraph - Complete Interface with Voice & Analytics</h1>
+				<div class="sg-header-actions sg-control-panel">
+					<!-- Voice Controls -->
+					<div class="sg-voice-controls">
+						<span style="font-size: 10px; color: var(--sg-text-tertiary); margin-right: 4px;">🎤 Voice:</span>
+						<button id="sg-voiceStartBtn" class="sg-voice-btn">Start</button>
+						<button id="sg-voiceStopBtn" class="sg-voice-btn" style="display: none;">Stop</button>
+						<span id="sg-voiceStatus" class="sg-voice-status"></span>
+					</div>
+					
+					<div class="sg-divider"></div>
+					
+					<!-- Analytics Toggle -->
+					<button id="sg-analyticsToggleBtn" class="sg-action-btn">📊 Analytics</button>
+					
+					<div class="sg-divider"></div>
+					
+					<!-- Schema Controls -->
+					<button id="sg-uploadSchemaBtn" class="sg-action-btn sg-action-btn-primary" title="Upload Pydantic schema">📤 Upload Schema</button>
+					<button id="sg-exportBtn" class="sg-action-btn" title="Export graph">Export Graph</button>
+					<button id="sg-importBtn" class="sg-action-btn" title="Import graph">Import Graph</button>
+					<button id="sg-exportConfigBtn" class="sg-action-btn" title="Export as config JSON">Export Config</button>
+					<button id="sg-importConfigBtn" class="sg-action-btn" title="Import config JSON">Import Config</button>
+					
+					<input type="file" id="sg-uploadSchemaFile" accept=".py" style="display: none;" />
+					<input type="file" id="sg-importFile" accept=".json" style="display: none;" />
+					<input type="file" id="sg-importConfigFile" accept=".json" style="display: none;" />
+					
+					<div class="sg-divider"></div>
+					
+					<!-- View Controls -->
+					<button id="sg-centerViewBtn" class="sg-action-btn" title="Center view on graph">🎯 Center</button>
+					<select id="sg-layoutSelect" class="sg-layout-select" title="Apply layout algorithm">
+						<option value="">🔧 Layout...</option>
+						<option value="hierarchical-vertical">Hierarchical (Vertical)</option>
+						<option value="hierarchical-horizontal">Hierarchical (Horizontal)</option>
+						<option value="force-directed">Force-Directed</option>
+						<option value="grid">Grid</option>
+						<option value="circular">Circular</option>
+					</select>
+					
+					<!-- Drawing Style Selector -->
+					<select id="sg-drawingStyleSelect" class="sg-drawing-style-select" title="Change drawing style">
+						<option value="default">🎨 Default</option>
+						<option value="minimal">✨ Minimal</option>
+						<option value="blueprint">📐 Blueprint</option>
+						<option value="neon">💫 Neon</option>
+						<option value="organic">🌿 Organic</option>
+						<option value="wireframe">📊 Wireframe</option>
+					</select>
+					
+					<!-- Text Scaling Toggle -->
+					<button id="sg-textScalingToggle" class="sg-text-scaling-toggle" title="Toggle text scaling with zoom">
+						<span class="sg-text-scaling-icon">🔤</span>
+						<span class="sg-text-scaling-label" id="sg-textScalingLabel">Fixed</span>
+					</button>
+					
+					<button id="sg-themeBtn" class="sg-theme-btn" title="Switch theme">🎨</button>
+				</div>
+			</div>
+			
+			<!-- Status Bar -->
+			<div class="sg-status">Status: <span class="sg-status-value" id="sg-status">None</span></div>
+			<div class="sg-error-banner" id="sg-errorBanner"></div>
+			<div class="sg-node-types" id="sg-nodeTypes"><strong>Registered Node Types:</strong> <span id="sg-nodeTypesList">None</span></div>
+			
+			<!-- Schema Manager -->
+			<div class="sg-schema-manager">
+				<div class="sg-schema-manager-title">📋 Registered Schemas:</div>
+				<div id="sg-schemaList"></div>
+			</div>
+		</div>
+
+		<!-- Analytics Panel (Hidden by default) -->
+		<div id="sg-analyticsPanel" class="sg-analytics-panel">
+			<div class="sg-analytics-header">
+				<div class="sg-analytics-title">📊 Analytics Dashboard</div>
+				<button id="sg-analyticsCloseBtn" class="sg-analytics-close">✕</button>
+			</div>
+			
+			<div class="sg-analytics-section">
+				<div class="sg-analytics-section-title">Session Info</div>
+				<div class="sg-analytics-metric">
+					<span class="sg-analytics-metric-name">Session ID:</span>
+					<span class="sg-analytics-metric-value" id="sg-sessionId">-</span>
+				</div>
+				<div class="sg-analytics-metric">
+					<span class="sg-analytics-metric-name">Duration:</span>
+					<span class="sg-analytics-metric-value" id="sg-sessionDuration">-</span>
+				</div>
+				<div class="sg-analytics-metric">
+					<span class="sg-analytics-metric-name">Total Events:</span>
+					<span class="sg-analytics-metric-value" id="sg-totalEvents">-</span>
+				</div>
+			</div>
+			
+			<div class="sg-analytics-section">
+				<div class="sg-analytics-section-title">Graph Operations</div>
+				<div class="sg-analytics-metric">
+					<span class="sg-analytics-metric-name">Nodes Created:</span>
+					<span class="sg-analytics-metric-value" id="sg-nodesCreated">0</span>
+				</div>
+				<div class="sg-analytics-metric">
+					<span class="sg-analytics-metric-name">Nodes Deleted:</span>
+					<span class="sg-analytics-metric-value" id="sg-nodesDeleted">0</span>
+				</div>
+				<div class="sg-analytics-metric">
+					<span class="sg-analytics-metric-name">Links Created:</span>
+					<span class="sg-analytics-metric-value" id="sg-linksCreated">0</span>
+				</div>
+				<div class="sg-analytics-metric">
+					<span class="sg-analytics-metric-name">Links Deleted:</span>
+					<span class="sg-analytics-metric-value" id="sg-linksDeleted">0</span>
+				</div>
+			</div>
+			
+			<div class="sg-analytics-section">
+				<div class="sg-analytics-section-title">Schema Operations</div>
+				<div class="sg-analytics-metric">
+					<span class="sg-analytics-metric-name">Schemas Registered:</span>
+					<span class="sg-analytics-metric-value" id="sg-schemasRegistered">0</span>
+				</div>
+				<div class="sg-analytics-metric">
+					<span class="sg-analytics-metric-name">Schemas Removed:</span>
+					<span class="sg-analytics-metric-value" id="sg-schemasRemoved">0</span>
+				</div>
+			</div>
+			
+			<div class="sg-analytics-section">
+				<div class="sg-analytics-section-title">File Operations</div>
+				<div class="sg-analytics-metric">
+					<span class="sg-analytics-metric-name">Graphs Exported:</span>
+					<span class="sg-analytics-metric-value" id="sg-graphsExported">0</span>
+				</div>
+				<div class="sg-analytics-metric">
+					<span class="sg-analytics-metric-name">Graphs Imported:</span>
+					<span class="sg-analytics-metric-value" id="sg-graphsImported">0</span>
+				</div>
+				<div class="sg-analytics-metric">
+					<span class="sg-analytics-metric-name">Configs Exported:</span>
+					<span class="sg-analytics-metric-value" id="sg-configsExported">0</span>
+				</div>
+				<div class="sg-analytics-metric">
+					<span class="sg-analytics-metric-name">Configs Imported:</span>
+					<span class="sg-analytics-metric-value" id="sg-configsImported">0</span>
+				</div>
+			</div>
+			
+			<div class="sg-analytics-section">
+				<div class="sg-analytics-section-title">User Interactions</div>
+				<div class="sg-analytics-metric">
+					<span class="sg-analytics-metric-name">Total Interactions:</span>
+					<span class="sg-analytics-metric-value" id="sg-totalInteractions">0</span>
+				</div>
+				<div class="sg-analytics-metric">
+					<span class="sg-analytics-metric-name">Layouts Applied:</span>
+					<span class="sg-analytics-metric-value" id="sg-layoutsApplied">0</span>
+				</div>
+				<div class="sg-analytics-metric">
+					<span class="sg-analytics-metric-name">Errors:</span>
+					<span class="sg-analytics-metric-value" id="sg-errorCount">0</span>
+				</div>
+			</div>
+			
+			<button id="sg-refreshAnalyticsBtn" class="sg-analytics-btn">🔄 Refresh</button>
+			<button id="sg-exportAnalyticsBtn" class="sg-analytics-btn">💾 Export Analytics</button>
+			<button id="sg-resetAnalyticsBtn" class="sg-analytics-btn">🗑️ Reset Session</button>
+		</div>
+
+		<!-- Schema Registration Dialog -->
+		<div id="sg-schemaDialog" class="sg-dialog-overlay">
+			<div class="sg-dialog">
+				<div class="sg-dialog-header">Register Pydantic Schema</div>
+				<div class="sg-dialog-body">
+					<div class="sg-dialog-field">
+						<label for="sg-schemaNameInput">Schema Name:</label>
+						<input type="text" id="sg-schemaNameInput" placeholder="e.g., MySchema" />
+					</div>
+					<div class="sg-dialog-field">
+						<label for="sg-schemaIndexTypeInput">Index Type:</label>
+						<input type="text" id="sg-schemaIndexTypeInput" placeholder="e.g., Index, int" />
+						<small>The type used for index references (default: int)</small>
+					</div>
+					<div class="sg-dialog-field">
+						<label for="sg-schemaRootTypeInput">Root Type:</label>
+						<input type="text" id="sg-schemaRootTypeInput" placeholder="e.g., AppConfig" />
+						<small>The main config class that contains lists of other models</small>
+					</div>
+				</div>
+				<div class="sg-dialog-footer">
+					<button id="sg-schemaDialogCancel" class="sg-dialog-btn sg-dialog-btn-cancel">Cancel</button>
+					<button id="sg-schemaDialogConfirm" class="sg-dialog-btn sg-dialog-btn-confirm">Register</button>
+				</div>
+			</div>
+		</div>
+
+		<!-- Schema Removal Dialog -->
+		<div id="sg-schemaRemovalDialog" class="sg-dialog-overlay">
+			<div class="sg-dialog">
+				<div class="sg-dialog-header">⚠️ Remove Schema</div>
+				<div class="sg-dialog-body">
+					<div class="sg-dialog-field">
+						<label for="sg-schemaRemovalNameInput">Schema to Remove:</label>
+						<select id="sg-schemaRemovalNameInput" class="sg-dialog-select"></select>
+						<small style="color: var(--sg-accent-red); margin-top: 8px;">Warning: This will permanently delete all nodes of this schema type from the graph!</small>
+					</div>
+				</div>
+				<div class="sg-dialog-footer">
+					<button id="sg-schemaRemovalCancel" class="sg-dialog-btn sg-dialog-btn-cancel">Cancel</button>
+					<button id="sg-schemaRemovalConfirm" class="sg-dialog-btn sg-dialog-btn-confirm" style="background: var(--sg-accent-red);">Remove Schema</button>
+				</div>
+			</div>
+		</div>
+
+		<!-- Main Canvas Container -->
+		<div class="sg-canvas-container">
+			<canvas id="my-sg-canvas"></canvas>
+			<div id="sg-contextMenu" class="sg-context-menu"></div>
+			<input type="text" id="sg-nodeInput" class="sg-node-input-overlay" />
+			<div class="sg-zoom-indicator">
+				Zoom: <span class="sg-zoom-value" id="sg-zoomLevel">100%</span>
+				<button id="sg-resetZoomBtn" class="sg-zoom-reset-btn" title="Reset zoom to 100%">⟲</button>
+			</div>
+		</div>
+
+		<!-- Footer with Instructions -->
+		<div class="sg-footer">
+			<strong>How to Use:</strong>
+			<ul>
+				<li><strong>Upload schema:</strong> Click "Upload Schema" button to upload a Pydantic .py file</li>
+				<li><strong>Create nodes:</strong> Right-click on canvas (all registered schemas appear in menu)</li>
+				<li><strong>Root Type Nodes:</strong> Nodes with a ☆ prefix and orange header are root config nodes</li>
+				<li><strong>Delete node:</strong> Select a node and press Delete/Backspace, or right-click and choose "Delete Node"</li>
+				<li><strong>Edit values:</strong> Double-click value boxes on nodes (boolean values toggle on double-click). Hover over editable fields to see them highlight.</li>
+				<li><strong>Disconnect links:</strong> Right-click a node with multi-input connections and select "Clear Multi-Input Links"</li>
+				<li><strong>Pan:</strong> Middle-click and drag, or Space+drag</li>
+				<li><strong>Zoom:</strong> Mouse wheel</li>
+				<li><strong>Connect:</strong> Drag from output (right side) to input (left side)</li>
+				<li><strong>Drawing Styles:</strong> Select different visual styles from the dropdown (Default, Minimal, Blueprint, Neon, Organic, Wireframe)</li>
+				<li><strong>Text Scaling:</strong> Toggle between Fixed (always readable) and Scaled (zooms with graph) text size</li>
+				<li><strong>Voice Commands:</strong> Click "Start" to enable voice recognition (experimental)</li>
+				<li><strong>Analytics:</strong> Click "📊 Analytics" to view session metrics and statistics</li>
+			</ul>
+		</div>
+
+		<!-- JavaScript -->
+		<script src="schemagraph.js"></script>
+
+		<script>
+			let   gApp = null;
+			const canvasId = 'my-sg-canvas';
+
+			const onLoaded = () => {
+				gApp = new SchemaGraphApp(canvasId);
+			}
+
+			if (document.readyState === 'loading') {
+				document.addEventListener('DOMContentLoaded', onLoaded);
+			}
+			else {
+				onLoaded();
+			}
+		</script>
+	</body>
+</html>

@@ -8,7 +8,7 @@
 			"justMyCode" : false,
 			"request"    : "launch",
 			"program"    : "${file}",
-			"args"       : ["--port=8000"],
+			"args"       : ["--port=8080"],
 			"console"    : "internalConsole"
 		},
 		{

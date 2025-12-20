@@ -1,5 +1,6 @@
 # manager
 
+import copy
 import json
 
 
@@ -18,8 +19,8 @@ class WorkflowManager:
 		self._event_bus  : EventBus            = event_bus or get_event_bus()
 		self._current_id : int                 = 0
 		self._workflows  : Dict[str, Workflow] = {}
-		self.storage_dir = Path(storage_dir)
-		self.storage_dir.mkdir(exist_ok=True)
+		self._storage_dir = Path(storage_dir)
+		# self._storage_dir.mkdir(exist_ok=True)
 
 
 	async def clear(self):
@@ -47,7 +48,7 @@ class WorkflowManager:
 
 
 	async def add(self, workflow: Workflow, name: Optional[str] = None) -> str:
-		wf = Workflow(workflow)
+		wf = copy.deepcopy(workflow)
 		if not name:
 			if not wf.info:
 				wf.info = InfoConfig()
@@ -56,7 +57,7 @@ class WorkflowManager:
 				wf.info.name = f"workflow_{self._current_id}"
 			name = wf.info.name
 		wf.link()
-		self.workflows[name] = workflow
+		self._workflows[name] = workflow
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_ADDED,
 		)
@@ -77,17 +78,19 @@ class WorkflowManager:
 
 
 	async def get(self, name: str) -> Optional[Workflow]:
+		result =  self._workflows.get(name)
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_GOT,
 		)
-		return self._workflows.get(name)
+		return result
 
 
 	async def list(self) -> List[str]:
+		result = list(self._workflows.keys());
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_LISTED,
 		)
-		return list(self._workflows.keys())
+		return result
 
 
 	def load(self, filepath: str, name: Optional[str] = None) -> Workflow:

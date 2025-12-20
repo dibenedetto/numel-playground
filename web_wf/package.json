@@ -1,0 +1,31 @@
+{
+  "name": "agui-client-bundle",
+  "version": "1.0.0",
+  "description": "Webpack bundle for @ag-ui/client",
+  "main": "dist/agui-client.bundle.js",
+  "scripts": {
+    "build": "webpack --mode=production",
+    "build:dev": "webpack --mode=development",
+    "watch": "webpack --mode=development --watch",
+    "serve": "webpack serve --mode=development --open"
+  },
+  "dependencies": {
+    "@ag-ui/client": "^0.0.36"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.23.0",
+    "@babel/preset-env": "^7.23.0",
+    "babel-loader": "^9.1.0",
+    "buffer": "^6.0.3",
+    "querystring-es3": "^0.2.1",
+    "stream-browserify": "^3.0.0",
+    "url": "^0.11.3",
+    "util": "^0.12.5",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.4",
+    "webpack-dev-server": "^4.15.1"
+  },
+  "keywords": ["ag-ui", "agent", "webpack", "bundle"],
+  "author": "",
+  "license": "MIT"
+}

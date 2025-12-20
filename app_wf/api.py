@@ -77,7 +77,8 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema: str, manag
 		nonlocal manager
 		name   = await manager.add(request.workflow, request.name)
 		result = {
-			"name": name,
+			"name"   : name,
+			"status" : "added" if name else "failed",
 		}
 		return result
 
@@ -118,7 +119,7 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema: str, manag
 	async def start_workflow(request: WorkflowStartRequest):
 		nonlocal engine, manager
 		try:
-			workflow = engine.get(request.name)
+			workflow = await manager.get(request.name)
 			if not workflow:
 				raise HTTPException(status_code=404, detail=f"Workflow 'request.name' not found")
 			execution_id = await engine.start_workflow(workflow=workflow, initial_data=request.initial_data)
