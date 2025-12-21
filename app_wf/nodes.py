@@ -300,6 +300,14 @@ class WFAgentNode(WFBaseNode):
 		return result
 
 
+class WFToolCallNode(WFBaseNode):
+	pass
+
+
+class WFAgentChatNode(WFBaseNode):
+	pass
+
+
 class ImplementedBackend(BaseModel):
 	handles   : List[Any]
 	run_tool  : Callable
@@ -330,6 +338,8 @@ _NODE_TYPES = {
 	"user_input_node"          : WFUserInputNode,
 	"tool_node"                : WFToolNode,
 	"agent_node"               : WFAgentNode,
+	"tool_call_node"           : WFToolCallNode,
+	"agent_chat_node"          : WFAgentChatNode,
 }
 
 

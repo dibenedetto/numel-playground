@@ -251,29 +251,6 @@ class AgentConfig(BaseConfig):
 		return self
 
 
-# TValue = TypeVar("TValue")
-
-
-# class Message(BaseModel, Generic[TValue]):
-# 	model_config = ConfigDict(arbitrary_types_allowed=True)
-
-# 	type  : str
-# 	value : Optional[TValue] = None
-
-
-# MessageAny   = Union[Any           , Message[Any           ]]
-# MessageBool  = Union[bool          , Message[bool          ]]
-# MessageInt   = Union[int           , Message[int           ]]
-# MessageFloat = Union[float         , Message[float         ]]
-# MessageStr   = Union[str           , Message[str           ]]
-# MessageList  = Union[List[Any]     , Message[List[Any]     ]]
-# MessageDict  = Union[Dict[str, Any], Message[Dict[str, Any]]]
-# MessageMulti = Union[MessageList   , MessageDict            ]
-
-
-# SkipMessage : MessageAny = Message(type="skip", value=None)
-
-
 class Edge(BaseType):
 	type        : Annotated[Literal["edge"], FieldRole.CONSTANT] = "edge"
 	source      : Annotated[int            , FieldRole.INPUT   ] = None
@@ -357,6 +334,16 @@ class AgentNode(BaseNode):
 	config : Annotated[Union[int, AgentConfig], FieldRole.INPUT   ] = None
 	input  : Annotated[Any                    , FieldRole.INPUT   ] = None
 	output : Annotated[Any                    , FieldRole.OUTPUT  ] = None
+
+
+class ToolCallNode(BaseNode):
+	type   : Annotated[Literal["tool_call_node"], FieldRole.CONSTANT] = "tool_call_node"
+	config : Annotated[Union[int, ToolConfig]   , FieldRole.INPUT   ] = None
+
+
+class AgentChatNode(BaseNode):
+	type   : Annotated[Literal["agent_chat_node"], FieldRole.CONSTANT] = "agent_chat_node"
+	config : Annotated[Union[int, AgentConfig]   , FieldRole.INPUT   ] = None
 
 
 WorkflowNodeUnion = Union[
