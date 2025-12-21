@@ -119,7 +119,7 @@ class WFRouteNode(WFBaseNode):
 		
 		try:
 			target  = context.inputs.get("target")
-			outputs = self.config.get("output", {})
+			outputs = self.config.output or {}
 
 			if not target in outputs:
 				target = "default"
@@ -145,7 +145,7 @@ class WFCombineNode(WFBaseNode):
 					_, name, _ = key.split(".")
 					inputs[name].append(value)
 
-			mapping = self.config.get("mapping", {})
+			mapping = context.inputs.get("mapping", {})
 			for key, value in mapping.items():
 				key  = str(key)
 				name = f"output.{value}"
@@ -196,20 +196,6 @@ class WFMergeNode(WFBaseNode):
 
 
 class WFTransformNode(WFBaseNode):
-	def _get_lang(self) -> str:
-		lang = self.config.get("lang", "python")
-		# Handle Message format: {"type": "", "value": "python"}
-		if isinstance(lang, dict):
-			return lang.get("value", "python")
-		return lang
-	
-	def _get_script(self) -> str:
-		script = self.config.get("script", "")
-		if isinstance(script, dict):
-			return script.get("value", "")
-		return script
-
-
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
 		
