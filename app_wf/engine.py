@@ -14,10 +14,15 @@ from   typing      import Any, Dict, List, Optional, Set, Tuple
 
 from   event_bus   import EventBus, EventType, get_event_bus
 from   nodes       import ImplementedBackend, NodeExecutionContext, NodeExecutionResult, create_node
-from   schema      import DEFAULT_ENGINE_DEBUG_SLEEP_SEC, DEFAULT_ENGINE_WAIT_SEC, DEFAULT_USER_INPUT_TIMEOUT_SEC, Edge, BaseType, BaseNode, Workflow
+from   schema      import Edge, BaseType, BaseNode, Workflow
 
 
 from   impl_agno   import build_backend_agno
+
+
+DEFAULT_ENGINE_DEBUG_SLEEP_SEC        : float = 1.0
+DEFAULT_ENGINE_WAIT_SEC               : float = 0.1
+DEFAULT_ENGINE_USER_INPUT_TIMEOUT_SEC : float = 300.0
 
 
 class WorkflowNodeStatus(str, Enum):
@@ -269,7 +274,8 @@ class WorkflowEngine:
 			data         = {"node_type": node_type, "node_label": node_label}
 		)
 
-		await asyncio.sleep(DEFAULT_ENGINE_DEBUG_SLEEP_SEC)
+		if DEFAULT_ENGINE_DEBUG_SLEEP_SEC >= 0:
+			await asyncio.sleep(DEFAULT_ENGINE_DEBUG_SLEEP_SEC)
 
 		try:
 			context = NodeExecutionContext()
@@ -347,7 +353,7 @@ class WorkflowEngine:
 		result = NodeExecutionResult()
 
 		try:
-			timeout        = extra.get("timeout", DEFAULT_USER_INPUT_TIMEOUT_SEC)
+			timeout        = extra.get("timeout", DEFAULT_ENGINE_USER_INPUT_TIMEOUT_SEC)
 			user_input     = await asyncio.wait_for(future, timeout=timeout)
 			result.outputs = {"message": user_input}
 

@@ -17,9 +17,11 @@ asyncio==4.0.0
 aiofiles==24.1.0
 
 # Database and storage
+chromadb==1.3.7
 sqlalchemy==2.0.43
 lancedb==0.25.0
 sqlite3-api==2.0.4
+pgvector==0.4.2
 psycopg==3.2.10
 
 # Vector operations

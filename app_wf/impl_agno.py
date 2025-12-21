@@ -8,6 +8,7 @@ from   typing                          import Any, List
 
 
 from   agno.agent                      import Agent
+from   agno.db.postgres                import PostgresDb
 from   agno.db.sqlite                  import SqliteDb
 from   agno.knowledge.embedder.openai  import OpenAIEmbedder
 from   agno.knowledge.embedder.ollama  import OllamaEmbedder
@@ -20,7 +21,9 @@ from   agno.models.openai              import OpenAIChat
 from   agno.session.summary            import SessionSummaryManager
 from   agno.tools.duckduckgo           import DuckDuckGoTools
 from   agno.tools.reasoning            import ReasoningTools
+from   agno.vectordb.chroma            import ChromaDb
 from   agno.vectordb.lancedb           import LanceDb
+from   agno.vectordb.pgvector          import PgVector
 from   agno.vectordb.search            import SearchType
 
 
@@ -38,6 +41,20 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		if value == "vector":
 			return SearchType.vector
 		raise ValueError(f"Invalid Agno db search type: {value}")
+
+
+	def _build_info(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
+		item_config = workflow.nodes[index]
+		assert item_config is not None and item_config.type == "info_config", "Invalid Agno info"
+		item = copy.deepcopy(item_config)
+		impl[index] = item
+
+
+	def _build_backend(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
+		item_config = workflow.nodes[index]
+		assert item_config is not None and item_config.type == "backend_config", "Invalid Agno backend"
+		item = copy.deepcopy(item_config)
+		impl[index] = item
 
 
 	def _build_model(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
@@ -74,37 +91,47 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 	def _build_content_db(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "content_db_config", "Invalid Agno content db"
-		if item_config.engine == "sqlite":
-			item = SqliteDb(
-				db_file         = item_config.url,
-				memory_table    = item_config.memory_table_name,
-				session_table   = item_config.session_table_name,
-				knowledge_table = item_config.knowledge_table_name,
-
-				# # Table to store all metrics aggregations
-				# metrics_table="your_metrics_table_name",
-				# # Table to store all your evaluation data
-				# eval_table="your_evals_table_name",
-				# # Table to store all your knowledge content
-			)
-		else:
+		supported_db_classes = {
+			"postgres" : (PostgresDb, lambda: {}),
+			"sqlite"   : (SqliteDb  , lambda: {}),
+		}
+		mkdb = supported_db_classes.get(item_config.engine)
+		if not mkdb:
 			raise ValueError(f"Unsupported Agno content db")
+		item = mkdb[0](
+			db_file         = item_config.url,
+			memory_table    = item_config.memory_table_name,
+			session_table   = item_config.session_table_name,
+			knowledge_table = item_config.knowledge_table_name,
+			# # Table to store all metrics aggregations
+			# metrics_table="your_metrics_table_name",
+			# # Table to store all your evaluation data
+			# eval_table="your_evals_table_name",
+			# # Table to store all your knowledge content
+			**(mkdb[1]()),
+		)
 		impl[index] = item
 
 
 	def _build_index_db(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "index_db_config", "Invalid Agno index db"
-		if item_config.engine == "lancedb":
-			search_type = _get_search_type(item_config.search_type)
-			item = LanceDb(
-				embedder    = impl[links[index]["embedding"]] if item_config.embedding is not None else None,
-				uri         = item_config.url,
-				table_name  = item_config.table_name,
-				search_type = search_type,
-			)
-		else:
+		supported_db_classes = {
+			"chroma"   : (ChromaDb, lambda: {"collection": "vectors"}),
+			"lancedb"  : (LanceDb , lambda: {}),
+			"pgvector" : (PgVector, lambda: {}),
+		}
+		mkdb = supported_db_classes.get(item_config.engine)
+		if not mkdb:
 			raise ValueError(f"Unsupported Agno index db")
+		search_type = _get_search_type(item_config.search_type)
+		item = mkdb[0](
+			embedder    = impl[links[index]["embedding"]] if item_config.embedding is not None else None,
+			uri         = item_config.url,
+			table_name  = item_config.table_name,
+			search_type = search_type,
+			**(mkdb[1]()),
+		)
 		impl[index] = item
 
 
@@ -193,7 +220,7 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 				raise ValueError(f"Agno agent prompt model is required")
 
 		if True:
-			options  = impl[links[index]["info"]] if item_config.info is not None else AgentOptionsConfig()
+			options  = impl[links[index]["options"]] if item_config.info is not None else AgentOptionsConfig()
 			markdown = options.markdown
 
 		if True:
@@ -222,7 +249,7 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 			num_history_sessions    = None
 			session_summary_manager = None
 			if item_config.session_mgr is not None:
-				session_mgr_config     = workflow.nodes[links[index]["memory_mgr"]]
+				session_mgr_config     = workflow.nodes[links[index]["session_mgr"]]
 				search_session_history = session_mgr_config.query
 				num_history_sessions   = session_mgr_config.history_size
 				if session_mgr_config.summarize:
@@ -267,6 +294,8 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 
 
 	indices = {
+		"info_config"              : [],
+		"backend_config"           : [],
 		"model_config"             : [],
 		"embedding_config"         : [],
 		"content_db_config"        : [],
@@ -290,6 +319,8 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 
 	impl = [None] * len(workflow.nodes)
 
+	for i in indices["info_config"             ]: _build_info              (workflow, links, impl, i)
+	for i in indices["backend_config"          ]: _build_backend           (workflow, links, impl, i)
 	for i in indices["model_config"            ]: _build_model             (workflow, links, impl, i)
 	for i in indices["embedding_config"        ]: _build_embedding         (workflow, links, impl, i)
 	for i in indices["content_db_config"       ]: _build_content_db        (workflow, links, impl, i)

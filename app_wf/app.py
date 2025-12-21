@@ -2,25 +2,31 @@
 
 import argparse
 import asyncio
-import os
 import uvicorn
 
 
 from   dotenv                  import load_dotenv
-from   fastapi                 import FastAPI, HTTPException
+from   fastapi                 import FastAPI
 from   fastapi.middleware.cors import CORSMiddleware
+from   inspect                 import getsource
 from   typing                  import Any
+
+
+import schema
 
 
 from   api                     import setup_api
 from   engine                  import WorkflowEngine
 from   event_bus               import EventBus, get_event_bus
 from   manager                 import WorkflowManager
-from   schema                  import DEFAULT_APP_PORT, DEFAULT_APP_SEED
 from   utils                   import log_print, seed_everything
 
 
 load_dotenv()
+
+
+DEFAULT_APP_SEED: int = 777
+DEFAULT_APP_PORT: int = 8000
 
 
 async def run_server(args: Any):
@@ -29,24 +35,12 @@ async def run_server(args: Any):
 	if args.seed != 0:
 		seed_everything(args.seed)
 
-	event_bus : EventBus        = get_event_bus   ()
-	manager   : WorkflowManager = WorkflowManager (event_bus)
-	engine    : WorkflowEngine  = WorkflowEngine  (event_bus)
+	event_bus   : EventBus        = get_event_bus   ()
+	manager     : WorkflowManager = WorkflowManager (event_bus)
+	engine      : WorkflowEngine  = WorkflowEngine  (event_bus)
+	schema_code : str             = getsource       (schema)
 
-	current_dir = os.path.dirname(os.path.abspath(__file__))
-
-	try:
-		schema_path = os.path.join(current_dir, "schema.py")
-		with open(schema_path, "r", encoding="utf-8") as f:
-			schema = f.read()
-	except Exception as e:
-		log_print(f"Error reading schema definition: {e}")
-		raise HTTPException(status_code=500, detail=str(e))
-
-	example_config_path = os.path.join(current_dir, "config.json")
-	manager.load(example_config_path, "Simple Example")
-
-	app : FastAPI = FastAPI(title="Control")
+	app : FastAPI = FastAPI(title="App")
 	app.add_middleware(
 		CORSMiddleware,
 		allow_credentials = False,
@@ -60,11 +54,11 @@ async def run_server(args: Any):
 	config = uvicorn.Config(app, host=host, port=port)
 	server = uvicorn.Server(config)
 
-	setup_api(server, app, event_bus, schema, manager, engine)
+	setup_api(server, app, event_bus, schema_code, manager, engine)
 
 	await server.serve()
 
-	log_print("Server shut down")
+	log_print("Server shut down.")
 
 
 def main():

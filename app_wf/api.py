@@ -27,7 +27,7 @@ class UserInputRequest(BaseModel):
 	input_data : Any
 
 
-def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema: str, manager: WorkflowManager, engine: WorkflowEngine):
+def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, manager: WorkflowManager, engine: WorkflowEngine):
 
 	@app.post("/shutdown")
 	async def shutdown_server():
@@ -65,9 +65,9 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema: str, manag
 
 	@app.post("/schema")
 	async def export_schema():
-		nonlocal schema
+		nonlocal schema_code
 		result = {
-			"schema": schema,
+			"schema": schema_code,
 		}
 		return result
 
@@ -133,6 +133,20 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema: str, manag
 			raise HTTPException(status_code=500, detail=str(e))
 
 
+	@app.post("/exec_list")
+	async def list_executions():
+		nonlocal engine
+		try:
+			execution_ids = engine.list_executions()
+			result =  {
+				"execution_ids": execution_ids,
+			}
+			return result
+		except Exception as e:
+			log_print(f"Error listing executions: {e}")
+			raise HTTPException(status_code=500, detail=str(e))
+
+
 	@app.post("/exec_state/{execution_id}")
 	async def execution_state(execution_id: str):
 		nonlocal engine
@@ -160,17 +174,24 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema: str, manag
 			raise HTTPException(status_code=500, detail=str(e))
 
 
-	@app.post("/exec_list")
-	async def list_executions():
+	@app.post("/exec_input/{execution_id}")
+	async def provide_user_input(execution_id: str, request: UserInputRequest):
 		nonlocal engine
 		try:
-			execution_ids = engine.list_executions()
+			await engine.provide_user_input(
+				execution_id = execution_id,
+				node_id      = request.node_id,
+				user_input   = request.input_data
+			)
 			result =  {
-				"execution_ids": execution_ids,
+				"execution_id" : execution_id,
+				"status"       : "input_received",
+				"node_id"      : request.node_id,
+				"input_data"   : request.input_data,
 			}
 			return result
 		except Exception as e:
-			log_print(f"Error listing executions: {e}")
+			log_print(f"Error providing user input: {e}")
 			raise HTTPException(status_code=500, detail=str(e))
 
 

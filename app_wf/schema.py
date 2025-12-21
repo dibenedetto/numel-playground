@@ -8,12 +8,6 @@ from pydantic   import BaseModel, ConfigDict, Field
 from typing     import Annotated, Any, Dict, Generic, List, Literal, Optional, TypeVar, Union, get_origin, get_args
 
 
-DEFAULT_APP_SEED               : int   = 777
-DEFAULT_APP_PORT               : int   = 8000
-DEFAULT_ENGINE_DEBUG_SLEEP_SEC : float = 1.0
-DEFAULT_ENGINE_WAIT_SEC        : float = 0.1
-
-
 class FieldRole(str, Enum):
 	CONSTANT     = "constant"
 	INPUT        = "input"
@@ -147,7 +141,7 @@ class IndexDBConfig(BaseConfig):
 	type        : Annotated[Literal["index_db_config"], FieldRole.CONSTANT] = "index_db_config"
 	engine      : Annotated[str                       , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_ENGINE
 	url         : Annotated[str                       , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_URL
-	embedding   : Annotated[Optional[EmbeddingConfig] , FieldRole.INPUT   ] = None
+	embedding   : Annotated[EmbeddingConfig           , FieldRole.INPUT   ] = None
 	search_type : Annotated[str                       , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_SEARCH_TYPE
 	table_name  : Annotated[str                       , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_TABLE_NAME
 	fallback    : Annotated[bool                      , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_FALLBACK
@@ -345,7 +339,6 @@ class MergeNode(BaseNode):
 
 
 DEFAULT_USER_INPUT_NODE_MESSAGE : MessageStr = Message(type="", value="Please provide input:")
-DEFAULT_USER_INPUT_TIMEOUT_SEC  : float      = 300.0
 
 
 class UserInputNode(BaseNode):
