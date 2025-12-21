@@ -570,8 +570,12 @@ class WorkflowNodeFactory {
 
     // Add expanded multi-inputs based on nodeData
     for (const field of multiInputFields) {
-      const keys = nodeData[field.name];
+      let   keys = nodeData[field.name];
       const expandedIndices = [];
+
+      if (keys.constructor == Object) {
+        keys = Object.keys(keys);
+      }
 
       if (Array.isArray(keys) && keys.length > 0) {
         for (const key of keys) {
@@ -598,8 +602,12 @@ class WorkflowNodeFactory {
 
     // Add expanded multi-outputs based on nodeData
     for (const field of multiOutputFields) {
-      const keys = nodeData[field.name];
+      let   keys = nodeData[field.name];
       const expandedIndices = [];
+
+      if (keys.constructor == Object) {
+        keys = Object.keys(keys);
+      }
 
       if (Array.isArray(keys) && keys.length > 0) {
         for (const key of keys) {

@@ -5,11 +5,11 @@ from __future__ import annotations
 
 from enum       import Enum
 from pydantic   import BaseModel, ConfigDict, Field
-from typing     import Annotated, Any, Dict, Generic, List, Literal, Optional, TypeVar, Union
+from typing     import Annotated, Any, Dict, Generic, List, Literal, Optional, TypeVar, Union, get_origin, get_args
 
 
 DEFAULT_APP_SEED               : int   = 777
-DEFAULT_APP_PORT               : int   = 8080
+DEFAULT_APP_PORT               : int   = 8000
 DEFAULT_ENGINE_DEBUG_SLEEP_SEC : float = 1.0
 DEFAULT_ENGINE_WAIT_SEC        : float = 0.1
 
@@ -248,7 +248,7 @@ class AgentConfig(BaseConfig):
 	memory_mgr    : Annotated[Optional[MemoryManagerConfig]   , FieldRole.INPUT      ] = None
 	session_mgr   : Annotated[Optional[SessionManagerConfig]  , FieldRole.INPUT      ] = None
 	knowledge_mgr : Annotated[Optional[KnowledgeManagerConfig], FieldRole.INPUT      ] = None
-	tools         : Annotated[Optional[Union[List[str], List[ToolConfig]]], FieldRole.MULTI_INPUT] = None
+	tools         : Annotated[Optional[Union[List[str], Dict[str, ToolConfig]]], FieldRole.MULTI_INPUT] = None
 
 	@property
 	def get(self) -> Annotated[AgentConfig, FieldRole.OUTPUT]: # type: ignore
@@ -331,7 +331,7 @@ class SplitNode(ScriptNode):
 	type     : Annotated[Literal["split_node"], FieldRole.CONSTANT    ] = "split_node"
 	mapping  : Annotated[Dict[str, str       ], FieldRole.INPUT       ] = None
 	source   : Annotated[Dict[str, MessageAny], FieldRole.INPUT       ] = None
-	targets  : Annotated[Dict[str, MessageAny], FieldRole.MULTI_OUTPUT] = None
+	targets  : Annotated[Union[List[str], Dict[str, MessageAny]], FieldRole.MULTI_OUTPUT] = None
 
 
 DEFAULT_MERGE_NODE_STRATEGY : MessageStr = Message(type="", value="first")
@@ -433,11 +433,33 @@ class Workflow(BaseConfig):
 	def get(self) -> Annotated[Workflow, FieldRole.OUTPUT]: # type: ignore
 		return self
 
+
 	def link(self):
+		roles = (FieldRole.MULTI_INPUT, FieldRole.MULTI_OUTPUT)
+		for node in self.nodes or []:
+			for name, info in node.model_fields.items():
+				for meta in info.metadata:
+					if meta in roles:
+						value = getattr(node, name)
+						if isinstance(value, list):
+							remap = {key:None for key in value}
+							setattr(node, name, remap)
+
 		for edge in self.edges or []:
 			source_node = self.nodes[edge.source]
 			target_node = self.nodes[edge.target]
-			setattr(target_node, edge.target_slot, getattr(source_node, edge.source_slot))
+
+			src_base, *src_parts = edge.source_slot.split(".")
+			src_value = getattr(source_node, src_base)
+			if src_parts:
+				src_value = src_value[src_parts[0]]
+
+			dst_base, *dst_parts = edge.target_slot.split(".")
+			if dst_parts:
+				dst_field = getattr(target_node, dst_base)
+				dst_field[dst_parts[0]] = src_value
+			else:
+				setattr(target_node, dst_base, src_value)
 
 
 if __name__ == "__main__":
