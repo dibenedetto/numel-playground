@@ -300,11 +300,15 @@ class WFAgentNode(WFBaseNode):
 		return result
 
 
-class WFToolCallNode(WFBaseNode):
+class WFBaseInteractive(WFBaseType):
 	pass
 
 
-class WFAgentChatNode(WFBaseNode):
+class WFToolCall(WFBaseInteractive):
+	pass
+
+
+class WFAgentChat(WFBaseInteractive):
 	pass
 
 
@@ -338,8 +342,8 @@ _NODE_TYPES = {
 	"user_input_node"          : WFUserInputNode,
 	"tool_node"                : WFToolNode,
 	"agent_node"               : WFAgentNode,
-	"tool_call_node"           : WFToolCallNode,
-	"agent_chat_node"          : WFAgentChatNode,
+	"tool_call"                : WFToolCall,
+	"agent_chat"               : WFAgentChat,
 }
 
 

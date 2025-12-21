@@ -24,6 +24,14 @@ class BaseType(BaseModel):
 	extra : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
 
 
+class Edge(BaseType):
+	type        : Annotated[Literal["edge"], FieldRole.CONSTANT] = "edge"
+	source      : Annotated[int            , FieldRole.INPUT   ] = None
+	target      : Annotated[int            , FieldRole.INPUT   ] = None
+	source_slot : Annotated[str            , FieldRole.INPUT   ] = None
+	target_slot : Annotated[str            , FieldRole.INPUT   ] = None
+
+
 class BaseConfig(BaseType):
 	type : Annotated[Literal["base_config"], FieldRole.CONSTANT] = "base_config"
 
@@ -251,14 +259,6 @@ class AgentConfig(BaseConfig):
 		return self
 
 
-class Edge(BaseType):
-	type        : Annotated[Literal["edge"], FieldRole.CONSTANT] = "edge"
-	source      : Annotated[int            , FieldRole.INPUT   ] = None
-	target      : Annotated[int            , FieldRole.INPUT   ] = None
-	source_slot : Annotated[str            , FieldRole.INPUT   ] = None
-	target_slot : Annotated[str            , FieldRole.INPUT   ] = None
-
-
 class BaseNode(BaseType):
 	type : Annotated[Literal["base_node"], FieldRole.CONSTANT] = "base_node"
 
@@ -336,14 +336,18 @@ class AgentNode(BaseNode):
 	output : Annotated[Any                    , FieldRole.OUTPUT  ] = None
 
 
-class ToolCallNode(BaseNode):
-	type   : Annotated[Literal["tool_call_node"], FieldRole.CONSTANT] = "tool_call_node"
-	config : Annotated[Union[int, ToolConfig]   , FieldRole.INPUT   ] = None
+class BaseInteractive(BaseType):
+	type : Annotated[Literal["base_interactive"], FieldRole.CONSTANT] = "base_interactive"
 
 
-class AgentChatNode(BaseNode):
-	type   : Annotated[Literal["agent_chat_node"], FieldRole.CONSTANT] = "agent_chat_node"
-	config : Annotated[Union[int, AgentConfig]   , FieldRole.INPUT   ] = None
+class ToolCall(BaseInteractive):
+	type   : Annotated[Literal["tool_call"]  , FieldRole.CONSTANT] = "tool_call"
+	config : Annotated[Union[int, ToolConfig], FieldRole.INPUT   ] = None
+
+
+class AgentChat(BaseInteractive):
+	type   : Annotated[Literal["agent_chat"]  , FieldRole.CONSTANT] = "agent_chat"
+	config : Annotated[Union[int, AgentConfig], FieldRole.INPUT   ] = None
 
 
 WorkflowNodeUnion = Union[
@@ -372,6 +376,9 @@ WorkflowNodeUnion = Union[
 	UserInputNode          ,
 	ToolNode               ,
 	AgentNode              ,
+
+	ToolCall               ,
+	AgentChat              ,
 ]
 
 
