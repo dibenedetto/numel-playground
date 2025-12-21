@@ -4045,6 +4045,7 @@ class SchemaGraphApp {
 
   showError(text) {
     const errorEl = document.getElementById('sg-errorBanner');
+    if (!errorEl) return;
     errorEl.textContent = '⚠️ ' + text;
     errorEl.style.display = 'block';
     setTimeout(() => { errorEl.style.display = 'none'; }, 3000);
@@ -4052,15 +4053,17 @@ class SchemaGraphApp {
   }
 
   updateNodeTypesList() {
-    const types = Object.keys(this.graph.nodeTypes);
     const listEl = document.getElementById('sg-nodeTypesList');
+    if (!listEl) return;
+    const types = Object.keys(this.graph.nodeTypes);
     listEl.textContent = types.length > 0 ? types.join(', ') : 'None';
   }
 
   updateSchemaList() {
-    const schemas = Object.keys(this.graph.schemas);
     const listEl = document.getElementById('sg-schemaList');
+    if (!listEl) return;
     
+    const schemas = Object.keys(this.graph.schemas);
     if (schemas.length === 0) {
       listEl.innerHTML = '<div style="color: var(--sg-text-tertiary); font-size: 11px; padding: 8px;">No schemas registered</div>';
       return;
