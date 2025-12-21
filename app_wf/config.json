@@ -105,7 +105,7 @@
 			}
 		},
 		{
-			"type"    : "switch_node",
+			"type"    : "route_node",
 			"lang"    : "python",
 			"script"  : "val = {'general': 'v1', 'technical: 'v2', 'billing': 'v3'}.get(__value, 'v4')",
 			"cases"   : ["c1", "c2", "c3"]

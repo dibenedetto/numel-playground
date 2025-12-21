@@ -106,10 +106,8 @@
 			}
 		},
 		{
-			"type"    : "switch_node",
-			"lang"    : "python",
-			"script"  : "val = {'general': 'v1', 'technical: 'v2', 'billing': 'v3'}.get(__value, 'v4')",
-			"cases"   : ["c1", "c2", "c3"]
+			"type"   : "route_node",
+			"output" : ["o1", "o2", "o3"]
 		},
 		{
 			"type"  : "agent_node",
@@ -132,15 +130,9 @@
 		{
 			"type"     : "merge_node",
 			"strategy" : "first",
-			"sources"  : ["a1", "a2", "a3"],
+			"input"    : ["a1", "a2", "a3"],
 			"extra" : {
 				"color" : "#BCD4E6"
-			}
-		},
-		{
-			"type"  : "user_output_node",
-			"extra" : {
-				"title" : "User OUTPUT Message"
 			}
 		},
 		{
@@ -271,74 +263,74 @@
 		{
 			"source"      : 13,
 			"target"      : 14,
-			"source_slot" : "start",
+			"source_slot" : "pin",
 			"target_slot" : "query"
 		},
 		{
 			"source"      : 14,
 			"target"      : 15,
-			"source_slot" : "message",
-			"target_slot" : "source"
+			"source_slot" : "content",
+			"target_slot" : "input"
 		},
 		{
 			"source"      : 15,
 			"target"      : 16,
-			"source_slot" : "target",
-			"target_slot" : "value"
+			"source_slot" : "output",
+			"target_slot" : "target"
+		},
+		{
+			"source"      : 15,
+			"target"      : 16,
+			"source_slot" : "output",
+			"target_slot" : "input"
 		},
 		{
 			"source"      : 16,
 			"target"      : 17,
-			"source_slot" : "cases.c1",
-			"target_slot" : "request"
+			"source_slot" : "output.o1",
+			"target_slot" : "input"
 		},
 		{
 			"source"      : 16,
 			"target"      : 18,
-			"source_slot" : "cases.c2",
-			"target_slot" : "request"
+			"source_slot" : "output.o2",
+			"target_slot" : "input"
 		},
 		{
 			"source"      : 16,
 			"target"      : 19,
-			"source_slot" : "cases.c3",
-			"target_slot" : "request"
+			"source_slot" : "output.o3",
+			"target_slot" : "input"
 		},
 		{
 			"source"      : 16,
-			"target"      : 22,
+			"target"      : 21,
 			"source_slot" : "default",
-			"target_slot" : "end"
+			"target_slot" : "pin"
 		},
 		{
 			"source"      : 17,
 			"target"      : 20,
-			"source_slot" : "response",
-			"target_slot" : "sources.a1"
+			"source_slot" : "output",
+			"target_slot" : "input.a1"
 		},
 		{
 			"source"      : 18,
 			"target"      : 20,
-			"source_slot" : "response",
-			"target_slot" : "sources.a2"
+			"source_slot" : "output",
+			"target_slot" : "input.a2"
 		},
 		{
 			"source"      : 19,
 			"target"      : 20,
-			"source_slot" : "response",
-			"target_slot" : "sources.a3"
+			"source_slot" : "output",
+			"target_slot" : "input.a3"
 		},
 		{
 			"source"      : 20,
 			"target"      : 21,
-			"source_slot" : "target",
-			"target_slot" : "message"
-		},
-		{
-			"source"      : 21,
-			"target"      : 22,
-			"source_slot" : "get",
-			"target_slot" : "end"
+			"source_slot" : "output",
+			"target_slot" : "pin"
 		}
 	]
 }

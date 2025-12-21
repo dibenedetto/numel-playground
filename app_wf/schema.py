@@ -4,7 +4,9 @@ from __future__ import annotations
 
 
 from enum       import Enum
-from pydantic   import BaseModel, ConfigDict, Field
+# from pydantic   import BaseModel, ConfigDict, Field
+# from typing     import Annotated, Any, Dict, Generic, List, Literal, Optional, TypeVar, Union, get_origin, get_args
+from pydantic   import BaseModel, Field
 from typing     import Annotated, Any, Dict, Generic, List, Literal, Optional, TypeVar, Union, get_origin, get_args
 
 
@@ -249,132 +251,117 @@ class AgentConfig(BaseConfig):
 		return self
 
 
-TValue = TypeVar("TValue")
+# TValue = TypeVar("TValue")
 
 
-class Message(BaseModel, Generic[TValue]):
-	model_config = ConfigDict(arbitrary_types_allowed=True)
+# class Message(BaseModel, Generic[TValue]):
+# 	model_config = ConfigDict(arbitrary_types_allowed=True)
 
-	type  : str
-	value : Optional[TValue] = None
-
-
-MessageAny   = Union[Any           , Message[Any           ]]
-MessageBool  = Union[bool          , Message[bool          ]]
-MessageInt   = Union[int           , Message[int           ]]
-MessageFloat = Union[float         , Message[float         ]]
-MessageStr   = Union[str           , Message[str           ]]
-MessageList  = Union[List[Any]     , Message[List[Any]     ]]
-MessageDict  = Union[Dict[str, Any], Message[Dict[str, Any]]]
+# 	type  : str
+# 	value : Optional[TValue] = None
 
 
-SkipMessage : MessageAny = Message(type="skip", value=None)
+# MessageAny   = Union[Any           , Message[Any           ]]
+# MessageBool  = Union[bool          , Message[bool          ]]
+# MessageInt   = Union[int           , Message[int           ]]
+# MessageFloat = Union[float         , Message[float         ]]
+# MessageStr   = Union[str           , Message[str           ]]
+# MessageList  = Union[List[Any]     , Message[List[Any]     ]]
+# MessageDict  = Union[Dict[str, Any], Message[Dict[str, Any]]]
+# MessageMulti = Union[MessageList   , MessageDict            ]
+
+
+# SkipMessage : MessageAny = Message(type="skip", value=None)
 
 
 class Edge(BaseType):
-	type        : Annotated[Literal["edge"]         , FieldRole.CONSTANT] = "edge"
-	source      : Annotated[int                     , FieldRole.INPUT   ] = None
-	target      : Annotated[int                     , FieldRole.INPUT   ] = None
-	source_slot : Annotated[str                     , FieldRole.INPUT   ] = None
-	target_slot : Annotated[str                     , FieldRole.INPUT   ] = None
+	type        : Annotated[Literal["edge"], FieldRole.CONSTANT] = "edge"
+	source      : Annotated[int            , FieldRole.INPUT   ] = None
+	target      : Annotated[int            , FieldRole.INPUT   ] = None
+	source_slot : Annotated[str            , FieldRole.INPUT   ] = None
+	target_slot : Annotated[str            , FieldRole.INPUT   ] = None
 
 
 class BaseNode(BaseType):
-	type  : Annotated[Literal["base_node"]    , FieldRole.CONSTANT] = "base_node"
+	type : Annotated[Literal["base_node"], FieldRole.CONSTANT] = "base_node"
 
 
 class StartNode(BaseNode):
-	type  : Annotated[Literal["start_node"], FieldRole.CONSTANT] = "start_node"
-	start : Annotated[MessageAny           , FieldRole.OUTPUT  ] = None
+	type : Annotated[Literal["start_node"], FieldRole.CONSTANT] = "start_node"
+	pin  : Annotated[Any                  , FieldRole.OUTPUT  ] = None
 
 
 class EndNode(BaseNode):
 	type : Annotated[Literal["end_node"], FieldRole.CONSTANT] = "end_node"
-	end  : Annotated[MessageAny         , FieldRole.INPUT   ] = None
+	pin  : Annotated[Any                , FieldRole.INPUT   ] = None
 
 
-class SinkNode(BaseNode):
-	type : Annotated[Literal["sink_node"], FieldRole.CONSTANT] = "sink_node"
-	sink : Annotated[MessageAny          , FieldRole.INPUT   ] = None
+class RouteNode(BaseNode):
+	type    : Annotated[Literal["route_node"]           , FieldRole.CONSTANT    ] = "route_node"
+	target  : Annotated[Union[int, str]                 , FieldRole.INPUT       ] = None
+	input   : Annotated[Any                             , FieldRole.INPUT       ] = None
+	output  : Annotated[Union[List[str], Dict[str, Any]], FieldRole.MULTI_OUTPUT] = None
+	default : Annotated[Any                             , FieldRole.OUTPUT      ] = None
 
 
-DEFAULT_SCRIPT_NODE_LANG   : MessageStr = Message(type="", value="python")
-DEFAULT_SCRIPT_NODE_SCRIPT : MessageStr = Message(type="", value="return None")
+class CombineNode(BaseNode):
+	type    : Annotated[Literal["combine_node"]         , FieldRole.CONSTANT    ] = "combine_node"
+	mapping : Annotated[Dict[Union[int, str], str]      , FieldRole.INPUT       ] = None
+	input   : Annotated[Union[List[str], Dict[str, Any]], FieldRole.MULTI_INPUT ] = None
+	output  : Annotated[Union[List[str], Dict[str, Any]], FieldRole.MULTI_OUTPUT] = None
 
 
-class ScriptNode(BaseNode):
-	type   : Annotated[Literal["script_node"], FieldRole.CONSTANT] = "script_node"
-	lang   : Annotated[MessageStr            , FieldRole.INPUT   ] = DEFAULT_SCRIPT_NODE_LANG
-	script : Annotated[MessageStr            , FieldRole.INPUT   ] = DEFAULT_SCRIPT_NODE_SCRIPT
-
-
-class TransformNode(ScriptNode):
-	type   : Annotated[Literal["transform_node"], FieldRole.CONSTANT] = "transform_node"
-	source : Annotated[MessageAny               , FieldRole.INPUT   ] = None
-	target : Annotated[MessageAny               , FieldRole.OUTPUT  ] = None
-
-
-class SwitchNode(ScriptNode):
-	type     : Annotated[Literal["switch_node"], FieldRole.CONSTANT    ] = "switch_node"
-	value    : Annotated[MessageAny            , FieldRole.INPUT       ] = None
-	cases    : Annotated[Union[List[str], Dict[str, MessageAny]], FieldRole.MULTI_OUTPUT] = None
-	default  : Annotated[MessageAny            , FieldRole.OUTPUT      ] = None
-
-
-class SplitNode(ScriptNode):
-	type     : Annotated[Literal["split_node"], FieldRole.CONSTANT    ] = "split_node"
-	mapping  : Annotated[Dict[str, str       ], FieldRole.INPUT       ] = None
-	source   : Annotated[Dict[str, MessageAny], FieldRole.INPUT       ] = None
-	targets  : Annotated[Union[List[str], Dict[str, MessageAny]], FieldRole.MULTI_OUTPUT] = None
-
-
-DEFAULT_MERGE_NODE_STRATEGY : MessageStr = Message(type="", value="first")
+DEFAULT_MERGE_NODE_STRATEGY : str = "first"
 
 
 class MergeNode(BaseNode):
 	type     : Annotated[Literal["merge_node"], FieldRole.CONSTANT   ] = "merge_node"
-	strategy : Annotated[MessageAny           , FieldRole.INPUT      ] = DEFAULT_MERGE_NODE_STRATEGY
-	sources  : Annotated[Union[List[str], Dict[str, MessageAny]], FieldRole.MULTI_INPUT] = None
-	target   : Annotated[MessageAny           , FieldRole.OUTPUT     ] = None
+	strategy : Annotated[str                  , FieldRole.INPUT      ] = DEFAULT_MERGE_NODE_STRATEGY
+	input    : Annotated[Union[List[str], Dict[str, Any]], FieldRole.MULTI_INPUT] = None
+	output   : Annotated[Any                  , FieldRole.OUTPUT     ] = None
 
 
-DEFAULT_USER_INPUT_NODE_MESSAGE : MessageStr = Message(type="", value="Please provide input:")
+DEFAULT_TRANSFORM_NODE_LANG    : str            = "python"
+DEFAULT_TRANSFORM_NODE_SCRIPT  : str            = "output = input"
+DEFAULT_TRANSFORM_NODE_CONTEXT : Dict[str, Any] = {}
+
+
+class TransformNode(BaseNode):
+	type    : Annotated[Literal["transform_node"], FieldRole.CONSTANT] = "transform_node"
+	lang    : Annotated[str                      , FieldRole.INPUT   ] = DEFAULT_TRANSFORM_NODE_LANG
+	script  : Annotated[str                      , FieldRole.INPUT   ] = DEFAULT_TRANSFORM_NODE_SCRIPT
+	context : Annotated[Dict[str, Any]           , FieldRole.INPUT   ] = DEFAULT_TRANSFORM_NODE_CONTEXT
+	input   : Annotated[Any                      , FieldRole.INPUT   ] = None
+	output  : Annotated[Any                      , FieldRole.OUTPUT  ] = None
 
 
 class UserInputNode(BaseNode):
 	type    : Annotated[Literal["user_input_node"], FieldRole.CONSTANT] = "user_input_node"
-	query   : Annotated[MessageAny                , FieldRole.INPUT   ] = None
-	message : Annotated[MessageAny                , FieldRole.OUTPUT  ] = None
+	query   : Annotated[Any                       , FieldRole.INPUT   ] = None
+	content : Annotated[Any                       , FieldRole.OUTPUT  ] = None
 
 
-class UserOutputNode(BaseNode):
-	type    : Annotated[Literal["user_output_node"], FieldRole.CONSTANT] = "user_output_node"
-	message : Annotated[MessageAny                 , FieldRole.INPUT   ] = None
-	get     : Annotated[MessageAny                 , FieldRole.OUTPUT  ] = None
-
-
-MessageToolConfig = Union[ToolConfig, Message[ToolConfig]]
+DEFAULT_TOOL_NODE_ARGS : Dict[str, Any] = {}
 
 
 class ToolNode(BaseNode):
-	type   : Annotated[Literal["tool_node"]         , FieldRole.CONSTANT] = "tool_node"
-	config : Annotated[Union[int, MessageToolConfig], FieldRole.INPUT   ] = None
-	args   : Annotated[MessageDict                  , FieldRole.INPUT   ] = None
-	source : Annotated[MessageAny                   , FieldRole.INPUT   ] = None
-	target : Annotated[MessageAny                   , FieldRole.OUTPUT  ] = None
-
-
-MessageAgentConfig = Union[AgentConfig, Message[AgentConfig]]
+	type   : Annotated[Literal["tool_node"]  , FieldRole.CONSTANT] = "tool_node"
+	config : Annotated[Union[int, ToolConfig], FieldRole.INPUT   ] = None
+	args   : Annotated[Dict[str, Any]        , FieldRole.INPUT   ] = DEFAULT_TOOL_NODE_ARGS
+	input  : Annotated[Any                   , FieldRole.INPUT   ] = None
+	output : Annotated[Any                   , FieldRole.OUTPUT  ] = None
 
 
 class AgentNode(BaseNode):
-	type     : Annotated[Literal["agent_node"]         , FieldRole.CONSTANT] = "agent_node"
-	config   : Annotated[Union[int, MessageAgentConfig], FieldRole.INPUT   ] = None
-	request  : Annotated[MessageAny                    , FieldRole.INPUT   ] = None
-	response : Annotated[MessageAny                    , FieldRole.OUTPUT  ] = None
+	type   : Annotated[Literal["agent_node"]  , FieldRole.CONSTANT] = "agent_node"
+	config : Annotated[Union[int, AgentConfig], FieldRole.INPUT   ] = None
+	input  : Annotated[Any                    , FieldRole.INPUT   ] = None
+	output : Annotated[Any                    , FieldRole.OUTPUT  ] = None
 
 
 WorkflowNodeUnion = Union[
+	# BaseConfig, BaseNode
+
 	InfoConfig             ,
 	BackendConfig          ,
 	ModelConfig            ,
@@ -391,13 +378,11 @@ WorkflowNodeUnion = Union[
 
 	StartNode              ,
 	EndNode                ,
-	SinkNode               ,
 	TransformNode          ,
-	SwitchNode             ,
-	SplitNode              ,
+	RouteNode              ,
+	CombineNode            ,
 	MergeNode              ,
 	UserInputNode          ,
-	UserOutputNode         ,
 	ToolNode               ,
 	AgentNode              ,
 ]
@@ -459,7 +444,9 @@ if __name__ == "__main__":
 	import json
 	import os
 	current_dir = os.path.dirname(os.path.abspath(__file__))
-	with open(f"{current_dir}/../web/workflow_example_simple.json") as f:
+	print("-- start --")
+	with open(f"{current_dir}/../web_wf/workflow_example_simple.json") as f:
 		data = json.load(f)
 		workflow = Workflow(**data)
 		print(workflow)
+	print("-- end --")

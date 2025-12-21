@@ -25,8 +25,8 @@ from   utils                   import log_print, seed_everything
 load_dotenv()
 
 
-DEFAULT_APP_SEED: int = 777
-DEFAULT_APP_PORT: int = 8000
+DEFAULT_APP_SEED : int = 777
+DEFAULT_APP_PORT : int = 8000
 
 
 async def run_server(args: Any):
