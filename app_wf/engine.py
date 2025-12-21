@@ -143,7 +143,7 @@ class WorkflowEngine:
 				state.node_outputs    = node_outputs
 
 				if ready:
-					tasks = []
+					tasks = set()
 
 					for node_idx in list(ready):
 						ready.discard(node_idx)
@@ -153,14 +153,15 @@ class WorkflowEngine:
 							nodes, edges, node_idx, node_instances[node_idx],
 							node_outputs, dependencies, variables, state
 						))
-						tasks.append(task)
+						tasks.add(task)
 
-					if tasks:
+					while len(tasks) > 0:
 						done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
 
 						for task in done:
 							node_idx, result = await task
 							running.discard(node_idx)
+							tasks.remove(task)
 
 							if result.success:
 								completed.add(node_idx)
