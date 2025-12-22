@@ -255,7 +255,15 @@ function setupClientEvents() {
 	client.on('node.completed', (event) => {
 		const idx = parseInt(event.node_id);
 		const label = event.data?.node_label || `Node ${idx}`;
+		const outputs = event.data?.outputs;
+		
 		visualizer?.updateNodeState(idx, 'completed');
+		
+		// Update preview nodes connected to this node's outputs
+		if (outputs) {
+			updateConnectedPreviews(idx, outputs);
+		}
+		
 		addLog('success', `✅ [${idx}] ${label}`);
 	});
 
@@ -584,6 +592,217 @@ async function cancelExecution() {
 		addLog('error', `❌ Cancel failed: ${error.message}`);
 		$('cancelBtn').disabled = false;
 	}
+}
+
+// ========================================================================
+// PREVIEW LIVE UPDATE - Add to numel-workflow-ui.js
+// Integrates workflow execution events with preview node updates
+// ========================================================================
+
+/**
+ * Find and update all preview nodes connected to a workflow node's outputs
+ * @param {number} workflowNodeIdx - Index of the completed workflow node
+ * @param {Object} outputs - Output data from the node
+ */
+function updateConnectedPreviews(workflowNodeIdx, outputs) {
+	if (!visualizer || !schemaGraph) return;
+	
+	const graphNode = visualizer.graphNodes[workflowNodeIdx];
+	if (!graphNode) return;
+	
+	const graph = schemaGraph.graph;
+	const previewManager = schemaGraph.edgePreviewManager;
+	let needsRedraw = false;
+	
+	// Check each output slot
+	for (const output of graphNode.outputs || []) {
+		for (const linkId of output.links || []) {
+			const link = graph.links[linkId];
+			if (!link) continue;
+			
+			const targetNode = graph.getNodeById(link.target_id);
+			if (!targetNode?.isPreviewNode) continue;
+			
+			// Determine which output data to use
+			const slotName = output.name;
+			let data;
+			
+			if (outputs && typeof outputs === 'object') {
+				// Try exact slot name first
+				if (slotName in outputs) {
+					data = outputs[slotName];
+				} 
+				// Try base name for dotted slots
+				else {
+					const baseName = slotName.split('.')[0];
+					data = (baseName in outputs) ? outputs[baseName] : outputs;
+				}
+			} else {
+				data = outputs;
+			}
+			
+			// Update preview node with flash
+			updatePreviewNode(targetNode, data, previewManager);
+			needsRedraw = true;
+			
+			// Recursively update downstream preview nodes
+			propagateToDownstreamPreviews(targetNode, data, previewManager);
+		}
+	}
+	
+	if (needsRedraw) {
+		schemaGraph.draw();
+	}
+}
+
+/**
+ * Update a single preview node with new data and trigger flash animation
+ * @param {Node} previewNode - The preview node to update
+ * @param {any} data - New data to display
+ * @param {EdgePreviewManager} previewManager - Preview manager instance
+ */
+function updatePreviewNode(previewNode, data, previewManager) {
+	// Store previous data for comparison
+	const hadData = previewNode.previewData !== null && previewNode.previewData !== undefined;
+	const dataChanged = !deepEqual(previewNode.previewData, data);
+	
+	// Update node data
+	previewNode.previewData = data;
+	previewNode.previewType = previewNode._detectType(data);
+	previewNode.previewError = null;
+	previewNode._lastUpdateTime = Date.now();
+	
+	// Trigger flash animation if data changed
+	if (dataChanged) {
+		triggerPreviewFlash(previewNode);
+	}
+	
+	// Update overlay if this preview is currently expanded
+	if (previewManager?.previewOverlay?.activeNode === previewNode) {
+		previewManager.previewOverlay.update();
+		
+		// Flash the overlay too
+		if (dataChanged) {
+			triggerOverlayFlash(previewManager.previewOverlay);
+		}
+	}
+}
+
+/**
+ * Propagate data through chained preview nodes
+ * @param {Node} previewNode - Source preview node
+ * @param {any} data - Data to propagate
+ * @param {EdgePreviewManager} previewManager - Preview manager instance
+ */
+function propagateToDownstreamPreviews(previewNode, data, previewManager) {
+	const graph = schemaGraph.graph;
+	
+	for (const output of previewNode.outputs || []) {
+		for (const linkId of output.links || []) {
+			const link = graph.links[linkId];
+			if (!link) continue;
+			
+			const targetNode = graph.getNodeById(link.target_id);
+			if (!targetNode?.isPreviewNode) continue;
+			
+			updatePreviewNode(targetNode, data, previewManager);
+			propagateToDownstreamPreviews(targetNode, data, previewManager);
+		}
+	}
+}
+
+/**
+ * Trigger flash animation on a preview node (canvas-based)
+ * @param {Node} node - Preview node to flash
+ */
+function triggerPreviewFlash(node) {
+	node._flashStart = performance.now();
+	node._flashDuration = 600; // ms
+	node._isFlashing = true;
+	
+	// Start animation loop if not already running
+	if (!schemaGraph._previewFlashAnimating) {
+		schemaGraph._previewFlashAnimating = true;
+		animatePreviewFlash();
+	}
+}
+
+/**
+ * Animation loop for preview node flashes
+ */
+function animatePreviewFlash() {
+	const now = performance.now();
+	let anyFlashing = false;
+	
+	for (const node of schemaGraph.graph.nodes) {
+		if (!node._isFlashing) continue;
+		
+		const elapsed = now - node._flashStart;
+		if (elapsed < node._flashDuration) {
+			node._flashProgress = elapsed / node._flashDuration;
+			anyFlashing = true;
+		} else {
+			node._isFlashing = false;
+			node._flashProgress = 0;
+		}
+	}
+	
+	schemaGraph.draw();
+	
+	if (anyFlashing) {
+		requestAnimationFrame(animatePreviewFlash);
+	} else {
+		schemaGraph._previewFlashAnimating = false;
+	}
+}
+
+/**
+ * Trigger flash animation on the preview overlay
+ * @param {PreviewOverlay} overlay - Overlay to flash
+ */
+function triggerOverlayFlash(overlay) {
+	const element = overlay.overlayElement;
+	if (!element) return;
+	
+	element.classList.remove('flash');
+	// Force reflow to restart animation
+	void element.offsetWidth;
+	element.classList.add('flash');
+	
+	// Remove class after animation completes
+	setTimeout(() => {
+		element.classList.remove('flash');
+	}, 500);
+}
+
+/**
+ * Deep equality check for data comparison
+ * @param {any} a - First value
+ * @param {any} b - Second value
+ * @returns {boolean} True if equal
+ */
+function deepEqual(a, b) {
+	if (a === b) return true;
+	if (a == null || b == null) return false;
+	if (typeof a !== typeof b) return false;
+	
+	if (typeof a === 'object') {
+		if (Array.isArray(a) !== Array.isArray(b)) return false;
+		
+		const keysA = Object.keys(a);
+		const keysB = Object.keys(b);
+		
+		if (keysA.length !== keysB.length) return false;
+		
+		for (const key of keysA) {
+			if (!keysB.includes(key)) return false;
+			if (!deepEqual(a[key], b[key])) return false;
+		}
+		
+		return true;
+	}
+	
+	return false;
 }
 
 // ========================================================================

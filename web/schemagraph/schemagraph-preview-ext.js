@@ -875,6 +875,161 @@ class EdgePreviewManager {
 				color: var(--sg-accent-red, #dc6464);
 				font-size: 12px;
 			}
+
+			/* ========================================================================
+			PREVIEW FLASH ANIMATIONS - Add to existing preview styles
+			======================================================================== */
+
+			/* Overlay flash animation */
+			.sg-preview-overlay.flash {
+				animation: sg-overlayFlash 0.5s ease-out;
+			}
+
+			.sg-preview-overlay.flash .sg-preview-overlay-content {
+				animation: sg-contentFlash 0.5s ease-out;
+			}
+
+			@keyframes sg-overlayFlash {
+				0% {
+					box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6),
+								0 0 30px rgba(70, 162, 218, 0.8),
+								inset 0 0 20px rgba(70, 162, 218, 0.3);
+					border-color: #82c4ec;
+				}
+				50% {
+					box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6),
+								0 0 50px rgba(146, 208, 80, 0.9),
+								inset 0 0 30px rgba(146, 208, 80, 0.4);
+					border-color: #92d050;
+				}
+				100% {
+					box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+					border-color: var(--sg-border-highlight, #46a2da);
+				}
+			}
+
+			@keyframes sg-contentFlash {
+				0% {
+					background: rgba(70, 162, 218, 0.2);
+				}
+				50% {
+					background: rgba(146, 208, 80, 0.3);
+				}
+				100% {
+					background: transparent;
+				}
+			}
+
+			/* Data update indicator badge */
+			.sg-preview-overlay-header::after {
+				content: '';
+				position: absolute;
+				top: 8px;
+				right: 80px;
+				width: 8px;
+				height: 8px;
+				background: transparent;
+				border-radius: 50%;
+				transition: all 0.3s ease;
+			}
+
+			.sg-preview-overlay.flash .sg-preview-overlay-header::after {
+				animation: sg-updatePulse 0.5s ease-out;
+			}
+
+			@keyframes sg-updatePulse {
+				0% {
+					background: #92d050;
+					box-shadow: 0 0 10px #92d050;
+					transform: scale(1.5);
+				}
+				100% {
+					background: transparent;
+					box-shadow: none;
+					transform: scale(1);
+				}
+			}
+
+			/* Live indicator for streaming data */
+			.sg-preview-live-indicator {
+				display: inline-flex;
+				align-items: center;
+				gap: 6px;
+				padding: 2px 8px;
+				background: rgba(146, 208, 80, 0.2);
+				border: 1px solid #92d050;
+				border-radius: 10px;
+				font-size: 10px;
+				font-weight: 600;
+				color: #92d050;
+				margin-left: 8px;
+			}
+
+			.sg-preview-live-indicator::before {
+				content: '';
+				width: 6px;
+				height: 6px;
+				background: #92d050;
+				border-radius: 50%;
+				animation: sg-livePulse 1s ease-in-out infinite;
+			}
+
+			@keyframes sg-livePulse {
+				0%, 100% {
+					opacity: 1;
+					transform: scale(1);
+				}
+				50% {
+					opacity: 0.5;
+					transform: scale(0.8);
+				}
+			}
+
+			/* Timestamp display */
+			.sg-preview-timestamp {
+				font-size: 9px;
+				color: var(--sg-text-tertiary, #707070);
+				margin: 0;
+				padding: 8px 12px;
+				border-top: 1px solid var(--sg-border-color, #1a1a1a);
+				text-align: right;
+				background: var(--sg-bg-tertiary, #353535);
+			}
+
+			.sg-preview-timestamp:empty {
+				display: none;
+			}
+
+			/* Ripple effect for content updates */
+			.sg-preview-overlay-content {
+				position: relative;
+				overflow: hidden;
+			}
+
+			.sg-preview-overlay.flash .sg-preview-overlay-content::before {
+				content: '';
+				position: absolute;
+				top: 50%;
+				left: 50%;
+				width: 10px;
+				height: 10px;
+				background: rgba(146, 208, 80, 0.6);
+				border-radius: 50%;
+				transform: translate(-50%, -50%) scale(0);
+				animation: sg-ripple 0.5s ease-out forwards;
+				pointer-events: none;
+			}
+
+			@keyframes sg-ripple {
+				0% {
+					transform: translate(-50%, -50%) scale(0);
+					opacity: 1;
+				}
+				100% {
+					transform: translate(-50%, -50%) scale(40);
+					opacity: 0;
+				}
+			}
 		`;
 		
 		document.head.appendChild(style);
@@ -895,7 +1050,7 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 			originalDrawNode.call(this, node, colors);
 		}
 	};
-	
+
 	SchemaGraphAppClass.prototype._drawPreviewNode = function(node, colors) {
 		const style = this.drawingStyleManager.getStyle();
 		const x = node.pos[0];
@@ -905,61 +1060,127 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 		const radius = style.nodeCornerRadius;
 		const textScale = this.getTextScale();
 		
-		// Node shadow
-		if (style.nodeShadowBlur > 0) {
-			this.ctx.shadowColor = colors.nodeShadow;
-			this.ctx.shadowBlur = style.nodeShadowBlur / this.camera.scale;
-			this.ctx.shadowOffsetY = style.nodeShadowOffset / this.camera.scale;
+		// Calculate flash intensity (0 to 1, eases out)
+		let flashIntensity = 0;
+		if (node._isFlashing && node._flashProgress !== undefined) {
+			// Ease out curve
+			const t = node._flashProgress;
+			flashIntensity = 1 - (t * t);
+		}
+		
+		// Flash colors
+		const flashColor = { r: 146, g: 208, b: 80 }; // Green
+		const baseColor = { r: 70, g: 162, b: 218 };  // Blue
+		
+		// Interpolate colors based on flash
+		const currentColor = {
+			r: Math.round(baseColor.r + (flashColor.r - baseColor.r) * flashIntensity),
+			g: Math.round(baseColor.g + (flashColor.g - baseColor.g) * flashIntensity),
+			b: Math.round(baseColor.b + (flashColor.b - baseColor.b) * flashIntensity)
+		};
+		const colorStr = `rgb(${currentColor.r}, ${currentColor.g}, ${currentColor.b})`;
+		
+		// Node shadow with flash glow
+		if (style.nodeShadowBlur > 0 || flashIntensity > 0) {
+			const glowIntensity = Math.max(style.nodeShadowBlur, flashIntensity * 25);
+			this.ctx.shadowColor = flashIntensity > 0 
+				? `rgba(${flashColor.r}, ${flashColor.g}, ${flashColor.b}, ${0.8 * flashIntensity})`
+				: colors.nodeShadow;
+			this.ctx.shadowBlur = glowIntensity / this.camera.scale;
+			this.ctx.shadowOffsetY = flashIntensity > 0 ? 0 : style.nodeShadowOffset / this.camera.scale;
 		}
 		
 		const isSelected = this.isNodeSelected(node);
 		
-		// Body with special preview styling
+		// Body with flash effect
+		const bodyAlpha = 0.1 * flashIntensity;
 		const gradient = this.ctx.createLinearGradient(x, y, x, y + h);
-		gradient.addColorStop(0, isSelected ? '#3a5a7a' : '#2d3d4d');
-		gradient.addColorStop(1, isSelected ? '#2a4a6a' : '#1d2d3d');
+		if (flashIntensity > 0) {
+			gradient.addColorStop(0, `rgba(${flashColor.r}, ${flashColor.g}, ${flashColor.b}, ${0.3 + bodyAlpha})`);
+			gradient.addColorStop(1, `rgba(${flashColor.r * 0.7}, ${flashColor.g * 0.7}, ${flashColor.b * 0.7}, ${0.2 + bodyAlpha})`);
+		} else {
+			gradient.addColorStop(0, isSelected ? '#3a5a7a' : '#2d3d4d');
+			gradient.addColorStop(1, isSelected ? '#2a4a6a' : '#1d2d3d');
+		}
 		this.ctx.fillStyle = gradient;
 		
 		this.ctx.beginPath();
 		this._roundRect(x, y, w, h, radius);
 		this.ctx.fill();
 		
-		// Border
-		this.ctx.strokeStyle = isSelected ? colors.borderHighlight : '#46a2da';
-		this.ctx.lineWidth = (isSelected ? 2 : 1.5) / this.camera.scale;
+		// Border with flash
+		this.ctx.strokeStyle = flashIntensity > 0 ? colorStr : (isSelected ? colors.borderHighlight : '#46a2da');
+		this.ctx.lineWidth = ((isSelected ? 2 : 1.5) + flashIntensity * 1.5) / this.camera.scale;
 		this.ctx.stroke();
 		
 		this.ctx.shadowBlur = 0;
+		this.ctx.shadowOffsetY = 0;
 		
-		// Header
+		// Header with flash
 		const headerGradient = this.ctx.createLinearGradient(x, y, x, y + 26);
-		headerGradient.addColorStop(0, '#46a2da');
-		headerGradient.addColorStop(1, '#2a7ab8');
+		if (flashIntensity > 0) {
+			headerGradient.addColorStop(0, colorStr);
+			headerGradient.addColorStop(1, `rgb(${Math.round(currentColor.r * 0.7)}, ${Math.round(currentColor.g * 0.7)}, ${Math.round(currentColor.b * 0.7)})`);
+		} else {
+			headerGradient.addColorStop(0, '#46a2da');
+			headerGradient.addColorStop(1, '#2a7ab8');
+		}
 		this.ctx.fillStyle = headerGradient;
 		
 		this.ctx.beginPath();
 		this._roundRectTop(x, y, w, 26, radius);
 		this.ctx.fill();
 		
-		// Title
+		// Title with live indicator during flash
 		this.ctx.fillStyle = colors.textPrimary;
 		this.ctx.font = `bold ${11 * textScale}px ${style.textFont}`;
 		this.ctx.textBaseline = 'middle';
 		this.ctx.textAlign = 'left';
-		this.ctx.fillText('👁 Preview', x + 8, y + 13);
+		
+		const title = flashIntensity > 0.5 ? '🔄 Preview' : '👁 Preview';
+		this.ctx.fillText(title, x + 8, y + 13);
+		
+		// Live pulse indicator during flash
+		if (flashIntensity > 0) {
+			const pulseRadius = 4 + flashIntensity * 2;
+			const pulseX = x + w - 20;
+			const pulseY = y + 13;
+			
+			this.ctx.beginPath();
+			this.ctx.arc(pulseX, pulseY, pulseRadius / this.camera.scale, 0, Math.PI * 2);
+			this.ctx.fillStyle = `rgba(255, 255, 255, ${0.8 * flashIntensity})`;
+			this.ctx.fill();
+			
+			// Outer ring
+			this.ctx.beginPath();
+			this.ctx.arc(pulseX, pulseY, (pulseRadius + 3) / this.camera.scale, 0, Math.PI * 2);
+			this.ctx.strokeStyle = `rgba(255, 255, 255, ${0.4 * flashIntensity})`;
+			this.ctx.lineWidth = 1 / this.camera.scale;
+			this.ctx.stroke();
+		}
 		
 		// Preview content area
 		const contentY = y + 32;
 		const contentH = h - 60;
 		
-		this.ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+		// Content background with flash
+		if (flashIntensity > 0) {
+			this.ctx.fillStyle = `rgba(${flashColor.r}, ${flashColor.g}, ${flashColor.b}, ${0.15 * flashIntensity})`;
+		} else {
+			this.ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+		}
 		this.ctx.fillRect(x + 8, contentY, w - 16, contentH);
-		this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-		this.ctx.lineWidth = 1 / this.camera.scale;
+		
+		this.ctx.strokeStyle = flashIntensity > 0 
+			? `rgba(${flashColor.r}, ${flashColor.g}, ${flashColor.b}, ${0.5 * flashIntensity})`
+			: 'rgba(255, 255, 255, 0.1)';
+		this.ctx.lineWidth = (1 + flashIntensity) / this.camera.scale;
 		this.ctx.strokeRect(x + 8, contentY, w - 16, contentH);
 		
 		// Preview text
-		this.ctx.fillStyle = colors.textSecondary;
+		this.ctx.fillStyle = flashIntensity > 0 
+			? `rgba(255, 255, 255, ${0.7 + 0.3 * flashIntensity})`
+			: colors.textSecondary;
 		this.ctx.font = `${9 * textScale}px 'Courier New', monospace`;
 		this.ctx.textAlign = 'left';
 		
@@ -995,13 +1216,20 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 		this.drawInputSlot(node, 0, x, y, w, worldMouse, colors);
 		this.drawOutputSlot(node, 0, x, y, w, worldMouse, colors);
 		
-		// Expand hint
+		// Expand hint / timestamp
 		this.ctx.fillStyle = colors.textTertiary;
 		this.ctx.font = `${8 * textScale}px ${style.textFont}`;
 		this.ctx.textAlign = 'center';
-		this.ctx.fillText('Double-click to expand', x + w / 2, y + h - 8);
+		
+		if (node._lastUpdateTime) {
+			const elapsed = Math.floor((Date.now() - node._lastUpdateTime) / 1000);
+			const timeStr = elapsed < 60 ? `${elapsed}s ago` : `${Math.floor(elapsed / 60)}m ago`;
+			this.ctx.fillText(`Updated ${timeStr} • Dbl-click to expand`, x + w / 2, y + h - 8);
+		} else {
+			this.ctx.fillText('Double-click to expand', x + w / 2, y + h - 8);
+		}
 	};
-	
+
 	SchemaGraphAppClass.prototype._getTypeColor = function(type) {
 		const typeColors = {
 			[PreviewType.STRING]: '#4a9eff',
@@ -1234,6 +1462,147 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 		this.edgePreviewManager = new EdgePreviewManager(this);
 	};
 }
+
+// ========================================================================
+// PREVIEW OVERLAY UPDATE PATCH
+// Add these modifications to schemagraph-preview-ext.js PreviewOverlay
+// ========================================================================
+
+// Replace _createOverlayElement to include live indicator
+PreviewOverlay.prototype._createOverlayElement = function() {
+	this.overlayElement = document.createElement('div');
+	this.overlayElement.id = 'sg-preview-overlay';
+	this.overlayElement.className = 'sg-preview-overlay';
+	this.overlayElement.innerHTML = `
+		<div class="sg-preview-overlay-header">
+			<span class="sg-preview-overlay-title">Preview</span>
+			<span class="sg-preview-live-indicator" style="display: none;">LIVE</span>
+			<div class="sg-preview-overlay-actions">
+				<select class="sg-preview-type-select">
+					<option value="auto">Auto</option>
+					<option value="string">String</option>
+					<option value="number">Number</option>
+					<option value="boolean">Boolean</option>
+					<option value="json">JSON</option>
+					<option value="list">List</option>
+					<option value="image">Image</option>
+					<option value="audio">Audio</option>
+					<option value="video">Video</option>
+					<option value="model3d">3D Model</option>
+				</select>
+				<button class="sg-preview-close-btn">✕</button>
+			</div>
+		</div>
+		<div class="sg-preview-overlay-content"></div>
+		<div class="sg-preview-timestamp"></div>
+	`;
+	
+	document.body.appendChild(this.overlayElement);
+	
+	// Store references
+	this.liveIndicator = this.overlayElement.querySelector('.sg-preview-live-indicator');
+	this.timestampElement = this.overlayElement.querySelector('.sg-preview-timestamp');
+	
+	// Event handlers
+	this.overlayElement.querySelector('.sg-preview-close-btn')
+		.addEventListener('click', () => this.hide());
+	
+	this.overlayElement.querySelector('.sg-preview-type-select')
+		.addEventListener('change', (e) => this._onTypeChange(e.target.value));
+};
+
+// Enhanced update method with timestamp
+PreviewOverlay.prototype.update = function() {
+	if (!this.activeNode || !this.overlayElement.classList.contains('show')) return;
+	
+	const content = this.overlayElement.querySelector('.sg-preview-overlay-content');
+	this._renderContent(content, this.activeNode);
+	
+	// Update timestamp
+	this._updateTimestamp();
+	
+	// Show live indicator briefly
+	this._showLiveIndicator();
+};
+
+// Show live indicator with auto-hide
+PreviewOverlay.prototype._showLiveIndicator = function() {
+	if (!this.liveIndicator) return;
+	
+	this.liveIndicator.style.display = 'inline-flex';
+	
+	// Clear existing timeout
+	if (this._liveIndicatorTimeout) {
+		clearTimeout(this._liveIndicatorTimeout);
+	}
+	
+	// Hide after 3 seconds of no updates
+	this._liveIndicatorTimeout = setTimeout(() => {
+		if (this.liveIndicator) {
+			this.liveIndicator.style.display = 'none';
+		}
+	}, 3000);
+};
+
+// Update timestamp display
+PreviewOverlay.prototype._updateTimestamp = function() {
+	if (!this.timestampElement || !this.activeNode) return;
+	
+	const lastUpdate = this.activeNode._lastUpdateTime;
+	if (!lastUpdate) {
+		this.timestampElement.textContent = '';
+		return;
+	}
+	
+	const now = Date.now();
+	const elapsed = Math.floor((now - lastUpdate) / 1000);
+	
+	let timeStr;
+	if (elapsed < 1) {
+		timeStr = 'just now';
+	} else if (elapsed < 60) {
+		timeStr = `${elapsed} second${elapsed !== 1 ? 's' : ''} ago`;
+	} else if (elapsed < 3600) {
+		const mins = Math.floor(elapsed / 60);
+		timeStr = `${mins} minute${mins !== 1 ? 's' : ''} ago`;
+	} else {
+		const hours = Math.floor(elapsed / 3600);
+		timeStr = `${hours} hour${hours !== 1 ? 's' : ''} ago`;
+	}
+	
+	this.timestampElement.textContent = `Last updated: ${timeStr}`;
+	
+	// Auto-refresh timestamp every second while visible
+	if (!this._timestampInterval && this.overlayElement.classList.contains('show')) {
+		this._timestampInterval = setInterval(() => this._updateTimestamp(), 1000);
+	}
+};
+
+// Clean up on hide
+const originalHide = PreviewOverlay.prototype.hide;
+PreviewOverlay.prototype.hide = function() {
+	// Clear intervals
+	if (this._liveIndicatorTimeout) {
+		clearTimeout(this._liveIndicatorTimeout);
+		this._liveIndicatorTimeout = null;
+	}
+	if (this._timestampInterval) {
+		clearInterval(this._timestampInterval);
+		this._timestampInterval = null;
+	}
+	
+	// Call original
+	originalHide.call(this);
+};
+
+// Enhanced show method
+const originalShow = PreviewOverlay.prototype.show;
+PreviewOverlay.prototype.show = function(node, screenX, screenY) {
+	originalShow.call(this, node, screenX, screenY);
+	
+	// Initialize timestamp updating
+	this._updateTimestamp();
+};
 
 // ========================================================================
 // AUTO-INITIALIZATION
