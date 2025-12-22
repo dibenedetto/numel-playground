@@ -8,6 +8,7 @@ let visualizer = null;
 let schemaGraph = null;
 let currentExecutionId = null;
 let pendingRemoveName = null;
+let singleMode = false;
 
 // DOM Elements
 const $ = id => document.getElementById(id);
@@ -52,6 +53,21 @@ function setupEventListeners() {
 	$('removeWorkflowBtn').addEventListener('click', removeSelectedWorkflow);
 	$('workflowFileInput').addEventListener('change', handleFileUpload);
 
+	// Workflow remove modal
+	$('confirmRemoveBtn').addEventListener('click', confirmRemoveWorkflow);
+	$('cancelRemoveBtn').addEventListener('click', closeRemoveModal);
+	$('closeRemoveModalBtn').addEventListener('click', closeRemoveModal);
+
+	// Clear workflow
+	$('clearWorkflowBtn').addEventListener('click', clearWorkflow);
+
+	// Mode switch
+	$('singleModeSwitch').addEventListener('change', toggleWorkflowMode);
+
+	// Single mode buttons
+	$('singleUploadBtn').addEventListener('click', () => $('workflowFileInput').click());
+	$('singleDownloadBtn').addEventListener('click', downloadWorkflow);
+
 	// Execution
 	$('startBtn').addEventListener('click', startExecution);
 	$('cancelBtn').addEventListener('click', cancelExecution);
@@ -61,11 +77,6 @@ function setupEventListeners() {
 		$('eventLog').innerHTML = '';
 		addLog('info', 'Log cleared');
 	});
-
-	// Workflow remove modal
-	$('confirmRemoveBtn').addEventListener('click', confirmRemoveWorkflow);
-	$('cancelRemoveBtn').addEventListener('click', closeRemoveModal);
-	$('closeRemoveModalBtn').addEventListener('click', closeRemoveModal);
 
 	// User input modal
 	$('submitInputBtn').addEventListener('click', submitUserInput);
@@ -129,6 +140,7 @@ async function connect() {
 		$('workflowSelect').disabled = false;
 		$('serverUrl').disabled = true;
 		$('uploadWorkflowBtn').disabled = false;
+		$('singleUploadBtn').disabled = false;
 		addLog('success', `✅ Connected to ${serverUrl}`);
 
 	} catch (error) {
@@ -159,6 +171,10 @@ async function disconnect() {
 	$('uploadWorkflowBtn').disabled = true;
 	$('startBtn').disabled = true;
 	$('cancelBtn').disabled = true;
+	$('singleUploadBtn').disabled = true;
+	$('singleDownloadBtn').disabled = true;
+	$('clearWorkflowBtn').disabled = true;
+	$('singleWorkflowName').textContent = 'None';
 	setWsStatus('disconnected');
 	setExecStatus('idle', 'Not running');
 	$('execId').textContent = '-';
@@ -284,6 +300,7 @@ async function loadSelectedWorkflow() {
 
 		$('downloadWorkflowBtn').disabled = false;
 		$('startBtn').disabled = false;
+		$('clearWorkflowBtn').disabled = false;
 		addLog('success', `✅ Loaded "${name}"`);
 
 	} catch (error) {
@@ -319,6 +336,11 @@ async function handleFileUpload(event) {
 			}
 		}
 
+		if (singleMode) {
+			$('singleWorkflowName').textContent = visualizer.currentWorkflowName || 'Untitled';
+			$('singleDownloadBtn').disabled = false;
+		}
+		$('clearWorkflowBtn').disabled = false;
 	} catch (error) {
 		addLog('error', `❌ Failed to upload: ${error.message}`);
 	}
@@ -397,6 +419,46 @@ async function confirmRemoveWorkflow() {
 	} finally {
 		$('removeWorkflowBtn').disabled = false;
 	}
+}
+
+function clearWorkflow() {
+	if (!visualizer.currentWorkflow) return;
+
+	schemaGraph.api.graph.clear();
+	schemaGraph.api.view.reset();
+	
+	visualizer.currentWorkflow = null;
+	visualizer.currentWorkflowName = null;
+	visualizer.graphNodes = [];
+	
+	$('downloadWorkflowBtn').disabled = true;
+	$('singleDownloadBtn').disabled = true;
+	$('startBtn').disabled = true;
+	$('clearWorkflowBtn').disabled = true;
+	
+	if (singleMode) {
+		$('singleWorkflowName').textContent = 'None';
+	}
+	
+	addLog('info', '🧹 Graph cleared');
+}
+
+function toggleWorkflowMode() {
+	singleMode = $('singleModeSwitch').checked;
+	
+	$('multiWorkflowControls').style.display = singleMode ? 'none' : 'block';
+	$('singleWorkflowControls').style.display = singleMode ? 'block' : 'none';
+	
+	// Update button states based on connection
+	if (client?.isConnected) {
+		$('singleUploadBtn').disabled = false;
+		$('singleDownloadBtn').disabled = !visualizer.currentWorkflow;
+	} else {
+		$('singleUploadBtn').disabled = true;
+		$('singleDownloadBtn').disabled = true;
+	}
+	
+	addLog('info', singleMode ? '📄 Single workflow mode' : '📚 Multi workflow mode');
 }
 
 // ========================================================================
