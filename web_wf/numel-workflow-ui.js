@@ -7,6 +7,7 @@ let client = null;
 let visualizer = null;
 let schemaGraph = null;
 let currentExecutionId = null;
+let pendingRemoveName = null;
 
 // DOM Elements
 const $ = id => document.getElementById(id);
@@ -48,6 +49,7 @@ function setupEventListeners() {
 	$('loadWorkflowBtn').addEventListener('click', loadSelectedWorkflow);
 	$('uploadWorkflowBtn').addEventListener('click', () => $('workflowFileInput').click());
 	$('downloadWorkflowBtn').addEventListener('click', downloadWorkflow);
+	$('removeWorkflowBtn').addEventListener('click', removeSelectedWorkflow);
 	$('workflowFileInput').addEventListener('change', handleFileUpload);
 
 	// Execution
@@ -59,6 +61,11 @@ function setupEventListeners() {
 		$('eventLog').innerHTML = '';
 		addLog('info', 'Log cleared');
 	});
+
+	// Workflow remove modal
+	$('confirmRemoveBtn').addEventListener('click', confirmRemoveWorkflow);
+	$('cancelRemoveBtn').addEventListener('click', closeRemoveModal);
+	$('closeRemoveModalBtn').addEventListener('click', closeRemoveModal);
 
 	// User input modal
 	$('submitInputBtn').addEventListener('click', submitUserInput);
@@ -120,6 +127,8 @@ async function connect() {
 
 		$('connectBtn').textContent = 'Disconnect';
 		$('workflowSelect').disabled = false;
+		$('serverUrl').disabled = true;
+		$('uploadWorkflowBtn').disabled = false;
 		addLog('success', `✅ Connected to ${serverUrl}`);
 
 	} catch (error) {
@@ -145,6 +154,9 @@ async function disconnect() {
 	$('workflowSelect').innerHTML = '<option value="">-- Select workflow --</option>';
 	$('loadWorkflowBtn').disabled = true;
 	$('downloadWorkflowBtn').disabled = true;
+	$('removeWorkflowBtn').disabled = true;
+	$('serverUrl').disabled = false;
+	$('uploadWorkflowBtn').disabled = true;
 	$('startBtn').disabled = true;
 	$('cancelBtn').disabled = true;
 	setWsStatus('disconnected');
@@ -244,9 +256,10 @@ async function refreshWorkflowList() {
 			select.appendChild(option);
 		});
 
-		$('loadWorkflowBtn').disabled = names.length === 0;
+		const disabled = names.length === 0
+		$('loadWorkflowBtn').disabled = disabled;
+		$('removeWorkflowBtn').disabled = disabled;
 		addLog('info', `📋 Found ${names.length} workflow(s)`);
-
 	} catch (error) {
 		addLog('error', `❌ Failed to list workflows: ${error.message}`);
 	}
@@ -331,6 +344,59 @@ function downloadWorkflow() {
 
 	URL.revokeObjectURL(url);
 	addLog('info', '💾 Workflow downloaded');
+}
+
+async function removeSelectedWorkflow() {
+	const name = $('workflowSelect').value;
+	if (!name || !client) return;
+
+	pendingRemoveName = name;
+	$('removeModalPrompt').textContent = `Are you sure you want to remove "${name}"?`;
+	$('removeModal').style.display = 'flex';
+}
+
+function closeRemoveModal() {
+	$('removeModal').style.display = 'none';
+	pendingRemoveName = null;
+}
+
+async function confirmRemoveWorkflow() {
+	if (!pendingRemoveName || !client) {
+		closeRemoveModal();
+		return;
+	}
+
+	const name = pendingRemoveName;
+	closeRemoveModal();
+
+	try {
+		$('removeWorkflowBtn').disabled = true;
+		addLog('info', `🗑️ Removing "${name}"...`);
+
+		await client.removeWorkflow(name);
+
+		// Clear graph if removed workflow was loaded
+		if (visualizer.currentWorkflowName === name) {
+			schemaGraph.api.graph.clear();
+			schemaGraph.api.view.reset();
+			visualizer.currentWorkflow = null;
+			visualizer.currentWorkflowName = null;
+			visualizer.graphNodes = [];
+		}
+
+		addLog('success', `✅ Removed "${name}"`);
+		await refreshWorkflowList();
+
+		$('downloadWorkflowBtn').disabled = true;
+		$('startBtn').disabled = true;
+		visualizer.currentWorkflow = null;
+		visualizer.currentWorkflowName = null;
+
+	} catch (error) {
+		addLog('error', `❌ Failed to remove: ${error.message}`);
+	} finally {
+		$('removeWorkflowBtn').disabled = false;
+	}
 }
 
 // ========================================================================
@@ -446,3 +512,5 @@ function addLog(type, message) {
 		log.removeChild(log.firstChild);
 	}
 }
+
+$('uploadWorkflowBtn').disabled = true;

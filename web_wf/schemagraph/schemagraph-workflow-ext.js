@@ -1119,6 +1119,49 @@ function extendSchemaGraphWithWorkflow(SchemaGraphClass) {
 				defaults: parsed.defaults
 			};
 
+			// Register node types for context menu
+			if (!this.nodeTypes) this.nodeTypes = {};
+
+			const self = this;
+
+			for (const modelName in parsed.models) {
+				const defaults = parsed.defaults[modelName] || {};
+				
+				// Skip models without a type constant (abstract base classes)
+				if (!defaults.type) continue;
+				
+				const fullTypeName = `${schemaName}.${modelName}`;
+				
+				// Capture values for closure
+				const capturedModelName = modelName;
+				const capturedSchemaName = schemaName;
+				const capturedFields = parsed.models[modelName];
+				const capturedRoles = parsed.fieldRoles[modelName];
+				const capturedDefaults = defaults;
+				
+				// Create constructor function
+				function WorkflowNodeType() {
+					const factory = new WorkflowNodeFactory(self, {
+						models: { [capturedModelName]: capturedFields },
+						fieldRoles: { [capturedModelName]: capturedRoles },
+						defaults: { [capturedModelName]: capturedDefaults }
+					}, capturedSchemaName);
+					
+					const node = factory.createNode(capturedModelName, {});
+					
+					// Copy all properties to this instance
+					Object.assign(this, node);
+					
+					// Copy prototype chain methods
+					Object.setPrototypeOf(this, node);
+				}
+				
+				WorkflowNodeType.title = modelName.replace(/([A-Z])/g, ' $1').trim();
+				WorkflowNodeType.type = fullTypeName;
+				
+				this.nodeTypes[fullTypeName] = WorkflowNodeType;
+			}
+
 			this.enabledSchemas.add(schemaName);
 			this.eventBus.emit('schema:registered', { schemaName, isWorkflow: true });
 			return true;
@@ -1127,6 +1170,13 @@ function extendSchemaGraphWithWorkflow(SchemaGraphClass) {
 			this.eventBus.emit('error', { type: 'schema:register', error: e.message });
 			return false;
 		}
+	};
+
+	SchemaGraphClass.prototype._formatNodeTitle = function(modelName) {
+		return modelName
+			.replace(/([A-Z])/g, ' $1')
+			.replace(/^./, s => s.toUpperCase())
+			.trim();
 	};
 
 	SchemaGraphClass.prototype.importWorkflow = function(workflowData, schemaName) {

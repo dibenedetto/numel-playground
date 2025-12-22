@@ -5744,6 +5744,15 @@ class SchemaGraphApp {
 				},
 
 				/**
+				 * Reset position and zoom
+				 * @returns {void}
+				 */
+				reset: () => {
+					this.api.view.setPosition(0, 0);
+					this.resetZoom();
+				},
+
+				/**
 				 * Set zoom level
 				 * @param {number} scale - Zoom scale (0.1 to 5.0)
 				 * @returns {void}

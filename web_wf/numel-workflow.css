@@ -124,6 +124,12 @@ body {
 	box-shadow: 0 0 0 2px rgba(70, 162, 218, 0.2);
 }
 
+.nw-field input:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	background: var(--sg-bg-tertiary);
+}
+
 .nw-select {
 	width: 100%;
 	padding: 8px 10px;
@@ -209,10 +215,12 @@ body {
 .nw-btn-row {
 	display: flex;
 	gap: 8px;
+	flex-wrap: wrap;
 }
 
 .nw-btn-row .nw-btn {
-	flex: 1;
+	flex: 1 1 calc(50% - 4px);
+	min-width: 0;
 }
 
 .nw-btn-icon {

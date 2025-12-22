@@ -43,8 +43,9 @@
 			</select>
 			<div class="nw-btn-row">
 				<button id="loadWorkflowBtn" class="nw-btn nw-btn-secondary" disabled>Load</button>
-				<button id="uploadWorkflowBtn" class="nw-btn nw-btn-secondary">Upload</button>
+				<button id="uploadWorkflowBtn" class="nw-btn nw-btn-secondary" disabled>Upload</button>
 				<button id="downloadWorkflowBtn" class="nw-btn nw-btn-secondary" disabled>Download</button>
+				<button id="removeWorkflowBtn" class="nw-btn nw-btn-danger" disabled>Remove</button>
 			</div>
 			<input type="file" id="workflowFileInput" accept=".json" style="display:none;">
 		</section>
@@ -84,6 +85,23 @@
 			<canvas id="sg-main-canvas"></canvas>
 			<div id="sg-contextMenu" class="sg-context-menu"></div>
 			<input type="text" id="sg-nodeInput" class="sg-node-input-overlay">
+		</div>
+	</div>
+
+	<!-- Remove Confirmation Modal -->
+	<div id="removeModal" class="nw-modal" style="display:none;">
+		<div class="nw-modal-content">
+			<div class="nw-modal-header">
+				<h3>Remove Workflow</h3>
+				<button id="closeRemoveModalBtn" class="nw-modal-close">&times;</button>
+			</div>
+			<div class="nw-modal-body">
+				<p id="removeModalPrompt">Are you sure you want to remove this workflow?</p>
+			</div>
+			<div class="nw-modal-footer">
+				<button id="cancelRemoveBtn" class="nw-btn nw-btn-secondary">Cancel</button>
+				<button id="confirmRemoveBtn" class="nw-btn nw-btn-danger">Remove</button>
+			</div>
 		</div>
 	</div>
 
