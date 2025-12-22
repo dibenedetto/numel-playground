@@ -7,6 +7,10 @@ from   datetime  import datetime
 from   typing    import Optional
 
 
+def log_print(*args, **kwargs) -> None:
+	print("[log]", *args, **kwargs)
+
+
 def seed_everything(seed: Optional[int] = None) -> None:
 	if not isinstance(seed, int):
 		seed = int(datetime.now()) % (2**32)
@@ -33,8 +37,3 @@ def get_time_str() -> str:
 	now = datetime.now()
 	res = now.strftime("%Y-%m-%d %H:%M:%S")
 	return res
-
-
-def log_print(*args, **kwargs) -> None:
-	ts = get_time_str()
-	print(f"[log {ts}]", *args, **kwargs)

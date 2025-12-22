@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>Numel Playground</title>
+		
+		<link rel="stylesheet" href="schemagraph/schemagraph-themes.css">
+		<link rel="stylesheet" href="schemagraph/schemagraph-canvas.css">
+		<link rel="stylesheet" href="schemagraph/schemagraph-ui.css">
+		
+		<link rel="stylesheet" href="numel-app.css">
+		<link rel="stylesheet" href="numel-workflow.css">
+	</head>
+	<body>
+		<div class="numel-panel">
+			<h1 class="numel-title">
+				<span class="numel-brand">Numel</span> Playground
+			</h1>
+
+			<div class="numel-config-section">
+				<div class="numel-section-header">
+					<h3 class="numel-section-title">Session</h3>
+				</div>
+				<div class="numel-config-row">
+					<label for="serverUrl">URL:</label>
+					<input type="url" id="serverUrl" value="http://localhost:8000" placeholder="http://localhost:8000" />
+				</div>
+				<div class="numel-config-row">
+					<label for="userId">User ID:</label>
+					<input type="text" id="userId" placeholder="Optional User ID" />
+				</div>
+				<div class="numel-config-row">
+					<label for="sessionId">Session ID:</label>
+					<input type="text" id="sessionId" placeholder="Optional Session ID" />
+				</div>
+				<div class="numel-config-row">
+					<label for="status">Status:</label>
+					<div id="status" class="numel-status numel-status-idle">Not connected</div>
+					<button id="connectButton" class="numel-btn numel-btn-accent">Connect</button>
+				</div>
+			</div>
+
+			<div class="numel-mode-switcher">
+				<button id="chatModeBtn" class="numel-mode-btn active">💬 Chat</button>
+				<button id="workflowModeBtn" class="numel-mode-btn">🔄 Workflow</button>
+			</div>
+
+			<div id="chatMode" class="numel-mode-content">
+				<div class="numel-config-section">
+					<div class="numel-section-header">
+						<h3 class="numel-section-title">Configuration</h3>
+					</div>
+					<div class="numel-config-row">
+						<button id="downloadConfigBtn" class="numel-btn numel-btn-secondary">📥 Download</button>
+						<button id="uploadConfigBtn" class="numel-btn numel-btn-secondary">📤 Upload</button>
+						<button id="newConfigBtn" class="numel-btn numel-btn-secondary">➕ New</button>
+					</div>
+				</div>
+
+				<div class="numel-config-section">
+					<div class="numel-config-row">
+						<label for="appAgentSelect">Agent:</label>
+						<select id="appAgentSelect" disabled>
+							<option value="-1"> - None - </option>
+						</select>
+					</div>
+					<div class="numel-config-row">
+						<label for="debugMessage">Debug:</label>
+						<input type="checkbox" id="debugMessage" />
+					</div>
+				</div>
+
+				<div id="chatContainer" class="numel-chat-container"></div>
+
+				<div class="numel-input-group">
+					<input type="text" id="messageInput" placeholder="Type your message..." disabled>
+					<button id="sendButton" class="numel-btn numel-btn-primary" disabled>Send</button>
+					<button id="clearChatButton" class="numel-btn numel-btn-secondary">🗑️</button>
+				</div>
+			</div>
+
+			<div id="workflowMode" class="numel-mode-content" style="display: none;">
+				<div class="numel-config-section">
+					<div class="numel-section-header">
+						<h3 class="numel-section-title">Workflow</h3>
+					</div>
+					
+					<div class="numel-config-row">
+						<label for="workflowSelect">Select:</label>
+						<select id="workflowSelect">
+							<option value="">Select workflow...</option>
+						</select>
+					</div>
+					<div class="numel-config-row">
+						<button id="downloadWorkflowBtn" class="numel-btn numel-btn-secondary">📥 Download</button>
+						<button id="uploadWorkflowBtn" class="numel-btn numel-btn-secondary">📤 Upload</button>
+						<button id="newWorkflowBtn" class="numel-btn numel-btn-secondary">➕ New</button>
+					</div>
+					
+					<div class="numel-workflow-controls">
+						<button id="startWorkflowBtn" class="numel-btn numel-btn-accent" disabled>
+							▶️ Start
+						</button>
+						<button id="stopWorkflowBtn" class="numel-btn numel-btn-accent-red" disabled>
+							⏹️ Stop
+						</button>
+					</div>
+					
+					<div class="numel-config-row">
+						<label for="workflowStatus">Status:</label>
+						<div id="workflowStatus" class="numel-status numel-status-idle">No workflow</div>
+					</div>
+				</div>
+
+				<div class="numel-config-section numel-execution-info" style="display: none;">
+					<h3 class="numel-section-title">Current Execution</h3>
+					<div class="numel-execution-details">
+						<div class="numel-execution-row">
+							<span class="label">ID:</span>
+							<span id="executionId" class="value">-</span>
+						</div>
+						<div class="numel-execution-row">
+							<span class="label">Progress:</span>
+							<div class="numel-progress-bar">
+								<div id="executionProgress" class="numel-progress-fill"></div>
+							</div>
+						</div>
+						<div class="numel-execution-row">
+							<span class="label">Current Node:</span>
+							<span id="currentNode" class="value">-</span>
+						</div>
+						<div class="numel-execution-row">
+							<span class="label">Time:</span>
+							<span id="executionTime" class="value">0s</span>
+						</div>
+					</div>
+				</div>
+
+				<div class="numel-config-section">
+					<div class="numel-section-header">
+						<h3 class="numel-section-title">Event Log</h3>
+						<button id="clearEventsBtn" class="numel-btn-icon" title="Clear events">🗑️</button>
+					</div>
+					<div id="eventLog" class="numel-event-log"></div>
+				</div>
+
+				<div class="numel-config-section">
+					<div class="numel-section-header">
+						<h3 class="numel-section-title">Recent Executions</h3>
+						<button id="refreshExecutionsBtn" class="numel-btn-icon" title="Refresh">🔄</button>
+					</div>
+					<div id="executionsList" class="numel-executions-list"></div>
+				</div>
+			</div>
+
+			<div id="loading" class="numel-loading">Loading NumelApp...</div>
+		</div>
+
+		<div class="numel-graph-panel">
+			<div class="numel-hidden-elements">
+				<div class="sg-error-banner" id="sg-errorBanner"></div>
+				<div class="sg-node-types" id="sg-nodeTypes">
+					<strong>Registered Node Types:</strong> 
+					<span id="sg-nodeTypesList">None</span>
+				</div>
+				<div class="sg-schema-manager" style="display: none;">
+					<div class="sg-schema-manager-title">📋 Registered Schemas:</div>
+					<div id="sg-schemaList"></div>
+				</div>
+				<div>
+					<input type="file" id="workflowFileInput" accept=".json" style="display: none;" />
+				</div>
+			</div>
+
+			<div class="sg-canvas-container">
+				<canvas id="sg-main-canvas"></canvas>
+				<div id="sg-contextMenu" class="sg-context-menu"></div>
+				<input type="text" id="sg-nodeInput" class="sg-node-input-overlay" />
+			</div>
+		</div>
+
+		<div class="numel-footer">
+			&copy; 2025 - <a href="mailto:marco.dibenedetto@isti.cnr.it">Marco Di Benedetto</a>
+		</div>
+
+		<div id="userInputModal" class="numel-modal" style="display: none;">
+			<div class="numel-modal-content">
+				<div class="numel-modal-header">
+					<h3>User Input Required</h3>
+					<button id="closeModalBtn" class="numel-modal-close">&times;</button>
+				</div>
+				<div class="numel-modal-body">
+					<p id="userInputPrompt">Please provide input:</p>
+					<textarea id="userInputField" class="numel-modal-input" rows="4"></textarea>
+				</div>
+				<div class="numel-modal-footer">
+					<button id="cancelInputBtn" class="numel-btn numel-btn-secondary">Cancel</button>
+					<button id="submitInputBtn" class="numel-btn numel-btn-primary">Submit</button>
+				</div>
+			</div>
+		</div>
+
+		<script type="text/javascript" src="dist/agui-client.bundle.js"></script>
+		<script type="text/javascript" src="schemagraph/schemagraph.js"></script>
+		<script type="text/javascript" src="schemagraph/schemagraph-workflow-ext.js"></script>
+		<script type="text/javascript" src="numel-core.js"></script>
+		<script type="text/javascript" src="numel-app.js"></script>
+		<script type="text/javascript" src="numel-workflow.js"></script>
+		<script type="text/javascript" src="numel-workflow-ui.js"></script>
+	</body>
+</html>

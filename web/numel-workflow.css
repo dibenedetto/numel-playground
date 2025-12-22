@@ -1,345 +1,481 @@
 /* ========================================================================
-   NUMEL WORKFLOW - UI Styles
+   NUMEL WORKFLOW - Styles
    Uses SchemaGraph CSS variables (--sg-*) for theming
    ======================================================================== */
 
-/* Mode Switcher */
-.numel-mode-switcher {
+* {
+	box-sizing: border-box;
+}
+
+body {
+	font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+	margin: 0;
+	padding: 20px;
+	background: var(--sg-bg-primary);
+	color: var(--sg-text-primary);
 	display: flex;
-	gap: 8px;
-	margin-bottom: 15px;
-	background: var(--sg-bg-tertiary);
-	padding: 4px;
+	gap: 20px;
+	height: 100vh;
+	overflow: hidden;
+}
+
+/* ========================================================================
+   LEFT PANEL
+   ======================================================================== */
+
+.nw-panel {
+	width: 340px;
+	min-width: 300px;
+	max-width: 400px;
+	background: var(--sg-bg-secondary);
 	border: 1px solid var(--sg-border-color);
-	border-radius: 6px;
+	border-radius: 8px;
+	padding: 20px;
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+	overflow-y: auto;
 }
 
-.numel-mode-btn {
-	flex: 1;
-	padding: 8px 12px;
-	background: transparent;
-	border: none;
-	border-radius: 4px;
-	color: var(--sg-text-secondary);
-	font-size: 14px;
+.nw-title {
+	margin: 0;
+	font-size: 22px;
 	font-weight: 600;
-	cursor: pointer;
-	transition: all 0.2s ease;
-}
-
-.numel-mode-btn:hover {
-	background: var(--sg-bg-quaternary);
+	text-align: center;
 	color: var(--sg-text-primary);
 }
 
-.numel-mode-btn.active {
-	background: var(--sg-accent-blue);
-	color: #ffffff;
+.nw-brand {
+	color: var(--sg-accent-orange);
+	font-weight: 700;
 }
 
-.numel-mode-content {
+/* ========================================================================
+   SECTIONS
+   ======================================================================== */
+
+.nw-section {
+	background: var(--sg-bg-tertiary);
+	border: 1px solid var(--sg-border-color);
+	border-radius: 6px;
+	padding: 12px;
+}
+
+.nw-section-grow {
+	flex: 1;
+	min-height: 150px;
 	display: flex;
 	flex-direction: column;
-	gap: 15px;
-	flex: 1;
-	min-height: 0;
 }
 
-/* Section Headers */
-.numel-section-header {
+.nw-section-header {
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
-	margin-bottom: 8px;
+	margin-bottom: 10px;
 }
 
-.numel-section-title {
-	font-size: 13px;
-	font-weight: 600;
-	color: var(--sg-text-primary);
+.nw-section-title {
 	margin: 0;
+	font-size: 11px;
+	font-weight: 700;
+	color: var(--sg-text-secondary);
+	text-transform: uppercase;
+	letter-spacing: 0.8px;
+}
+
+/* ========================================================================
+   FORM ELEMENTS
+   ======================================================================== */
+
+.nw-field {
+	margin-bottom: 10px;
+}
+
+.nw-field:last-child {
+	margin-bottom: 0;
+}
+
+.nw-field label {
+	display: block;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--sg-text-secondary);
 	text-transform: uppercase;
 	letter-spacing: 0.5px;
+	margin-bottom: 4px;
 }
 
-.numel-btn-icon {
+.nw-field input[type="url"],
+.nw-field input[type="text"] {
+	width: 100%;
+	padding: 8px 10px;
+	background: var(--sg-bg-quaternary);
+	border: 1px solid var(--sg-border-color);
+	border-radius: 4px;
+	color: var(--sg-text-primary);
+	font-size: 13px;
+	font-family: 'Courier New', monospace;
+}
+
+.nw-field input:focus {
+	outline: none;
+	border-color: var(--sg-accent-blue);
+	box-shadow: 0 0 0 2px rgba(70, 162, 218, 0.2);
+}
+
+.nw-field input:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	background: var(--sg-bg-tertiary);
+}
+
+.nw-select {
+	width: 100%;
+	padding: 8px 10px;
+	background: var(--sg-bg-quaternary);
+	border: 1px solid var(--sg-border-color);
+	border-radius: 4px;
+	color: var(--sg-text-primary);
+	font-size: 13px;
+	cursor: pointer;
+	margin-bottom: 10px;
+}
+
+.nw-select:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.nw-textarea {
+	width: 100%;
+	padding: 10px;
+	background: var(--sg-bg-quaternary);
+	border: 1px solid var(--sg-border-color);
+	border-radius: 4px;
+	color: var(--sg-text-primary);
+	font-size: 14px;
+	resize: vertical;
+}
+
+.nw-textarea:focus {
+	outline: none;
+	border-color: var(--sg-accent-blue);
+}
+
+/* ========================================================================
+   BUTTONS
+   ======================================================================== */
+
+.nw-btn {
+	padding: 8px 14px;
+	border: none;
+	border-radius: 5px;
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: all 0.15s ease;
+}
+
+.nw-btn:hover:not(:disabled) {
+	transform: translateY(-1px);
+	box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+}
+
+.nw-btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.nw-btn-block {
+	width: 100%;
+}
+
+.nw-btn-primary {
+	background: var(--sg-accent-blue);
+	color: #fff;
+}
+
+.nw-btn-secondary {
+	background: var(--sg-bg-quaternary);
+	color: var(--sg-text-primary);
+	border: 1px solid var(--sg-border-color);
+}
+
+.nw-btn-success {
+	background: var(--sg-accent-green);
+	color: #fff;
+}
+
+.nw-btn-danger {
+	background: var(--sg-accent-red);
+	color: #fff;
+}
+
+.nw-btn-row {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.nw-btn-row .nw-btn {
+	flex: 1 1 calc(50% - 4px);
+	min-width: 0;
+}
+
+.nw-btn-icon {
 	background: transparent;
 	border: none;
 	padding: 4px 8px;
 	cursor: pointer;
 	font-size: 14px;
 	border-radius: 4px;
-	transition: background 0.15s ease;
+	color: var(--sg-text-secondary);
 }
 
-.numel-btn-icon:hover {
+.nw-btn-icon:hover {
 	background: var(--sg-bg-quaternary);
+	color: var(--sg-text-primary);
 }
 
-/* Workflow Controls */
-.numel-workflow-controls {
-	display: flex;
-	gap: 8px;
-	margin-bottom: 8px;
-}
+/* ========================================================================
+   SWITCH TOGGLE
+   ======================================================================== */
 
-.numel-workflow-controls button {
-	flex: 1;
-}
-
-/* Execution Info */
-.numel-execution-info {
-	background: var(--sg-bg-tertiary);
-	border-left: 3px solid var(--sg-accent-blue);
-}
-
-.numel-execution-details {
-	display: flex;
-	flex-direction: column;
-	gap: 8px;
-}
-
-.numel-execution-row {
+.nw-switch-row {
 	display: flex;
 	align-items: center;
-	gap: 8px;
+	gap: 10px;
+	margin-bottom: 10px;
+	padding: 8px 0;
+}
+
+.nw-switch-label {
 	font-size: 12px;
-}
-
-.numel-execution-row .label {
-	font-weight: 600;
 	color: var(--sg-text-secondary);
-	min-width: 80px;
 }
 
-.numel-execution-row .value {
-	color: var(--sg-text-primary);
+.nw-switch {
+	position: relative;
+	display: inline-block;
+	width: 40px;
+	height: 22px;
+	flex-shrink: 0;
+}
+
+.nw-switch input {
+	opacity: 0;
+	width: 0;
+	height: 0;
+}
+
+.nw-switch-slider {
+	position: absolute;
+	cursor: pointer;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	background: var(--sg-bg-quaternary);
+	border: 1px solid var(--sg-border-color);
+	border-radius: 22px;
+	transition: all 0.2s ease;
+}
+
+.nw-switch-slider:before {
+	position: absolute;
+	content: "";
+	height: 16px;
+	width: 16px;
+	left: 2px;
+	bottom: 2px;
+	background: var(--sg-text-secondary);
+	border-radius: 50%;
+	transition: all 0.2s ease;
+}
+
+.nw-switch input:checked + .nw-switch-slider {
+	background: var(--sg-accent-blue);
+	border-color: var(--sg-accent-blue);
+}
+
+.nw-switch input:checked + .nw-switch-slider:before {
+	transform: translateX(18px);
+	background: #fff;
+}
+
+.nw-switch input:disabled + .nw-switch-slider {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+/* ========================================================================
+   STATUS & BADGES
+   ======================================================================== */
+
+.nw-status {
+	padding: 6px 10px;
+	border-radius: 4px;
+	font-size: 12px;
+	font-weight: 600;
+	text-align: center;
+}
+
+.nw-status.idle {
+	background: rgba(147, 112, 219, 0.15);
+	color: var(--sg-accent-purple);
+	border: 1px solid var(--sg-accent-purple);
+}
+
+.nw-status.running {
+	background: rgba(70, 162, 218, 0.15);
+	color: var(--sg-accent-blue);
+	border: 1px solid var(--sg-accent-blue);
+	animation: pulse 1.5s ease-in-out infinite;
+}
+
+.nw-status.completed {
+	background: rgba(146, 208, 80, 0.15);
+	color: var(--sg-accent-green);
+	border: 1px solid var(--sg-accent-green);
+}
+
+.nw-status.failed {
+	background: rgba(220, 100, 100, 0.15);
+	color: var(--sg-accent-red);
+	border: 1px solid var(--sg-accent-red);
+}
+
+@keyframes pulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.6; }
+}
+
+.nw-ws-badge {
+	font-size: 10px;
+	padding: 2px 6px;
+	border-radius: 10px;
+	font-weight: 600;
+}
+
+.nw-ws-badge.connected {
+	background: rgba(146, 208, 80, 0.2);
+	color: var(--sg-accent-green);
+}
+
+.nw-ws-badge.disconnected {
+	background: rgba(220, 100, 100, 0.2);
+	color: var(--sg-accent-red);
+}
+
+.nw-ws-badge.connecting {
+	background: rgba(255, 215, 0, 0.2);
+	color: var(--sg-accent-yellow);
+}
+
+.nw-mono-text {
 	font-family: 'Courier New', monospace;
 	font-size: 11px;
-	flex: 1;
+	color: var(--sg-text-secondary);
+	background: var(--sg-bg-quaternary);
+	padding: 6px 8px;
+	border-radius: 4px;
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
-/* Progress Bar */
-.numel-progress-bar {
+/* ========================================================================
+   EVENT LOG
+   ======================================================================== */
+
+.nw-event-log {
 	flex: 1;
-	height: 8px;
-	background: var(--sg-bg-quaternary);
-	border-radius: 4px;
-	overflow: hidden;
-}
-
-.numel-progress-fill {
-	height: 100%;
-	background: linear-gradient(90deg, var(--sg-accent-blue), var(--sg-accent-green));
-	border-radius: 4px;
-	transition: width 0.3s ease;
-	width: 0%;
-}
-
-/* Event Log */
-.numel-event-log {
-	max-height: 200px;
-	overflow-y: auto;
 	background: var(--sg-bg-quaternary);
 	border: 1px solid var(--sg-border-color);
 	border-radius: 4px;
 	padding: 8px;
+	overflow-y: auto;
 	font-size: 11px;
 	font-family: 'Courier New', monospace;
 }
 
-.numel-event-log::-webkit-scrollbar {
+.nw-event-log::-webkit-scrollbar {
 	width: 8px;
 }
 
-.numel-event-log::-webkit-scrollbar-track {
-	background: var(--sg-bg-tertiary);
-}
-
-.numel-event-log::-webkit-scrollbar-thumb {
-	background: var(--sg-bg-quaternary);
+.nw-event-log::-webkit-scrollbar-thumb {
+	background: var(--sg-border-color);
 	border-radius: 4px;
 }
 
-.numel-event-log::-webkit-scrollbar-thumb:hover {
-	background: var(--sg-text-tertiary);
-}
-
-.numel-event-item {
+.nw-event-item {
 	padding: 4px 6px;
-	margin-bottom: 2px;
+	margin-bottom: 3px;
 	border-radius: 3px;
 	display: flex;
 	gap: 8px;
-	align-items: flex-start;
-	animation: eventFadeIn 0.2s ease;
+	animation: fadeIn 0.2s ease;
 }
 
-@keyframes eventFadeIn {
-	from {
-		opacity: 0;
-		transform: translateX(-10px);
-	}
-	to {
-		opacity: 1;
-		transform: translateX(0);
-	}
+@keyframes fadeIn {
+	from { opacity: 0; transform: translateX(-5px); }
+	to { opacity: 1; transform: translateX(0); }
 }
 
-.numel-event-time {
+.nw-event-time {
 	color: var(--sg-text-tertiary);
-	font-size: 10px;
-	min-width: 60px;
+	min-width: 55px;
 }
 
-.numel-event-type {
-	font-weight: 600;
-	min-width: 120px;
-}
-
-.numel-event-message {
+.nw-event-msg {
 	color: var(--sg-text-secondary);
 	flex: 1;
+	word-break: break-word;
 }
 
-/* Event Type Colors */
-.numel-event-item.workflow-started,
-.numel-event-item.node-started {
-	background: rgba(70, 162, 218, 0.1);
+.nw-event-item.info { background: rgba(70, 162, 218, 0.1); }
+.nw-event-item.info .nw-event-msg { color: var(--sg-accent-blue); }
+
+.nw-event-item.success { background: rgba(146, 208, 80, 0.1); }
+.nw-event-item.success .nw-event-msg { color: var(--sg-accent-green); }
+
+.nw-event-item.error { background: rgba(220, 100, 100, 0.1); }
+.nw-event-item.error .nw-event-msg { color: var(--sg-accent-red); }
+
+.nw-event-item.warning { background: rgba(255, 215, 0, 0.1); }
+.nw-event-item.warning .nw-event-msg { color: var(--sg-accent-yellow); }
+
+/* ========================================================================
+   CANVAS PANEL
+   ======================================================================== */
+
+.nw-canvas-panel {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
 }
 
-.numel-event-item.workflow-started .numel-event-type,
-.numel-event-item.node-started .numel-event-type {
-	color: var(--sg-accent-blue);
-}
-
-.numel-event-item.workflow-completed,
-.numel-event-item.node-completed {
-	background: rgba(146, 208, 80, 0.1);
-}
-
-.numel-event-item.workflow-completed .numel-event-type,
-.numel-event-item.node-completed .numel-event-type {
-	color: var(--sg-accent-green);
-}
-
-.numel-event-item.workflow-failed,
-.numel-event-item.node-failed {
-	background: rgba(220, 100, 100, 0.1);
-}
-
-.numel-event-item.workflow-failed .numel-event-type,
-.numel-event-item.node-failed .numel-event-type {
-	color: var(--sg-accent-red);
-}
-
-.numel-event-item.user-input-requested {
-	background: rgba(255, 215, 0, 0.1);
-}
-
-.numel-event-item.user-input-requested .numel-event-type {
-	color: var(--sg-accent-yellow);
-}
-
-/* Executions List */
-.numel-executions-list {
-	max-height: 150px;
-	overflow-y: auto;
-	background: var(--sg-bg-quaternary);
+.sg-canvas-container {
+	position: relative;
+	flex: 1;
+	background: var(--sg-canvas-bg);
 	border: 1px solid var(--sg-border-color);
-	border-radius: 4px;
+	border-radius: 8px;
+	overflow: hidden;
 }
 
-.numel-executions-list::-webkit-scrollbar {
-	width: 8px;
+#sg-main-canvas {
+	width: 100%;
+	height: 100%;
 }
 
-.numel-executions-list::-webkit-scrollbar-track {
-	background: var(--sg-bg-tertiary);
-}
+/* ========================================================================
+   MODAL
+   ======================================================================== */
 
-.numel-executions-list::-webkit-scrollbar-thumb {
-	background: var(--sg-bg-quaternary);
-	border-radius: 4px;
-}
-
-.numel-execution-item {
-	padding: 8px 10px;
-	border-bottom: 1px solid var(--sg-border-color);
-	cursor: pointer;
-	transition: background 0.15s ease;
-}
-
-.numel-execution-item:last-child {
-	border-bottom: none;
-}
-
-.numel-execution-item:hover {
-	background: var(--sg-bg-tertiary);
-}
-
-.numel-execution-item.active {
-	background: rgba(70, 162, 218, 0.1);
-	border-left: 3px solid var(--sg-accent-blue);
-}
-
-.numel-execution-header {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	margin-bottom: 4px;
-}
-
-.numel-execution-name {
-	font-size: 12px;
-	font-weight: 600;
-	color: var(--sg-text-primary);
-}
-
-.numel-execution-status {
-	font-size: 10px;
-	padding: 2px 6px;
-	border-radius: 3px;
-	font-weight: 600;
-}
-
-.numel-execution-status.running {
-	background: rgba(70, 162, 218, 0.2);
-	color: var(--sg-accent-blue);
-}
-
-.numel-execution-status.completed {
-	background: rgba(146, 208, 80, 0.2);
-	color: var(--sg-accent-green);
-}
-
-.numel-execution-status.failed {
-	background: rgba(220, 100, 100, 0.2);
-	color: var(--sg-accent-red);
-}
-
-.numel-execution-meta {
-	font-size: 11px;
-	color: var(--sg-text-tertiary);
-	display: flex;
-	gap: 12px;
-}
-
-.numel-executions-list:empty::after {
-	content: "No executions yet";
-	display: block;
-	padding: 20px;
-	text-align: center;
-	color: var(--sg-text-tertiary);
-	font-size: 12px;
-	font-style: italic;
-}
-
-/* User Input Modal */
-.numel-modal {
+.nw-modal {
 	position: fixed;
 	top: 0;
 	left: 0;
@@ -350,366 +486,146 @@
 	align-items: center;
 	justify-content: center;
 	z-index: 10000;
-	animation: modalFadeIn 0.2s ease;
 }
 
-@keyframes modalFadeIn {
-	from {
-		opacity: 0;
-	}
-	to {
-		opacity: 1;
-	}
-}
-
-.numel-modal-content {
+.nw-modal-content {
 	background: var(--sg-bg-secondary);
 	border: 1px solid var(--sg-border-color);
 	border-radius: 8px;
-	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 	width: 90%;
-	max-width: 500px;
-	max-height: 80vh;
-	display: flex;
-	flex-direction: column;
-	animation: modalSlideIn 0.3s ease;
+	max-width: 450px;
+	box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
 
-@keyframes modalSlideIn {
-	from {
-		transform: translateY(-50px);
-		opacity: 0;
-	}
-	to {
-		transform: translateY(0);
-		opacity: 1;
-	}
-}
-
-.numel-modal-header {
-	padding: 16px 20px;
+.nw-modal-header {
+	padding: 14px 18px;
 	border-bottom: 1px solid var(--sg-border-color);
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
 }
 
-.numel-modal-header h3 {
+.nw-modal-header h3 {
 	margin: 0;
-	font-size: 18px;
+	font-size: 16px;
 	color: var(--sg-text-primary);
 }
 
-.numel-modal-close {
+.nw-modal-close {
 	background: transparent;
 	border: none;
-	font-size: 24px;
+	font-size: 22px;
 	color: var(--sg-text-secondary);
 	cursor: pointer;
 	padding: 0;
-	width: 30px;
-	height: 30px;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	border-radius: 4px;
-	transition: all 0.15s ease;
+	line-height: 1;
 }
 
-.numel-modal-close:hover {
-	background: var(--sg-bg-tertiary);
+.nw-modal-close:hover {
 	color: var(--sg-text-primary);
 }
 
-.numel-modal-body {
-	padding: 20px;
-	flex: 1;
-	overflow-y: auto;
+.nw-modal-body {
+	padding: 18px;
 }
 
-.numel-modal-body p {
+.nw-modal-body p {
 	margin: 0 0 12px 0;
 	color: var(--sg-text-primary);
-	font-size: 14px;
 }
 
-.numel-modal-input {
-	width: 100%;
-	padding: 10px 12px;
-	background: var(--sg-bg-quaternary);
-	border: 1px solid var(--sg-border-color);
-	border-radius: 4px;
-	color: var(--sg-text-primary);
-	font-size: 14px;
-	font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-	resize: vertical;
-	transition: all 0.15s ease;
-}
-
-.numel-modal-input:focus {
-	outline: none;
-	border-color: var(--sg-accent-blue);
-	box-shadow: 0 0 0 2px rgba(70, 162, 218, 0.2);
-}
-
-.numel-modal-footer {
-	padding: 16px 20px;
+.nw-modal-footer {
+	padding: 14px 18px;
 	border-top: 1px solid var(--sg-border-color);
 	display: flex;
 	gap: 10px;
 	justify-content: flex-end;
 }
 
-/* Workflow Node Styles in Canvas */
-.numel-workflow-node {
-	border: 2px solid var(--sg-border-color);
-	border-radius: 8px;
-	transition: all 0.2s ease;
-}
+/* ========================================================================
+   FOOTER
+   ======================================================================== */
 
-.numel-workflow-node.running {
-	border-color: var(--sg-accent-blue);
-	box-shadow: 0 0 12px rgba(70, 162, 218, 0.5);
-	animation: nodePulse 1.5s ease-in-out infinite;
-}
-
-.numel-workflow-node.completed {
-	border-color: var(--sg-accent-green);
-	background: rgba(146, 208, 80, 0.1);
-}
-
-.numel-workflow-node.failed {
-	border-color: var(--sg-accent-red);
-	background: rgba(220, 100, 100, 0.1);
-}
-
-.numel-workflow-node.waiting {
-	border-color: var(--sg-accent-yellow);
-	animation: nodePulse 2s ease-in-out infinite;
-}
-
-@keyframes nodePulse {
-	0%, 100% {
-		transform: scale(1);
-		opacity: 1;
-	}
-	50% {
-		transform: scale(1.05);
-		opacity: 0.8;
-	}
-}
-
-/* Node Type Icons */
-.numel-node-icon {
-	display: inline-block;
-	margin-right: 6px;
-	font-size: 16px;
-}
-
-/* Workflow Toolbar Tools */
-#workflowTools {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-}
-
-#nodeTypeSelect {
-	min-width: 150px;
-}
-
-/* Connection Status Badge */
-.numel-ws-status {
-	display: inline-flex;
-	align-items: center;
-	gap: 4px;
-	padding: 2px 8px;
-	border-radius: 12px;
-	font-size: 10px;
-	font-weight: 600;
-	text-transform: uppercase;
-}
-
-.numel-ws-status.connected {
-	background: rgba(146, 208, 80, 0.2);
-	color: var(--sg-accent-green);
-}
-
-.numel-ws-status.disconnected {
-	background: rgba(220, 100, 100, 0.2);
-	color: var(--sg-accent-red);
-}
-
-.numel-ws-status.connecting {
-	background: rgba(255, 215, 0, 0.2);
-	color: var(--sg-accent-yellow);
-}
-
-.numel-ws-status::before {
-	content: "●";
-	font-size: 8px;
-}
-
-/* Empty States */
-.numel-empty-state {
-	padding: 40px 20px;
-	text-align: center;
+.nw-footer {
+	position: fixed;
+	bottom: 8px;
+	left: 50%;
+	transform: translateX(-50%);
+	font-size: 11px;
 	color: var(--sg-text-tertiary);
+	padding: 6px 14px;
+	background: var(--sg-bg-secondary);
+	border: 1px solid var(--sg-border-color);
+	border-radius: 4px;
+	z-index: 50;
 }
 
-.numel-empty-state-icon {
-	font-size: 48px;
-	margin-bottom: 12px;
-	opacity: 0.5;
+.nw-footer a {
+	color: var(--sg-accent-blue);
+	text-decoration: none;
 }
 
-.numel-empty-state-title {
-	font-size: 16px;
-	font-weight: 600;
-	color: var(--sg-text-secondary);
-	margin-bottom: 8px;
-}
-
-.numel-empty-state-message {
-	font-size: 13px;
-	color: var(--sg-text-tertiary);
-}
-
-/* Responsive Adjustments */
-@media (max-width: 1200px) {
-	.numel-mode-switcher {
-		margin-bottom: 10px;
-	}
-	
-	.numel-execution-info {
-		display: none !important;
-	}
-	
-	.numel-event-log {
-		max-height: 150px;
-	}
-	
-	.numel-executions-list {
-		max-height: 100px;
-	}
-}
-
-/* Dark Mode Specific Adjustments */
-@media (prefers-color-scheme: dark) {
-	.numel-modal {
-		background: rgba(0, 0, 0, 0.85);
-	}
-	
-	.numel-modal-content {
-		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
-	}
+.nw-footer a:hover {
+	text-decoration: underline;
 }
 
 /* ========================================================================
-   WORKFLOW CONTEXT MENU STYLES
-   Add these to your numel-workflow.css file
+   CONTEXT MENU
    ======================================================================== */
 
 .sg-context-menu {
 	position: fixed;
 	background: var(--sg-bg-secondary);
 	border: 1px solid var(--sg-border-color);
-	border-radius: 8px;
-	box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-	padding: 8px 0;
-	min-width: 280px;
-	max-width: 320px;
+	border-radius: 6px;
+	box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+	padding: 6px 0;
+	min-width: 200px;
+	max-width: 280px;
 	z-index: 10000;
 	display: none;
-	backdrop-filter: blur(10px);
 }
 
 .sg-context-menu-title {
-	padding: 10px 16px 8px;
-	font-size: 11px;
+	padding: 8px 14px;
+	font-size: 10px;
 	font-weight: 700;
-	color: var(--sg-text-secondary);
+	color: var(--sg-text-tertiary);
 	text-transform: uppercase;
-	letter-spacing: 0.8px;
+	letter-spacing: 0.5px;
 	border-bottom: 1px solid var(--sg-border-color);
 	margin-bottom: 4px;
 }
 
 .sg-context-menu-item {
-	padding: 10px 16px;
+	padding: 8px 14px;
 	cursor: pointer;
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	transition: background-color 0.15s ease;
+	font-size: 13px;
+	color: var(--sg-text-primary);
+	transition: background 0.1s ease;
 }
 
 .sg-context-menu-item:hover {
 	background: var(--sg-bg-tertiary);
 }
 
-.sg-context-menu-item:active {
-	background: var(--sg-bg-quaternary);
-}
+/* ========================================================================
+   RESPONSIVE
+   ======================================================================== */
 
-.sg-context-menu-label {
-	font-size: 14px;
-	font-weight: 600;
-	color: var(--sg-text-primary);
-	display: flex;
-	align-items: center;
-	gap: 8px;
-}
-
-.sg-context-menu-desc {
-	font-size: 11px;
-	color: var(--sg-text-tertiary);
-	font-style: italic;
-	margin-left: 24px;
-}
-
-/* Divider */
-.sg-context-menu-divider {
-	height: 1px;
-	background: var(--sg-border-color);
-	margin: 4px 0;
-}
-
-/* Animation */
-@keyframes contextMenuFadeIn {
-	from {
-		opacity: 0;
-		transform: scale(0.95);
+@media (max-width: 900px) {
+	body {
+		flex-direction: column;
+		padding: 10px;
 	}
-	to {
-		opacity: 1;
-		transform: scale(1);
+	
+	.nw-panel {
+		width: 100%;
+		max-width: none;
+		max-height: 45vh;
 	}
-}
-
-.sg-context-menu[style*="display: block"] {
-	animation: contextMenuFadeIn 0.15s ease;
-}
-
-/* Dark theme specific */
-@media (prefers-color-scheme: dark) {
-	.sg-context-menu {
-		background: rgba(30, 30, 30, 0.95);
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
-	}
-}
-
-/* Light theme specific */
-@media (prefers-color-scheme: light) {
-	.sg-context-menu {
-		background: rgba(255, 255, 255, 0.95);
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
-	}
-}
-
-/* Backdrop filter fallback */
-@supports not (backdrop-filter: blur(10px)) {
-	.sg-context-menu {
-		background: var(--sg-bg-secondary);
-		opacity: 0.98;
+	
+	.nw-canvas-panel {
+		min-height: 300px;
 	}
 }

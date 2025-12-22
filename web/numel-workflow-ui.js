@@ -1,536 +1,665 @@
 /* ========================================================================
-NUMEL WORKFLOW UI - Clean Integration (Updated for FieldRole Schema)
-======================================================================== */
+   NUMEL WORKFLOW UI - User Interface Logic
+   ======================================================================== */
 
-// Global state
-let workflowClient = null;
-let workflowVisualizer = null;
-let currentWorkflow = null;
+// Global State
+let client = null;
+let visualizer = null;
+let schemaGraph = null;
 let currentExecutionId = null;
-let workflowLibrary = new Map();
+let pendingRemoveName = null;
+let singleMode = true;
+let workflowDirty = false;
+let workflowSynced = false;
 
-// DOM elements
-let chatModeBtn, workflowModeBtn;
-let chatMode, workflowMode;
-let workflowSelect;
-let startWorkflowBtn, stopWorkflowBtn;
-let workflowStatus, eventLog;
-let userInputModal, userInputPrompt, userInputField;
+// DOM Elements
+const $ = id => document.getElementById(id);
 
 // ========================================================================
-// INITIALIZATION
+// Initialization
 // ========================================================================
 
-function initWorkflowUI() {
-	// Get DOM elements
-	chatModeBtn = document.getElementById('chatModeBtn');
-	workflowModeBtn = document.getElementById('workflowModeBtn');
-	chatMode = document.getElementById('chatMode');
-	workflowMode = document.getElementById('workflowMode');
-	
-	workflowSelect = document.getElementById('workflowSelect');
-	startWorkflowBtn = document.getElementById('startWorkflowBtn');
-	stopWorkflowBtn = document.getElementById('stopWorkflowBtn');
-	
-	workflowStatus = document.getElementById('workflowStatus');
-	eventLog = document.getElementById('eventLog');
-	
-	userInputModal = document.getElementById('userInputModal');
-	userInputPrompt = document.getElementById('userInputPrompt');
-	userInputField = document.getElementById('userInputField');
-	
-	// Setup listeners
-	setupWorkflowEventListeners();
-	
-	// Load sample workflows
-	loadSampleWorkflows();
-}
+document.addEventListener('DOMContentLoaded', () => {
+	// Initialize SchemaGraph
+	schemaGraph = new SchemaGraphApp('sg-main-canvas');
 
-function setupWorkflowEventListeners() {
-	// Mode switching
-	chatModeBtn?.addEventListener('click', () => switchMode('chat'));
-	workflowModeBtn?.addEventListener('click', () => switchMode('workflow'));
-	
-	// Workflow controls
-	workflowSelect?.addEventListener('change', onWorkflowSelected);
-	startWorkflowBtn?.addEventListener('click', startWorkflow);
-	stopWorkflowBtn?.addEventListener('click', stopWorkflow);
-	
+	// Register workflow extension
+	// registerWorkflowExtension(schemaGraph);
+
+	// Register callback for context menu node creation
+	schemaGraph.onAddWorkflowNode = (nodeType, wx, wy) => {
+		if (visualizer) {
+			visualizer.addNodeAtPosition(nodeType, wx, wy);
+		}
+	};
+
+	// Create visualizer
+	visualizer = new WorkflowVisualizer(schemaGraph);
+
+	// Setup event listeners
+	setupEventListeners();
+
+	// Initial log
+	addLog('info', '🚀 Numel Workflow ready');
+});
+
+function setupEventListeners() {
+	// Connection
+	$('connectBtn').addEventListener('click', toggleConnection);
+
+	// Workflow management
+	$('refreshListBtn').addEventListener('click', refreshWorkflowList);
+	$('loadWorkflowBtn').addEventListener('click', loadSelectedWorkflow);
+	$('uploadWorkflowBtn').addEventListener('click', () => $('workflowFileInput').click());
+	$('downloadWorkflowBtn').addEventListener('click', downloadWorkflow);
+	$('removeWorkflowBtn').addEventListener('click', removeSelectedWorkflow);
+	$('workflowFileInput').addEventListener('change', handleFileUpload);
+
+	// Workflow remove modal
+	$('confirmRemoveBtn').addEventListener('click', confirmRemoveWorkflow);
+	$('cancelRemoveBtn').addEventListener('click', closeRemoveModal);
+	$('closeRemoveModalBtn').addEventListener('click', closeRemoveModal);
+
+	// Clear workflow
+	$('clearWorkflowBtn').addEventListener('click', clearWorkflow);
+
+	// Mode switch
+	$('singleModeSwitch').addEventListener('change', toggleWorkflowMode);
+
+	// Single mode buttons
+	$('singleImportBtn').addEventListener('click', () => $('singleWorkflowFileInput').click());
+	$('singleDownloadBtn').addEventListener('click', downloadWorkflow);
+	$('singleWorkflowFileInput').addEventListener('change', handleSingleImport);
+
+	// Execution
+	$('startBtn').addEventListener('click', startExecution);
+	$('cancelBtn').addEventListener('click', cancelExecution);
+
+	// Event log
+	$('clearLogBtn').addEventListener('click', () => {
+		$('eventLog').innerHTML = '';
+		addLog('info', 'Log cleared');
+	});
+
 	// User input modal
-	document.getElementById('submitInputBtn')?.addEventListener('click', submitUserInput);
-	document.getElementById('cancelInputBtn')?.addEventListener('click', closeUserInputModal);
-	document.getElementById('closeModalBtn')?.addEventListener('click', closeUserInputModal);
-	
-	// File upload
-	document.getElementById('uploadWorkflowBtn')?.addEventListener('click', () => {
-		document.getElementById('workflowFileInput')?.click();
-	});
-	
-	document.getElementById('workflowFileInput')?.addEventListener('change', handleWorkflowUpload);
-	
-	// Download
-	document.getElementById('downloadWorkflowBtn')?.addEventListener('click', downloadWorkflow);
-	
-	// New workflow
-	document.getElementById('newWorkflowBtn')?.addEventListener('click', createNewWorkflow);
-	
-	// Clear events
-	document.getElementById('clearEventsBtn')?.addEventListener('click', () => {
-		if (eventLog) eventLog.innerHTML = '';
-		addEventLog('system', 'Event log cleared');
-	});
+	$('submitInputBtn').addEventListener('click', submitUserInput);
+	$('cancelInputBtn').addEventListener('click', closeModal);
+	$('closeModalBtn').addEventListener('click', closeModal);
 }
 
 // ========================================================================
-// MODE SWITCHING
+// Connection Management
 // ========================================================================
 
-async function switchMode(mode) {
-	if (mode === 'chat') {
-		chatModeBtn?.classList.add('active');
-		workflowModeBtn?.classList.remove('active');
-		if (chatMode) chatMode.style.display = 'flex';
-		if (workflowMode) workflowMode.style.display = 'none';
-		
-		// Exit workflow mode
-		if (workflowVisualizer?.isWorkflowMode) {
-			workflowVisualizer.exitWorkflowMode();
-		}
-		
+async function toggleConnection() {
+	if (client?.isConnected) {
+		await disconnect();
 	} else {
-		chatModeBtn?.classList.remove('active');
-		workflowModeBtn?.classList.add('active');
-		if (chatMode) chatMode.style.display = 'none';
-		if (workflowMode) workflowMode.style.display = 'flex';
-		
-		// Initialize workflow system if needed
-		if (!workflowClient && gGraph) {
-			const initialized = await initWorkflowSystem();
-			if (!initialized) {
-				addEventLog('system', '❌ Failed to initialize workflow system');
-				// Revert UI state
-				chatModeBtn?.classList.add('active');
-				workflowModeBtn?.classList.remove('active');
-				if (chatMode) chatMode.style.display = 'flex';
-				if (workflowMode) workflowMode.style.display = 'none';
-				return;
-			}
-		}
-		
-		// Enter workflow mode
-		if (workflowVisualizer && !workflowVisualizer.isWorkflowMode) {
-			workflowVisualizer.enterWorkflowMode();
-		}
-		
-		// Reload current workflow if any
-		if (currentWorkflow && workflowVisualizer) {
-			workflowVisualizer.loadWorkflow(currentWorkflow);
-		}
+		await connect();
 	}
 }
 
-// ========================================================================
-// WORKFLOW SYSTEM INITIALIZATION
-// ========================================================================
-
-async function initWorkflowSystem() {
-	const serverUrl = document.getElementById('serverUrl')?.value?.trim();
-	
+async function connect() {
+	const serverUrl = $('serverUrl').value.trim();
 	if (!serverUrl) {
-		addEventLog('system', '⚠️ No server URL configured');
-		return false;
+		addLog('error', '⚠️ Please enter a server URL');
+		return;
 	}
-	
-	addEventLog('system', '🔄 Initializing workflow system...');
-	
-	// Check if workflow extension is loaded
-	if (!gGraph.api?.workflow) {
-		addEventLog('system', '⚠️ Workflow extension not loaded');
-		addEventLog('system', '   Include schemagraph-workflow-ext.js');
-		return false;
+
+	$('connectBtn').disabled = true;
+	$('connectBtn').textContent = 'Connecting...';
+	$('connectBtn').classList.remove('nw-btn-primary');
+	$('connectBtn').classList.add('nw-btn-danger');
+	setWsStatus('connecting');
+	addLog('info', `⏳ Connecting to ${serverUrl}...`);
+
+	try {
+		client = new WorkflowClient(serverUrl);
+
+		// Test connection
+		await client.ping();
+		addLog('success', '✅ Server reachable');
+
+		// Fetch and register schema
+		const schemaResponse = await client.getSchema();
+		if (!schemaResponse.schema) {
+			throw new Error('No schema received from server');
+		}
+
+		const registered = await visualizer.registerSchema(schemaResponse.schema);
+		if (!registered) {
+			throw new Error('Failed to register workflow schema');
+		}
+		addLog('success', '✅ Schema registered');
+
+		// visualizer.schemaGraph.api.workflow.debug();
+
+		// Connect WebSocket
+		client.connectWebSocket();
+		setupClientEvents();
+
+		// Refresh workflow list
+		await refreshWorkflowList();
+
+		$('connectBtn').textContent = 'Disconnect';
+		$('workflowSelect').disabled = false;
+		$('serverUrl').disabled = true;
+		$('uploadWorkflowBtn').disabled = false;
+		$('singleImportBtn').disabled = false;
+		addLog('success', `✅ Connected to ${serverUrl}`);
+	} catch (error) {
+		console.error('Connection error:', error);
+		addLog('error', `❌ Connection failed: ${error.message}`);
+		setWsStatus('disconnected');
+		client = null;
+		$('connectBtn').textContent = 'Connect';
+	} finally {
+		$('connectBtn').disabled = false;
 	}
-	
-	// Fetch and register workflow schema from backend
-	const schemaRegistered = await fetchAndRegisterWorkflowSchema(gGraph, serverUrl);
-	
-	if (!schemaRegistered) {
-		addEventLog('system', '❌ Failed to register workflow schema');
-		return false;
-	}
-	
-	// Count registered workflow node types
-	const nodeTypes = Object.keys(gGraph.graph.nodeTypes)
-		.filter(t => t.startsWith(WORKFLOW_SCHEMA_NAME + '.'));
-	
-	addEventLog('system', `✅ Registered ${nodeTypes.length} workflow node types`);
-	
-	// Create workflow client and visualizer
-	workflowClient = new WorkflowClient(serverUrl);
-	workflowVisualizer = new WorkflowVisualizer(gGraph);
-	
-	// Connect WebSocket
-	workflowClient.connectWebSocket();
-	
-	// Setup event handlers
-	setupWorkflowEvents();
-	
-	addEventLog('system', '✅ Workflow system initialized');
-	return true;
 }
 
-function setupWorkflowEvents() {
-	// Connection events
-	workflowClient.on('connected', () => {
-		addEventLog('system', '✅ WebSocket connected');
-		updateWorkflowStatus('idle', 'Ready');
-	});
+async function disconnect() {
+	if (client) {
+		client.disconnectWebSocket();
+		client = null;
+	}
+
+	// Clear graph
+	schemaGraph.api.graph.clear();
+	schemaGraph.api.view.reset();
 	
-	workflowClient.on('disconnected', () => {
-		addEventLog('system', '🔌 WebSocket disconnected');
-		updateWorkflowStatus('disconnected', 'Disconnected');
-	});
+	visualizer.currentWorkflow = null;
+	visualizer.currentWorkflowName = null;
+	visualizer.graphNodes = [];
+
+	currentExecutionId = null;
+	workflowDirty = false;
+	workflowSynced = false;
 	
-	// Workflow events
-	workflowClient.on('workflow.started', (event) => {
-		addEventLog('workflow-started', `▶️ Workflow started`);
+	$('connectBtn').textContent = 'Connect';
+	$('connectBtn').classList.remove('nw-btn-danger');
+	$('connectBtn').classList.add('nw-btn-primary');
+	$('serverUrl').disabled = false;
+	$('workflowSelect').disabled = true;
+	$('workflowSelect').innerHTML = '<option value="">-- Select workflow --</option>';
+	$('loadWorkflowBtn').disabled = true;
+	$('uploadWorkflowBtn').disabled = true;
+	$('downloadWorkflowBtn').disabled = true;
+	$('removeWorkflowBtn').disabled = true;
+	$('startBtn').disabled = true;
+	$('cancelBtn').disabled = true;
+	$('singleImportBtn').disabled = true;
+	$('singleDownloadBtn').disabled = true;
+	$('clearWorkflowBtn').disabled = true;
+	$('singleWorkflowName').textContent = 'None';
+	
+	setWsStatus('disconnected');
+	setExecStatus('idle', 'Not running');
+	$('execId').textContent = '-';
+
+	addLog('info', '🔌 Disconnected');
+}
+
+function setupClientEvents() {
+	client.on('ws:connected', () => {
+		setWsStatus('connected');
+		addLog('success', '🔗 WebSocket connected');
+	});
+
+	client.on('ws:disconnected', () => {
+		setWsStatus('disconnected');
+		addLog('warning', '🔌 WebSocket disconnected');
+	});
+
+	client.on('workflow.started', (event) => {
 		currentExecutionId = event.execution_id;
-		updateWorkflowControls('running');
-		workflowVisualizer?.clearState();
+		setExecStatus('running', 'Running');
+		$('execId').textContent = event.execution_id.substring(0, 8) + '...';
+		$('startBtn').disabled = true;
+		$('cancelBtn').disabled = false;
+		visualizer?.clearNodeStates();
+		addLog('info', `▶️ Workflow started`);
 	});
-	
-	workflowClient.on('workflow.completed', (event) => {
-		addEventLog('workflow-completed', `✅ Workflow completed`);
-		updateWorkflowControls('idle');
-		updateWorkflowStatus('idle', 'Ready');
+
+	client.on('workflow.completed', (event) => {
+		setExecStatus('completed', 'Completed');
+		$('startBtn').disabled = false;
+		$('cancelBtn').disabled = true;
+		addLog('success', `✅ Workflow completed`);
 	});
-	
-	workflowClient.on('workflow.failed', (event) => {
-		addEventLog('workflow-failed', `❌ Workflow failed: ${event.error || 'Unknown'}`);
-		updateWorkflowControls('idle');
-		updateWorkflowStatus('idle', 'Failed');
+
+	client.on('workflow.failed', (event) => {
+		setExecStatus('failed', 'Failed');
+		$('startBtn').disabled = false;
+		$('cancelBtn').disabled = true;
+		addLog('error', `❌ Workflow failed: ${event.error || 'Unknown error'}`);
 	});
-	
-	workflowClient.on('workflow.cancelled', (event) => {
-		addEventLog('workflow-cancelled', `⏹️ Workflow cancelled`);
-		updateWorkflowControls('idle');
-		updateWorkflowStatus('idle', 'Cancelled');
+
+	client.on('workflow.cancelled', (event) => {
+		setExecStatus('idle', 'Cancelled');
+		$('startBtn').disabled = false;
+		$('cancelBtn').disabled = true;
+		addLog('warning', `⏹️ Workflow cancelled`);
 	});
-	
-	// Node events
-	workflowClient.on('node.started', (event) => {
+
+	client.on('node.started', (event) => {
 		const idx = parseInt(event.node_id);
 		const label = event.data?.node_label || `Node ${idx}`;
-		addEventLog('node-started', `▶️ [${idx}] ${label}`);
-		workflowVisualizer?.updateNodeState(idx, 'running');
+		visualizer?.updateNodeState(idx, 'running');
+		addLog('info', `▶️ [${idx}] ${label}`);
 	});
-	
-	workflowClient.on('node.completed', (event) => {
+
+	client.on('node.completed', (event) => {
 		const idx = parseInt(event.node_id);
 		const label = event.data?.node_label || `Node ${idx}`;
-		addEventLog('node-completed', `✅ [${idx}] ${label}`);
-		workflowVisualizer?.updateNodeState(idx, 'completed', event.data);
+		visualizer?.updateNodeState(idx, 'completed');
+		addLog('success', `✅ [${idx}] ${label}`);
 	});
-	
-	workflowClient.on('node.failed', (event) => {
+
+	client.on('node.failed', (event) => {
 		const idx = parseInt(event.node_id);
 		const label = event.data?.node_label || `Node ${idx}`;
-		addEventLog('node-failed', `❌ [${idx}] ${label}: ${event.error}`);
-		workflowVisualizer?.updateNodeState(idx, 'failed', { error: event.error });
+		visualizer?.updateNodeState(idx, 'failed');
+		addLog('error', `❌ [${idx}] ${label}: ${event.error}`);
 	});
-	
-	// User input
-	workflowClient.on('user_input.requested', (event) => {
-		const idx = parseInt(event.node_id);
-		addEventLog('user-input-requested', `👤 User input requested: [${idx}]`);
+
+	client.on('user_input.requested', (event) => {
+		addLog('warning', `👤 User input requested`);
 		showUserInputModal(event);
 	});
 }
 
 // ========================================================================
-// WORKFLOW MANAGEMENT
+// Workflow Management
 // ========================================================================
 
-function loadSampleWorkflows() {
-	// Simple workflow using workflow_schema_new.py format
-	const simple = {
-		type: 'workflow',
-		info: { 
-			type: 'info_config',
-			name: 'Simple Test', 
-			version: '1.0.0',
-			author: 'numel',
-			description: 'A simple test workflow'
-		},
-		options: { type: 'workflow_options_config', tag: 0 },
-		nodes: [
-			{ 
-				type: 'start_node',
-				extra: '{"name": "Start"}'
-			},
-			{ 
-				type: 'transform_node', 
-				lang: { type: '', value: 'python' },
-				script: { type: '', value: 'output = {"result": "Hello Workflow!"}' },
-				extra: '{"name": "Transform"}'
-			},
-			{ 
-				type: 'end_node',
-				extra: '{"name": "End"}'
-			}
-		],
-		edges: [
-			{ type: 'edge', source: 0, target: 1, source_slot: 'start', target_slot: 'source' },
-			{ type: 'edge', source: 1, target: 2, source_slot: 'target', target_slot: 'end' }
-		]
-	};
-	
-	workflowLibrary.set('simple', simple);
-	updateWorkflowSelect();
-}
+async function refreshWorkflowList() {
+	if (!client) return;
 
-function updateWorkflowSelect() {
-	if (!workflowSelect) return;
-	
-	workflowSelect.innerHTML = '<option value="">Select workflow...</option>';
-	
-	for (const [key, workflow] of workflowLibrary.entries()) {
-		const option = document.createElement('option');
-		option.value = key;
-		option.textContent = workflow.info?.name || key;
-		workflowSelect.appendChild(option);
+	try {
+		const response = await client.listWorkflows();
+		const names = response.names || [];
+
+		const select = $('workflowSelect');
+		select.innerHTML = '<option value="">-- Select workflow --</option>';
+
+		names.forEach(name => {
+			const option = document.createElement('option');
+			option.value = name;
+			option.textContent = name;
+			select.appendChild(option);
+		});
+
+		const disabled = names.length === 0
+		$('loadWorkflowBtn').disabled = disabled;
+		$('removeWorkflowBtn').disabled = disabled;
+		addLog('info', `📋 Found ${names.length} workflow(s)`);
+	} catch (error) {
+		addLog('error', `❌ Failed to list workflows: ${error.message}`);
 	}
 }
 
-function onWorkflowSelected() {
-	const key = workflowSelect?.value;
-	if (!key) return;
-	
-	currentWorkflow = workflowLibrary.get(key);
-	
-	if (currentWorkflow && workflowVisualizer) {
-		workflowVisualizer.loadWorkflow(currentWorkflow);
-		if (startWorkflowBtn) startWorkflowBtn.disabled = false;
-		updateWorkflowStatus('idle', 'Ready');
-		addEventLog('system', `📂 Loaded: ${currentWorkflow.info?.name || key}`);
+async function loadSelectedWorkflow() {
+	const name = $('workflowSelect').value;
+	if (!name || !client) return;
+
+	try {
+		addLog('info', `📂 Loading "${name}"...`);
+		const response = await client.getWorkflow(name);
+
+		if (!response.workflow) {
+			throw new Error('Workflow not found');
+		}
+
+		const loaded = visualizer.loadWorkflow(response.workflow, name);
+		if (!loaded) {
+			throw new Error('Failed to load workflow into graph');
+		}
+
+		$('downloadWorkflowBtn').disabled = false;
+		$('startBtn').disabled = false;
+		$('clearWorkflowBtn').disabled = false;
+		workflowDirty = false;
+		workflowSynced = true;
+		addLog('success', `✅ Loaded "${name}"`);
+
+	} catch (error) {
+		addLog('error', `❌ Failed to load workflow: ${error.message}`);
 	}
 }
 
-function downloadWorkflow() {
-	if (!currentWorkflow) {
-		alert('No workflow selected');
-		return;
-	}
-	
-	// Sync positions from graph
-	if (workflowVisualizer) {
-		currentWorkflow = workflowVisualizer.exportWorkflow();
-	}
-	
-	const json = JSON.stringify(currentWorkflow, null, '\t');
-	const blob = new Blob([json], { type: 'application/json' });
-	const url = URL.createObjectURL(blob);
-	
-	const a = document.createElement('a');
-	a.href = url;
-	a.download = `${currentWorkflow.info?.name || 'workflow'}.json`;
-	a.click();
-	
-	URL.revokeObjectURL(url);
-	addEventLog('system', '💾 Workflow downloaded');
-}
-
-function handleWorkflowUpload(event) {
+async function handleFileUpload(event) {
 	const file = event.target.files?.[0];
 	if (!file) return;
-	
-	const reader = new FileReader();
-	reader.onload = (e) => {
-		try {
-			const workflow = JSON.parse(e.target.result);
-			const key = workflow.info?.name || `workflow_${Date.now()}`;
-			
-			workflowLibrary.set(key, workflow);
-			updateWorkflowSelect();
-			if (workflowSelect) workflowSelect.value = key;
-			onWorkflowSelected();
-			
-			addEventLog('system', `📂 Uploaded: ${key}`);
-		} catch (error) {
-			addEventLog('workflow-failed', `❌ Upload failed: ${error.message}`);
+
+	try {
+		const text = await file.text();
+		const workflow = JSON.parse(text);
+
+		// If connected, upload to server
+		if (client) {
+			const response = await client.addWorkflow(workflow);
+			if (response.status === 'added') {
+				addLog('success', `📤 Uploaded "${response.name}"`);
+				await refreshWorkflowList();
+				$('workflowSelect').value = response.name;
+				await loadSelectedWorkflow();
+			} else {
+				throw new Error('Upload failed');
+			}
+		} else {
+			// Load locally
+			const loaded = visualizer.loadWorkflow(workflow);
+			if (loaded) {
+				$('downloadWorkflowBtn').disabled = false;
+				addLog('success', `📂 Loaded workflow from file`);
+			}
 		}
-	};
-	reader.readAsText(file);
-	
+
+		if (singleMode) {
+			$('singleWorkflowName').textContent = visualizer.currentWorkflowName || 'Untitled';
+			$('singleDownloadBtn').disabled = false;
+		}
+		$('clearWorkflowBtn').disabled = false;
+	} catch (error) {
+		addLog('error', `❌ Failed to upload: ${error.message}`);
+	}
+
 	event.target.value = '';
 }
 
-function createNewWorkflow() {
-	const name = prompt('Enter workflow name:');
-	if (!name) return;
-	
-	const workflow = {
-		type: 'workflow',
-		info: { 
-			name, 
-			version: '1.0.0',
-			author: 'user',
-			description: ''
-		},
-		options: { tag: 0 },
-		nodes: [],
-		edges: [],
-		variables: {}
-	};
-	
-	const key = name.toLowerCase().replace(/\s+/g, '_');
-	workflowLibrary.set(key, workflow);
-	updateWorkflowSelect();
-	if (workflowSelect) workflowSelect.value = key;
-	onWorkflowSelected();
-	
-	addEventLog('system', `📄 New workflow: ${name}`);
+async function handleSingleImport(event) {
+	const file = event.target.files?.[0];
+	if (!file) return;
+
+	try {
+		const text = await file.text();
+		const workflow = JSON.parse(text);
+
+		// Clear current workflow
+		schemaGraph.api.graph.clear();
+		schemaGraph.api.view.reset();
+
+		// Load into visualizer (memory only)
+		const loaded = visualizer.loadWorkflow(workflow, file.name.replace('.json', ''));
+		
+		if (loaded) {
+			workflowDirty = true;
+			workflowSynced = false;
+			
+			$('singleWorkflowName').textContent = visualizer.currentWorkflowName || 'Untitled';
+			$('singleDownloadBtn').disabled = false;
+			$('clearWorkflowBtn').disabled = false;
+			$('startBtn').disabled = false;
+			
+			addLog('success', `📂 Imported "${visualizer.currentWorkflowName}" (local)`);
+		}
+
+	} catch (error) {
+		addLog('error', `❌ Failed to import: ${error.message}`);
+	}
+
+	event.target.value = '';
 }
 
-// ========================================================================
-// WORKFLOW EXECUTION
-// ========================================================================
-
-async function startWorkflow() {
-	if (!currentWorkflow || !workflowClient) {
-		alert('No workflow loaded');
+function downloadWorkflow() {
+	const workflow = visualizer?.exportWorkflow();
+	if (!workflow) {
+		addLog('error', '⚠️ No workflow to download');
 		return;
 	}
-	
-	try {
-		if (startWorkflowBtn) startWorkflowBtn.disabled = true;
-		updateWorkflowStatus('running', 'Starting...');
-		
-		// Export latest state
-		const workflowToRun = workflowVisualizer?.exportWorkflow() || currentWorkflow;
-		
-		const result = await workflowClient.startWorkflow(workflowToRun, {});
-		currentExecutionId = result.execution_id;
-		
-		updateWorkflowStatus('running', 'Running');
-		
-	} catch (error) {
-		addEventLog('workflow-failed', `❌ Start failed: ${error.message}`);
-		updateWorkflowStatus('failed', 'Failed');
-		if (startWorkflowBtn) startWorkflowBtn.disabled = false;
-	}
+
+	const json = JSON.stringify(workflow, null, '\t');
+	const blob = new Blob([json], { type: 'application/json' });
+	const url = URL.createObjectURL(blob);
+
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = `${visualizer.currentWorkflowName || 'workflow'}.json`;
+	a.click();
+
+	URL.revokeObjectURL(url);
+	addLog('info', '💾 Workflow downloaded');
 }
 
-async function stopWorkflow() {
-	if (!currentExecutionId || !workflowClient) return;
-	
+async function removeSelectedWorkflow() {
+	const name = $('workflowSelect').value;
+	if (!name || !client) return;
+
+	pendingRemoveName = name;
+	$('removeModalPrompt').textContent = `Are you sure you want to remove "${name}"?`;
+	$('removeModal').style.display = 'flex';
+}
+
+function closeRemoveModal() {
+	$('removeModal').style.display = 'none';
+	pendingRemoveName = null;
+}
+
+async function confirmRemoveWorkflow() {
+	if (!pendingRemoveName || !client) {
+		closeRemoveModal();
+		return;
+	}
+
+	const name = pendingRemoveName;
+	closeRemoveModal();
+
 	try {
-		if (stopWorkflowBtn) stopWorkflowBtn.disabled = true;
-		await workflowClient.cancelWorkflow(currentExecutionId);
-		addEventLog('system', '⏹️ Workflow stopped');
+		$('removeWorkflowBtn').disabled = true;
+		addLog('info', `🗑️ Removing "${name}"...`);
+
+		await client.removeWorkflow(name);
+
+		// Clear graph if removed workflow was loaded
+		if (visualizer.currentWorkflowName === name) {
+			schemaGraph.api.graph.clear();
+			schemaGraph.api.view.reset();
+			visualizer.currentWorkflow = null;
+			visualizer.currentWorkflowName = null;
+			visualizer.graphNodes = [];
+		}
+
+		addLog('success', `✅ Removed "${name}"`);
+		await refreshWorkflowList();
+
+		$('downloadWorkflowBtn').disabled = true;
+		$('startBtn').disabled = true;
+		visualizer.currentWorkflow = null;
+		visualizer.currentWorkflowName = null;
+
 	} catch (error) {
-		addEventLog('workflow-failed', `❌ Stop failed: ${error.message}`);
+		addLog('error', `❌ Failed to remove: ${error.message}`);
 	} finally {
-		if (stopWorkflowBtn) stopWorkflowBtn.disabled = false;
+		$('removeWorkflowBtn').disabled = false;
 	}
 }
 
-function updateWorkflowControls(state) {
-	if (state === 'running') {
-		if (startWorkflowBtn) startWorkflowBtn.disabled = true;
-		if (stopWorkflowBtn) stopWorkflowBtn.disabled = false;
+function clearWorkflow() {
+	if (!visualizer.currentWorkflow) return;
+
+	schemaGraph.api.graph.clear();
+	schemaGraph.api.view.reset();
+	
+	visualizer.currentWorkflow = null;
+	visualizer.currentWorkflowName = null;
+	visualizer.graphNodes = [];
+	
+	workflowDirty = false;
+	workflowSynced = false;
+	
+	$('downloadWorkflowBtn').disabled = true;
+	$('singleDownloadBtn').disabled = true;
+	$('startBtn').disabled = true;
+	$('clearWorkflowBtn').disabled = true;
+	
+	if (singleMode) {
+		$('singleWorkflowName').textContent = 'None';
+	}
+	
+	addLog('info', '🧹 Graph cleared');
+}
+
+function toggleWorkflowMode() {
+	singleMode = $('singleModeSwitch').checked;
+	
+	$('multiWorkflowControls').style.display = singleMode ? 'none' : 'block';
+	$('singleWorkflowControls').style.display = singleMode ? 'block' : 'none';
+	
+	if (client?.isConnected) {
+		$('singleImportBtn').disabled = false;
+		$('singleDownloadBtn').disabled = !visualizer.currentWorkflow;
 	} else {
-		if (startWorkflowBtn) startWorkflowBtn.disabled = !currentWorkflow;
-		if (stopWorkflowBtn) stopWorkflowBtn.disabled = true;
+		$('singleImportBtn').disabled = true;
+		$('singleDownloadBtn').disabled = true;
+	}
+	
+	// Reset sync state when switching modes
+	if (singleMode) {
+		workflowDirty = !!visualizer.currentWorkflow;
+		workflowSynced = false;
+	}
+	
+	addLog('info', singleMode ? '📄 Single workflow mode' : '📚 Multi workflow mode');
+}
+
+// ========================================================================
+// Execution Control
+// ========================================================================
+
+async function startExecution() {
+	if (!client || !visualizer?.currentWorkflow) {
+		addLog('error', '⚠️ No workflow loaded');
+		return;
+	}
+
+	try {
+		$('startBtn').disabled = true;
+
+		const workflow = visualizer.exportWorkflow();
+		workflowDirty ||= !areSemanticallyEqual(workflow, visualizer.currentWorkflow);
+
+		// In single mode, sync to backend if dirty
+		if (singleMode && workflowDirty && !workflowSynced) {
+			addLog('info', '⏳ Syncing workflow to backend...');
+			
+			// const workflow = visualizer.exportWorkflow();
+			const name = visualizer.currentWorkflowName || 'single_workflow';
+			
+			const response = await client.addWorkflow(workflow, name);
+			
+			if (response.status === 'added' || response.status === 'updated') {
+				workflowSynced = true;
+				workflowDirty = false;
+				visualizer.currentWorkflowName = response.name;
+				$('singleWorkflowName').textContent = response.name;
+				addLog('success', `✅ Synced "${response.name}"`);
+			} else {
+				throw new Error('Failed to sync workflow');
+			}
+		}
+
+		const workflowName = visualizer.currentWorkflowName;
+		addLog('info', `⏳ Starting "${workflowName}"...`);
+
+		const response = await client.startWorkflow(workflowName, {});
+
+		if (response.status !== 'started') {
+			throw new Error('Failed to start workflow');
+		}
+
+	} catch (error) {
+		addLog('error', `❌ Start failed: ${error.message}`);
+		$('startBtn').disabled = false;
+	}
+}
+
+async function cancelExecution() {
+	if (!client || !currentExecutionId) return;
+
+	try {
+		$('cancelBtn').disabled = true;
+		await client.cancelExecution(currentExecutionId);
+	} catch (error) {
+		addLog('error', `❌ Cancel failed: ${error.message}`);
+		$('cancelBtn').disabled = false;
 	}
 }
 
 // ========================================================================
-// USER INPUT MODAL
+// User Input Modal
 // ========================================================================
 
 let pendingInputEvent = null;
 
 function showUserInputModal(event) {
 	pendingInputEvent = event;
-	if (userInputPrompt) {
-		userInputPrompt.textContent = event.data?.prompt || 'Please provide input:';
-	}
-	if (userInputField) {
-		userInputField.value = '';
-	}
-	if (userInputModal) {
-		userInputModal.style.display = 'flex';
-	}
-	userInputField?.focus();
+	$('userInputPrompt').textContent = event.data?.prompt || 'Please provide input:';
+	$('userInputField').value = '';
+	$('userInputModal').style.display = 'flex';
+	$('userInputField').focus();
 }
 
-function closeUserInputModal() {
-	if (userInputModal) {
-		userInputModal.style.display = 'none';
-	}
+function closeModal() {
+	$('userInputModal').style.display = 'none';
 	pendingInputEvent = null;
 }
 
 async function submitUserInput() {
-	if (!pendingInputEvent || !workflowClient) return;
-	
-	const input = userInputField?.value?.trim();
+	if (!pendingInputEvent || !client) return;
+
+	const input = $('userInputField').value.trim();
 	if (!input) {
 		alert('Please enter a value');
 		return;
 	}
-	
+
 	try {
-		await workflowClient.provideUserInput(
+		await client.provideUserInput(
 			pendingInputEvent.execution_id,
 			pendingInputEvent.node_id,
 			input
 		);
-		closeUserInputModal();
+		closeModal();
 	} catch (error) {
-		alert(`Failed: ${error.message}`);
+		addLog('error', `❌ Failed to submit input: ${error.message}`);
 	}
 }
 
 // ========================================================================
-// UI HELPERS
+// UI Helpers
 // ========================================================================
 
-function updateWorkflowStatus(type, message) {
-	if (workflowStatus) {
-		workflowStatus.className = `numel-status numel-status-${type}`;
-		workflowStatus.textContent = message;
-	}
+function setWsStatus(status) {
+	const badge = $('wsStatus');
+	badge.className = `nw-ws-badge ${status}`;
 }
 
-function addEventLog(type, message) {
-	if (!eventLog) return;
-	
+function setExecStatus(type, text) {
+	const status = $('execStatus');
+	status.className = `nw-status ${type}`;
+	status.textContent = text;
+}
+
+function addLog(type, message) {
+	const log = $('eventLog');
 	const item = document.createElement('div');
-	item.className = `numel-event-item ${type}`;
-	
-	const time = new Date().toLocaleTimeString();
-	
+	item.className = `nw-event-item ${type}`;
+
+	const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+
 	item.innerHTML = `
-		<span class="numel-event-time">${time}</span>
-		<span class="numel-event-message">${message}</span>
+		<span class="nw-event-time">${time}</span>
+		<span class="nw-event-msg">${message}</span>
 	`;
-	
-	eventLog.appendChild(item);
-	eventLog.scrollTop = eventLog.scrollHeight;
-	
+
+	log.appendChild(item);
+	log.scrollTop = log.scrollHeight;
+
 	// Limit log size
-	while (eventLog.children.length > 100) {
-		eventLog.removeChild(eventLog.firstChild);
+	while (log.children.length > 100) {
+		log.removeChild(log.firstChild);
 	}
 }
 
-// ========================================================================
-// INITIALIZATION
-// ========================================================================
-
-if (document.readyState === 'loading') {
-	document.addEventListener('DOMContentLoaded', initWorkflowUI);
-} else {
-	initWorkflowUI();
-}
+$('uploadWorkflowBtn').disabled = true;
