@@ -1374,6 +1374,7 @@ class SchemaGraphApp {
 		this.initializeState();
 		
 		this.injectDialogHTML();
+		this.injectCanvasElementsHTML();
 		this.injectToolbarHTML();
 		this.injectAnalyticsPanelHTML();
 
@@ -1480,6 +1481,94 @@ class SchemaGraphApp {
 		});
 
 		console.log('✨ SchemaGraph dialogs injected');
+	}
+
+	/**
+	 * Inject canvas overlay elements (context menu, node input, schema dialogs)
+	 * @private
+	 */
+	injectCanvasElementsHTML() {
+		const canvasContainer = this.canvas.parentElement;
+		if (!canvasContainer) {
+			console.warn('Cannot inject canvas elements: container not found');
+			return;
+		}
+
+		// Context Menu
+		if (!document.getElementById('sg-contextMenu')) {
+			const contextMenu = document.createElement('div');
+			contextMenu.id = 'sg-contextMenu';
+			contextMenu.className = 'sg-context-menu';
+			canvasContainer.appendChild(contextMenu);
+		}
+
+		// Node Input Overlay
+		if (!document.getElementById('sg-nodeInput')) {
+			const nodeInput = document.createElement('input');
+			nodeInput.type = 'text';
+			nodeInput.id = 'sg-nodeInput';
+			nodeInput.className = 'sg-node-input-overlay';
+			canvasContainer.appendChild(nodeInput);
+		}
+
+		// Schema Registration Dialog
+		if (!document.getElementById('sg-schemaDialog')) {
+			const schemaDialog = document.createElement('div');
+			schemaDialog.id = 'sg-schemaDialog';
+			schemaDialog.className = 'sg-dialog-overlay';
+			schemaDialog.innerHTML = `
+				<div class="sg-dialog">
+					<div class="sg-dialog-header">Register Pydantic Schema</div>
+					<div class="sg-dialog-body">
+						<div class="sg-dialog-field">
+							<label for="sg-schemaNameInput">Schema Name:</label>
+							<input type="text" id="sg-schemaNameInput" placeholder="e.g., MySchema" />
+						</div>
+						<div class="sg-dialog-field">
+							<label for="sg-schemaIndexTypeInput">Index Type:</label>
+							<input type="text" id="sg-schemaIndexTypeInput" placeholder="e.g., Index, int" />
+							<small>The type used for index references (default: int)</small>
+						</div>
+						<div class="sg-dialog-field">
+							<label for="sg-schemaRootTypeInput">Root Type:</label>
+							<input type="text" id="sg-schemaRootTypeInput" placeholder="e.g., AppConfig" />
+							<small>The main config class that contains lists of other models</small>
+						</div>
+					</div>
+					<div class="sg-dialog-footer">
+						<button id="sg-schemaDialogCancel" class="sg-dialog-btn sg-dialog-btn-cancel">Cancel</button>
+						<button id="sg-schemaDialogConfirm" class="sg-dialog-btn sg-dialog-btn-confirm">Register</button>
+					</div>
+				</div>
+			`;
+			document.body.appendChild(schemaDialog);
+		}
+
+		// Schema Removal Dialog
+		if (!document.getElementById('sg-schemaRemovalDialog')) {
+			const schemaRemovalDialog = document.createElement('div');
+			schemaRemovalDialog.id = 'sg-schemaRemovalDialog';
+			schemaRemovalDialog.className = 'sg-dialog-overlay';
+			schemaRemovalDialog.innerHTML = `
+				<div class="sg-dialog">
+					<div class="sg-dialog-header">⚠️ Remove Schema</div>
+					<div class="sg-dialog-body">
+						<div class="sg-dialog-field">
+							<label for="sg-schemaRemovalNameInput">Schema to Remove:</label>
+							<select id="sg-schemaRemovalNameInput" class="sg-dialog-select"></select>
+							<small style="color: var(--sg-accent-red); margin-top: 8px;">Warning: This will permanently delete all nodes of this schema type from the graph!</small>
+						</div>
+					</div>
+					<div class="sg-dialog-footer">
+						<button id="sg-schemaRemovalCancel" class="sg-dialog-btn sg-dialog-btn-cancel">Cancel</button>
+						<button id="sg-schemaRemovalConfirm" class="sg-dialog-btn sg-dialog-btn-confirm" style="background: var(--sg-accent-red);">Remove Schema</button>
+					</div>
+				</div>
+			`;
+			document.body.appendChild(schemaRemovalDialog);
+		}
+
+		console.log('✨ SchemaGraph canvas elements injected');
 	}
 
 	/**
@@ -7131,15 +7220,22 @@ class SchemaGraphApp {
 					const refreshBtn = document.getElementById('sg-refreshAnalyticsBtn');
 					const exportBtn = document.getElementById('sg-exportAnalyticsBtn');
 					const resetBtn = document.getElementById('sg-resetAnalyticsBtn');
-					
+
 					toggleBtn?.addEventListener('click', (e) => {
 						e.stopPropagation();
-						panel?.classList.toggle('show');
-						if (panel?.classList.contains('show')) {
+						if (!panel) return;
+						
+						if (panel.classList.contains('show')) {
+							panel.classList.add('hiding');
+							setTimeout(() => {
+								panel.classList.remove('show', 'hiding');
+							}, 300);
+						} else {
+							panel.classList.add('show');
 							this.ui.update.analytics();
 						}
 					});
-					
+
 					closeBtn?.addEventListener('click', () => {
 						if (!panel) return;
 						
