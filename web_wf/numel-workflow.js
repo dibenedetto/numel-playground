@@ -108,9 +108,9 @@ class WorkflowClient {
 			this.isConnected = false;
 			this.emit('ws:disconnected', {});
 			// Auto-reconnect after 3s
-			setTimeout(() => {
-				if (!this.isConnected) this.connectWebSocket();
-			}, 3000);
+			// setTimeout(() => {
+			// 	if (!this.isConnected) this.connectWebSocket();
+			// }, 3000);
 		};
 	}
 

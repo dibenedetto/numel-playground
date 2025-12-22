@@ -108,6 +108,8 @@ async function connect() {
 
 	$('connectBtn').disabled = true;
 	$('connectBtn').textContent = 'Connecting...';
+	$('connectBtn').classList.remove('nw-btn-primary');
+	$('connectBtn').classList.add('nw-btn-danger');
 	setWsStatus('connecting');
 	addLog('info', `⏳ Connecting to ${serverUrl}...`);
 
@@ -175,6 +177,8 @@ async function disconnect() {
 	workflowSynced = false;
 	
 	$('connectBtn').textContent = 'Connect';
+	$('connectBtn').classList.remove('nw-btn-danger');
+	$('connectBtn').classList.add('nw-btn-primary');
 	$('serverUrl').disabled = false;
 	$('workflowSelect').disabled = true;
 	$('workflowSelect').innerHTML = '<option value="">-- Select workflow --</option>';
@@ -532,11 +536,14 @@ async function startExecution() {
 	try {
 		$('startBtn').disabled = true;
 
+		const workflow = visualizer.exportWorkflow();
+		workflowDirty ||= !areSemanticallyEqual(workflow, visualizer.currentWorkflow);
+
 		// In single mode, sync to backend if dirty
 		if (singleMode && workflowDirty && !workflowSynced) {
 			addLog('info', '⏳ Syncing workflow to backend...');
 			
-			const workflow = visualizer.exportWorkflow();
+			// const workflow = visualizer.exportWorkflow();
 			const name = visualizer.currentWorkflowName || 'single_workflow';
 			
 			const response = await client.addWorkflow(workflow, name);
