@@ -1,182 +1,182 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>Numel Workflow</title>
-	
-	<link rel="stylesheet" href="schemagraph/schemagraph-themes.css">
-	<link rel="stylesheet" href="schemagraph/schemagraph-canvas.css">
-	<link rel="stylesheet" href="schemagraph/schemagraph-ui.css">
-	<link rel="stylesheet" href="numel-workflow.css">
-</head>
-<body>
-	<!-- Left Panel: Controls -->
-	<div class="nw-panel">
-		<h1 class="nw-title">
-			<span class="nw-brand">Numel</span> Workflow
-		</h1>
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>Numel Workflow</title>
 
-		<!-- Connection Section -->
-		<section class="nw-section">
-			<div class="nw-section-header">
-				<h3 class="nw-section-title">Connection</h3>
-				<span id="wsStatus" class="nw-ws-badge disconnected">●</span>
-			</div>
-			<div class="nw-field">
-				<label for="serverUrl">Server URL</label>
-				<input type="url" id="serverUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
-			</div>
-			<button id="connectBtn" class="nw-btn nw-btn-primary nw-btn-block">
-				Connect
-			</button>
-		</section>
+		<link rel="stylesheet" href="schemagraph/schemagraph-themes.css">
+		<link rel="stylesheet" href="schemagraph/schemagraph-canvas.css">
+		<link rel="stylesheet" href="schemagraph/schemagraph-ui.css">
+		<link rel="stylesheet" href="numel-workflow.css">
+	</head>
+	<body>
+		<!-- Left Panel: Controls -->
+		<div class="nw-panel">
+			<h1 class="nw-title">
+				<span class="nw-brand">Numel</span> Workflow
+			</h1>
 
-		<!-- Workflow Library Section -->
-		<section class="nw-section">
-			<div class="nw-section-header">
-				<h3 class="nw-section-title">Workflows</h3>
-				<button id="refreshListBtn" class="nw-btn-icon" title="Refresh list">↻</button>
-			</div>
-			
-			<!-- Mode Switch -->
-			<div class="nw-switch-row">
-				<label class="nw-switch">
-					<input type="checkbox" id="singleModeSwitch" checked>
-					<span class="nw-switch-slider"></span>
-				</label>
-				<span class="nw-switch-label">Single workflow mode</span>
-			</div>
-
-			<!-- Multi-workflow controls (default) -->
-			<div id="multiWorkflowControls" style="display: none;">
-				<select id="workflowSelect" class="nw-select" disabled>
-					<option value="">-- Select workflow --</option>
-				</select>
-				<div class="nw-btn-row">
-					<button id="loadWorkflowBtn" class="nw-btn nw-btn-secondary" disabled>Load</button>
-					<button id="uploadWorkflowBtn" class="nw-btn nw-btn-secondary" disabled>Upload</button>
-					<button id="downloadWorkflowBtn" class="nw-btn nw-btn-secondary" disabled>Download</button>
-					<button id="removeWorkflowBtn" class="nw-btn nw-btn-danger" disabled>Remove</button>
+			<!-- Connection Section -->
+			<section class="nw-section">
+				<div class="nw-section-header">
+					<h3 class="nw-section-title">Connection</h3>
+					<span id="wsStatus" class="nw-ws-badge disconnected">●</span>
 				</div>
-			</div>
-			
-			<!-- Single workflow controls -->
-			<div id="singleWorkflowControls">
 				<div class="nw-field">
-					<label>Current Workflow</label>
-					<div id="singleWorkflowName" class="nw-mono-text">None</div>
+					<label for="serverUrl">Server URL</label>
+					<input type="url" id="serverUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
+				</div>
+				<button id="connectBtn" class="nw-btn nw-btn-primary nw-btn-block">
+					Connect
+				</button>
+			</section>
+
+			<!-- Workflow Library Section -->
+			<section class="nw-section">
+				<div class="nw-section-header">
+					<h3 class="nw-section-title">Workflows</h3>
+					<button id="refreshListBtn" class="nw-btn-icon" title="Refresh list">↻</button>
+				</div>
+
+				<!-- Mode Switch -->
+				<div class="nw-switch-row" style="display: none;">
+					<label class="nw-switch">
+						<input type="checkbox" id="singleModeSwitch" checked>
+						<span class="nw-switch-slider"></span>
+					</label>
+					<span class="nw-switch-label">Single workflow mode</span>
+				</div>
+
+				<!-- Multi-workflow controls (default) -->
+				<div id="multiWorkflowControls" style="display: none;">
+					<select id="workflowSelect" class="nw-select" disabled>
+						<option value="">-- Select workflow --</option>
+					</select>
+					<div class="nw-btn-row">
+						<button id="loadWorkflowBtn" class="nw-btn nw-btn-secondary" disabled>Load</button>
+						<button id="uploadWorkflowBtn" class="nw-btn nw-btn-secondary" disabled>Upload</button>
+						<button id="downloadWorkflowBtn" class="nw-btn nw-btn-secondary" disabled>Download</button>
+						<button id="removeWorkflowBtn" class="nw-btn nw-btn-danger" disabled>Remove</button>
+					</div>
+				</div>
+
+				<!-- Single workflow controls -->
+				<div id="singleWorkflowControls">
+					<div class="nw-field">
+						<label>Current Workflow</label>
+						<div id="singleWorkflowName" class="nw-mono-text">None</div>
+					</div>
+					<div class="nw-btn-row">
+						<button id="singleImportBtn" class="nw-btn nw-btn-secondary" disabled>Import</button>
+						<button id="singleDownloadBtn" class="nw-btn nw-btn-secondary" disabled>Download</button>
+					</div>
+				</div>
+
+				<!-- Clear button (both modes) -->
+				<button id="clearWorkflowBtn" class="nw-btn nw-btn-secondary nw-btn-block" disabled style="margin-top: 8px;">
+					Clear Graph
+				</button>
+
+				<input type="file" id="workflowFileInput" accept=".json" style="display:none;">
+				<input type="file" id="singleWorkflowFileInput" accept=".json" style="display:none;">
+			</section>
+
+			<!-- Execution Section -->
+			<section class="nw-section">
+				<div class="nw-section-header">
+					<h3 class="nw-section-title">Execution</h3>
 				</div>
 				<div class="nw-btn-row">
-					<button id="singleImportBtn" class="nw-btn nw-btn-secondary" disabled>Import</button>
-					<button id="singleDownloadBtn" class="nw-btn nw-btn-secondary" disabled>Download</button>
+					<button id="startBtn" class="nw-btn nw-btn-success" disabled>▶ Start</button>
+					<button id="cancelBtn" class="nw-btn nw-btn-danger" disabled>■ Cancel</button>
+				</div>
+				<div class="nw-field">
+					<label>Status</label>
+					<div id="execStatus" class="nw-status idle">Not running</div>
+				</div>
+				<div class="nw-field">
+					<label>Execution ID</label>
+					<div id="execId" class="nw-mono-text">-</div>
+				</div>
+			</section>
+
+			<!-- Event Log Section -->
+			<section class="nw-section nw-section-grow">
+				<div class="nw-section-header">
+					<h3 class="nw-section-title">Event Log</h3>
+					<button id="clearLogBtn" class="nw-btn-icon" title="Clear log">🗑</button>
+				</div>
+				<div id="eventLog" class="nw-event-log"></div>
+			</section>
+		</div>
+
+		<!-- Right Panel: Graph Canvas -->
+		<div class="nw-canvas-panel">
+			<div class="sg-canvas-container">
+				<canvas id="sg-main-canvas"></canvas>
+				<div id="sg-contextMenu" class="sg-context-menu"></div>
+				<input type="text" id="sg-nodeInput" class="sg-node-input-overlay">
+			</div>
+		</div>
+
+		<!-- Remove Confirmation Modal -->
+		<div id="removeModal" class="nw-modal" style="display:none;">
+			<div class="nw-modal-content">
+				<div class="nw-modal-header">
+					<h3>Remove Workflow</h3>
+					<button id="closeRemoveModalBtn" class="nw-modal-close">&times;</button>
+				</div>
+				<div class="nw-modal-body">
+					<p id="removeModalPrompt">Are you sure you want to remove this workflow?</p>
+				</div>
+				<div class="nw-modal-footer">
+					<button id="cancelRemoveBtn" class="nw-btn nw-btn-secondary">Cancel</button>
+					<button id="confirmRemoveBtn" class="nw-btn nw-btn-danger">Remove</button>
 				</div>
 			</div>
-
-			<!-- Clear button (both modes) -->
-			<button id="clearWorkflowBtn" class="nw-btn nw-btn-secondary nw-btn-block" disabled style="margin-top: 8px;">
-				Clear Graph
-			</button>
-
-			<input type="file" id="workflowFileInput" accept=".json" style="display:none;">
-			<input type="file" id="singleWorkflowFileInput" accept=".json" style="display:none;">
-		</section>
-
-		<!-- Execution Section -->
-		<section class="nw-section">
-			<div class="nw-section-header">
-				<h3 class="nw-section-title">Execution</h3>
-			</div>
-			<div class="nw-btn-row">
-				<button id="startBtn" class="nw-btn nw-btn-success" disabled>▶ Start</button>
-				<button id="cancelBtn" class="nw-btn nw-btn-danger" disabled>■ Cancel</button>
-			</div>
-			<div class="nw-field">
-				<label>Status</label>
-				<div id="execStatus" class="nw-status idle">Not running</div>
-			</div>
-			<div class="nw-field">
-				<label>Execution ID</label>
-				<div id="execId" class="nw-mono-text">-</div>
-			</div>
-		</section>
-
-		<!-- Event Log Section -->
-		<section class="nw-section nw-section-grow">
-			<div class="nw-section-header">
-				<h3 class="nw-section-title">Event Log</h3>
-				<button id="clearLogBtn" class="nw-btn-icon" title="Clear log">🗑</button>
-			</div>
-			<div id="eventLog" class="nw-event-log"></div>
-		</section>
-	</div>
-
-	<!-- Right Panel: Graph Canvas -->
-	<div class="nw-canvas-panel">
-		<div class="sg-canvas-container">
-			<canvas id="sg-main-canvas"></canvas>
-			<div id="sg-contextMenu" class="sg-context-menu"></div>
-			<input type="text" id="sg-nodeInput" class="sg-node-input-overlay">
 		</div>
-	</div>
 
-	<!-- Remove Confirmation Modal -->
-	<div id="removeModal" class="nw-modal" style="display:none;">
-		<div class="nw-modal-content">
-			<div class="nw-modal-header">
-				<h3>Remove Workflow</h3>
-				<button id="closeRemoveModalBtn" class="nw-modal-close">&times;</button>
-			</div>
-			<div class="nw-modal-body">
-				<p id="removeModalPrompt">Are you sure you want to remove this workflow?</p>
-			</div>
-			<div class="nw-modal-footer">
-				<button id="cancelRemoveBtn" class="nw-btn nw-btn-secondary">Cancel</button>
-				<button id="confirmRemoveBtn" class="nw-btn nw-btn-danger">Remove</button>
+		<!-- User Input Modal -->
+		<div id="userInputModal" class="nw-modal" style="display:none;">
+			<div class="nw-modal-content">
+				<div class="nw-modal-header">
+					<h3>User Input Required</h3>
+					<button id="closeModalBtn" class="nw-modal-close">&times;</button>
+				</div>
+				<div class="nw-modal-body">
+					<p id="userInputPrompt">Please provide input:</p>
+					<textarea id="userInputField" class="nw-textarea" rows="4"></textarea>
+				</div>
+				<div class="nw-modal-footer">
+					<button id="cancelInputBtn" class="nw-btn nw-btn-secondary">Cancel</button>
+					<button id="submitInputBtn" class="nw-btn nw-btn-primary">Submit</button>
+				</div>
 			</div>
 		</div>
-	</div>
 
-	<!-- User Input Modal -->
-	<div id="userInputModal" class="nw-modal" style="display:none;">
-		<div class="nw-modal-content">
-			<div class="nw-modal-header">
-				<h3>User Input Required</h3>
-				<button id="closeModalBtn" class="nw-modal-close">&times;</button>
+		<!-- Footer -->
+		<div class="nw-footer">
+			© 2025 - <a href="mailto:marco.dibenedetto@isti.cnr.it">Marco Di Benedetto</a>
+		</div>
+
+		<!--
+		<div style="display: none;">
+			<div class="sg-schema-manager">
+				<div class="sg-schema-manager-title">📋 Registered Schemas:</div>
+				<div id="sg-schemaList"></div>
 			</div>
-			<div class="nw-modal-body">
-				<p id="userInputPrompt">Please provide input:</p>
-				<textarea id="userInputField" class="nw-textarea" rows="4"></textarea>
-			</div>
-			<div class="nw-modal-footer">
-				<button id="cancelInputBtn" class="nw-btn nw-btn-secondary">Cancel</button>
-				<button id="submitInputBtn" class="nw-btn nw-btn-primary">Submit</button>
+			<div class="sg-node-types" id="sg-nodeTypes">
+				<strong>Registered Node Types:</strong> <span id="sg-nodeTypesList">None</span>
 			</div>
 		</div>
-	</div>
+		-->
 
-	<!-- Footer -->
-	<div class="nw-footer">
-		© 2025 - <a href="mailto:marco.dibenedetto@isti.cnr.it">Marco Di Benedetto</a>
-	</div>
-
-	<!--
-	<div style="display: none;">
-		<div class="sg-schema-manager">
-			<div class="sg-schema-manager-title">📋 Registered Schemas:</div>
-			<div id="sg-schemaList"></div>
-		</div>
-		<div class="sg-node-types" id="sg-nodeTypes">
-			<strong>Registered Node Types:</strong> <span id="sg-nodeTypesList">None</span>
-		</div>
-	</div>
-	-->
-
-	<!-- Scripts -->
-	<script src="schemagraph/schemagraph.js"></script>
-	<script src="schemagraph/schemagraph-workflow-ext.js"></script>
-	<script src="numel-thirdparty.js"></script>
-	<script src="numel-workflow.js"></script>
-	<script src="numel-workflow-ui.js"></script>
-</body>
+		<!-- Scripts -->
+		<script src="schemagraph/schemagraph.js"></script>
+		<script src="schemagraph/schemagraph-workflow-ext.js"></script>
+		<script src="numel-thirdparty.js"></script>
+		<script src="numel-workflow.js"></script>
+		<script src="numel-workflow-ui.js"></script>
+	</body>
 </html>

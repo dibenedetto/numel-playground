@@ -87,6 +87,15 @@ function setupEventListeners() {
 	$('closeModalBtn').addEventListener('click', closeModal);
 }
 
+function enableStart(enable) {
+	$('singleModeSwitch' ).disabled = !enable;
+	$('startBtn'         ).disabled = !enable;
+	$('cancelBtn'        ).disabled = enable;
+	$('singleImportBtn'  ).disabled = !enable;
+	$('singleDownloadBtn').disabled = !enable;
+	$('clearWorkflowBtn' ).disabled = !enable;
+}
+
 // ========================================================================
 // Connection Management
 // ========================================================================
@@ -186,11 +195,9 @@ async function disconnect() {
 	$('uploadWorkflowBtn').disabled = true;
 	$('downloadWorkflowBtn').disabled = true;
 	$('removeWorkflowBtn').disabled = true;
-	$('startBtn').disabled = true;
+
+	enableStart(false);
 	$('cancelBtn').disabled = true;
-	$('singleImportBtn').disabled = true;
-	$('singleDownloadBtn').disabled = true;
-	$('clearWorkflowBtn').disabled = true;
 	$('singleWorkflowName').textContent = 'None';
 	
 	setWsStatus('disconnected');
@@ -215,30 +222,26 @@ function setupClientEvents() {
 		currentExecutionId = event.execution_id;
 		setExecStatus('running', 'Running');
 		$('execId').textContent = event.execution_id.substring(0, 8) + '...';
-		$('startBtn').disabled = true;
-		$('cancelBtn').disabled = false;
+		enableStart(false);
 		visualizer?.clearNodeStates();
 		addLog('info', `▶️ Workflow started`);
 	});
 
 	client.on('workflow.completed', (event) => {
 		setExecStatus('completed', 'Completed');
-		$('startBtn').disabled = false;
-		$('cancelBtn').disabled = true;
+		enableStart(true);
 		addLog('success', `✅ Workflow completed`);
 	});
 
 	client.on('workflow.failed', (event) => {
 		setExecStatus('failed', 'Failed');
-		$('startBtn').disabled = false;
-		$('cancelBtn').disabled = true;
+		enableStart(true);
 		addLog('error', `❌ Workflow failed: ${event.error || 'Unknown error'}`);
 	});
 
 	client.on('workflow.cancelled', (event) => {
 		setExecStatus('idle', 'Cancelled');
-		$('startBtn').disabled = false;
-		$('cancelBtn').disabled = true;
+		enableStart(true);
 		addLog('warning', `⏹️ Workflow cancelled`);
 	});
 
@@ -317,8 +320,7 @@ async function loadSelectedWorkflow() {
 		}
 
 		$('downloadWorkflowBtn').disabled = false;
-		$('startBtn').disabled = false;
-		$('clearWorkflowBtn').disabled = false;
+		enableStart(true);
 		workflowDirty = false;
 		workflowSynced = true;
 		addLog('success', `✅ Loaded "${name}"`);
@@ -387,10 +389,8 @@ async function handleSingleImport(event) {
 			workflowDirty = true;
 			workflowSynced = false;
 			
+			enableStart(true);
 			$('singleWorkflowName').textContent = visualizer.currentWorkflowName || 'Untitled';
-			$('singleDownloadBtn').disabled = false;
-			$('clearWorkflowBtn').disabled = false;
-			$('startBtn').disabled = false;
 			
 			addLog('success', `📂 Imported "${visualizer.currentWorkflowName}" (local)`);
 		}
@@ -489,9 +489,9 @@ function clearWorkflow() {
 	workflowSynced = false;
 	
 	$('downloadWorkflowBtn').disabled = true;
-	$('singleDownloadBtn').disabled = true;
-	$('startBtn').disabled = true;
-	$('clearWorkflowBtn').disabled = true;
+	$('singleDownloadBtn'  ).disabled = true;
+	$('startBtn'           ).disabled = true;
+	$('clearWorkflowBtn'   ).disabled = true;
 	
 	if (singleMode) {
 		$('singleWorkflowName').textContent = 'None';
@@ -534,7 +534,7 @@ async function startExecution() {
 	}
 
 	try {
-		$('startBtn').disabled = true;
+		enableStart(false);
 
 		const workflow = visualizer.exportWorkflow();
 		workflowDirty ||= !areSemanticallyEqual(workflow, visualizer.currentWorkflow);
@@ -569,8 +569,8 @@ async function startExecution() {
 		}
 
 	} catch (error) {
+		enableStart(true);
 		addLog('error', `❌ Start failed: ${error.message}`);
-		$('startBtn').disabled = false;
 	}
 }
 
