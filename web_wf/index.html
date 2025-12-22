@@ -33,24 +33,6 @@
 		</section>
 
 		<!-- Workflow Library Section -->
-		<!--
-		<section class="nw-section">
-			<div class="nw-section-header">
-				<h3 class="nw-section-title">Workflows</h3>
-				<button id="refreshListBtn" class="nw-btn-icon" title="Refresh list">↻</button>
-			</div>
-			<select id="workflowSelect" class="nw-select" disabled>
-				<option value="">-- Select workflow --</option>
-			</select>
-			<div class="nw-btn-row">
-				<button id="loadWorkflowBtn" class="nw-btn nw-btn-secondary" disabled>Load</button>
-				<button id="uploadWorkflowBtn" class="nw-btn nw-btn-secondary" disabled>Upload</button>
-				<button id="downloadWorkflowBtn" class="nw-btn nw-btn-secondary" disabled>Download</button>
-				<button id="removeWorkflowBtn" class="nw-btn nw-btn-danger" disabled>Remove</button>
-			</div>
-			<input type="file" id="workflowFileInput" accept=".json" style="display:none;">
-		</section>
-		-->
 		<section class="nw-section">
 			<div class="nw-section-header">
 				<h3 class="nw-section-title">Workflows</h3>
@@ -60,14 +42,14 @@
 			<!-- Mode Switch -->
 			<div class="nw-switch-row">
 				<label class="nw-switch">
-					<input type="checkbox" id="singleModeSwitch">
+					<input type="checkbox" id="singleModeSwitch" checked>
 					<span class="nw-switch-slider"></span>
 				</label>
 				<span class="nw-switch-label">Single workflow mode</span>
 			</div>
-			
+
 			<!-- Multi-workflow controls (default) -->
-			<div id="multiWorkflowControls">
+			<div id="multiWorkflowControls" style="display: none;">
 				<select id="workflowSelect" class="nw-select" disabled>
 					<option value="">-- Select workflow --</option>
 				</select>
@@ -80,23 +62,24 @@
 			</div>
 			
 			<!-- Single workflow controls -->
-			<div id="singleWorkflowControls" style="display: none;">
+			<div id="singleWorkflowControls">
 				<div class="nw-field">
 					<label>Current Workflow</label>
 					<div id="singleWorkflowName" class="nw-mono-text">None</div>
 				</div>
 				<div class="nw-btn-row">
-					<button id="singleUploadBtn" class="nw-btn nw-btn-secondary" disabled>Upload</button>
+					<button id="singleImportBtn" class="nw-btn nw-btn-secondary" disabled>Import</button>
 					<button id="singleDownloadBtn" class="nw-btn nw-btn-secondary" disabled>Download</button>
 				</div>
 			</div>
-			
+
 			<!-- Clear button (both modes) -->
 			<button id="clearWorkflowBtn" class="nw-btn nw-btn-secondary nw-btn-block" disabled style="margin-top: 8px;">
 				Clear Graph
 			</button>
 
 			<input type="file" id="workflowFileInput" accept=".json" style="display:none;">
+			<input type="file" id="singleWorkflowFileInput" accept=".json" style="display:none;">
 		</section>
 
 		<!-- Execution Section -->

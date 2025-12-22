@@ -8,7 +8,9 @@ let visualizer = null;
 let schemaGraph = null;
 let currentExecutionId = null;
 let pendingRemoveName = null;
-let singleMode = false;
+let singleMode = true;
+let workflowDirty = false;
+let workflowSynced = false;
 
 // DOM Elements
 const $ = id => document.getElementById(id);
@@ -65,8 +67,9 @@ function setupEventListeners() {
 	$('singleModeSwitch').addEventListener('change', toggleWorkflowMode);
 
 	// Single mode buttons
-	$('singleUploadBtn').addEventListener('click', () => $('workflowFileInput').click());
+	$('singleImportBtn').addEventListener('click', () => $('singleWorkflowFileInput').click());
 	$('singleDownloadBtn').addEventListener('click', downloadWorkflow);
+	$('singleWorkflowFileInput').addEventListener('change', handleSingleImport);
 
 	// Execution
 	$('startBtn').addEventListener('click', startExecution);
@@ -140,9 +143,8 @@ async function connect() {
 		$('workflowSelect').disabled = false;
 		$('serverUrl').disabled = true;
 		$('uploadWorkflowBtn').disabled = false;
-		$('singleUploadBtn').disabled = false;
+		$('singleImportBtn').disabled = false;
 		addLog('success', `✅ Connected to ${serverUrl}`);
-
 	} catch (error) {
 		console.error('Connection error:', error);
 		addLog('error', `❌ Connection failed: ${error.message}`);
@@ -160,21 +162,33 @@ async function disconnect() {
 		client = null;
 	}
 
+	// Clear graph
+	schemaGraph.api.graph.clear();
+	schemaGraph.api.view.reset();
+	
+	visualizer.currentWorkflow = null;
+	visualizer.currentWorkflowName = null;
+	visualizer.graphNodes = [];
+
 	currentExecutionId = null;
+	workflowDirty = false;
+	workflowSynced = false;
+	
 	$('connectBtn').textContent = 'Connect';
+	$('serverUrl').disabled = false;
 	$('workflowSelect').disabled = true;
 	$('workflowSelect').innerHTML = '<option value="">-- Select workflow --</option>';
 	$('loadWorkflowBtn').disabled = true;
+	$('uploadWorkflowBtn').disabled = true;
 	$('downloadWorkflowBtn').disabled = true;
 	$('removeWorkflowBtn').disabled = true;
-	$('serverUrl').disabled = false;
-	$('uploadWorkflowBtn').disabled = true;
 	$('startBtn').disabled = true;
 	$('cancelBtn').disabled = true;
-	$('singleUploadBtn').disabled = true;
+	$('singleImportBtn').disabled = true;
 	$('singleDownloadBtn').disabled = true;
 	$('clearWorkflowBtn').disabled = true;
 	$('singleWorkflowName').textContent = 'None';
+	
 	setWsStatus('disconnected');
 	setExecStatus('idle', 'Not running');
 	$('execId').textContent = '-';
@@ -301,6 +315,8 @@ async function loadSelectedWorkflow() {
 		$('downloadWorkflowBtn').disabled = false;
 		$('startBtn').disabled = false;
 		$('clearWorkflowBtn').disabled = false;
+		workflowDirty = false;
+		workflowSynced = true;
 		addLog('success', `✅ Loaded "${name}"`);
 
 	} catch (error) {
@@ -343,6 +359,40 @@ async function handleFileUpload(event) {
 		$('clearWorkflowBtn').disabled = false;
 	} catch (error) {
 		addLog('error', `❌ Failed to upload: ${error.message}`);
+	}
+
+	event.target.value = '';
+}
+
+async function handleSingleImport(event) {
+	const file = event.target.files?.[0];
+	if (!file) return;
+
+	try {
+		const text = await file.text();
+		const workflow = JSON.parse(text);
+
+		// Clear current workflow
+		schemaGraph.api.graph.clear();
+		schemaGraph.api.view.reset();
+
+		// Load into visualizer (memory only)
+		const loaded = visualizer.loadWorkflow(workflow, file.name.replace('.json', ''));
+		
+		if (loaded) {
+			workflowDirty = true;
+			workflowSynced = false;
+			
+			$('singleWorkflowName').textContent = visualizer.currentWorkflowName || 'Untitled';
+			$('singleDownloadBtn').disabled = false;
+			$('clearWorkflowBtn').disabled = false;
+			$('startBtn').disabled = false;
+			
+			addLog('success', `📂 Imported "${visualizer.currentWorkflowName}" (local)`);
+		}
+
+	} catch (error) {
+		addLog('error', `❌ Failed to import: ${error.message}`);
 	}
 
 	event.target.value = '';
@@ -431,6 +481,9 @@ function clearWorkflow() {
 	visualizer.currentWorkflowName = null;
 	visualizer.graphNodes = [];
 	
+	workflowDirty = false;
+	workflowSynced = false;
+	
 	$('downloadWorkflowBtn').disabled = true;
 	$('singleDownloadBtn').disabled = true;
 	$('startBtn').disabled = true;
@@ -449,13 +502,18 @@ function toggleWorkflowMode() {
 	$('multiWorkflowControls').style.display = singleMode ? 'none' : 'block';
 	$('singleWorkflowControls').style.display = singleMode ? 'block' : 'none';
 	
-	// Update button states based on connection
 	if (client?.isConnected) {
-		$('singleUploadBtn').disabled = false;
+		$('singleImportBtn').disabled = false;
 		$('singleDownloadBtn').disabled = !visualizer.currentWorkflow;
 	} else {
-		$('singleUploadBtn').disabled = true;
+		$('singleImportBtn').disabled = true;
 		$('singleDownloadBtn').disabled = true;
+	}
+	
+	// Reset sync state when switching modes
+	if (singleMode) {
+		workflowDirty = !!visualizer.currentWorkflow;
+		workflowSynced = false;
 	}
 	
 	addLog('info', singleMode ? '📄 Single workflow mode' : '📚 Multi workflow mode');
@@ -466,16 +524,38 @@ function toggleWorkflowMode() {
 // ========================================================================
 
 async function startExecution() {
-	if (!client || !visualizer?.currentWorkflowName) {
+	if (!client || !visualizer?.currentWorkflow) {
 		addLog('error', '⚠️ No workflow loaded');
 		return;
 	}
 
 	try {
 		$('startBtn').disabled = true;
-		addLog('info', `⏳ Starting "${visualizer.currentWorkflowName}"...`);
 
-		const response = await client.startWorkflow(visualizer.currentWorkflowName, {});
+		// In single mode, sync to backend if dirty
+		if (singleMode && workflowDirty && !workflowSynced) {
+			addLog('info', '⏳ Syncing workflow to backend...');
+			
+			const workflow = visualizer.exportWorkflow();
+			const name = visualizer.currentWorkflowName || 'single_workflow';
+			
+			const response = await client.addWorkflow(workflow, name);
+			
+			if (response.status === 'added' || response.status === 'updated') {
+				workflowSynced = true;
+				workflowDirty = false;
+				visualizer.currentWorkflowName = response.name;
+				$('singleWorkflowName').textContent = response.name;
+				addLog('success', `✅ Synced "${response.name}"`);
+			} else {
+				throw new Error('Failed to sync workflow');
+			}
+		}
+
+		const workflowName = visualizer.currentWorkflowName;
+		addLog('info', `⏳ Starting "${workflowName}"...`);
+
+		const response = await client.startWorkflow(workflowName, {});
 
 		if (response.status !== 'started') {
 			throw new Error('Failed to start workflow');
