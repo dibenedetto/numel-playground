@@ -1303,9 +1303,8 @@ class EdgePreviewManager {
 			if (this.app.isLocked) return;
 			
 			if (e.key === 'Delete' || e.key === 'Backspace') {
-				const selectedNodes = this.app.selectedNodes || [];
+				const selectedNodes = Array.from(this.app.selectedNodes || []);
 				const previewNodesToRemove = selectedNodes.filter(n => n.isPreviewNode);
-				
 				if (previewNodesToRemove.length > 0) {
 					e.preventDefault();
 					e.stopPropagation();
@@ -1314,7 +1313,8 @@ class EdgePreviewManager {
 						this.removePreviewNode(node);
 					}
 					
-					this.app.selectedNodes = selectedNodes.filter(n => !n.isPreviewNode);
+					selectedNodes = selectedNodes.filter(n => !n.isPreviewNode);
+					this.app.selectedNodes = new Set(selectedNodes);
 				}
 			}
 		});

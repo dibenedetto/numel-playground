@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>SchemaGraph</title>
+		<link rel="stylesheet" href="schemagraph-themes.css">
+		<link rel="stylesheet" href="schemagraph-canvas.css">
+		<link rel="stylesheet" href="schemagraph-ui.css">
+	</head>
+	<body>
+		<div class="sg-canvas-container">
+			<canvas id="sg-main-canvas"></canvas>
+		</div>
+		<div style="display: none;">
+			<div class="sg-schema-manager">
+				<div class="sg-schema-manager-title">📋 Registered Schemas:</div>
+				<div id="sg-schemaList"></div>
+			</div>
+			<div class="sg-node-types" id="sg-nodeTypes">
+				<strong>Registered Node Types:</strong> <span id="sg-nodeTypesList">None</span>
+			</div>
+		</div>
+		<script src="schemagraph.js"></script>
+		<script src="schemagraph-workflow-ext.js"></script>
+		<script src="schemagraph-preview-ext.js"></script>
+		<script>
+			let gApp = null;
+			const onLoaded = () => {
+				gApp = new SchemaGraphApp('sg-main-canvas');
+			}
+			if (document.readyState === 'loading') {
+				document.addEventListener('DOMContentLoaded', onLoaded);
+			}
+			else {
+				onLoaded();
+			}
+		</script>
+	</body>
+</html>
