@@ -11,9 +11,6 @@
 			"id"     : "mistral"
 		},
 		{
-			"type" : "prompt_config"
-		},
-		{
 			"type" : "agent_config"
 		},
 		{
@@ -29,7 +26,7 @@
 	"edges" : [
 		{
 			"source"      : 0,
-			"target"      : 3,
+			"target"      : 2,
 			"source_slot" : "get",
 			"target_slot" : "backend"
 		},
@@ -41,19 +38,19 @@
 		},
 		{
 			"source"      : 2,
-			"target"      : 3,
+			"target"      : 4,
 			"source_slot" : "get",
-			"target_slot" : "prompt"
+			"target_slot" : "config"
 		},
 		{
-			"source"      : 4,
-			"target"      : 5,
+			"source"      : 3,
+			"target"      : 4,
 			"source_slot" : "pin",
 			"target_slot" : "input"
 		},
 		{
-			"source"      : 5,
-			"target"      : 6,
+			"source"      : 4,
+			"target"      : 5,
 			"source_slot" : "output",
 			"target_slot" : "pin"
 		}

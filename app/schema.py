@@ -108,19 +108,6 @@ class EmbeddingConfig(BaseConfig):
 		return self
 
 
-class PromptConfig(BaseConfig):
-	type         : Annotated[Literal["prompt_config"] , FieldRole.CONSTANT] = "prompt_config"
-	model        : Annotated[Optional[ModelConfig    ], FieldRole.INPUT   ] = None
-	embedding    : Annotated[Optional[EmbeddingConfig], FieldRole.INPUT   ] = None
-	description  : Annotated[Optional[str            ], FieldRole.INPUT   ] = None
-	instructions : Annotated[Optional[List[str]      ], FieldRole.INPUT   ] = None
-	override     : Annotated[Optional[str            ], FieldRole.INPUT   ] = None
-
-	@property
-	def get(self) -> Annotated[PromptConfig, FieldRole.OUTPUT]: # type: ignore
-		return self
-
-
 DEFAULT_CONTENT_DB_ENGINE               : str  = "sqlite"
 DEFAULT_CONTENT_DB_URL                  : str  = "storage/content"
 DEFAULT_CONTENT_DB_MEMORY_TABLE_NAME    : str  = "memory"
@@ -167,6 +154,7 @@ class IndexDBConfig(BaseConfig):
 DEFAULT_MEMORY_MANAGER_QUERY   : bool = False
 DEFAULT_MEMORY_MANAGER_UPDATE  : bool = False
 DEFAULT_MEMORY_MANAGER_MANAGED : bool = False
+DEFAULT_MEMORY_MANAGER_PROMPT  : str  = None
 
 
 class MemoryManagerConfig(BaseConfig):
@@ -174,7 +162,8 @@ class MemoryManagerConfig(BaseConfig):
 	query   : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_QUERY
 	update  : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_UPDATE
 	managed : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_MANAGED
-	prompt  : Annotated[Optional[PromptConfig]          , FieldRole.INPUT   ] = None
+	model   : Annotated[Optional[ModelConfig]           , FieldRole.INPUT   ] = None
+	prompt  : Annotated[Optional[str]                   , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_PROMPT
 
 	@property
 	def get(self) -> Annotated[MemoryManagerConfig, FieldRole.OUTPUT]: # type: ignore
@@ -185,15 +174,16 @@ DEFAULT_SESSION_MANAGER_QUERY        : bool = False
 DEFAULT_SESSION_MANAGER_UPDATE       : bool = False
 DEFAULT_SESSION_MANAGER_HISTORY_SIZE : int  = 10
 DEFAULT_SESSION_MANAGER_SUMMARIZE    : bool = False
+DEFAULT_SESSION_MANAGER_PROMPT       : str  = None
 
 
 class SessionManagerConfig(BaseConfig):
 	type         : Annotated[Literal["session_manager_config"], FieldRole.CONSTANT] = "session_manager_config"
 	query        : Annotated[bool                             , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_QUERY
 	update       : Annotated[bool                             , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_UPDATE
-	summarize    : Annotated[bool                             , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_SUMMARIZE
 	history_size : Annotated[int                              , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_HISTORY_SIZE
-	prompt       : Annotated[Optional[PromptConfig]           , FieldRole.INPUT   ] = None
+	model        : Annotated[Optional[ModelConfig]            , FieldRole.INPUT   ] = None
+	prompt       : Annotated[Optional[str]                    , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_PROMPT
 
 	@property
 	def get(self) -> Annotated[SessionManagerConfig, FieldRole.OUTPUT]: # type: ignore
@@ -233,12 +223,18 @@ class ToolConfig(BaseConfig):
 		return self
 
 
-DEFAULT_AGENT_OPTIONS_MARKDOWN : bool = True
+DEFAULT_AGENT_OPTIONS_DESCRIPTION     : str = None
+DEFAULT_AGENT_OPTIONS_INSTRUCTIONS    : str = None
+DEFAULT_AGENT_OPTIONS_PROMPT_OVERRIDE : str = None
+DEFAULT_AGENT_OPTIONS_MARKDOWN        : bool = True
 
 
 class AgentOptionsConfig(BaseConfig):
-	type     : Annotated[Literal["agent_options_config"], FieldRole.CONSTANT] = "agent_options_config"
-	markdown : Annotated[bool                           , FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_MARKDOWN
+	type            : Annotated[Literal["agent_options_config"], FieldRole.CONSTANT] = "agent_options_config"
+	description     : Annotated[Optional[str]                  , FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_DESCRIPTION
+	instructions    : Annotated[Optional[List[str]]            , FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_INSTRUCTIONS
+	prompt_override : Annotated[Optional[str]                  , FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_PROMPT_OVERRIDE
+	markdown        : Annotated[bool                           , FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_MARKDOWN
 
 	@property
 	def get(self) -> Annotated[AgentOptionsConfig, FieldRole.OUTPUT]: # type: ignore
@@ -250,7 +246,7 @@ class AgentConfig(BaseConfig):
 	info          : Annotated[Optional[InfoConfig]            , FieldRole.INPUT      ] = None
 	options       : Annotated[Optional[AgentOptionsConfig]    , FieldRole.INPUT      ] = None
 	backend       : Annotated[BackendConfig                   , FieldRole.INPUT      ] = None
-	prompt        : Annotated[PromptConfig                    , FieldRole.INPUT      ] = None
+	model         : Annotated[ModelConfig                     , FieldRole.INPUT      ] = None
 	content_db    : Annotated[Optional[ContentDBConfig]       , FieldRole.INPUT      ] = None
 	memory_mgr    : Annotated[Optional[MemoryManagerConfig]   , FieldRole.INPUT      ] = None
 	session_mgr   : Annotated[Optional[SessionManagerConfig]  , FieldRole.INPUT      ] = None
@@ -360,7 +356,6 @@ WorkflowNodeUnion = Union[
 	BackendConfig          ,
 	ModelConfig            ,
 	EmbeddingConfig        ,
-	PromptConfig           ,
 	ContentDBConfig        ,
 	IndexDBConfig          ,
 	MemoryManagerConfig    ,

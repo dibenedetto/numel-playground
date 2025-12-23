@@ -32,11 +32,6 @@
 			"id"     : "mistral"
 		},
 		{
-			"type"         : "prompt_config",
-			"description"  : "Standard prompt.",
-			"instructions" : ["Be proactive.", "Provide detailed responses."]
-		},
-		{
 			"type"   : "content_db_config",
 			"engine" : "sqlite",
 			"url"    : "storage/content_db_1"
@@ -170,18 +165,6 @@
 			"target"      : 6,
 			"source_slot" : "get",
 			"target_slot" : "embedding"
-		},
-		{
-			"source"      : 4,
-			"target"      : 7,
-			"source_slot" : "get",
-			"target_slot" : "prompt"
-		},
-		{
-			"source"      : 4,
-			"target"      : 12,
-			"source_slot" : "get",
-			"target_slot" : "prompt"
 		},
 		{
 			"source"      : 5,

@@ -1039,10 +1039,10 @@ class WorkflowExporter {
 	export(schemaName, workflowInfo = {}) {
 		const wf = JSON.parse(JSON.stringify(workflowInfo));
 		const workflow = {
+			...wf,
 			type  : 'workflow',
 			nodes : [],
 			edges : [],
-			...wf,
 		};
 
 		// Separate workflow nodes from preview nodes

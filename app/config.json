@@ -32,11 +32,6 @@
 			"id"     : "mistral"
 		},
 		{
-			"type"         : "prompt_config",
-			"description"  : "Standard prompt.",
-			"instructions" : ["Be proactive.", "Provide detailed responses."]
-		},
-		{
 			"type"   : "content_db_config",
 			"engine" : "postgres",
 			"url"    : "storage/content_db_postgres_1.db"

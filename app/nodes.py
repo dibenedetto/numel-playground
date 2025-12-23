@@ -56,10 +56,6 @@ class WFEmbeddingConfig(WFBaseConfig):
 	pass
 
 
-class WFPromptConfig(WFBaseConfig):
-	pass
-
-
 class WFContentDBConfig(WFBaseConfig):
 	pass
 
@@ -323,7 +319,6 @@ _NODE_TYPES = {
 	"backend_config"           : WFBackendConfig,
 	"model_config"             : WFModelConfig,
 	"embedding_config"         : WFEmbeddingConfig,
-	"prompt_config"            : WFPromptConfig,
 	"content_db_config"        : WFContentDBConfig,
 	"index_db_config"          : WFIndexDBConfig,
 	"memory_manager_config"    : WFMemoryManagerConfig,
