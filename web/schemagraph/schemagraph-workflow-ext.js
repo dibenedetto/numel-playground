@@ -874,7 +874,7 @@ class WorkflowImporter {
 	}
 
 	_createEdge(edgeData, createdNodes) {
-		const { source, target, source_slot, target_slot, preview, extra } = edgeData;
+		const { source, target, source_slot, target_slot, preview, data, extra } = edgeData;
 
 		const sourceNode = createdNodes[source];
 		const targetNode = createdNodes[target];
@@ -901,7 +901,7 @@ class WorkflowImporter {
 			return this._createEdgeWithPreview(
 				sourceNode, sourceSlotIdx, source_slot,
 				targetNode, targetSlotIdx, target_slot,
-				extra
+				edgeData  // Pass full edge data
 			);
 		}
 
@@ -916,8 +916,12 @@ class WorkflowImporter {
 			sourceNode.outputs[sourceSlotIdx]?.type || 'Any'
 		);
 
+		// Store accessory data
+		if (data) {
+			link.data = JSON.parse(JSON.stringify(data));
+		}
 		if (extra) {
-			link.extra = { ...extra };
+			link.extra = JSON.parse(JSON.stringify(extra));
 		}
 
 		this.graph.links[linkId] = link;
@@ -935,18 +939,18 @@ class WorkflowImporter {
 	_createEdgeWithPreview(
 		sourceNode, sourceSlotIdx, sourceSlot,
 		targetNode, targetSlotIdx, targetSlot,
-		extra
+		edgeData
 	) {
-		// Calculate position for preview node (midpoint between source and target)
 		const sourceX = sourceNode.pos[0] + sourceNode.size[0];
 		const sourceY = sourceNode.pos[1] + 33 + sourceSlotIdx * 25;
 		const targetX = targetNode.pos[0];
 		const targetY = targetNode.pos[1] + 33 + targetSlotIdx * 25;
 		
-		const midX = (sourceX + targetX) / 2 - 110; // Center the preview node
+		const midX = (sourceX + targetX) / 2 - 110;
 		const midY = (sourceY + targetY) / 2 - 60;
 
-		// Create preview node
+		const linkType = sourceNode.outputs[sourceSlotIdx]?.type || 'Any';
+
 		const previewNode = new PreviewNode();
 		
 		if (this.graph._last_node_id === undefined) {
@@ -956,48 +960,36 @@ class WorkflowImporter {
 		previewNode.graph = this.graph;
 		previewNode.pos = [midX, midY];
 		
-		// Mark as auto-inserted from edge preview
+		// Store complete original edge info
+		previewNode._originalEdgeInfo = {
+			sourceNodeId: sourceNode.id,
+			sourceSlotIdx: sourceSlotIdx,
+			sourceSlotName: sourceSlot,
+			targetNodeId: targetNode.id,
+			targetSlotIdx: targetSlotIdx,
+			targetSlotName: targetSlot,
+			linkType: linkType,
+			data: edgeData.data ? JSON.parse(JSON.stringify(edgeData.data)) : null,
+			extra: edgeData.extra ? JSON.parse(JSON.stringify(edgeData.extra)) : null,
+		};
+		
 		previewNode._fromEdgePreview = true;
-		previewNode._originalSourceSlot = sourceSlot;
-		previewNode._originalTargetSlot = targetSlot;
 		
 		this.graph.nodes.push(previewNode);
 		this.graph._nodes_by_id[previewNode.id] = previewNode;
 
-		const linkType = sourceNode.outputs[sourceSlotIdx]?.type || 'Any';
-
-		// Create link: Source -> Preview
+		// Link: Source -> Preview
 		const link1Id = ++this.graph.last_link_id;
-		const link1 = new Link(
-			link1Id,
-			sourceNode.id,
-			sourceSlotIdx,
-			previewNode.id,
-			0, // Preview input slot
-			linkType
-		);
-		
-		if (extra) {
-			link1.extra = { ...extra, _isPreviewLink: true };
-		} else {
-			link1.extra = { _isPreviewLink: true };
-		}
+		const link1 = new Link(link1Id, sourceNode.id, sourceSlotIdx, previewNode.id, 0, linkType);
+		link1.extra = { _isPreviewLink: true };
 		
 		this.graph.links[link1Id] = link1;
 		sourceNode.outputs[sourceSlotIdx].links.push(link1Id);
 		previewNode.inputs[0].link = link1Id;
 
-		// Create link: Preview -> Target
+		// Link: Preview -> Target
 		const link2Id = ++this.graph.last_link_id;
-		const link2 = new Link(
-			link2Id,
-			previewNode.id,
-			0, // Preview output slot
-			targetNode.id,
-			targetSlotIdx,
-			linkType
-		);
-		
+		const link2 = new Link(link2Id, previewNode.id, 0, targetNode.id, targetSlotIdx, linkType);
 		link2.extra = { _isPreviewLink: true };
 		
 		this.graph.links[link2Id] = link2;
@@ -1008,7 +1000,8 @@ class WorkflowImporter {
 		this.eventBus.emit('link:created', { linkId: link2Id });
 		this.eventBus.emit('preview:inserted', { 
 			nodeId: previewNode.id, 
-			fromEdgePreview: true 
+			fromEdgePreview: true,
+			originalEdgeInfo: previewNode._originalEdgeInfo
 		});
 
 		return { link1, link2, previewNode };
@@ -1121,16 +1114,16 @@ class WorkflowExporter {
 
 	/**
 	 * Trace through a chain of preview nodes and create a single edge with preview: true
+	 * Restores all accessory information from the first preview node
 	 */
 	_tracePreviewChain(startLink, sourceNode, firstPreviewNode, nodeToIndex, processedLinks) {
 		processedLinks.add(startLink.id);
 		
 		let currentPreviewNode = firstPreviewNode;
 		let hasPreview = true;
-		let accumulatedExtra = startLink.extra ? { ...startLink.extra } : {};
 		
-		// Remove internal tracking fields
-		delete accumulatedExtra._isPreviewLink;
+		// Get original edge info from the first preview node
+		const originalEdgeInfo = firstPreviewNode._originalEdgeInfo || {};
 		
 		// Trace through chain of preview nodes
 		while (currentPreviewNode && currentPreviewNode.isPreviewNode) {
@@ -1169,10 +1162,10 @@ class WorkflowExporter {
 					return null;
 				}
 				
-				// Get slot names
-				const sourceSlot = firstPreviewNode._originalSourceSlot || 
+				// Get slot names from original edge info or fall back to current names
+				const sourceSlot = originalEdgeInfo.sourceSlotName || 
 					sourceNode.outputs[startLink.origin_slot]?.name || 'output';
-				const targetSlot = firstPreviewNode._originalTargetSlot ||
+				const targetSlot = originalEdgeInfo.targetSlotName ||
 					nextNode.inputs[outLink.target_slot]?.name || 'input';
 				
 				const edge = {
@@ -1183,8 +1176,19 @@ class WorkflowExporter {
 					preview: hasPreview
 				};
 				
-				if (Object.keys(accumulatedExtra).length > 0) {
-					edge.extra = accumulatedExtra;
+				// Restore data field from original edge info
+				if (originalEdgeInfo.data && Object.keys(originalEdgeInfo.data).length > 0) {
+					edge.data = JSON.parse(JSON.stringify(originalEdgeInfo.data));
+				}
+				
+				// Restore extra field from original edge info
+				if (originalEdgeInfo.extra && Object.keys(originalEdgeInfo.extra).length > 0) {
+					// Filter out internal tracking fields
+					const cleanExtra = JSON.parse(JSON.stringify(originalEdgeInfo.extra));
+					delete cleanExtra._isPreviewLink;
+					if (Object.keys(cleanExtra).length > 0) {
+						edge.extra = cleanExtra;
+					}
 				}
 				
 				return edge;
@@ -1196,6 +1200,7 @@ class WorkflowExporter {
 
 	/**
 	 * Export a standard edge (no preview nodes involved)
+	 * Preserves all accessory data
 	 */
 	_exportEdge(link, nodeToIndex) {
 		const sourceNode = this.graph.getNodeById(link.origin_id);
@@ -1219,9 +1224,15 @@ class WorkflowExporter {
 			// preview: false is the default, so we omit it
 		};
 
+		// Preserve data field
+		if (link.data && Object.keys(link.data).length > 0) {
+			edge.data = JSON.parse(JSON.stringify(link.data));
+		}
+
+		// Preserve extra field
 		if (link.extra && Object.keys(link.extra).length > 0) {
 			// Filter out internal tracking fields
-			const cleanExtra = { ...link.extra };
+			const cleanExtra = JSON.parse(JSON.stringify(link.extra));
 			delete cleanExtra._isPreviewLink;
 			
 			if (Object.keys(cleanExtra).length > 0) {

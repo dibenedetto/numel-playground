@@ -454,6 +454,29 @@ class EdgePreviewManager {
 		this._injectStyles();
 	}
 
+	canInsertPreview(link) {
+		if (!link) {
+			return { allowed: false, reason: 'Invalid link' };
+		}
+
+		const sourceNode = this.graph.getNodeById(link.origin_id);
+		const targetNode = this.graph.getNodeById(link.target_id);
+
+		if (!sourceNode || !targetNode) {
+			return { allowed: false, reason: 'Invalid source or target node' };
+		}
+
+		if (sourceNode.isPreviewNode) {
+			return { allowed: false, reason: 'Source is already a preview node' };
+		}
+
+		if (targetNode.isPreviewNode) {
+			return { allowed: false, reason: 'Target is already a preview node' };
+		}
+
+		return { allowed: true, reason: null };
+	}
+
 	_registerPreviewNodeType() {
 		this.graph.nodeTypes['Native.Preview'] = PreviewNode;
 	}
@@ -472,10 +495,19 @@ class EdgePreviewManager {
 		}
 		
 		const [wx, wy] = this.app.screenToWorld(data.coords.screenX, data.coords.screenY);
-		this.hoveredLink = this._findLinkAtPosition(wx, wy);
+		const link = this._findLinkAtPosition(wx, wy);
 		
-		if (this.hoveredLink) {
-			this.app.canvas.style.cursor = 'pointer';
+		// Only set hoveredLink if preview can be inserted on this edge
+		if (link) {
+			const check = this.canInsertPreview(link);
+			if (check.allowed) {
+				this.hoveredLink = link;
+				this.app.canvas.style.cursor = 'pointer';
+			} else {
+				this.hoveredLink = null;
+			}
+		} else {
+			this.hoveredLink = null;
 		}
 	}
 
@@ -487,10 +519,16 @@ class EdgePreviewManager {
 		const link = this._findLinkAtPosition(wx, wy);
 		
 		if (link && data.event.altKey) {
-			data.event.preventDefault();
-			data.event.stopPropagation();
-			this.insertPreviewNode(link, wx, wy);
-			return true;
+			const check = this.canInsertPreview(link);
+			if (check.allowed) {
+				data.event.preventDefault();
+				data.event.stopPropagation();
+				this.insertPreviewNode(link, wx, wy);
+				return true;
+			} else {
+				console.warn(`Cannot insert preview: ${check.reason}`);
+				this.app.showError?.(`Cannot insert preview: ${check.reason}`);
+			}
 		}
 	}
 
@@ -562,112 +600,272 @@ class EdgePreviewManager {
 		return false;
 	}
 
+	// ========================================================================
+	// PREVIEW NODE EDGE MANAGEMENT
+	// Updated methods for EdgePreviewManager in schemagraph-preview-ext.js
+	// 
+	// Features:
+	// 1. Prevents inserting preview on edges with preview at endpoints
+	// 2. Stores original edge info on preview node for restoration
+	// 3. Restores edge with all accessory info when preview is removed
+	// ========================================================================
+
+	/**
+	 * Insert a preview node on a link
+	 * Stores original edge information for later restoration
+	 * @param {Link} link - The link to insert preview on
+	 * @param {number} wx - World X position
+	 * @param {number} wy - World Y position
+	 * @returns {Node|null} Created preview node or null if not allowed
+	 */
 	insertPreviewNode(link, wx, wy) {
-		const orig = this.graph.getNodeById(link.origin_id);
-		const targ = this.graph.getNodeById(link.target_id);
-		
-		if (!orig || !targ) return null;
-		
+		// Check if insertion is allowed
+		const check = this.canInsertPreview(link);
+		if (!check.allowed) {
+			console.warn(`Cannot insert preview: ${check.reason}`);
+			this.app.showError?.(`Cannot insert preview: ${check.reason}`);
+			return null;
+		}
+
+		const sourceNode = this.graph.getNodeById(link.origin_id);
+		const targetNode = this.graph.getNodeById(link.target_id);
+
+		// Store original edge information before modifying
+		const originalEdgeInfo = {
+			sourceNodeId: link.origin_id,
+			sourceSlotIdx: link.origin_slot,
+			sourceSlotName: sourceNode.outputs[link.origin_slot]?.name || 'output',
+			targetNodeId: link.target_id,
+			targetSlotIdx: link.target_slot,
+			targetSlotName: targetNode.inputs[link.target_slot]?.name || 'input',
+			linkType: link.type,
+			linkId: link.id,
+			// Store all accessory data
+			data: link.data ? JSON.parse(JSON.stringify(link.data)) : null,
+			extra: link.extra ? JSON.parse(JSON.stringify(link.extra)) : null,
+		};
+
 		// Create preview node
-		const previewNode = this.graph.createNode('Native.Preview');
+		const previewNode = new PreviewNode();
 		previewNode.pos = [wx - previewNode.size[0] / 2, wy - previewNode.size[1] / 2];
-		
-		// Store original link info
-		const origSlot = link.origin_slot;
-		const targSlot = link.target_slot;
-		const linkType = link.type;
-		
+
+		// Store original edge info on the preview node
+		previewNode._originalEdgeInfo = originalEdgeInfo;
+
+		// Register node with graph
+		if (this.graph._last_node_id === undefined) {
+			this.graph._last_node_id = 1;
+		}
+		previewNode.id = this.graph._last_node_id++;
+		previewNode.graph = this.graph;
+		this.graph.nodes.push(previewNode);
+		this.graph._nodes_by_id[previewNode.id] = previewNode;
+
 		// Remove original link
 		this._removeLink(link);
-		
+
 		// Create new links through preview node
-		// Original -> Preview
+		// Link 1: Source -> Preview
 		const link1Id = ++this.graph.last_link_id;
-		const link1 = new Link(link1Id, orig.id, origSlot, previewNode.id, 0, linkType);
+		const link1 = new Link(
+			link1Id,
+			sourceNode.id,
+			originalEdgeInfo.sourceSlotIdx,
+			previewNode.id,
+			0,
+			originalEdgeInfo.linkType
+		);
+		// Mark as preview link (internal tracking)
+		link1.extra = { _isPreviewLink: true };
+
 		this.graph.links[link1Id] = link1;
-		orig.outputs[origSlot].links.push(link1Id);
+		sourceNode.outputs[originalEdgeInfo.sourceSlotIdx].links.push(link1Id);
 		previewNode.inputs[0].link = link1Id;
-		
-		// Preview -> Target
+
+		// Link 2: Preview -> Target
 		const link2Id = ++this.graph.last_link_id;
-		const link2 = new Link(link2Id, previewNode.id, 0, targ.id, targSlot, linkType);
+		const link2 = new Link(
+			link2Id,
+			previewNode.id,
+			0,
+			targetNode.id,
+			originalEdgeInfo.targetSlotIdx,
+			originalEdgeInfo.linkType
+		);
+		link2.extra = { _isPreviewLink: true };
+
 		this.graph.links[link2Id] = link2;
 		previewNode.outputs[0].links.push(link2Id);
-		
+
 		// Handle multi-input target slots
-		if (targ.multiInputs && targ.multiInputs[targSlot]) {
-			targ.multiInputs[targSlot].links.push(link2Id);
+		if (targetNode.multiInputs && targetNode.multiInputs[originalEdgeInfo.targetSlotIdx]) {
+			targetNode.multiInputs[originalEdgeInfo.targetSlotIdx].links.push(link2Id);
 		} else {
-			targ.inputs[targSlot].link = link2Id;
+			targetNode.inputs[originalEdgeInfo.targetSlotIdx].link = link2Id;
 		}
-		
-		// Execute to get data
+
+		// Execute to initialize
 		previewNode.onExecute();
+
+		this.eventBus.emit('preview:inserted', { 
+			nodeId: previewNode.id, 
+			originalEdgeInfo: originalEdgeInfo 
+		});
 		
-		this.eventBus.emit('preview:inserted', { nodeId: previewNode.id, linkId: link.id });
 		this.app.draw();
-		
+
 		return previewNode;
 	}
 
-	_removeLink(link) {
-		const orig = this.graph.getNodeById(link.origin_id);
-		const targ = this.graph.getNodeById(link.target_id);
-		
-		if (orig) {
-			const idx = orig.outputs[link.origin_slot].links.indexOf(link.id);
-			if (idx > -1) orig.outputs[link.origin_slot].links.splice(idx, 1);
-		}
-		
-		if (targ) {
-			if (targ.multiInputs && targ.multiInputs[link.target_slot]) {
-				const idx = targ.multiInputs[link.target_slot].links.indexOf(link.id);
-				if (idx > -1) targ.multiInputs[link.target_slot].links.splice(idx, 1);
-			} else {
-				targ.inputs[link.target_slot].link = null;
-			}
-		}
-		
-		delete this.graph.links[link.id];
-		this.eventBus.emit('link:deleted', { linkId: link.id });
-	}
-
+	/**
+	 * Remove a preview node and restore the original edge
+	 * Restores all accessory information (data, extra) from the preview node
+	 * @param {Node} node - Preview node to remove
+	 * @returns {Link|null} Restored link or null if failed
+	 */
 	removePreviewNode(node) {
-		if (!node || !node.isPreviewNode) return false;
-		
+		if (!node || !node.isPreviewNode) {
+			return null;
+		}
+
+		// Get original edge info stored on the preview node
+		const originalEdgeInfo = node._originalEdgeInfo;
+
 		// Get incoming and outgoing links
-		const inLink = node.inputs[0]?.link ? this.graph.links[node.inputs[0].link] : null;
-		const outLinks = node.outputs[0]?.links.map(id => this.graph.links[id]).filter(Boolean) || [];
-		
+		const inLinkId = node.inputs[0]?.link;
+		const outLinkIds = node.outputs[0]?.links || [];
+
+		const inLink = inLinkId ? this.graph.links[inLinkId] : null;
+		const outLinks = outLinkIds.map(id => this.graph.links[id]).filter(Boolean);
+
+		let restoredLink = null;
+
 		if (inLink && outLinks.length > 0) {
-			const orig = this.graph.getNodeById(inLink.origin_id);
-			const origSlot = inLink.origin_slot;
-			
+			const sourceNode = this.graph.getNodeById(inLink.origin_id);
+			const sourceSlotIdx = inLink.origin_slot;
+
 			// Reconnect each output target to original source
 			for (const outLink of outLinks) {
-				const targ = this.graph.getNodeById(outLink.target_id);
-				const targSlot = outLink.target_slot;
-				
-				if (orig && targ) {
+				const targetNode = this.graph.getNodeById(outLink.target_id);
+				const targetSlotIdx = outLink.target_slot;
+
+				if (sourceNode && targetNode) {
+					// Create restored link
 					const newLinkId = ++this.graph.last_link_id;
-					const newLink = new Link(newLinkId, orig.id, origSlot, targ.id, targSlot, inLink.type);
-					this.graph.links[newLinkId] = newLink;
-					orig.outputs[origSlot].links.push(newLinkId);
-					
-					if (targ.multiInputs && targ.multiInputs[targSlot]) {
-						targ.multiInputs[targSlot].links.push(newLinkId);
-					} else {
-						targ.inputs[targSlot].link = newLinkId;
+					const newLink = new Link(
+						newLinkId,
+						sourceNode.id,
+						sourceSlotIdx,
+						targetNode.id,
+						targetSlotIdx,
+						originalEdgeInfo?.linkType || inLink.type
+					);
+
+					// Restore accessory data from original edge info
+					if (originalEdgeInfo) {
+						if (originalEdgeInfo.data) {
+							newLink.data = JSON.parse(JSON.stringify(originalEdgeInfo.data));
+						}
+						if (originalEdgeInfo.extra) {
+							// Filter out internal tracking fields
+							const restoredExtra = JSON.parse(JSON.stringify(originalEdgeInfo.extra));
+							delete restoredExtra._isPreviewLink;
+							if (Object.keys(restoredExtra).length > 0) {
+								newLink.extra = restoredExtra;
+							}
+						}
 					}
+
+					this.graph.links[newLinkId] = newLink;
+					sourceNode.outputs[sourceSlotIdx].links.push(newLinkId);
+
+					// Handle multi-input target slots
+					if (targetNode.multiInputs && targetNode.multiInputs[targetSlotIdx]) {
+						targetNode.multiInputs[targetSlotIdx].links.push(newLinkId);
+					} else {
+						targetNode.inputs[targetSlotIdx].link = newLinkId;
+					}
+
+					this.eventBus.emit('link:created', { linkId: newLinkId });
+					restoredLink = newLink;
 				}
 			}
 		}
-		
-		// Remove the preview node
-		this.app.removeNode(node);
-		this.previewOverlay.hide();
-		
-		return true;
+
+		// Remove the preview node's links
+		if (inLink) {
+			this._removeLinkById(inLinkId);
+		}
+		for (const outLinkId of outLinkIds) {
+			this._removeLinkById(outLinkId);
+		}
+
+		// Remove the preview node from graph
+		const nodeIdx = this.graph.nodes.indexOf(node);
+		if (nodeIdx !== -1) {
+			this.graph.nodes.splice(nodeIdx, 1);
+		}
+		delete this.graph._nodes_by_id[node.id];
+
+		// Hide overlay if this node was expanded
+		if (this.previewOverlay.activeNode === node) {
+			this.previewOverlay.hide();
+		}
+
+		this.eventBus.emit('preview:removed', { 
+			nodeId: node.id,
+			restoredLinkId: restoredLink?.id,
+			originalEdgeInfo: originalEdgeInfo
+		});
+
+		this.app.draw();
+
+		return restoredLink;
+	}
+
+	/**
+	 * Remove a link by ID (helper method)
+	 * @param {number} linkId - Link ID to remove
+	 */
+	_removeLinkById(linkId) {
+		const link = this.graph.links[linkId];
+		if (!link) return;
+
+		const sourceNode = this.graph.getNodeById(link.origin_id);
+		const targetNode = this.graph.getNodeById(link.target_id);
+
+		if (sourceNode && sourceNode.outputs[link.origin_slot]) {
+			const idx = sourceNode.outputs[link.origin_slot].links.indexOf(linkId);
+			if (idx > -1) {
+				sourceNode.outputs[link.origin_slot].links.splice(idx, 1);
+			}
+		}
+
+		if (targetNode) {
+			if (targetNode.multiInputs && targetNode.multiInputs[link.target_slot]) {
+				const idx = targetNode.multiInputs[link.target_slot].links.indexOf(linkId);
+				if (idx > -1) {
+					targetNode.multiInputs[link.target_slot].links.splice(idx, 1);
+				}
+			} else if (targetNode.inputs[link.target_slot]) {
+				if (targetNode.inputs[link.target_slot].link === linkId) {
+					targetNode.inputs[link.target_slot].link = null;
+				}
+			}
+		}
+
+		delete this.graph.links[linkId];
+		this.eventBus.emit('link:deleted', { linkId });
+	}
+
+	/**
+	 * Remove a link object (wrapper for _removeLinkById)
+	 * @param {Link} link - Link to remove
+	 */
+	_removeLink(link) {
+		if (link && link.id !== undefined) {
+			this._removeLinkById(link.id);
+		}
 	}
 
 	_injectStyles() {
@@ -1044,6 +1242,17 @@ class EdgePreviewManager {
 				background: var(--sg-accent-blue);
 				color: #fff;
 			}
+
+			.sg-preview-context-menu .sg-context-menu-disabled {
+				opacity: 0.5;
+				cursor: not-allowed;
+				font-style: italic;
+			}
+
+			.sg-preview-context-menu .sg-context-menu-disabled:hover {
+				background: transparent;
+				color: inherit;
+			}
 		`;
 		
 		document.head.appendChild(style);
@@ -1059,17 +1268,34 @@ class EdgePreviewManager {
 	 * Add to EdgePreviewManager._setupEventListeners
 	 */
 	_setupEventListeners() {
-		// Track mouse for edge hover
-		this.eventBus.on('mouse:move', (data) => this._onMouseMove(data));
-		
-		// Handle edge click (Alt+Click to add preview)
-		this.eventBus.on('mouse:down', (data) => this._onMouseDown(data));
-		
-		// Handle double-click on preview node to expand
-		this.eventBus.on('mouse:dblclick', (data) => this._onDoubleClick(data));
-		
-		// Handle right-click for context menu
-		this.eventBus.on('contextmenu', (data) => this._onContextMenu(data));
+		this.eventBus.on('mouse:move'    , (data) => this._onMouseMove   (data));
+		this.eventBus.on('mouse:down'    , (data) => this._onMouseDown   (data));
+		this.eventBus.on('mouse:dblclick', (data) => this._onDoubleClick (data));
+		this.eventBus.on('contextmenu'   , (data) => this._onContextMenu (data));
+
+		// Add keyboard handler for Delete key
+		this._setupKeyboardHandler();
+	}
+
+	_setupKeyboardHandler() {
+		document.addEventListener('keydown', (e) => {
+			if (e.key === 'Delete' || e.key === 'Backspace') {
+				const selectedNodes = this.app.selectedNodes || [];
+				const previewNodesToRemove = selectedNodes.filter(n => n.isPreviewNode);
+				
+				if (previewNodesToRemove.length > 0) {
+					e.preventDefault();
+					e.stopPropagation();
+					
+					for (const node of previewNodesToRemove) {
+						this.removePreviewNode(node);
+					}
+					
+					// Update selection to remove deleted preview nodes
+					this.app.selectedNodes = selectedNodes.filter(n => !n.isPreviewNode);
+				}
+			}
+		});
 	}
 
 	/**
@@ -1643,37 +1869,6 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 		
 		api.preview = {
 			/**
-			 * Insert a preview node on a link
-			 * @param {number} linkId - Link ID
-			 * @returns {Node|null} Created preview node
-			 */
-			insertOnLink: (linkId) => {
-				const link = this.graph.links[linkId];
-				if (!link) return null;
-				
-				const orig = this.graph.getNodeById(link.origin_id);
-				const targ = this.graph.getNodeById(link.target_id);
-				if (!orig || !targ) return null;
-				
-				const midX = (orig.pos[0] + orig.size[0] + targ.pos[0]) / 2;
-				const midY = (orig.pos[1] + targ.pos[1]) / 2;
-				
-				return this.edgePreviewManager.insertPreviewNode(link, midX, midY);
-			},
-			
-			/**
-			 * Remove a preview node and reconnect the original link
-			 * @param {Node|string} nodeOrId - Preview node or ID
-			 * @returns {boolean} Success
-			 */
-			remove: (nodeOrId) => {
-				const node = typeof nodeOrId === 'string' 
-					? this.graph.getNodeById(nodeOrId) 
-					: nodeOrId;
-				return this.edgePreviewManager.removePreviewNode(node);
-			},
-			
-			/**
 			 * Get all preview nodes
 			 * @returns {Node[]} Array of preview nodes
 			 */
@@ -1716,6 +1911,35 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 			},
 
 			/**
+			 * Check if preview can be inserted on a link
+			 * @param {number} linkId - Link ID
+			 * @returns {{allowed: boolean, reason: string}} Result
+			 */
+			canInsertOnLink: (linkId) => {
+				const link = this.graph.links[linkId];
+				return this.edgePreviewManager.canInsertPreview(link);
+			},
+
+			/**
+			 * Insert a preview node on a link
+			 * @param {number} linkId - Link ID
+			 * @returns {Node|null} Created preview node
+			 */
+			insertOnLink: (linkId) => {
+				const link = this.graph.links[linkId];
+				if (!link) return null;
+				
+				const orig = this.graph.getNodeById(link.origin_id);
+				const targ = this.graph.getNodeById(link.target_id);
+				if (!orig || !targ) return null;
+				
+				const midX = (orig.pos[0] + orig.size[0] + targ.pos[0]) / 2;
+				const midY = (orig.pos[1] + targ.pos[1]) / 2;
+				
+				return this.edgePreviewManager.insertPreviewNode(link, midX, midY);
+			},
+
+			/**
 			 * Toggle preview on an edge (insert or remove preview node)
 			 * @param {number} linkId - Link ID
 			 * @returns {Node|null} Preview node if inserted, null if removed
@@ -1732,7 +1956,7 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 					return null;
 				}
 				
-				// Otherwise insert preview
+				// Otherwise try to insert preview
 				return api.preview.insertOnLink(linkId);
 			},
 
@@ -1763,6 +1987,24 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 			},
 
 			/**
+			 * Remove a preview node and get the restored link info
+			 * @param {Node|string} nodeOrId - Preview node or ID
+			 * @returns {{link: Link, originalEdgeInfo: Object}|null} Restored link and original info
+			 */
+			remove: (nodeOrId) => {
+				const node = typeof nodeOrId === 'string' 
+					? this.graph.getNodeById(nodeOrId) 
+					: nodeOrId;
+				
+				if (!node?.isPreviewNode) return null;
+				
+				const originalEdgeInfo = node._originalEdgeInfo;
+				const restoredLink = this.edgePreviewManager.removePreviewNode(node);
+				
+				return restoredLink ? { link: restoredLink, originalEdgeInfo } : null;
+			},
+
+			/**
 			 * Set preview state on edge (used during import)
 			 * @param {number} linkId - Link ID  
 			 * @param {boolean} enabled - Whether preview should be enabled
@@ -1786,7 +2028,7 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 
 			/**
 			 * Get all edges that have preview enabled
-			 * @returns {Array} Array of {linkId, previewNode} objects
+			 * @returns {Array} Array of {linkId, previewNode, originalEdgeInfo} objects
 			 */
 			listEdgesWithPreview: () => {
 				const result = [];
@@ -1798,7 +2040,8 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 					if (inputLink) {
 						result.push({
 							linkId: inputLink,
-							previewNode: node
+							previewNode: node,
+							originalEdgeInfo: node._originalEdgeInfo
 						});
 					}
 				}
@@ -1818,6 +2061,19 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 				if (!link) return null;
 				
 				return this.edgePreviewManager.insertPreviewNode(link, x, y);
+			},
+
+			/**
+			 * Get the original edge info stored on a preview node
+			 * @param {Node|string} nodeOrId - Preview node or ID
+			 * @returns {Object|null} Original edge info
+			 */
+			getOriginalEdgeInfo: (nodeOrId) => {
+				const node = typeof nodeOrId === 'string' 
+					? this.graph.getNodeById(nodeOrId) 
+					: nodeOrId;
+				
+				return node?.isPreviewNode ? node._originalEdgeInfo : null;
 			}
 		};
 		
@@ -1825,7 +2081,6 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 	};
 	
 	// Initialize preview manager after app init
-	const originalInit = SchemaGraphAppClass.prototype.ui ? null : undefined;
 	
 	const originalSetupEventListeners = SchemaGraphAppClass.prototype.setupEventListeners;
 	SchemaGraphAppClass.prototype.setupEventListeners = function() {
@@ -1833,6 +2088,23 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 		
 		// Initialize preview manager
 		this.edgePreviewManager = new EdgePreviewManager(this);
+	};
+
+	// Hook into removeNode to handle preview nodes
+	const originalRemoveNode = SchemaGraphAppClass.prototype.removeNode;
+	SchemaGraphAppClass.prototype.removeNode = function(node) {
+		if (!node) return;
+		
+		// If this is a preview node, use the preview manager
+		if (node.isPreviewNode && this.edgePreviewManager) {
+			this.edgePreviewManager.removePreviewNode(node);
+			return;
+		}
+		
+		// For non-preview nodes, use original method
+		if (originalRemoveNode) {
+			originalRemoveNode.call(this, node);
+		}
 	};
 }
 
