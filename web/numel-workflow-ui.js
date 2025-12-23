@@ -575,7 +575,8 @@ async function startExecution() {
 		const workflowName = visualizer.currentWorkflowName;
 		addLog('info', `⏳ Starting "${workflowName}"...`);
 
-		const response = await client.startWorkflow(workflowName, {});
+		const initialData = {};
+		const response = await client.startWorkflow(workflowName, initialData);
 
 		if (response.status !== 'started') {
 			throw new Error('Failed to start workflow');
