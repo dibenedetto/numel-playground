@@ -494,10 +494,15 @@ class EdgePreviewManager {
 			return;
 		}
 		
+		// Skip edge hover detection when locked
+		if (this.app.isLocked) {
+			this.hoveredLink = null;
+			return;
+		}
+		
 		const [wx, wy] = this.app.screenToWorld(data.coords.screenX, data.coords.screenY);
 		const link = this._findLinkAtPosition(wx, wy);
 		
-		// Only set hoveredLink if preview can be inserted on this edge
 		if (link) {
 			const check = this.canInsertPreview(link);
 			if (check.allowed) {
@@ -514,6 +519,9 @@ class EdgePreviewManager {
 	_onMouseDown(data) {
 		if (data.button !== 0) return;
 		if (this.app.connecting || this.app.dragNode) return;
+		
+		// Block preview insertion when locked
+		if (this.app.isLocked) return;
 		
 		const [wx, wy] = this.app.screenToWorld(data.coords.screenX, data.coords.screenY);
 		const link = this._findLinkAtPosition(wx, wy);
@@ -619,6 +627,12 @@ class EdgePreviewManager {
 	 * @returns {Node|null} Created preview node or null if not allowed
 	 */
 	insertPreviewNode(link, wx, wy) {
+		// Check if graph is locked
+		if (this.app.isLocked) {
+			console.warn('Cannot insert preview: graph is locked');
+			return null;
+		}
+
 		// Check if insertion is allowed
 		const check = this.canInsertPreview(link);
 		if (!check.allowed) {
@@ -626,7 +640,7 @@ class EdgePreviewManager {
 			this.app.showError?.(`Cannot insert preview: ${check.reason}`);
 			return null;
 		}
-
+	
 		const sourceNode = this.graph.getNodeById(link.origin_id);
 		const targetNode = this.graph.getNodeById(link.target_id);
 
@@ -724,6 +738,12 @@ class EdgePreviewManager {
 	 * @returns {Link|null} Restored link or null if failed
 	 */
 	removePreviewNode(node) {
+		// Check if graph is locked
+		if (this.app.isLocked) {
+			console.warn('Cannot remove preview: graph is locked');
+			return null;
+		}
+
 		if (!node || !node.isPreviewNode) {
 			return null;
 		}
@@ -1279,6 +1299,9 @@ class EdgePreviewManager {
 
 	_setupKeyboardHandler() {
 		document.addEventListener('keydown', (e) => {
+			// Block preview deletion when locked
+			if (this.app.isLocked) return;
+			
 			if (e.key === 'Delete' || e.key === 'Backspace') {
 				const selectedNodes = this.app.selectedNodes || [];
 				const previewNodesToRemove = selectedNodes.filter(n => n.isPreviewNode);
@@ -1291,7 +1314,6 @@ class EdgePreviewManager {
 						this.removePreviewNode(node);
 					}
 					
-					// Update selection to remove deleted preview nodes
 					this.app.selectedNodes = selectedNodes.filter(n => !n.isPreviewNode);
 				}
 			}
@@ -1302,6 +1324,10 @@ class EdgePreviewManager {
 	 * Handle right-click context menu on edges
 	 */
 	_onContextMenu(data) {
+		if (this.app.isLocked) {
+			return;
+		}
+	
 		const [wx, wy] = this.app.screenToWorld(data.coords.screenX, data.coords.screenY);
 		
 		// Check if clicking on an edge
@@ -1791,65 +1817,123 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 // Draw hovered edge highlight
 // ========================================================================
 
+// ========================================================================
+// REPLACEMENT for extendDrawLinksForPreview in schemagraph-preview-ext.js
+// Uses theme-based curve parameters instead of hardcoded values
+// ========================================================================
+
 function extendDrawLinksForPreview(SchemaGraphAppClass) {
 	const originalDrawLinks = SchemaGraphAppClass.prototype.drawLinks;
 	
 	SchemaGraphAppClass.prototype.drawLinks = function(colors) {
 		originalDrawLinks.call(this, colors);
 		
-		// Draw hovered link highlight
+		// Draw hovered link highlight using theme style
 		if (this.edgePreviewManager?.hoveredLink) {
 			const link = this.edgePreviewManager.hoveredLink;
 			const orig = this.graph.getNodeById(link.origin_id);
 			const targ = this.graph.getNodeById(link.target_id);
 			
 			if (orig && targ) {
+				const style = this.drawingStyleManager.getStyle();
+				
 				const x1 = orig.pos[0] + orig.size[0];
 				const y1 = orig.pos[1] + 33 + link.origin_slot * 25;
 				const x2 = targ.pos[0];
 				const y2 = targ.pos[1] + 33 + link.target_slot * 25;
 				
-				const dx = x2 - x1;
-				const controlOffset = Math.min(Math.abs(dx) * 0.5, 200);
+				// Use theme's linkCurve parameter (matches drawLinks in schemagraph.js)
+				const distance = Math.abs(x2 - x1);
+				const maxControlDistance = 400;
+				const controlOffset = Math.min(distance * style.linkCurve, maxControlDistance);
+				const cx1 = x1 + controlOffset;
+				const cx2 = x2 - controlOffset;
 				
 				// Glow effect
 				this.ctx.strokeStyle = '#46a2da';
-				this.ctx.lineWidth = 6 / this.camera.scale;
+				this.ctx.lineWidth = (style.linkWidth + 4) / this.camera.scale;
 				this.ctx.globalAlpha = 0.3;
 				
+				if (style.useGlow) {
+					this.ctx.shadowColor = '#46a2da';
+					this.ctx.shadowBlur = 10 / this.camera.scale;
+				}
+				
 				this.ctx.beginPath();
-				this.ctx.moveTo(x1, y1);
-				this.ctx.bezierCurveTo(x1 + controlOffset, y1, x2 - controlOffset, y2, x2, y2);
+				if (style.linkCurve > 0) {
+					this.ctx.moveTo(x1, y1);
+					this.ctx.bezierCurveTo(cx1, y1, cx2, y2, x2, y2);
+				} else {
+					this.ctx.moveTo(x1, y1);
+					this.ctx.lineTo(x2, y2);
+				}
 				this.ctx.stroke();
 				
-				// Highlight
+				// Highlight line
 				this.ctx.strokeStyle = '#82c4ec';
-				this.ctx.lineWidth = 3 / this.camera.scale;
+				this.ctx.lineWidth = (style.linkWidth + 1) / this.camera.scale;
 				this.ctx.globalAlpha = 1.0;
+				this.ctx.shadowBlur = 0;
+				
+				if (style.useDashed) {
+					this.ctx.setLineDash([8 / this.camera.scale, 4 / this.camera.scale]);
+				}
 				
 				this.ctx.beginPath();
-				this.ctx.moveTo(x1, y1);
-				this.ctx.bezierCurveTo(x1 + controlOffset, y1, x2 - controlOffset, y2, x2, y2);
+				if (style.linkCurve > 0) {
+					this.ctx.moveTo(x1, y1);
+					this.ctx.bezierCurveTo(cx1, y1, cx2, y2, x2, y2);
+				} else {
+					this.ctx.moveTo(x1, y1);
+					this.ctx.lineTo(x2, y2);
+				}
 				this.ctx.stroke();
 				
-				// Draw hint text
+				if (style.useDashed) {
+					this.ctx.setLineDash([]);
+				}
+				
+				// Draw hint text at midpoint of curve
 				const midT = 0.5;
 				const mt = 1 - midT;
-				const midX = mt*mt*mt*x1 + 3*mt*mt*midT*(x1+controlOffset) + 3*mt*midT*midT*(x2-controlOffset) + midT*midT*midT*x2;
-				const midY = mt*mt*mt*y1 + 3*mt*mt*midT*y1 + 3*mt*midT*midT*y2 + midT*midT*midT*y2;
+				let midX, midY;
+				
+				if (style.linkCurve > 0) {
+					// Cubic bezier midpoint
+					midX = mt*mt*mt*x1 + 3*mt*mt*midT*cx1 + 3*mt*midT*midT*cx2 + midT*midT*midT*x2;
+					midY = mt*mt*mt*y1 + 3*mt*mt*midT*y1 + 3*mt*midT*midT*y2 + midT*midT*midT*y2;
+				} else {
+					// Linear midpoint
+					midX = (x1 + x2) / 2;
+					midY = (y1 + y2) / 2;
+				}
 				
 				const textScale = this.getTextScale();
-				this.ctx.fillStyle = 'rgba(70, 162, 218, 0.9)';
-				this.ctx.font = `bold ${10 * textScale}px Arial`;
+				const hintText = 'Alt+Click to add Preview';
+				
+				this.ctx.font = `bold ${10 * textScale}px ${style.textFont}`;
 				this.ctx.textAlign = 'center';
 				this.ctx.textBaseline = 'middle';
 				
 				// Background for text
-				const hintText = 'Alt+Click to add Preview';
 				const textWidth = this.ctx.measureText(hintText).width;
-				this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-				this.ctx.fillRect(midX - textWidth/2 - 4, midY - 8, textWidth + 8, 16);
+				this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+				this.ctx.beginPath();
+				this.ctx.roundRect(
+					midX - textWidth/2 - 6, 
+					midY - 10, 
+					textWidth + 12, 
+					20, 
+					4
+				);
+				this.ctx.fill();
 				
+				// Border
+				this.ctx.strokeStyle = '#46a2da';
+				this.ctx.lineWidth = 1 / this.camera.scale;
+				this.ctx.stroke();
+				
+				// Text
 				this.ctx.fillStyle = '#82c4ec';
 				this.ctx.fillText(hintText, midX, midY);
 			}
@@ -1874,19 +1958,6 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 			 */
 			list: () => {
 				return this.graph.nodes.filter(n => n.isPreviewNode);
-			},
-			
-			/**
-			 * Remove all preview nodes
-			 * @returns {number} Count of removed nodes
-			 */
-			removeAll: () => {
-				const previewNodes = this.graph.nodes.filter(n => n.isPreviewNode);
-				let count = 0;
-				for (const node of previewNodes) {
-					if (this.edgePreviewManager.removePreviewNode(node)) count++;
-				}
-				return count;
 			},
 			
 			/**
@@ -1926,6 +1997,11 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 			 * @returns {Node|null} Created preview node
 			 */
 			insertOnLink: (linkId) => {
+				if (this.isLocked) {
+					console.warn('Cannot insert preview: graph is locked');
+					return null;
+				}
+				
 				const link = this.graph.links[linkId];
 				if (!link) return null;
 				
@@ -1987,11 +2063,34 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 			},
 
 			/**
-			 * Remove a preview node and get the restored link info
+			 * Remove all preview nodes
+			 * @returns {number} Count of removed nodes
+			 */
+			removeAll: () => {
+				if (this.isLocked) {
+					console.warn('Cannot remove previews: graph is locked');
+					return 0;
+				}
+				
+				const previewNodes = this.graph.nodes.filter(n => n.isPreviewNode);
+				let count = 0;
+				for (const node of previewNodes) {
+					if (this.edgePreviewManager.removePreviewNode(node)) count++;
+				}
+				return count;
+			},
+
+			/**
+			 * Remove a preview node
 			 * @param {Node|string} nodeOrId - Preview node or ID
-			 * @returns {{link: Link, originalEdgeInfo: Object}|null} Restored link and original info
+			 * @returns {{link: Link, originalEdgeInfo: Object}|null}
 			 */
 			remove: (nodeOrId) => {
+				if (this.isLocked) {
+					console.warn('Cannot remove preview: graph is locked');
+					return null;
+				}
+				
 				const node = typeof nodeOrId === 'string' 
 					? this.graph.getNodeById(nodeOrId) 
 					: nodeOrId;

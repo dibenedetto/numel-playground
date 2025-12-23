@@ -168,6 +168,10 @@ async function connect() {
 }
 
 async function disconnect() {
+	if (schemaGraph?.api?.lock?.isLocked()) {
+		schemaGraph.api.lock.unlock();
+	}
+
 	if (client) {
 		client.disconnectWebSocket();
 		client = null;
@@ -224,24 +228,40 @@ function setupClientEvents() {
 		$('execId').textContent = event.execution_id.substring(0, 8) + '...';
 		enableStart(false);
 		visualizer?.clearNodeStates();
+		
+		// LOCK GRAPH during execution
+		schemaGraph.api.lock.lock('Workflow running');
+		
 		addLog('info', `▶️ Workflow started`);
 	});
 
 	client.on('workflow.completed', (event) => {
 		setExecStatus('completed', 'Completed');
 		enableStart(true);
+		
+		// UNLOCK GRAPH after completion
+		schemaGraph.api.lock.unlock();
+		
 		addLog('success', `✅ Workflow completed`);
 	});
 
 	client.on('workflow.failed', (event) => {
 		setExecStatus('failed', 'Failed');
 		enableStart(true);
+		
+		// UNLOCK GRAPH after failure
+		schemaGraph.api.lock.unlock();
+		
 		addLog('error', `❌ Workflow failed: ${event.error || 'Unknown error'}`);
 	});
 
 	client.on('workflow.cancelled', (event) => {
 		setExecStatus('idle', 'Cancelled');
 		enableStart(true);
+		
+		// UNLOCK GRAPH after cancellation
+		schemaGraph.api.lock.unlock();
+		
 		addLog('warning', `⏹️ Workflow cancelled`);
 	});
 

@@ -1425,6 +1425,63 @@ class SchemaGraphApp {
 		
 		this.textScalingMode = 'fixed';
 		this.loadTextScalingMode();
+
+		// Add lock mode state
+		this.isLocked = false;
+		this.lockReason = null;
+	}
+
+	/**
+	 * Lock the graph to prevent modifications (only node movement allowed)
+	 * @param {string} reason - Reason for locking (shown in UI)
+	 */
+	lock(reason = 'Graph locked') {
+		if (this.isLocked) return;
+		
+		this.isLocked = true;
+		this.lockReason = reason;
+		
+		// Cancel any in-progress operations
+		this.connecting = null;
+		this.selectionRect = null;
+		this.selectionStart = null;
+		this.editingNode = null;
+		
+		// Hide context menu
+		document.getElementById('sg-contextMenu')?.classList.remove('show');
+		
+		// Hide any open dialogs
+		document.getElementById('sg-schemaDialog')?.classList.remove('show');
+		document.getElementById('sg-schemaRemovalDialog')?.classList.remove('show');
+		
+		// Update cursor
+		this.canvas.classList.add('sg-locked');
+		
+		this.eventBus.emit('graph:locked', { reason });
+		this.draw();
+	}
+
+	/**
+	 * Unlock the graph to allow modifications
+	 */
+	unlock() {
+		if (!this.isLocked) return;
+		
+		this.isLocked = false;
+		this.lockReason = null;
+		
+		this.canvas.classList.remove('sg-locked');
+		
+		this.eventBus.emit('graph:unlocked', {});
+		this.draw();
+	}
+
+	/**
+	 * Check if graph is locked
+	 * @returns {boolean}
+	 */
+	isGraphLocked() {
+		return this.isLocked;
 	}
 
 	injectDialogHTML() {
@@ -2274,6 +2331,7 @@ class SchemaGraphApp {
 		
 		const [wx, wy] = this.screenToWorld(data.coords.screenX, data.coords.screenY);
 		
+		// Allow panning even when locked
 		if (data.button === 1 || (data.button === 0 && this.spacePressed)) {
 			data.event.preventDefault();
 			this.isPanning = true;
@@ -2284,35 +2342,44 @@ class SchemaGraphApp {
 		
 		if (data.button !== 0 || this.spacePressed) return;
 		
-		for (const node of this.graph.nodes) {
-			for (let j = 0; j < node.outputs.length; j++) {
-				const slotY = node.pos[1] + 30 + j * 25;
-				const dist = Math.sqrt(Math.pow(wx - (node.pos[0] + node.size[0]), 2) + Math.pow(wy - slotY, 2));
-				if (dist < 10) {
-					this.connecting = { node, slot: j, isOutput: true };
-					this.canvas.classList.add('connecting');
-					return;
-				}
-			}
-		}
-		
-		for (const node of this.graph.nodes) {
-			for (let j = 0; j < node.inputs.length; j++) {
-				const slotY = node.pos[1] + 30 + j * 25;
-				const dist = Math.sqrt(Math.pow(wx - node.pos[0], 2) + Math.pow(wy - slotY, 2));
-				if (dist < 10) {
-					if (!node.multiInputs || !node.multiInputs[j]) {
-						if (node.inputs[j].link) {
-							this.removeLink(node.inputs[j].link, node, j);
-						}
+		// LOCK CHECK: Block connection creation when locked
+		if (this.isLocked) {
+			// Skip slot detection for connection creation
+			// Fall through to node selection/dragging only
+		} else {
+			// Output slot detection (connection start)
+			for (const node of this.graph.nodes) {
+				for (let j = 0; j < node.outputs.length; j++) {
+					const slotY = node.pos[1] + 30 + j * 25;
+					const dist = Math.sqrt(Math.pow(wx - (node.pos[0] + node.size[0]), 2) + Math.pow(wy - slotY, 2));
+					if (dist < 10) {
+						this.connecting = { node, slot: j, isOutput: true };
+						this.canvas.classList.add('connecting');
+						return;
 					}
-					this.connecting = { node, slot: j, isOutput: false };
-					this.canvas.classList.add('connecting');
-					return;
+				}
+			}
+			
+			// Input slot detection (connection start / disconnect)
+			for (const node of this.graph.nodes) {
+				for (let j = 0; j < node.inputs.length; j++) {
+					const slotY = node.pos[1] + 30 + j * 25;
+					const dist = Math.sqrt(Math.pow(wx - node.pos[0], 2) + Math.pow(wy - slotY, 2));
+					if (dist < 10) {
+						if (!node.multiInputs || !node.multiInputs[j]) {
+							if (node.inputs[j].link) {
+								this.removeLink(node.inputs[j].link, node, j);
+							}
+						}
+						this.connecting = { node, slot: j, isOutput: false };
+						this.canvas.classList.add('connecting');
+						return;
+					}
 				}
 			}
 		}
 		
+		// Node selection and dragging (ALLOWED when locked)
 		let clickedNode = null;
 		for (let i = this.graph.nodes.length - 1; i >= 0; i--) {
 			const node = this.graph.nodes[i];
@@ -2337,6 +2404,7 @@ class SchemaGraphApp {
 			return;
 		}
 		
+		// Box selection (ALLOWED when locked - just for viewing)
 		if (!data.event.ctrlKey && !data.event.metaKey) {
 			this.clearSelection();
 		}
@@ -2524,6 +2592,10 @@ class SchemaGraphApp {
 	}
 
 	handleDoubleClick(data) {
+		if (this.isLocked) {
+			return;
+		}
+	
 		const [wx, wy] = this.screenToWorld(data.coords.screenX, data.coords.screenY);
 		
 		for (const node of this.graph.nodes) {
@@ -2608,6 +2680,11 @@ class SchemaGraphApp {
 	}
 
 	handleContextMenu(data) {
+		if (this.isLocked) {
+			data.event.preventDefault();
+			return;
+		}
+	
 		const [wx, wy] = this.screenToWorld(data.coords.screenX, data.coords.screenY);
 		
 		let clickedNode = null;
@@ -2764,8 +2841,8 @@ class SchemaGraphApp {
 
 	handleKeyDown(data) {
 		const isTyping = data.event.target.tagName === 'INPUT' || 
-										 data.event.target.tagName === 'TEXTAREA' ||
-										 data.event.target.isContentEditable;
+										data.event.target.tagName === 'TEXTAREA' ||
+										data.event.target.isContentEditable;
 		
 		if (data.code === 'Space' && !this.spacePressed && !this.editingNode && !isTyping) {
 			data.event.preventDefault();
@@ -2773,11 +2850,17 @@ class SchemaGraphApp {
 			this.canvas.style.cursor = 'grab';
 		}
 		
-		if ((data.key === 'Delete' || data.key === 'Backspace') && this.selectedNodes.size > 0 && !this.editingNode && !isTyping) {
+		// LOCK CHECK: Block delete when locked
+		if ((data.key === 'Delete' || data.key === 'Backspace') && 
+				this.selectedNodes.size > 0 && !this.editingNode && !isTyping) {
+			if (this.isLocked) {
+				return; // Block deletion
+			}
 			data.event.preventDefault();
 			this.deleteSelectedNodes();
 		}
 		
+		// Ctrl+A select all - still allowed when locked (for viewing)
 		if ((data.event.ctrlKey || data.event.metaKey) && data.key === 'a' && !this.editingNode && !isTyping) {
 			data.event.preventDefault();
 			this.clearSelection();
@@ -2790,12 +2873,14 @@ class SchemaGraphApp {
 			this.clearSelection();
 		}
 		
+		// LOCK CHECK: Block save/export shortcuts when locked (optional)
 		if ((data.event.ctrlKey || data.event.metaKey) && data.key === 's' && !isTyping) {
 			data.event.preventDefault();
 			this.eventBus.emit('ui:export-graph', {});
 		}
 		
 		if ((data.event.ctrlKey || data.event.metaKey) && data.key === 'o' && !isTyping) {
+			if (this.isLocked) return; // Block import when locked
 			data.event.preventDefault();
 			this.eventBus.emit('ui:import-graph', {});
 		}
@@ -4608,6 +4693,32 @@ class SchemaGraphApp {
 		}
 		
 		this.ctx.restore();
+
+		if (this.isLocked) {
+			// Draw lock indicator in corner
+			this.ctx.save();
+			
+			const padding = 10;
+			const text = `🔒 ${this.lockReason || 'Locked'}`;
+			const textScale = 1;
+			
+			this.ctx.font = `bold ${12 * textScale}px Arial, sans-serif`;
+			const textWidth = this.ctx.measureText(text).width;
+			
+			// Background
+			this.ctx.fillStyle = 'rgba(220, 100, 100, 0.9)';
+			this.ctx.beginPath();
+			this.ctx.roundRect(padding, padding, textWidth + 16, 28, 6);
+			this.ctx.fill();
+			
+			// Text
+			this.ctx.fillStyle = '#fff';
+			this.ctx.textAlign = 'left';
+			this.ctx.textBaseline = 'middle';
+			this.ctx.fillText(text, padding + 8, padding + 14);
+			
+			this.ctx.restore();
+		}
 	}
 
 	drawGrid(colors) {
@@ -5253,7 +5364,6 @@ class SchemaGraphApp {
 		return '#' + ((r << 16) | (g << 8) | b).toString(16).padStart(6, '0');
 	}
 
-
 	/**
 	 * Create the SchemaGraph API object
 	 * Called once during initialization
@@ -5261,6 +5371,39 @@ class SchemaGraphApp {
 	 */
 	_createAPI() {
 		return {
+			lock: {
+				/**
+				 * Lock the graph
+				 * @param {string} reason - Lock reason
+				 */
+				lock: (reason) => {
+					this.lock(reason);
+				},
+				
+				/**
+				 * Unlock the graph
+				 */
+				unlock: () => {
+					this.unlock();
+				},
+				
+				/**
+				 * Check if locked
+				 * @returns {boolean}
+				 */
+				isLocked: () => {
+					return this.isLocked;
+				},
+				
+				/**
+				 * Get lock reason
+				 * @returns {string|null}
+				 */
+				getReason: () => {
+					return this.lockReason;
+				}
+			},
+
 			schema: {
 				/**
 				 * Register a schema from code string
@@ -6446,7 +6589,7 @@ class SchemaGraphApp {
 					});
 					return allMethods;
 				}
-			}
+			},
 		};
 	}
 

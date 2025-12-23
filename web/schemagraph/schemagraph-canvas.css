@@ -571,3 +571,13 @@
 .sg-toolbar-content::-webkit-scrollbar-thumb:hover {
   background: var(--sg-text-tertiary, #707070);
 }
+
+
+/* Locking */
+.sg-locked {
+	cursor: not-allowed !important;
+}
+
+.sg-locked.dragging {
+	cursor: grabbing !important;
+}
