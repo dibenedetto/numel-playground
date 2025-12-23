@@ -95,7 +95,7 @@ const areSemanticallyEqual = (obj1, obj2, checkDataOrder = false) => {
 	const val2 = _obj2[prop];
 
 	if (typeof val1 === "object" && typeof val2 === "object") {
-	  if (isEqual(val1, val2, checkDataOrder)) {
+	  if (areSemanticallyEqual(val1, val2, checkDataOrder)) {
 		continue;
 	  } else {
 		return false;

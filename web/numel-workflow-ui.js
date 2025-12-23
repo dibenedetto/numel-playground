@@ -9,8 +9,7 @@ let schemaGraph = null;
 let currentExecutionId = null;
 let pendingRemoveName = null;
 let singleMode = true;
-let workflowDirty = false;
-let workflowSynced = false;
+let previousWorkflow = null;
 
 // DOM Elements
 const $ = id => document.getElementById(id);
@@ -186,8 +185,7 @@ async function disconnect() {
 	visualizer.graphNodes = [];
 
 	currentExecutionId = null;
-	workflowDirty = false;
-	workflowSynced = false;
+	previousWorkflow = null;
 	
 	$('connectBtn').textContent = 'Connect';
 	$('connectBtn').classList.remove('nw-btn-danger');
@@ -330,6 +328,8 @@ async function loadSelectedWorkflow() {
 	const name = $('workflowSelect').value;
 	if (!name || !client) return;
 
+	previousWorkflow = null;
+
 	try {
 		addLog('info', `📂 Loading "${name}"...`);
 		const response = await client.getWorkflow(name);
@@ -345,8 +345,6 @@ async function loadSelectedWorkflow() {
 
 		$('downloadWorkflowBtn').disabled = false;
 		enableStart(true);
-		workflowDirty = false;
-		workflowSynced = true;
 		addLog('success', `✅ Loaded "${name}"`);
 
 	} catch (error) {
@@ -398,6 +396,8 @@ async function handleSingleImport(event) {
 	const file = event.target.files?.[0];
 	if (!file) return;
 
+	previousWorkflow = null;
+
 	try {
 		const text = await file.text();
 		const workflow = JSON.parse(text);
@@ -408,14 +408,9 @@ async function handleSingleImport(event) {
 
 		// Load into visualizer (memory only)
 		const loaded = visualizer.loadWorkflow(workflow, file.name.replace('.json', ''));
-		
 		if (loaded) {
-			workflowDirty = true;
-			workflowSynced = false;
-			
 			enableStart(true);
 			$('singleWorkflowName').textContent = visualizer.currentWorkflowName || 'Untitled';
-			
 			addLog('success', `📂 Imported "${visualizer.currentWorkflowName}" (local)`);
 		}
 
@@ -502,16 +497,15 @@ async function confirmRemoveWorkflow() {
 function clearWorkflow() {
 	if (!visualizer.currentWorkflow) return;
 
+	previousWorkflow = null;
+
 	schemaGraph.api.graph.clear();
 	schemaGraph.api.view.reset();
 	
 	visualizer.currentWorkflow = null;
 	visualizer.currentWorkflowName = null;
 	visualizer.graphNodes = [];
-	
-	workflowDirty = false;
-	workflowSynced = false;
-	
+
 	$('downloadWorkflowBtn').disabled = true;
 	$('singleDownloadBtn'  ).disabled = true;
 	$('startBtn'           ).disabled = true;
@@ -526,6 +520,7 @@ function clearWorkflow() {
 
 function toggleWorkflowMode() {
 	singleMode = $('singleModeSwitch').checked;
+	previousWorkflow = null;
 	
 	$('multiWorkflowControls').style.display = singleMode ? 'none' : 'block';
 	$('singleWorkflowControls').style.display = singleMode ? 'block' : 'none';
@@ -536,12 +531,6 @@ function toggleWorkflowMode() {
 	} else {
 		$('singleImportBtn').disabled = true;
 		$('singleDownloadBtn').disabled = true;
-	}
-	
-	// Reset sync state when switching modes
-	if (singleMode) {
-		workflowDirty = !!visualizer.currentWorkflow;
-		workflowSynced = false;
 	}
 	
 	addLog('info', singleMode ? '📄 Single workflow mode' : '📚 Multi workflow mode');
@@ -560,26 +549,22 @@ async function startExecution() {
 	try {
 		enableStart(false);
 
-		const workflow = visualizer.exportWorkflow();
-		workflowDirty ||= !areSemanticallyEqual(workflow, visualizer.currentWorkflow);
-
 		// In single mode, sync to backend if dirty
-		if (singleMode && workflowDirty && !workflowSynced) {
-			addLog('info', '⏳ Syncing workflow to backend...');
-			
-			// const workflow = visualizer.exportWorkflow();
-			const name = visualizer.currentWorkflowName || 'single_workflow';
-			
-			const response = await client.addWorkflow(workflow, name);
-			
-			if (response.status === 'added' || response.status === 'updated') {
-				workflowSynced = true;
-				workflowDirty = false;
-				visualizer.currentWorkflowName = response.name;
-				$('singleWorkflowName').textContent = response.name;
-				addLog('success', `✅ Synced "${response.name}"`);
-			} else {
-				throw new Error('Failed to sync workflow');
+		if (singleMode) {
+			const workflow = visualizer.exportWorkflow();
+			const workflowDirty = !areSemanticallyEqual(workflow, previousWorkflow, true);
+			if (workflowDirty) {
+				previousWorkflow = JSON.parse(JSON.stringify(workflow))
+				addLog('info', '⏳ Syncing workflow to backend...');
+				const name = visualizer.currentWorkflowName || 'single_workflow';
+				const response = await client.addWorkflow(workflow, name);
+				if (response.status === 'added' || response.status === 'updated') {
+					visualizer.currentWorkflowName = response.name;
+					$('singleWorkflowName').textContent = response.name;
+					addLog('success', `✅ Synced "${response.name}"`);
+				} else {
+					throw new Error('Failed to sync workflow');
+				}
 			}
 		}
 
