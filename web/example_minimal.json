@@ -1,0 +1,24 @@
+{
+	"type"  : "workflow",
+	"extra" : {
+		"exec_delay_sec" : 0,
+		"node_delay_sec" : 1
+	},
+	"nodes" : [
+		{
+			"type" : "start_node"
+		},
+		{
+			"type" : "end_node"
+		}
+	],
+	"edges" : [
+		{
+			"source"      : 0,
+			"target"      : 1,
+			"source_slot" : "pin",
+			"target_slot" : "pin",
+			"preview"     : true
+		}
+	]
+}
