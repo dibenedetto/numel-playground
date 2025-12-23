@@ -2,6 +2,9 @@
    NUMEL WORKFLOW UI - User Interface Logic
    ======================================================================== */
 
+// Constants
+const _FORCE_PREVIEW_ON_SAME_DATA = true;
+
 // Global State
 let client = null;
 let visualizer = null;
@@ -669,8 +672,8 @@ function updateConnectedPreviews(workflowNodeIdx, outputs) {
  */
 function updatePreviewNode(previewNode, data, previewManager) {
 	// Store previous data for comparison
-	const hadData = previewNode.previewData !== null && previewNode.previewData !== undefined;
-	const dataChanged = !deepEqual(previewNode.previewData, data);
+	// const hadData = previewNode.previewData !== null && previewNode.previewData !== undefined;
+	const dataChanged = _FORCE_PREVIEW_ON_SAME_DATA || !deepEqual(previewNode.previewData, data);
 	
 	// Update node data
 	previewNode.previewData = data;

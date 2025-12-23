@@ -1657,7 +1657,7 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 		this.ctx.textBaseline = 'middle';
 		this.ctx.textAlign = 'left';
 		
-		const title = flashIntensity > 0.5 ? '🔄 Preview' : '👁 Preview';
+		const title = `Preview ${flashIntensity > 0.5 ? '🔄' : '👁'}`;
 		this.ctx.fillText(title, x + 8, y + 13);
 		
 		// Live pulse indicator during flash
