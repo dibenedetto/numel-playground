@@ -459,14 +459,10 @@ class EdgePreviewManager {
 	}
 
 	_setupEventListeners() {
-		// Track mouse for edge hover
-		this.eventBus.on('mouse:move', (data) => this._onMouseMove(data));
-		
-		// Handle edge click
-		this.eventBus.on('mouse:down', (data) => this._onMouseDown(data));
-		
-		// Handle double-click on preview node to expand
-		this.eventBus.on('mouse:dblclick', (data) => this._onDoubleClick(data));
+		this.eventBus.on('mouse:move'    , (data) => this._onMouseMove   (data));
+		this.eventBus.on('mouse:down'    , (data) => this._onMouseDown   (data));
+		this.eventBus.on('mouse:dblclick', (data) => this._onDoubleClick (data));
+		this.eventBus.on('contextmenu'   , (data) => this._onContextMenu (data));
 	}
 
 	_onMouseMove(data) {
@@ -877,8 +873,8 @@ class EdgePreviewManager {
 			}
 
 			/* ========================================================================
-			PREVIEW FLASH ANIMATIONS - Add to existing preview styles
-			======================================================================== */
+			   PREVIEW FLASH ANIMATIONS - Add to existing preview styles
+			   ======================================================================== */
 
 			/* Overlay flash animation */
 			.sg-preview-overlay.flash {
@@ -1030,9 +1026,281 @@ class EdgePreviewManager {
 					opacity: 0;
 				}
 			}
+
+			/* Context menu styles for preview */
+			.sg-preview-context-menu {
+				min-width: 180px;
+			}
+
+			.sg-preview-context-menu .sg-context-menu-divider {
+				height: 1px;
+				background: var(--sg-border-color, #1a1a1a);
+				margin: 4px 0;
+				padding: 0;
+				pointer-events: none;
+			}
+
+			.sg-preview-context-menu .sg-context-menu-item:hover {
+				background: var(--sg-accent-blue);
+				color: #fff;
+			}
 		`;
 		
 		document.head.appendChild(style);
+	}
+
+	// ========================================================================
+	// EDGE PREVIEW CONTEXT MENU
+	// Add right-click menu option to toggle preview on edges
+	// Add to EdgePreviewManager in schemagraph-preview-ext.js
+	// ========================================================================
+
+	/**
+	 * Add to EdgePreviewManager._setupEventListeners
+	 */
+	_setupEventListeners() {
+		// Track mouse for edge hover
+		this.eventBus.on('mouse:move', (data) => this._onMouseMove(data));
+		
+		// Handle edge click (Alt+Click to add preview)
+		this.eventBus.on('mouse:down', (data) => this._onMouseDown(data));
+		
+		// Handle double-click on preview node to expand
+		this.eventBus.on('mouse:dblclick', (data) => this._onDoubleClick(data));
+		
+		// Handle right-click for context menu
+		this.eventBus.on('contextmenu', (data) => this._onContextMenu(data));
+	}
+
+	/**
+	 * Handle right-click context menu on edges
+	 */
+	_onContextMenu(data) {
+		const [wx, wy] = this.app.screenToWorld(data.coords.screenX, data.coords.screenY);
+		
+		// Check if clicking on an edge
+		const link = this._findLinkAtPosition(wx, wy);
+		if (link) {
+			data.event.preventDefault();
+			this._showEdgeContextMenu(link, data.coords.screenX, data.coords.screenY, wx, wy);
+			return true;
+		}
+		
+		// Check if clicking on a preview node
+		for (const node of this.graph.nodes) {
+			if (!node.isPreviewNode) continue;
+			
+			if (wx >= node.pos[0] && wx <= node.pos[0] + node.size[0] &&
+				wy >= node.pos[1] && wy <= node.pos[1] + node.size[1]) {
+				data.event.preventDefault();
+				this._showPreviewNodeContextMenu(node, data.coords.screenX, data.coords.screenY);
+				return true;
+			}
+		}
+	}
+
+	/**
+	 * Show context menu for edge
+	 */
+	_showEdgeContextMenu(link, screenX, screenY, worldX, worldY) {
+		const menu = this._getOrCreateContextMenu();
+		
+		// Check if this edge already has preview
+		const targetNode = this.graph.getNodeById(link.target_id);
+		const hasPreview = targetNode?.isPreviewNode;
+		
+		menu.innerHTML = `
+			<div class="sg-context-menu-title">Edge Options</div>
+			<div class="sg-context-menu-item" data-action="add-preview">
+				${hasPreview ? '🔄 Move Preview Here' : '👁 Add Preview'}
+			</div>
+			${hasPreview ? `
+			<div class="sg-context-menu-item" data-action="remove-preview">
+				❌ Remove Preview
+			</div>
+			` : ''}
+			<div class="sg-context-menu-item" data-action="delete-edge">
+				🗑️ Delete Edge
+			</div>
+		`;
+		
+		// Position menu
+		menu.style.left = screenX + 'px';
+		menu.style.top = screenY + 'px';
+		menu.style.display = 'block';
+		
+		// Store context for handlers
+		this._contextMenuData = { link, worldX, worldY, hasPreview, targetNode };
+		
+		// Add click handlers
+		menu.querySelectorAll('.sg-context-menu-item').forEach(item => {
+			item.onclick = (e) => {
+				const action = item.dataset.action;
+				this._handleEdgeContextAction(action);
+				this._hideContextMenu();
+			};
+		});
+		
+		// Close on click outside
+		setTimeout(() => {
+			document.addEventListener('click', this._hideContextMenuBound, { once: true });
+		}, 0);
+	}
+
+	/**
+	 * Show context menu for preview node
+	 */
+	_showPreviewNodeContextMenu(node, screenX, screenY) {
+		const menu = this._getOrCreateContextMenu();
+		
+		menu.innerHTML = `
+			<div class="sg-context-menu-title">Preview Node</div>
+			<div class="sg-context-menu-item" data-action="expand">
+				🔍 Expand Preview
+			</div>
+			<div class="sg-context-menu-item" data-action="remove">
+				❌ Remove Preview
+			</div>
+			<div class="sg-context-menu-item sg-context-menu-divider"></div>
+			<div class="sg-context-menu-item" data-action="type-auto">
+				🔄 Auto-detect Type
+			</div>
+			<div class="sg-context-menu-item" data-action="type-json">
+				📋 Force JSON
+			</div>
+			<div class="sg-context-menu-item" data-action="type-string">
+				📝 Force String
+			</div>
+		`;
+		
+		// Position menu
+		menu.style.left = screenX + 'px';
+		menu.style.top = screenY + 'px';
+		menu.style.display = 'block';
+		
+		// Store context
+		this._contextMenuData = { previewNode: node };
+		
+		// Add click handlers
+		menu.querySelectorAll('.sg-context-menu-item').forEach(item => {
+			item.onclick = (e) => {
+				const action = item.dataset.action;
+				this._handlePreviewNodeContextAction(action);
+				this._hideContextMenu();
+			};
+		});
+		
+		// Close on click outside
+		setTimeout(() => {
+			document.addEventListener('click', this._hideContextMenuBound, { once: true });
+		}, 0);
+	}
+
+	/**
+	 * Handle edge context menu action
+	 */
+	_handleEdgeContextAction(action) {
+		const { link, worldX, worldY, hasPreview, targetNode } = this._contextMenuData || {};
+		if (!link) return;
+		
+		switch (action) {
+			case 'add-preview':
+				if (hasPreview && targetNode) {
+					// Move existing preview to new position
+					targetNode.pos = [worldX - targetNode.size[0] / 2, worldY - targetNode.size[1] / 2];
+				} else {
+					this.insertPreviewNode(link, worldX, worldY);
+				}
+				break;
+				
+			case 'remove-preview':
+				if (targetNode?.isPreviewNode) {
+					this.removePreviewNode(targetNode);
+				}
+				break;
+				
+			case 'delete-edge':
+				this._removeLink(link);
+				break;
+		}
+		
+		this.app.draw();
+	}
+
+	/**
+	 * Handle preview node context menu action
+	 */
+	_handlePreviewNodeContextAction(action) {
+		const { previewNode } = this._contextMenuData || {};
+		if (!previewNode) return;
+		
+		switch (action) {
+			case 'expand':
+				const [sx, sy] = this.app.worldToScreen(
+					previewNode.pos[0] + previewNode.size[0], 
+					previewNode.pos[1]
+				);
+				this.previewOverlay.show(previewNode, sx, sy);
+				break;
+				
+			case 'remove':
+				this.removePreviewNode(previewNode);
+				break;
+				
+			case 'type-auto':
+				previewNode.properties.autoDetect = true;
+				previewNode.previewType = previewNode._detectType(previewNode.previewData);
+				break;
+				
+			case 'type-json':
+				previewNode.properties.autoDetect = false;
+				previewNode.properties.previewType = PreviewType.JSON;
+				previewNode.previewType = PreviewType.JSON;
+				break;
+				
+			case 'type-string':
+				previewNode.properties.autoDetect = false;
+				previewNode.properties.previewType = PreviewType.STRING;
+				previewNode.previewType = PreviewType.STRING;
+				break;
+		}
+		
+		this.app.draw();
+		
+		// Update overlay if open
+		if (this.previewOverlay.activeNode === previewNode) {
+			this.previewOverlay.update();
+		}
+	}
+
+	/**
+	 * Get or create context menu element
+	 */
+	_getOrCreateContextMenu() {
+		let menu = document.getElementById('sg-preview-context-menu');
+		
+		if (!menu) {
+			menu = document.createElement('div');
+			menu.id = 'sg-preview-context-menu';
+			menu.className = 'sg-context-menu sg-preview-context-menu';
+			document.body.appendChild(menu);
+			
+			// Bind hide function
+			this._hideContextMenuBound = () => this._hideContextMenu();
+		}
+		
+		return menu;
+	}
+
+	/**
+	 * Hide context menu
+	 */
+	_hideContextMenu() {
+		const menu = document.getElementById('sg-preview-context-menu');
+		if (menu) {
+			menu.style.display = 'none';
+		}
+		this._contextMenuData = null;
 	}
 }
 
@@ -1051,7 +1319,7 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 		}
 	};
 
-	SchemaGraphAppClass.prototype._drawPreviewNode = function(node, colors) {
+	SchemaGraphApp.prototype._drawPreviewNode = function(node, colors) {
 		const style = this.drawingStyleManager.getStyle();
 		const x = node.pos[0];
 		const y = node.pos[1];
@@ -1445,6 +1713,111 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 			 */
 			collapse: () => {
 				this.edgePreviewManager.previewOverlay.hide();
+			},
+
+			/**
+			 * Toggle preview on an edge (insert or remove preview node)
+			 * @param {number} linkId - Link ID
+			 * @returns {Node|null} Preview node if inserted, null if removed
+			 */
+			toggleOnLink: (linkId) => {
+				const link = this.graph.links[linkId];
+				if (!link) return null;
+
+				const targetNode = this.graph.getNodeById(link.target_id);
+				
+				// If target is a preview node, remove it
+				if (targetNode?.isPreviewNode) {
+					this.edgePreviewManager.removePreviewNode(targetNode);
+					return null;
+				}
+				
+				// Otherwise insert preview
+				return api.preview.insertOnLink(linkId);
+			},
+
+			/**
+			 * Check if a link has preview enabled
+			 * @param {number} linkId - Link ID
+			 * @returns {boolean} True if preview node exists on this edge
+			 */
+			hasPreview: (linkId) => {
+				const link = this.graph.links[linkId];
+				if (!link) return false;
+				
+				const targetNode = this.graph.getNodeById(link.target_id);
+				return targetNode?.isPreviewNode === true;
+			},
+
+			/**
+			 * Get preview node for a link (if exists)
+			 * @param {number} linkId - Link ID
+			 * @returns {Node|null} Preview node or null
+			 */
+			getForLink: (linkId) => {
+				const link = this.graph.links[linkId];
+				if (!link) return null;
+				
+				const targetNode = this.graph.getNodeById(link.target_id);
+				return targetNode?.isPreviewNode ? targetNode : null;
+			},
+
+			/**
+			 * Set preview state on edge (used during import)
+			 * @param {number} linkId - Link ID  
+			 * @param {boolean} enabled - Whether preview should be enabled
+			 * @returns {Node|null} Preview node if enabled, null otherwise
+			 */
+			setOnLink: (linkId, enabled) => {
+				const hasPreview = api.preview.hasPreview(linkId);
+				
+				if (enabled && !hasPreview) {
+					return api.preview.insertOnLink(linkId);
+				} else if (!enabled && hasPreview) {
+					const previewNode = api.preview.getForLink(linkId);
+					if (previewNode) {
+						this.edgePreviewManager.removePreviewNode(previewNode);
+					}
+					return null;
+				}
+				
+				return hasPreview ? api.preview.getForLink(linkId) : null;
+			},
+
+			/**
+			 * Get all edges that have preview enabled
+			 * @returns {Array} Array of {linkId, previewNode} objects
+			 */
+			listEdgesWithPreview: () => {
+				const result = [];
+				
+				for (const node of this.graph.nodes) {
+					if (!node.isPreviewNode) continue;
+					
+					const inputLink = node.inputs[0]?.link;
+					if (inputLink) {
+						result.push({
+							linkId: inputLink,
+							previewNode: node
+						});
+					}
+				}
+				
+				return result;
+			},
+
+			/**
+			 * Insert preview node at specific position on link
+			 * @param {number} linkId - Link ID
+			 * @param {number} x - World X position
+			 * @param {number} y - World Y position
+			 * @returns {Node|null} Created preview node
+			 */
+			insertOnLinkAt: (linkId, x, y) => {
+				const link = this.graph.links[linkId];
+				if (!link) return null;
+				
+				return this.edgePreviewManager.insertPreviewNode(link, x, y);
 			}
 		};
 		

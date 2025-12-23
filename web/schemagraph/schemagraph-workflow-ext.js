@@ -8,11 +8,12 @@
 // ========================================================================
 
 const FieldRole = Object.freeze({
-	CONSTANT: 'constant',
-	INPUT: 'input',
-	OUTPUT: 'output',
-	MULTI_INPUT: 'multi_input',
-	MULTI_OUTPUT: 'multi_output'
+	ANNOTATION   : 'annotation',
+	CONSTANT     : 'constant',
+	INPUT        : 'input',
+	OUTPUT       : 'output',
+	MULTI_INPUT  : 'multi_input',
+	MULTI_OUTPUT : 'multi_output'
 });
 
 class WorkflowNode extends Node {
@@ -529,6 +530,9 @@ class WorkflowNodeFactory {
 			const defaultVal = modelDefaults[field.name];
 
 			switch (role) {
+				case FieldRole.ANNOTATION:
+					// Annotation fields don't create slots - skip
+					break;
 				case FieldRole.CONSTANT:
 					nodeConfig.constantFields[field.name] = defaultVal !== undefined ? defaultVal : field.name;
 					break;
@@ -870,14 +874,14 @@ class WorkflowImporter {
 	}
 
 	_createEdge(edgeData, createdNodes) {
-		const { source, target, source_slot, target_slot, extra } = edgeData;
+		const { source, target, source_slot, target_slot, preview, extra } = edgeData;
 
 		const sourceNode = createdNodes[source];
 		const targetNode = createdNodes[target];
 
 		if (!sourceNode || !targetNode) {
 			console.warn(`Edge skipped: invalid node reference (${source} -> ${target})`);
-			return;
+			return null;
 		}
 
 		const sourceSlotIdx = sourceNode.getOutputSlotByName(source_slot);
@@ -885,13 +889,23 @@ class WorkflowImporter {
 
 		if (sourceSlotIdx === -1) {
 			console.warn(`Edge skipped: output slot "${source_slot}" not found on node ${source}`);
-			return;
+			return null;
 		}
 		if (targetSlotIdx === -1) {
 			console.warn(`Edge skipped: input slot "${target_slot}" not found on node ${target}`);
-			return;
+			return null;
 		}
 
+		// If preview is enabled, insert a preview node
+		if (preview === true) {
+			return this._createEdgeWithPreview(
+				sourceNode, sourceSlotIdx, source_slot,
+				targetNode, targetSlotIdx, target_slot,
+				extra
+			);
+		}
+
+		// Standard edge creation
 		const linkId = ++this.graph.last_link_id;
 		const link = new Link(
 			linkId,
@@ -911,6 +925,93 @@ class WorkflowImporter {
 		targetNode.inputs[targetSlotIdx].link = linkId;
 
 		this.eventBus.emit('link:created', { linkId });
+		
+		return link;
+	}
+
+	/**
+	 * Create an edge with a preview node inserted in the middle
+	 */
+	_createEdgeWithPreview(
+		sourceNode, sourceSlotIdx, sourceSlot,
+		targetNode, targetSlotIdx, targetSlot,
+		extra
+	) {
+		// Calculate position for preview node (midpoint between source and target)
+		const sourceX = sourceNode.pos[0] + sourceNode.size[0];
+		const sourceY = sourceNode.pos[1] + 33 + sourceSlotIdx * 25;
+		const targetX = targetNode.pos[0];
+		const targetY = targetNode.pos[1] + 33 + targetSlotIdx * 25;
+		
+		const midX = (sourceX + targetX) / 2 - 110; // Center the preview node
+		const midY = (sourceY + targetY) / 2 - 60;
+
+		// Create preview node
+		const previewNode = new PreviewNode();
+		
+		if (this.graph._last_node_id === undefined) {
+			this.graph._last_node_id = 1;
+		}
+		previewNode.id = this.graph._last_node_id++;
+		previewNode.graph = this.graph;
+		previewNode.pos = [midX, midY];
+		
+		// Mark as auto-inserted from edge preview
+		previewNode._fromEdgePreview = true;
+		previewNode._originalSourceSlot = sourceSlot;
+		previewNode._originalTargetSlot = targetSlot;
+		
+		this.graph.nodes.push(previewNode);
+		this.graph._nodes_by_id[previewNode.id] = previewNode;
+
+		const linkType = sourceNode.outputs[sourceSlotIdx]?.type || 'Any';
+
+		// Create link: Source -> Preview
+		const link1Id = ++this.graph.last_link_id;
+		const link1 = new Link(
+			link1Id,
+			sourceNode.id,
+			sourceSlotIdx,
+			previewNode.id,
+			0, // Preview input slot
+			linkType
+		);
+		
+		if (extra) {
+			link1.extra = { ...extra, _isPreviewLink: true };
+		} else {
+			link1.extra = { _isPreviewLink: true };
+		}
+		
+		this.graph.links[link1Id] = link1;
+		sourceNode.outputs[sourceSlotIdx].links.push(link1Id);
+		previewNode.inputs[0].link = link1Id;
+
+		// Create link: Preview -> Target
+		const link2Id = ++this.graph.last_link_id;
+		const link2 = new Link(
+			link2Id,
+			previewNode.id,
+			0, // Preview output slot
+			targetNode.id,
+			targetSlotIdx,
+			linkType
+		);
+		
+		link2.extra = { _isPreviewLink: true };
+		
+		this.graph.links[link2Id] = link2;
+		previewNode.outputs[0].links.push(link2Id);
+		targetNode.inputs[targetSlotIdx].link = link2Id;
+
+		this.eventBus.emit('link:created', { linkId: link1Id });
+		this.eventBus.emit('link:created', { linkId: link2Id });
+		this.eventBus.emit('preview:inserted', { 
+			nodeId: previewNode.id, 
+			fromEdgePreview: true 
+		});
+
+		return { link1, link2, previewNode };
 	}
 
 	_calculateLayout(workflowData) {
@@ -951,11 +1052,19 @@ class WorkflowExporter {
 			edges: []
 		};
 
-		const nodeToIndex = new Map();
-		const workflowNodes = this.graph.nodes.filter(n =>
-			n.schemaName === schemaName || n.isWorkflowNode
-		);
+		// Separate workflow nodes from preview nodes
+		const workflowNodes = [];
+		const previewNodes = [];
+		
+		for (const node of this.graph.nodes) {
+			if (node.isPreviewNode) {
+				previewNodes.push(node);
+			} else if (node.schemaName === schemaName || node.isWorkflowNode) {
+				workflowNodes.push(node);
+			}
+		}
 
+		// Sort workflow nodes by original index
 		workflowNodes.sort((a, b) => {
 			if (a.workflowIndex !== undefined && b.workflowIndex !== undefined) {
 				return a.workflowIndex - b.workflowIndex;
@@ -963,21 +1072,164 @@ class WorkflowExporter {
 			return 0;
 		});
 
+		// Build node ID to export index mapping
+		const nodeToIndex = new Map();
 		for (let i = 0; i < workflowNodes.length; i++) {
-			const node = workflowNodes[i];
-			nodeToIndex.set(node.id, i);
-			workflow.nodes.push(this._exportNode(node));
+			nodeToIndex.set(workflowNodes[i].id, i);
+			workflow.nodes.push(this._exportNode(workflowNodes[i]));
 		}
 
+		// Build set of preview node IDs for quick lookup
+		const previewNodeIds = new Set(previewNodes.map(n => n.id));
+
+		// Track which links have been processed (to avoid duplicates)
+		const processedLinks = new Set();
+
+		// Process all links, collapsing preview nodes back to single edges
 		for (const linkId in this.graph.links) {
+			if (processedLinks.has(linkId)) continue;
+			
 			const link = this.graph.links[linkId];
-			const edge = this._exportEdge(link, nodeToIndex);
-			if (edge) {
-				workflow.edges.push(edge);
+			const sourceNode = this.graph.getNodeById(link.origin_id);
+			const targetNode = this.graph.getNodeById(link.target_id);
+
+			if (!sourceNode || !targetNode) continue;
+
+			// Case 1: Source is workflow node, target is preview node
+			if (!previewNodeIds.has(sourceNode.id) && previewNodeIds.has(targetNode.id)) {
+				const edge = this._tracePreviewChain(link, sourceNode, targetNode, nodeToIndex, processedLinks);
+				if (edge) {
+					workflow.edges.push(edge);
+				}
+				continue;
 			}
+
+			// Case 2: Both are workflow nodes (normal edge)
+			if (!previewNodeIds.has(sourceNode.id) && !previewNodeIds.has(targetNode.id)) {
+				const edge = this._exportEdge(link, nodeToIndex);
+				if (edge) {
+					workflow.edges.push(edge);
+				}
+				processedLinks.add(linkId);
+			}
+			
+			// Case 3: Source is preview node - skip (handled by tracing from workflow node)
 		}
 
 		return workflow;
+	}
+
+	/**
+	 * Trace through a chain of preview nodes and create a single edge with preview: true
+	 */
+	_tracePreviewChain(startLink, sourceNode, firstPreviewNode, nodeToIndex, processedLinks) {
+		processedLinks.add(startLink.id);
+		
+		let currentPreviewNode = firstPreviewNode;
+		let hasPreview = true;
+		let accumulatedExtra = startLink.extra ? { ...startLink.extra } : {};
+		
+		// Remove internal tracking fields
+		delete accumulatedExtra._isPreviewLink;
+		
+		// Trace through chain of preview nodes
+		while (currentPreviewNode && currentPreviewNode.isPreviewNode) {
+			const outLinks = currentPreviewNode.outputs[0]?.links || [];
+			
+			if (outLinks.length === 0) {
+				// Preview node with no output - edge terminates here
+				return null;
+			}
+			
+			// Get the outgoing link
+			const outLinkId = outLinks[0];
+			const outLink = this.graph.links[outLinkId];
+			
+			if (!outLink) {
+				return null;
+			}
+			
+			processedLinks.add(outLinkId);
+			
+			const nextNode = this.graph.getNodeById(outLink.target_id);
+			
+			if (!nextNode) {
+				return null;
+			}
+			
+			if (nextNode.isPreviewNode) {
+				// Continue tracing through preview chain
+				currentPreviewNode = nextNode;
+			} else {
+				// Reached a workflow node - create the final edge
+				const sourceIdx = nodeToIndex.get(sourceNode.id);
+				const targetIdx = nodeToIndex.get(nextNode.id);
+				
+				if (sourceIdx === undefined || targetIdx === undefined) {
+					return null;
+				}
+				
+				// Get slot names
+				const sourceSlot = firstPreviewNode._originalSourceSlot || 
+					sourceNode.outputs[startLink.origin_slot]?.name || 'output';
+				const targetSlot = firstPreviewNode._originalTargetSlot ||
+					nextNode.inputs[outLink.target_slot]?.name || 'input';
+				
+				const edge = {
+					source: sourceIdx,
+					target: targetIdx,
+					source_slot: sourceSlot,
+					target_slot: targetSlot,
+					preview: hasPreview
+				};
+				
+				if (Object.keys(accumulatedExtra).length > 0) {
+					edge.extra = accumulatedExtra;
+				}
+				
+				return edge;
+			}
+		}
+		
+		return null;
+	}
+
+	/**
+	 * Export a standard edge (no preview nodes involved)
+	 */
+	_exportEdge(link, nodeToIndex) {
+		const sourceNode = this.graph.getNodeById(link.origin_id);
+		const targetNode = this.graph.getNodeById(link.target_id);
+
+		if (!sourceNode || !targetNode) return null;
+
+		const sourceIdx = nodeToIndex.get(link.origin_id);
+		const targetIdx = nodeToIndex.get(link.target_id);
+
+		if (sourceIdx === undefined || targetIdx === undefined) return null;
+
+		const sourceSlot = sourceNode.outputs[link.origin_slot]?.name || 'output';
+		const targetSlot = targetNode.inputs[link.target_slot]?.name || 'input';
+
+		const edge = {
+			source: sourceIdx,
+			target: targetIdx,
+			source_slot: sourceSlot,
+			target_slot: targetSlot
+			// preview: false is the default, so we omit it
+		};
+
+		if (link.extra && Object.keys(link.extra).length > 0) {
+			// Filter out internal tracking fields
+			const cleanExtra = { ...link.extra };
+			delete cleanExtra._isPreviewLink;
+			
+			if (Object.keys(cleanExtra).length > 0) {
+				edge.extra = cleanExtra;
+			}
+		}
+
+		return edge;
 	}
 
 	_exportNode(node) {

@@ -4,13 +4,12 @@ from __future__ import annotations
 
 
 from enum       import Enum
-# from pydantic   import BaseModel, ConfigDict, Field
-# from typing     import Annotated, Any, Dict, Generic, List, Literal, Optional, TypeVar, Union, get_origin, get_args
 from pydantic   import BaseModel, Field
-from typing     import Annotated, Any, Dict, Generic, List, Literal, Optional, TypeVar, Union, get_origin, get_args
+from typing     import Annotated, Any, Dict, List, Literal, Optional, Union
 
 
 class FieldRole(str, Enum):
+	ANNOTATION   = "annotation"
 	CONSTANT     = "constant"
 	INPUT        = "input"
 	OUTPUT       = "output"
@@ -24,12 +23,16 @@ class BaseType(BaseModel):
 	extra : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
 
 
+DEFAULT_EDGE_PREVIEW : bool = False
+
+
 class Edge(BaseType):
-	type        : Annotated[Literal["edge"], FieldRole.CONSTANT] = "edge"
-	source      : Annotated[int            , FieldRole.INPUT   ] = None
-	target      : Annotated[int            , FieldRole.INPUT   ] = None
-	source_slot : Annotated[str            , FieldRole.INPUT   ] = None
-	target_slot : Annotated[str            , FieldRole.INPUT   ] = None
+	type        : Annotated[Literal["edge"], FieldRole.CONSTANT  ] = "edge"
+	preview     : Annotated[bool           , FieldRole.ANNOTATION] = DEFAULT_EDGE_PREVIEW
+	source      : Annotated[int            , FieldRole.INPUT     ] = None
+	target      : Annotated[int            , FieldRole.INPUT     ] = None
+	source_slot : Annotated[str            , FieldRole.INPUT     ] = None
+	target_slot : Annotated[str            , FieldRole.INPUT     ] = None
 
 
 class BaseConfig(BaseType):

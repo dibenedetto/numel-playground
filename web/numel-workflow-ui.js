@@ -256,14 +256,10 @@ function setupClientEvents() {
 		const idx = parseInt(event.node_id);
 		const label = event.data?.node_label || `Node ${idx}`;
 		const outputs = event.data?.outputs;
-		
 		visualizer?.updateNodeState(idx, 'completed');
-		
-		// Update preview nodes connected to this node's outputs
 		if (outputs) {
 			updateConnectedPreviews(idx, outputs);
 		}
-		
 		addLog('success', `✅ [${idx}] ${label}`);
 	});
 
@@ -597,6 +593,10 @@ async function cancelExecution() {
 // ========================================================================
 // PREVIEW LIVE UPDATE - Add to numel-workflow-ui.js
 // Integrates workflow execution events with preview node updates
+// ========================================================================
+
+// ========================================================================
+// Preview Update Functions
 // ========================================================================
 
 /**
