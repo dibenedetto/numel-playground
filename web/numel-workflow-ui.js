@@ -556,6 +556,7 @@ async function startExecution() {
 			if (workflowDirty) {
 				previousWorkflow = JSON.parse(JSON.stringify(workflow))
 				addLog('info', '⏳ Syncing workflow to backend...');
+				await client.removeWorkflow();
 				const name = visualizer.currentWorkflowName || 'single_workflow';
 				const response = await client.addWorkflow(workflow, name);
 				if (response.status === 'added' || response.status === 'updated') {

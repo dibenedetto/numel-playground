@@ -487,13 +487,7 @@ class WorkflowVisualizer {
 		
 		// Use workflow extension exporter if available
 		if (this.schemaGraph.api && this.schemaGraph.api.workflow) {
-			const exported = this.schemaGraph.api.workflow.export(WORKFLOW_SCHEMA_NAME, {
-				type: this.currentWorkflow.type || 'workflow',
-				info: this.currentWorkflow.info,
-				options: this.currentWorkflow.options,
-				variables: this.currentWorkflow.variables
-			});
-			
+			const exported = this.schemaGraph.api.workflow.export(WORKFLOW_SCHEMA_NAME, this.currentWorkflow);
 			if (exported) {
 				this.currentWorkflow = exported;
 				return JSON.parse(JSON.stringify(exported));

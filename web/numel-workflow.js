@@ -43,7 +43,8 @@ class WorkflowClient {
 	}
 
 	async getWorkflow(name) {
-		return this._post(`/get/${encodeURIComponent(name)}`);
+		const tail = (name == null) ? '' : `/${encodeURIComponent(name)}`;
+		return this._post(`/get${tail}`);
 	}
 
 	async addWorkflow(workflow, name = null) {
@@ -51,7 +52,8 @@ class WorkflowClient {
 	}
 
 	async removeWorkflow(name) {
-		return this._post(`/remove/${encodeURIComponent(name)}`);
+		const tail = (name == null) ? '' : `/${encodeURIComponent(name)}`;
+		return this._post(`/remove${tail}`);
 	}
 
 	async startWorkflow(name, initialData = null) {
@@ -59,11 +61,13 @@ class WorkflowClient {
 	}
 
 	async getExecutionState(executionId) {
-		return this._post(`/exec_state/${executionId}`);
+		const tail = (executionId == null) ? '' : `/${executionId}`;
+		return this._post(`/exec_state${tail}`);
 	}
 
 	async cancelExecution(executionId) {
-		return this._post(`/exec_cancel/${executionId}`);
+		const tail = (executionId == null) ? '' : `/${executionId}`;
+		return this._post(`/exec_cancel${tail}`);
 	}
 
 	async listExecutions() {
@@ -252,11 +256,7 @@ class WorkflowVisualizer {
 		if (!this.currentWorkflow) return null;
 
 		if (this.schemaGraph.api?.workflow) {
-			const exported = this.schemaGraph.api.workflow.export(WORKFLOW_SCHEMA_NAME, {
-				type: this.currentWorkflow.type || 'workflow',
-				info: this.currentWorkflow.info,
-				options: this.currentWorkflow.options
-			});
+			const exported = this.schemaGraph.api.workflow.export(WORKFLOW_SCHEMA_NAME, this.currentWorkflow);
 			if (exported) {
 				this.currentWorkflow = exported;
 			}

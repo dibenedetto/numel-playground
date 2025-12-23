@@ -20,8 +20,8 @@ from   schema      import Edge, BaseType, BaseNode, Workflow
 from   impl_agno   import build_backend_agno
 
 
-DEFAULT_ENGINE_DEBUG_SLEEP_SEC        : float = 1.0
-DEFAULT_ENGINE_WAIT_SEC               : float = 0.1
+DEFAULT_ENGINE_NODE_DELAY_SEC         : float = 0.0
+DEFAULT_ENGINE_EXEC_DELAY_SEC         : float = 0.1
 DEFAULT_ENGINE_USER_INPUT_TIMEOUT_SEC : float = 300.0
 
 
@@ -96,6 +96,9 @@ class WorkflowEngine:
 	async def _execute_workflow(self, workflow: Workflow, state: WorkflowExecutionState, initial_data: Dict[str, Any]):
 		"""Main execution loop - frontier-based"""
 		try:
+			exec_delay_sec = (workflow.extra or {}).get("exec_delay_sec", DEFAULT_ENGINE_EXEC_DELAY_SEC)
+			node_delay_sec = (workflow.extra or {}).get("node_delay_sec", DEFAULT_ENGINE_NODE_DELAY_SEC)
+
 			nodes     = workflow.nodes or []
 			pending   = set()
 			completed = set()
@@ -151,7 +154,8 @@ class WorkflowEngine:
 
 						task = asyncio.create_task(self._execute_node(
 							nodes, edges, node_idx, node_instances[node_idx],
-							node_outputs, dependencies, variables, state
+							node_outputs, dependencies, variables, state,
+							node_delay_sec
 						))
 						tasks.add(task)
 
@@ -183,7 +187,7 @@ class WorkflowEngine:
 								)
 								raise Exception(f"Node {node_idx} failed: {result.error}")
 				else:
-					await asyncio.sleep(DEFAULT_ENGINE_WAIT_SEC)
+					await asyncio.sleep(exec_delay_sec)
 
 			state.status   = WorkflowNodeStatus.COMPLETED
 			state.end_time = datetime.now().isoformat()
@@ -260,7 +264,8 @@ class WorkflowEngine:
 		node_outputs : Dict[int, Dict[str, Any]],
 		dependencies : Dict[int, Set[int]],
 		variables    : Dict[str, Any],
-		state        : WorkflowExecutionState
+		state        : WorkflowExecutionState,
+		delay_sec    : int = 0
 	) -> Tuple[int, NodeExecutionResult]:
 		"""Execute a single node"""
 		node_config = nodes[node_idx]
@@ -275,8 +280,8 @@ class WorkflowEngine:
 			data         = {"node_type": node_type, "node_label": node_label}
 		)
 
-		if DEFAULT_ENGINE_DEBUG_SLEEP_SEC >= 0:
-			await asyncio.sleep(DEFAULT_ENGINE_DEBUG_SLEEP_SEC)
+		if delay_sec >= 0:
+			await asyncio.sleep(delay_sec)
 
 		try:
 			context = NodeExecutionContext()
@@ -383,8 +388,10 @@ class WorkflowEngine:
 				)
 
 
-	async def cancel_execution(self, execution_id: str):
+	async def cancel_execution(self, execution_id: Optional[str] = None):
 		"""Cancel a running workflow"""
+		if not execution_id:
+			return self._cancel_all_executions()
 		state = None
 		if execution_id in self.execution_tasks:
 			task = self.execution_tasks[execution_id]
@@ -410,17 +417,23 @@ class WorkflowEngine:
 		return state
 
 
-	async def cancel_all_executions(self):
+	async def _cancel_all_executions(self):
 		execs = list(self.execution_tasks.keys())
 		for execution_id in execs:
 			await self.cancel_execution(execution_id)
+		state = {
+			"state" : None,
+		}
+		return state
 
 
-	def get_execution_state(self, execution_id: str) -> Optional[WorkflowExecutionState]:
+	def get_execution_state(self, execution_id: Optional[str] = None) -> Optional[WorkflowExecutionState]:
+		if not execution_id:
+			return self._get_all_execution_states()
 		return self.executions.get(execution_id)
 
 
-	def get_all_execution_states(self) -> List[WorkflowExecutionState]:
+	def _get_all_execution_states(self) -> List[WorkflowExecutionState]:
 		execs  = list(self.execution_tasks.keys())
 		states = {}
 		for execution_id in execs:

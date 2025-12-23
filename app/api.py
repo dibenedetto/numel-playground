@@ -32,7 +32,7 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 	@app.post("/shutdown")
 	async def shutdown_server():
 		nonlocal engine, server
-		await engine.cancel_all_executions()
+		await engine.cancel_execution()
 		if server and server.should_exit is False:
 			server.should_exit = True
 		engine = None
@@ -83,8 +83,9 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		return result
 
 
+	@app.post("/remove")
 	@app.post("/remove/{name}")
-	async def remove_workflow(name: str):
+	async def remove_workflow(name: Optional[str] = None):
 		nonlocal manager
 		status = await manager.remove(name)
 		result = {
@@ -94,8 +95,9 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		return result
 
 
+	@app.post("/get")
 	@app.post("/get/{name}")
-	async def get_workflow(name: str):
+	async def get_workflow(name: Optional[str] = None):
 		nonlocal manager
 		workflow = await manager.get(name)
 		result   = {
@@ -147,8 +149,9 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 			raise HTTPException(status_code=500, detail=str(e))
 
 
+	@app.post("/exec_state")
 	@app.post("/exec_state/{execution_id}")
-	async def execution_state(execution_id: str):
+	async def execution_state(execution_id: Optional[str] = None):
 		nonlocal engine
 		state  = engine.get_execution_state(execution_id)
 		result = {
@@ -158,8 +161,9 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		return result
 
 
+	@app.post("/exec_cancel")
 	@app.post("/exec_cancel/{execution_id}")
-	async def cancel_execution(execution_id: str):
+	async def cancel_execution(execution_id: Optional[str] = None):
 		nonlocal engine
 		try:
 			state  = await engine.cancel_execution(execution_id)

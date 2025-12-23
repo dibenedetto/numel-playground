@@ -1,25 +1,26 @@
 # manager
 
 import copy
-import json
+# import json
 
 
-from   pathlib   import Path
+# from   pathlib   import Path
 from   typing    import Dict, List, Optional
 
 
 from   event_bus import EventBus, EventType, get_event_bus
 from   schema    import InfoConfig, Workflow, WorkflowOptionsConfig
-from   utils     import log_print
+# from   utils     import log_print
 
 
 class WorkflowManager:
 
-	def __init__(self, event_bus: Optional[EventBus] = None, storage_dir: str = "workflows"):
+	# def __init__(self, event_bus: Optional[EventBus] = None, storage_dir: str = "workflows"):
+	def __init__(self, event_bus: Optional[EventBus] = None):
 		self._event_bus  : EventBus            = event_bus or get_event_bus()
 		self._current_id : int                 = 0
 		self._workflows  : Dict[str, Workflow] = {}
-		self._storage_dir = Path(storage_dir)
+		# self._storage_dir = Path(storage_dir)
 		# self._storage_dir.mkdir(exist_ok=True)
 
 
@@ -66,18 +67,23 @@ class WorkflowManager:
 	async def remove(self, name: Optional[str] = None) -> bool:
 		if not name:
 			self._workflows = {}
-			return True
-		if name in self._workflows:
+		elif name in self._workflows:
 			del self._workflows[name]
-			await self._event_bus.emit(
-				event_type = EventType.MANAGER_REMOVED,
-			)
-			return True
-		return False
+		else:
+			return False
+		await self._event_bus.emit(
+			event_type = EventType.MANAGER_REMOVED,
+		)
+		return True
 
 
 	async def get(self, name: str) -> Optional[Workflow]:
-		result =  self._workflows.get(name)
+		if not name:
+			result = copy.deepcopy(self._workflows)
+		elif name in self._workflows:
+			result = copy.deepcopy(self._workflows[name])
+		else:
+			return None
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_GOT,
 		)
@@ -85,29 +91,29 @@ class WorkflowManager:
 
 
 	async def list(self) -> List[str]:
-		result = list(self._workflows.keys());
+		result = list(self._workflows.keys())
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_LISTED,
 		)
 		return result
 
 
-	def load(self, filepath: str, name: Optional[str] = None) -> Workflow:
-		try:
-			with open(filepath, "r") as f:
-				data = json.load(f)
-			workflow = Workflow(**data)
-		except Exception as e:
-			log_print(f"Error reading workflow file: {e}")
-			return None
-		if not workflow.info:
-			workflow.info = InfoConfig(name=filepath)
-		if name:
-			workflow.info.name = name
-		elif not workflow.info.name:
-			workflow.info.name = filepath
-		self._workflows[workflow.info.name] = workflow
-		return workflow
+	# def load(self, filepath: str, name: Optional[str] = None) -> Workflow:
+	# 	try:
+	# 		with open(filepath, "r") as f:
+	# 			data = json.load(f)
+	# 		workflow = Workflow(**data)
+	# 	except Exception as e:
+	# 		log_print(f"Error reading workflow file: {e}")
+	# 		return None
+	# 	if not workflow.info:
+	# 		workflow.info = InfoConfig(name=filepath)
+	# 	if name:
+	# 		workflow.info.name = name
+	# 	elif not workflow.info.name:
+	# 		workflow.info.name = filepath
+	# 	self._workflows[workflow.info.name] = workflow
+	# 	return workflow
 
 
 	# def load_all(self, directory: Optional[str] = None) -> bool:
