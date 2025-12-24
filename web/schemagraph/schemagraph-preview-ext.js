@@ -1822,13 +1822,19 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 // Uses theme-based curve parameters instead of hardcoded values
 // ========================================================================
 
+// ========================================================================
+// Draw hovered edge highlight - hint drawn on top via post-render hook
+// ========================================================================
+
 function extendDrawLinksForPreview(SchemaGraphAppClass) {
 	const originalDrawLinks = SchemaGraphAppClass.prototype.drawLinks;
 	
 	SchemaGraphAppClass.prototype.drawLinks = function(colors) {
 		originalDrawLinks.call(this, colors);
 		
-		// Draw hovered link highlight using theme style
+		// Clear any pending hint
+		this._pendingPreviewHint = null;
+		
 		if (this.edgePreviewManager?.hoveredLink) {
 			const link = this.edgePreviewManager.hoveredLink;
 			const orig = this.graph.getNodeById(link.origin_id);
@@ -1842,7 +1848,6 @@ function extendDrawLinksForPreview(SchemaGraphAppClass) {
 				const x2 = targ.pos[0];
 				const y2 = targ.pos[1] + 33 + link.target_slot * 25;
 				
-				// Use theme's linkCurve parameter (matches drawLinks in schemagraph.js)
 				const distance = Math.abs(x2 - x1);
 				const maxControlDistance = 400;
 				const controlOffset = Math.min(distance * style.linkCurve, maxControlDistance);
@@ -1893,51 +1898,95 @@ function extendDrawLinksForPreview(SchemaGraphAppClass) {
 					this.ctx.setLineDash([]);
 				}
 				
-				// Draw hint text at midpoint of curve
+				// Calculate midpoint and store for post-render
 				const midT = 0.5;
 				const mt = 1 - midT;
 				let midX, midY;
 				
 				if (style.linkCurve > 0) {
-					// Cubic bezier midpoint
 					midX = mt*mt*mt*x1 + 3*mt*mt*midT*cx1 + 3*mt*midT*midT*cx2 + midT*midT*midT*x2;
 					midY = mt*mt*mt*y1 + 3*mt*mt*midT*y1 + 3*mt*midT*midT*y2 + midT*midT*midT*y2;
 				} else {
-					// Linear midpoint
 					midX = (x1 + x2) / 2;
 					midY = (y1 + y2) / 2;
 				}
 				
-				const textScale = this.getTextScale();
-				const hintText = 'Alt+Click to add Preview';
-				
-				this.ctx.font = `bold ${10 * textScale}px ${style.textFont}`;
-				this.ctx.textAlign = 'center';
-				this.ctx.textBaseline = 'middle';
-				
-				// Background for text
-				const textWidth = this.ctx.measureText(hintText).width;
-				this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-				this.ctx.beginPath();
-				this.ctx.roundRect(
-					midX - textWidth/2 - 6, 
-					midY - 10, 
-					textWidth + 12, 
-					20, 
-					4
-				);
-				this.ctx.fill();
-				
-				// Border
-				this.ctx.strokeStyle = '#46a2da';
-				this.ctx.lineWidth = 1 / this.camera.scale;
-				this.ctx.stroke();
-				
-				// Text
-				this.ctx.fillStyle = '#82c4ec';
-				this.ctx.fillText(hintText, midX, midY);
+				// Store hint for drawing after all other elements
+				this._pendingPreviewHint = { midX, midY, style };
 			}
 		}
+	};
+	
+	// Draw preview hint on top of everything
+	SchemaGraphAppClass.prototype._drawPreviewHint = function() {
+		if (!this._pendingPreviewHint) return;
+
+		// Apply camera transform (same as main draw)
+		this.ctx.save();
+		this.ctx.translate(this.camera.x, this.camera.y);
+		this.ctx.scale(this.camera.scale, this.camera.scale);
+
+		const { midX, midY, style } = this._pendingPreviewHint;
+		const hintText = 'Alt+Click to add Preview';
+		const fixedSizeHint = true;
+
+		this.ctx.textAlign = 'center';
+		this.ctx.textBaseline = 'middle';
+			
+		// Background for text
+		this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+		this.ctx.beginPath();
+
+		if (fixedSizeHint) {
+			const fontSize = 16 / this.camera.scale;
+			const padX = 10 / this.camera.scale;
+			const padY = 14 / this.camera.scale;
+			const offX = 0 / this.camera.scale;
+			const offY = -2 / this.camera.scale;
+			const radius = 4 / this.camera.scale;
+
+			this.ctx.font = `bold ${fontSize}px ${style.textFont}`;
+			const textWidth = this.ctx.measureText(hintText).width;
+
+			this.ctx.roundRect(
+				midX - textWidth/2 - padX + offX, 
+				midY - padY + offY, 
+				textWidth + padX * 2, 
+				padY * 2, 
+				radius
+			);
+		} else {
+			const textScale = this.getTextScale();
+			this.ctx.font = `bold ${10 * textScale}px ${style.textFont}`;
+			const textWidth = this.ctx.measureText(hintText).width;
+
+			this.ctx.roundRect(
+				midX - textWidth/2 - 6, 
+				midY - 10, 
+				textWidth + 12, 
+				20, 
+				4
+			);
+		}
+
+		this.ctx.fill();
+
+		this.ctx.strokeStyle = '#46a2da';
+		this.ctx.lineWidth = 1 / this.camera.scale;
+		this.ctx.stroke();
+
+		this.ctx.fillStyle = '#82c4ec';
+		this.ctx.fillText(hintText, midX, midY);
+
+		this.ctx.restore();
+		this._pendingPreviewHint = null;
+	};
+
+	// Hook into main draw to render hint last
+	const originalDraw = SchemaGraphAppClass.prototype.draw;
+	SchemaGraphAppClass.prototype.draw = function() {
+		originalDraw.call(this);
+		this._drawPreviewHint();
 	};
 }
 
