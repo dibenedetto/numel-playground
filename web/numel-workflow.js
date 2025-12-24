@@ -189,6 +189,26 @@ class WorkflowVisualizer {
 		return true;
 	}
 
+	// --- Workflow Initialization ---
+
+	initEmptyWorkflow(name = 'Untitled') {
+		this.currentWorkflow = {
+			type: 'workflow',
+			nodes: [],
+			edges: []
+		};
+		this.currentWorkflowName = name;
+		this.graphNodes = [];
+		return this.currentWorkflow;
+	}
+
+	ensureWorkflow() {
+		if (!this.currentWorkflow) {
+			this.initEmptyWorkflow();
+		}
+		return this.currentWorkflow;
+	}
+	
 	// --- Workflow Loading ---
 
 	loadWorkflow(workflow, name = null) {

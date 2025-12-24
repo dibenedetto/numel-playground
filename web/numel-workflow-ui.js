@@ -145,9 +145,12 @@ async function connect() {
 
 		// visualizer.schemaGraph.api.workflow.debug();
 
-		// Connect WebSocket
+// Connect WebSocket
 		client.connectWebSocket();
 		setupClientEvents();
+
+		// Initialize empty workflow so download always works
+		visualizer.initEmptyWorkflow();
 
 		// Refresh workflow list
 		await refreshWorkflowList();
@@ -156,7 +159,16 @@ async function connect() {
 		$('workflowSelect').disabled = false;
 		$('serverUrl').disabled = true;
 		$('uploadWorkflowBtn').disabled = false;
+		$('downloadWorkflowBtn').disabled = false;
 		$('singleImportBtn').disabled = false;
+		$('singleDownloadBtn').disabled = false;
+		$('clearWorkflowBtn').disabled = false;
+		enableStart(true);
+
+		if (singleMode) {
+			$('singleWorkflowName').textContent = visualizer.currentWorkflowName;
+		}
+
 		addLog('success', `✅ Connected to ${serverUrl}`);
 	} catch (error) {
 		console.error('Connection error:', error);
