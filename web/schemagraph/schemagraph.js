@@ -5290,14 +5290,14 @@ class SchemaGraphApp {
 		
 		if (!node.isNative) {
 			const compactType = this.graph.compactType(out.type);
-			let typeText = compactType.length > 15 ? compactType.substring(0, 15) + '...' : compactType;
+			let typeText = compactType.length > 20 ? compactType.substring(0, 20) + '...' : compactType;
 			
 			this.ctx.font = (8 * textScale) + 'px "Courier New", monospace';
 			const textWidth = this.ctx.measureText(typeText).width;
 			const typeBoxX = x + w - 10 - textWidth - 8;
-			const typeBoxY = sy + 10 - 5;
+			const typeBoxY = sy + 6;        // Changed from sy + 10 - 5
 			const typeBoxW = textWidth + 8;
-			const typeBoxH = 10;
+			const typeBoxH = 12;            // Changed from 10
 			const typeBoxRadius = 2;
 			
 			this.ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
@@ -5320,7 +5320,8 @@ class SchemaGraphApp {
 			
 			this.ctx.fillStyle = colors.textTertiary;
 			this.ctx.textAlign = 'right';
-			this.ctx.fillText(typeText, x + w - 10 - 4, sy + 10);
+			this.ctx.textBaseline = 'middle';  // Added for consistency
+			this.ctx.fillText(typeText, x + w - 10 - 4, typeBoxY + typeBoxH / 2);  // Centered vertically
 		}
 	}
 
