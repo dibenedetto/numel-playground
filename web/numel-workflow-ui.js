@@ -25,9 +25,6 @@ document.addEventListener('DOMContentLoaded', () => {
 	// Initialize SchemaGraph
 	schemaGraph = new SchemaGraphApp('sg-main-canvas');
 
-	// Register workflow extension
-	// registerWorkflowExtension(schemaGraph);
-
 	// Register callback for context menu node creation
 	schemaGraph.onAddWorkflowNode = (nodeType, wx, wy) => {
 		if (visualizer) {
