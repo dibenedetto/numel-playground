@@ -723,7 +723,7 @@ class WorkflowImporter {
 	}
 
 	import(workflowData, schemaName, schema) {
-		if (!workflowData || !workflowData.nodes) {
+		if (!workflowData?.nodes) {
 			throw new Error('Invalid workflow data: missing nodes array');
 		}
 
@@ -732,30 +732,42 @@ class WorkflowImporter {
 		this.graph._nodes_by_id = {};
 		this.graph.last_link_id = 0;
 
-		const positions = this._calculateLayout(workflowData);
-		const typeMap = this._buildTypeMap(schema);
-
-		const factory = new WorkflowNodeFactory(this.graph, {
+		const typeMap = schema ? this._buildTypeMap(schema) : {};
+		const factory = schema ? new WorkflowNodeFactory(this.graph, {
 			models: schema.parsed,
 			fieldRoles: schema.fieldRoles,
 			defaults: schema.defaults
-		}, schemaName);
+		}, schemaName) : null;
 
 		const createdNodes = [];
+		
 		for (let i = 0; i < workflowData.nodes.length; i++) {
 			const nodeData = workflowData.nodes[i];
-			const node = this._createNode(factory, nodeData, i, schemaName, typeMap, positions[i]);
+			const nodeType = nodeData.type || '';
+			let node = null;
+
+			// Determine node class by type prefix
+			if (nodeType.startsWith('native_')) {
+				node = this._createNativeNode(nodeData, i);
+			} else if (nodeType.startsWith('data_') || nodeType === 'data') {
+				node = this._createDataNode(nodeData, i);
+			} else {
+				node = this._createWorkflowNode(factory, nodeData, i, schemaName, typeMap);
+			}
+
 			createdNodes.push(node);
 		}
 
+		// Create edges
 		if (workflowData.edges) {
 			for (const edgeData of workflowData.edges) {
 				this._createEdge(edgeData, createdNodes);
 			}
 		}
 
+		// Execute all nodes
 		for (const node of this.graph.nodes) {
-			if (node) node.onExecute();
+			if (node?.onExecute) node.onExecute();
 		}
 
 		this.eventBus.emit('workflow:imported', {
@@ -766,19 +778,140 @@ class WorkflowImporter {
 		return true;
 	}
 
-	_buildTypeMap(schema) {
-		const typeMap = {};
-		if (schema && schema.defaults) {
-			for (let [key, value] of Object.entries(schema.defaults)) {
-				if (value && value.type) {
-					typeMap[value.type] = key;
-				}
-			}
+	/**
+	 * Create Native node from schema format
+	 */
+	_createNativeNode(nodeData, index) {
+		// Map schema type to JS native type
+		const typeMap = {
+			'native_string': 'String',
+			'native_integer': 'Integer',
+			'native_float': 'Float',
+			'native_boolean': 'Boolean',
+			'native_list': 'List',
+			'native_dict': 'Dict'
+		};
+
+		const nativeType = typeMap[nodeData.type] || 'String';
+		const nodeTypeKey = `Native.${nativeType}`;
+		const NodeClass = this.graph.nodeTypes[nodeTypeKey];
+
+		if (!NodeClass) {
+			console.error(`Native node type not found: ${nodeTypeKey}`);
+			return null;
 		}
-		return typeMap;
+
+		const node = new NodeClass();
+
+		// Register with graph
+		if (this.graph._last_node_id === undefined) this.graph._last_node_id = 1;
+		node.id = this.graph._last_node_id++;
+		node.graph = this.graph;
+		this.graph.nodes.push(node);
+		this.graph._nodes_by_id[node.id] = node;
+
+		// Set value
+		if (nodeData.value !== undefined) {
+			node.properties = node.properties || {};
+			node.properties.value = nodeData.value;
+		}
+
+		// Restore position/size from extra
+		if (nodeData.extra?.pos) node.pos = [...nodeData.extra.pos];
+		if (nodeData.extra?.size) node.size = [...nodeData.extra.size];
+
+		node.workflowIndex = index;
+		return node;
 	}
 
-	_createNode(factory, nodeData, index, schemaName, typeMap, position) {
+	/**
+	 * Create Data node from schema format
+	 */
+	_createDataNode(nodeData, index) {
+		// Map schema type to JS dataType
+		const typeMap = {
+			'data_text': 'text',
+			'data_document': 'document',
+			'data_image': 'image',
+			'data_audio': 'audio',
+			'data_video': 'video',
+			'data_model3d': 'model3d',
+			'data': nodeData.data_type || 'text'  // Generic data node
+		};
+
+		const dataType = typeMap[nodeData.type] || 'text';
+		const capitalizedType = dataType.charAt(0).toUpperCase() + dataType.slice(1);
+		const nodeTypeKey = `Data.${capitalizedType}`;
+		
+		// Try to get the specific DataNode class
+		const NodeClass = typeof DataNodeTypes !== 'undefined' ? DataNodeTypes[nodeTypeKey] : null;
+
+		if (!NodeClass) {
+			console.error(`Data node type not found: ${nodeTypeKey}`);
+			return null;
+		}
+
+		const node = new NodeClass();
+
+		// Register with graph
+		if (this.graph._last_node_id === undefined) this.graph._last_node_id = 1;
+		node.id = this.graph._last_node_id++;
+		node.graph = this.graph;
+		this.graph.nodes.push(node);
+		this.graph._nodes_by_id[node.id] = node;
+
+		// Restore source info
+		node.sourceType = nodeData.source_type || 'none';
+		if (nodeData.source_url) node.sourceUrl = nodeData.source_url;
+		if (nodeData.source_data) node.sourceData = nodeData.source_data;
+		
+		// Restore source metadata
+		if (nodeData.source_meta) {
+			node.sourceMeta = {
+				filename: nodeData.source_meta.filename || '',
+				mimeType: nodeData.source_meta.mime_type || '',
+				size: nodeData.source_meta.size || 0,
+				lastModified: nodeData.source_meta.last_modified || null
+			};
+		}
+
+		// Restore type-specific fields
+		if (dataType === 'text') {
+			node.properties = node.properties || {};
+			if (nodeData.encoding) node.properties.encoding = nodeData.encoding;
+			if (nodeData.language) node.properties.language = nodeData.language;
+		}
+		if (dataType === 'image' && nodeData.dimensions) {
+			node.imageDimensions = { width: nodeData.dimensions.width, height: nodeData.dimensions.height };
+		}
+		if (dataType === 'audio' && nodeData.duration) {
+			node.audioDuration = nodeData.duration;
+		}
+		if (dataType === 'video') {
+			if (nodeData.dimensions) {
+				node.videoDimensions = { width: nodeData.dimensions.width, height: nodeData.dimensions.height };
+			}
+			if (nodeData.duration) node.videoDuration = nodeData.duration;
+		}
+
+		// Restore position/size/expanded from extra
+		if (nodeData.extra?.pos) node.pos = [...nodeData.extra.pos];
+		if (nodeData.extra?.size) node.size = [...nodeData.extra.size];
+		node.isExpanded = nodeData.extra?.isExpanded || false;
+
+		node.workflowIndex = index;
+		return node;
+	}
+
+	/**
+	 * Create Workflow node from schema format
+	 */
+	_createWorkflowNode(factory, nodeData, index, schemaName, typeMap) {
+		if (!factory) {
+			console.error('No factory available for workflow nodes');
+			return null;
+		}
+
 		const nodeType = nodeData.type;
 		const modelName = this._resolveModelName(nodeType, schemaName, typeMap);
 
@@ -787,95 +920,78 @@ class WorkflowImporter {
 			return null;
 		}
 
-		try {
-			const node = factory.createNode(modelName, nodeData);
-			if (!node) return null;
+		const node = factory.createNode(modelName, nodeData);
+		if (!node) return null;
 
-			// Register node with graph
-			if (this.graph._last_node_id === undefined) {
-				this.graph._last_node_id = 1;
-			}
-			node.id = this.graph._last_node_id++;
-			node.graph = this.graph;
-			this.graph.nodes.push(node);
-			this.graph._nodes_by_id[node.id] = node;
+		// Register with graph
+		if (this.graph._last_node_id === undefined) this.graph._last_node_id = 1;
+		node.id = this.graph._last_node_id++;
+		node.graph = this.graph;
+		this.graph.nodes.push(node);
+		this.graph._nodes_by_id[node.id] = node;
 
-			node.pos = [position.x, position.y];
-			node.workflowIndex = index;
+		// Restore position/size from extra
+		if (nodeData.extra?.pos) node.pos = [...nodeData.extra.pos];
+		if (nodeData.extra?.size) node.size = [...nodeData.extra.size];
 
-			if (nodeData.extra) {
-				node.extra = { ...nodeData.extra };
-				if (nodeData.extra.title || nodeData.extra.name) {
-					node.title = nodeData.extra.title || nodeData.extra.name;
-				}
-				if (nodeData.extra.color) {
-					node.color = nodeData.extra.color;
-				}
-			}
+		node.workflowIndex = index;
 
-			this._populateNodeFields(node, nodeData);
-
-			return node;
-		} catch (e) {
-			console.error(`Failed to create node ${index}:`, e);
-			return null;
+		// Restore extra metadata
+		if (nodeData.extra) {
+			node.extra = { ...nodeData.extra };
+			delete node.extra.pos;
+			delete node.extra.size;
+			if (nodeData.extra.title) node.title = nodeData.extra.title;
+			if (nodeData.extra.color) node.color = nodeData.extra.color;
 		}
+
+		this._populateNodeFields(node, nodeData);
+		return node;
+	}
+
+	_buildTypeMap(schema) {
+		const typeMap = {};
+		if (schema?.defaults) {
+			for (const [key, value] of Object.entries(schema.defaults)) {
+				if (value?.type) typeMap[value.type] = key;
+			}
+		}
+		return typeMap;
 	}
 
 	_resolveModelName(nodeType, schemaName, typeMap) {
-		// Try type map first (type value → model name)
-		if (typeMap && typeMap[nodeType]) {
-			return typeMap[nodeType];
-		}
+		if (typeMap?.[nodeType]) return typeMap[nodeType];
 
-		// Try PascalCase conversion
 		const pascalName = this._snakeToPascal(nodeType);
-		if (this.graph.schemas[schemaName]?.parsed[pascalName]) {
-			return pascalName;
-		}
+		if (this.graph.schemas[schemaName]?.parsed[pascalName]) return pascalName;
 
-		// Try common suffixes
 		const baseName = nodeType.replace(/_config$|_node$/, '');
 		for (const suffix of ['Config', 'Node', '']) {
 			const name = this._snakeToPascal(baseName) + suffix;
-			if (this.graph.schemas[schemaName]?.parsed[name]) {
-				return name;
-			}
+			if (this.graph.schemas[schemaName]?.parsed[name]) return name;
 		}
-
 		return null;
 	}
 
 	_snakeToPascal(str) {
-		return str.split('_')
-			.map(part => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-			.join('');
+		return str.split('_').map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join('');
 	}
 
 	_populateNodeFields(node, nodeData) {
 		for (let i = 0; i < node.inputs.length; i++) {
 			const input = node.inputs[i];
-			const fieldName = input.name.split('.')[0]; // Get base name for dotted slots
+			const fieldName = input.name.split('.')[0];
 			const value = nodeData[fieldName];
-
 			if (value === undefined || value === null) continue;
-
-			// Skip if this is a multi-input slot (handled by edges)
-			if (node.multiInputSlots[fieldName]) continue;
-
-			if (node.nativeInputs && node.nativeInputs[i] !== undefined) {
-				if (typeof value === 'object') {
-					node.nativeInputs[i].value = JSON.stringify(value);
-				} else {
-					node.nativeInputs[i].value = value;
-				}
+			if (node.multiInputSlots?.[fieldName]) continue;
+			if (node.nativeInputs?.[i] !== undefined) {
+				node.nativeInputs[i].value = typeof value === 'object' ? JSON.stringify(value) : value;
 			}
 		}
 	}
 
 	_createEdge(edgeData, createdNodes) {
 		const { source, target, source_slot, target_slot, preview, data, extra } = edgeData;
-
 		const sourceNode = createdNodes[source];
 		const targetNode = createdNodes[target];
 
@@ -884,146 +1000,107 @@ class WorkflowImporter {
 			return null;
 		}
 
-		const sourceSlotIdx = sourceNode.getOutputSlotByName(source_slot);
-		const targetSlotIdx = targetNode.getInputSlotByName(target_slot);
+		const sourceSlotIdx = this._findOutputSlot(sourceNode, source_slot);
+		const targetSlotIdx = this._findInputSlot(targetNode, target_slot);
 
-		if (sourceSlotIdx === -1) {
-			console.warn(`Edge skipped: output slot "${source_slot}" not found on node ${source}`);
-			return null;
-		}
-		if (targetSlotIdx === -1) {
-			console.warn(`Edge skipped: input slot "${target_slot}" not found on node ${target}`);
+		if (sourceSlotIdx === -1 || targetSlotIdx === -1) {
+			console.warn(`Edge skipped: slot not found (${source_slot} -> ${target_slot})`);
 			return null;
 		}
 
-		// If preview is enabled, insert a preview node
-		if (preview === true) {
-			return this._createEdgeWithPreview(
-				sourceNode, sourceSlotIdx, source_slot,
-				targetNode, targetSlotIdx, target_slot,
-				edgeData  // Pass full edge data
-			);
+		if (preview === true && typeof PreviewNode !== 'undefined') {
+			return this._createEdgeWithPreview(sourceNode, sourceSlotIdx, source_slot, 
+				targetNode, targetSlotIdx, target_slot, edgeData);
 		}
 
-		// Standard edge creation
+		return this._createStandardEdge(sourceNode, sourceSlotIdx, targetNode, targetSlotIdx, data, extra);
+	}
+
+	_findOutputSlot(node, slotName) {
+		// By name
+		for (let i = 0; i < node.outputs.length; i++) {
+			if (node.outputs[i].name === slotName) return i;
+		}
+		// By index
+		const idx = parseInt(slotName);
+		if (!isNaN(idx) && idx >= 0 && idx < node.outputs.length) return idx;
+		// Default for data/native nodes
+		if ((node.isDataNode || node.isNative) && node.outputs.length > 0) return 0;
+		return -1;
+	}
+
+	_findInputSlot(node, slotName) {
+		for (let i = 0; i < node.inputs.length; i++) {
+			if (node.inputs[i].name === slotName) return i;
+		}
+		const idx = parseInt(slotName);
+		if (!isNaN(idx) && idx >= 0 && idx < node.inputs.length) return idx;
+		if ((node.isDataNode || node.isNative) && node.inputs.length > 0) return 0;
+		return -1;
+	}
+
+	_createStandardEdge(sourceNode, sourceSlotIdx, targetNode, targetSlotIdx, data, extra) {
 		const linkId = ++this.graph.last_link_id;
-		const link = new Link(
-			linkId,
-			sourceNode.id,
-			sourceSlotIdx,
-			targetNode.id,
-			targetSlotIdx,
-			sourceNode.outputs[sourceSlotIdx]?.type || 'Any'
-		);
+		const link = new Link(linkId, sourceNode.id, sourceSlotIdx, targetNode.id, targetSlotIdx, 
+			sourceNode.outputs[sourceSlotIdx]?.type || 'Any');
 
-		// Store accessory data
-		if (data) {
-			link.data = JSON.parse(JSON.stringify(data));
-		}
-		if (extra) {
-			link.extra = JSON.parse(JSON.stringify(extra));
-		}
+		if (data) link.data = JSON.parse(JSON.stringify(data));
+		if (extra) link.extra = JSON.parse(JSON.stringify(extra));
 
 		this.graph.links[linkId] = link;
 		sourceNode.outputs[sourceSlotIdx].links.push(linkId);
-		targetNode.inputs[targetSlotIdx].link = linkId;
+		
+		if (targetNode.multiInputs?.[targetSlotIdx]) {
+			targetNode.multiInputs[targetSlotIdx].links.push(linkId);
+		} else {
+			targetNode.inputs[targetSlotIdx].link = linkId;
+		}
 
 		this.eventBus.emit('link:created', { linkId });
-		
 		return link;
 	}
 
-	/**
-	 * Create an edge with a preview node inserted in the middle
-	 */
-	_createEdgeWithPreview(
-		sourceNode, sourceSlotIdx, sourceSlot,
-		targetNode, targetSlotIdx, targetSlot,
-		edgeData
-	) {
-		const sourceX = sourceNode.pos[0] + sourceNode.size[0];
-		const sourceY = sourceNode.pos[1] + 33 + sourceSlotIdx * 25;
-		const targetX = targetNode.pos[0];
-		const targetY = targetNode.pos[1] + 33 + targetSlotIdx * 25;
-		
-		const midX = (sourceX + targetX) / 2 - 110;
-		const midY = (sourceY + targetY) / 2 - 60;
-
+	_createEdgeWithPreview(sourceNode, sourceSlotIdx, sourceSlot, targetNode, targetSlotIdx, targetSlot, edgeData) {
+		const midX = (sourceNode.pos[0] + sourceNode.size[0] + targetNode.pos[0]) / 2 - 110;
+		const midY = (sourceNode.pos[1] + targetNode.pos[1]) / 2;
 		const linkType = sourceNode.outputs[sourceSlotIdx]?.type || 'Any';
 
 		const previewNode = new PreviewNode();
-		
-		if (this.graph._last_node_id === undefined) {
-			this.graph._last_node_id = 1;
-		}
+		if (this.graph._last_node_id === undefined) this.graph._last_node_id = 1;
 		previewNode.id = this.graph._last_node_id++;
 		previewNode.graph = this.graph;
 		previewNode.pos = [midX, midY];
-		
-		// Store complete original edge info
 		previewNode._originalEdgeInfo = {
 			sourceNodeId: sourceNode.id,
-			sourceSlotIdx: sourceSlotIdx,
-			sourceSlotName: sourceSlot,
+			sourceSlotIdx, sourceSlotName: sourceSlot,
 			targetNodeId: targetNode.id,
-			targetSlotIdx: targetSlotIdx,
-			targetSlotName: targetSlot,
-			linkType: linkType,
+			targetSlotIdx, targetSlotName: targetSlot,
+			linkType,
 			data: edgeData.data ? JSON.parse(JSON.stringify(edgeData.data)) : null,
 			extra: edgeData.extra ? JSON.parse(JSON.stringify(edgeData.extra)) : null,
 		};
-		
-		previewNode._fromEdgePreview = true;
-		
+
 		this.graph.nodes.push(previewNode);
 		this.graph._nodes_by_id[previewNode.id] = previewNode;
 
-		// Link: Source -> Preview
+		// Source -> Preview
 		const link1Id = ++this.graph.last_link_id;
 		const link1 = new Link(link1Id, sourceNode.id, sourceSlotIdx, previewNode.id, 0, linkType);
 		link1.extra = { _isPreviewLink: true };
-		
 		this.graph.links[link1Id] = link1;
 		sourceNode.outputs[sourceSlotIdx].links.push(link1Id);
 		previewNode.inputs[0].link = link1Id;
 
-		// Link: Preview -> Target
+		// Preview -> Target
 		const link2Id = ++this.graph.last_link_id;
 		const link2 = new Link(link2Id, previewNode.id, 0, targetNode.id, targetSlotIdx, linkType);
 		link2.extra = { _isPreviewLink: true };
-		
 		this.graph.links[link2Id] = link2;
 		previewNode.outputs[0].links.push(link2Id);
 		targetNode.inputs[targetSlotIdx].link = link2Id;
 
-		this.eventBus.emit('link:created', { linkId: link1Id });
-		this.eventBus.emit('link:created', { linkId: link2Id });
-		this.eventBus.emit('preview:inserted', { 
-			nodeId: previewNode.id, 
-			fromEdgePreview: true,
-			originalEdgeInfo: previewNode._originalEdgeInfo
-		});
-
+		this.eventBus.emit('preview:inserted', { nodeId: previewNode.id });
 		return { link1, link2, previewNode };
-	}
-
-	_calculateLayout(workflowData) {
-		const positions = [];
-		const nodeCount = workflowData.nodes.length;
-		const cols = Math.ceil(Math.sqrt(nodeCount));
-		const spacingX = 280;
-		const spacingY = 180;
-
-		for (let i = 0; i < nodeCount; i++) {
-			const col = i % cols;
-			const row = Math.floor(i / cols);
-			positions.push({
-				x: 100 + col * spacingX,
-				y: 100 + row * spacingY
-			});
-		}
-
-		return positions;
 	}
 }
 
@@ -1040,45 +1117,42 @@ class WorkflowExporter {
 		const wf = JSON.parse(JSON.stringify(workflowInfo));
 		const workflow = {
 			...wf,
-			type  : 'workflow',
-			nodes : [],
-			edges : [],
+			type: 'workflow',
+			nodes: [],
+			edges: [],
 		};
 
-		// Separate workflow nodes from preview nodes
-		const workflowNodes = [];
+		// Collect exportable nodes (exclude preview nodes)
+		const exportableNodes = [];
 		const previewNodes = [];
 		
 		for (const node of this.graph.nodes) {
 			if (node.isPreviewNode) {
 				previewNodes.push(node);
-			} else if (node.schemaName === schemaName || node.isWorkflowNode) {
-				workflowNodes.push(node);
+			} else {
+				exportableNodes.push(node);
 			}
 		}
 
-		// Sort workflow nodes by original index
-		workflowNodes.sort((a, b) => {
+		// Sort by workflowIndex if available
+		exportableNodes.sort((a, b) => {
 			if (a.workflowIndex !== undefined && b.workflowIndex !== undefined) {
 				return a.workflowIndex - b.workflowIndex;
 			}
-			return 0;
+			return (a.id || 0) - (b.id || 0);
 		});
 
 		// Build node ID to export index mapping
 		const nodeToIndex = new Map();
-		for (let i = 0; i < workflowNodes.length; i++) {
-			nodeToIndex.set(workflowNodes[i].id, i);
-			workflow.nodes.push(this._exportNode(workflowNodes[i]));
+		for (let i = 0; i < exportableNodes.length; i++) {
+			nodeToIndex.set(exportableNodes[i].id, i);
+			workflow.nodes.push(this._exportNode(exportableNodes[i]));
 		}
 
-		// Build set of preview node IDs for quick lookup
+		// Process edges (collapsing preview nodes)
 		const previewNodeIds = new Set(previewNodes.map(n => n.id));
-
-		// Track which links have been processed (to avoid duplicates)
 		const processedLinks = new Set();
 
-		// Process all links, collapsing preview nodes back to single edges
 		for (const linkId in this.graph.links) {
 			if (processedLinks.has(linkId)) continue;
 			
@@ -1088,214 +1162,197 @@ class WorkflowExporter {
 
 			if (!sourceNode || !targetNode) continue;
 
-			// Case 1: Source is workflow node, target is preview node
+			// Source -> Preview: trace through chain
 			if (!previewNodeIds.has(sourceNode.id) && previewNodeIds.has(targetNode.id)) {
 				const edge = this._tracePreviewChain(link, sourceNode, targetNode, nodeToIndex, processedLinks);
-				if (edge) {
-					workflow.edges.push(edge);
-				}
+				if (edge) workflow.edges.push(edge);
 				continue;
 			}
 
-			// Case 2: Both are workflow nodes (normal edge)
+			// Normal edge
 			if (!previewNodeIds.has(sourceNode.id) && !previewNodeIds.has(targetNode.id)) {
 				const edge = this._exportEdge(link, nodeToIndex);
-				if (edge) {
-					workflow.edges.push(edge);
-				}
+				if (edge) workflow.edges.push(edge);
 				processedLinks.add(linkId);
 			}
-			
-			// Case 3: Source is preview node - skip (handled by tracing from workflow node)
 		}
 
 		return workflow;
 	}
 
-	/**
-	 * Trace through a chain of preview nodes and create a single edge with preview: true
-	 * Restores all accessory information from the first preview node
-	 */
-	_tracePreviewChain(startLink, sourceNode, firstPreviewNode, nodeToIndex, processedLinks) {
-		processedLinks.add(startLink.id);
-		
-		let currentPreviewNode = firstPreviewNode;
-		let hasPreview = true;
-		
-		// Get original edge info from the first preview node
-		const originalEdgeInfo = firstPreviewNode._originalEdgeInfo || {};
-		
-		// Trace through chain of preview nodes
-		while (currentPreviewNode && currentPreviewNode.isPreviewNode) {
-			const outLinks = currentPreviewNode.outputs[0]?.links || [];
-			
-			if (outLinks.length === 0) {
-				// Preview node with no output - edge terminates here
-				return null;
-			}
-			
-			// Get the outgoing link
-			const outLinkId = outLinks[0];
-			const outLink = this.graph.links[outLinkId];
-			
-			if (!outLink) {
-				return null;
-			}
-			
-			processedLinks.add(outLinkId);
-			
-			const nextNode = this.graph.getNodeById(outLink.target_id);
-			
-			if (!nextNode) {
-				return null;
-			}
-			
-			if (nextNode.isPreviewNode) {
-				// Continue tracing through preview chain
-				currentPreviewNode = nextNode;
-			} else {
-				// Reached a workflow node - create the final edge
-				const sourceIdx = nodeToIndex.get(sourceNode.id);
-				const targetIdx = nodeToIndex.get(nextNode.id);
-				
-				if (sourceIdx === undefined || targetIdx === undefined) {
-					return null;
-				}
-				
-				// Get slot names from original edge info or fall back to current names
-				const sourceSlot = originalEdgeInfo.sourceSlotName || 
-					sourceNode.outputs[startLink.origin_slot]?.name || 'output';
-				const targetSlot = originalEdgeInfo.targetSlotName ||
-					nextNode.inputs[outLink.target_slot]?.name || 'input';
-				
-				const edge = {
-					source: sourceIdx,
-					target: targetIdx,
-					source_slot: sourceSlot,
-					target_slot: targetSlot,
-					preview: hasPreview
-				};
-				
-				// Restore data field from original edge info
-				if (originalEdgeInfo.data && Object.keys(originalEdgeInfo.data).length > 0) {
-					edge.data = JSON.parse(JSON.stringify(originalEdgeInfo.data));
-				}
-				
-				// Restore extra field from original edge info
-				if (originalEdgeInfo.extra && Object.keys(originalEdgeInfo.extra).length > 0) {
-					// Filter out internal tracking fields
-					const cleanExtra = JSON.parse(JSON.stringify(originalEdgeInfo.extra));
-					delete cleanExtra._isPreviewLink;
-					if (Object.keys(cleanExtra).length > 0) {
-						edge.extra = cleanExtra;
-					}
-				}
-				
-				return edge;
-			}
-		}
-		
-		return null;
-	}
-
-	/**
-	 * Export a standard edge (no preview nodes involved)
-	 * Preserves all accessory data
-	 */
-	_exportEdge(link, nodeToIndex) {
-		const sourceNode = this.graph.getNodeById(link.origin_id);
-		const targetNode = this.graph.getNodeById(link.target_id);
-
-		if (!sourceNode || !targetNode) return null;
-
-		const sourceIdx = nodeToIndex.get(link.origin_id);
-		const targetIdx = nodeToIndex.get(link.target_id);
-
-		if (sourceIdx === undefined || targetIdx === undefined) return null;
-
-		const sourceSlot = sourceNode.outputs[link.origin_slot]?.name || 'output';
-		const targetSlot = targetNode.inputs[link.target_slot]?.name || 'input';
-
-		const edge = {
-			source: sourceIdx,
-			target: targetIdx,
-			source_slot: sourceSlot,
-			target_slot: targetSlot
-			// preview: false is the default, so we omit it
-		};
-
-		// Preserve data field
-		if (link.data && Object.keys(link.data).length > 0) {
-			edge.data = JSON.parse(JSON.stringify(link.data));
-		}
-
-		// Preserve extra field
-		if (link.extra && Object.keys(link.extra).length > 0) {
-			// Filter out internal tracking fields
-			const cleanExtra = JSON.parse(JSON.stringify(link.extra));
-			delete cleanExtra._isPreviewLink;
-			
-			if (Object.keys(cleanExtra).length > 0) {
-				edge.extra = cleanExtra;
-			}
-		}
-
-		return edge;
-	}
-
 	_exportNode(node) {
-		const nodeData = {
-			type: node.workflowType || node.constantFields?.type || node.modelName?.toLowerCase() || 'unknown'
+		if (node.isDataNode) return this._exportDataNode(node);
+		if (node.isNative) return this._exportNativeNode(node);
+		return this._exportWorkflowNode(node);
+	}
+
+	/**
+	 * Export Data node per schema.py:
+	 * type: "data_<dataType>" | "data"
+	 * source_type, source_url, source_data, source_meta
+	 * + type-specific fields (dimensions, duration, encoding, language)
+	 * extra: { pos, size, isExpanded }
+	 */
+	_exportDataNode(node) {
+		// Map JS dataType to schema type
+		const typeMap = {
+			'text': 'data_text',
+			'document': 'data_document',
+			'image': 'data_image',
+			'audio': 'data_audio',
+			'video': 'data_video',
+			'model3d': 'data_model3d'
 		};
 
-		// Export constant fields
+		const nodeData = {
+			type: typeMap[node.dataType] || 'data',
+			source_type: node.sourceType || 'none'
+		};
+
+		// Generic data node: include data_type field
+		if (!typeMap[node.dataType]) {
+			nodeData.data_type = node.dataType || null;
+		}
+
+		// Source URL or data
+		if (node.sourceType === 'url' && node.sourceUrl) {
+			nodeData.source_url = node.sourceUrl;
+		} else if ((node.sourceType === 'file' || node.sourceType === 'inline') && node.sourceData) {
+			nodeData.source_data = node.sourceData;
+		}
+
+		// Source metadata
+		if (node.sourceMeta && Object.keys(node.sourceMeta).length > 0) {
+			nodeData.source_meta = {
+				filename: node.sourceMeta.filename || null,
+				mime_type: node.sourceMeta.mimeType || null,
+				size: node.sourceMeta.size || null,
+				last_modified: node.sourceMeta.lastModified || null
+			};
+			// Remove null values
+			for (const k in nodeData.source_meta) {
+				if (nodeData.source_meta[k] === null) delete nodeData.source_meta[k];
+			}
+			if (Object.keys(nodeData.source_meta).length === 0) delete nodeData.source_meta;
+		}
+
+		// Type-specific fields
+		if (node.dataType === 'text') {
+			if (node.properties?.encoding) nodeData.encoding = node.properties.encoding;
+			if (node.properties?.language) nodeData.language = node.properties.language;
+		}
+		if (node.dataType === 'image' && node.imageDimensions?.width) {
+			nodeData.dimensions = { width: node.imageDimensions.width, height: node.imageDimensions.height };
+		}
+		if (node.dataType === 'audio' && node.audioDuration) {
+			nodeData.duration = node.audioDuration;
+		}
+		if (node.dataType === 'video') {
+			if (node.videoDimensions?.width) {
+				nodeData.dimensions = { width: node.videoDimensions.width, height: node.videoDimensions.height };
+			}
+			if (node.videoDuration) nodeData.duration = node.videoDuration;
+		}
+
+		// Extra (position, size, expanded state)
+		nodeData.extra = {
+			pos: [...node.pos],
+			size: [...node.size]
+		};
+		if (node.isExpanded) nodeData.extra.isExpanded = true;
+
+		return nodeData;
+	}
+
+	/**
+	 * Export Native node per schema.py:
+	 * type: "native_<type>"
+	 * value: the actual value
+	 * extra: { pos, size }
+	 */
+	_exportNativeNode(node) {
+		// Map JS native type to schema type
+		const typeMap = {
+			'String': 'native_string',
+			'Integer': 'native_integer',
+			'Float': 'native_float',
+			'Boolean': 'native_boolean',
+			'List': 'native_list',
+			'Dict': 'native_dict'
+		};
+
+		const nativeType = node.title || 'String';
+		
+		// Get value
+		let value = node.properties?.value;
+		if (value === undefined) value = this._getDefaultNativeValue(nativeType);
+
+		const nodeData = {
+			type: typeMap[nativeType] || 'native_string',
+			value: value,
+			extra: {
+				pos: [...node.pos],
+				size: [...node.size]
+			}
+		};
+
+		return nodeData;
+	}
+
+	_getDefaultNativeValue(nativeType) {
+		switch (nativeType) {
+			case 'Integer': return 0;
+			case 'Float': return 0.0;
+			case 'Boolean': return false;
+			case 'List': return [];
+			case 'Dict': return {};
+			default: return '';
+		}
+	}
+
+	/**
+	 * Export Workflow node (schema-defined nodes)
+	 */
+	_exportWorkflowNode(node) {
+		const nodeData = {
+			type: node.workflowType || node.constantFields?.type || 
+				  node.modelName?.toLowerCase() || 'unknown'
+		};
+
+		// Constant fields (except type)
 		if (node.constantFields) {
 			for (const key in node.constantFields) {
-				if (key !== 'type') {
-					nodeData[key] = node.constantFields[key];
-				}
+				if (key !== 'type') nodeData[key] = node.constantFields[key];
 			}
 		}
 
-		// Export multi-input keys
+		// Multi-input keys
 		for (const [baseName, slotIndices] of Object.entries(node.multiInputSlots || {})) {
-			const keys = [];
-			for (const idx of slotIndices) {
+			const keys = slotIndices.map(idx => {
 				const slotName = node.inputs[idx].name;
 				const dotIdx = slotName.indexOf('.');
-				if (dotIdx !== -1) {
-					keys.push(slotName.substring(dotIdx + 1));
-				}
-			}
-			if (keys.length > 0) {
-				nodeData[baseName] = keys;
-			}
+				return dotIdx !== -1 ? slotName.substring(dotIdx + 1) : null;
+			}).filter(Boolean);
+			if (keys.length > 0) nodeData[baseName] = keys;
 		}
 
-		// Export multi-output keys
+		// Multi-output keys
 		for (const [baseName, slotIndices] of Object.entries(node.multiOutputSlots || {})) {
-			const keys = [];
-			for (const idx of slotIndices) {
+			const keys = slotIndices.map(idx => {
 				const slotName = node.outputs[idx].name;
 				const dotIdx = slotName.indexOf('.');
-				if (dotIdx !== -1) {
-					keys.push(slotName.substring(dotIdx + 1));
-				}
-			}
-			if (keys.length > 0) {
-				nodeData[baseName] = keys;
-			}
+				return dotIdx !== -1 ? slotName.substring(dotIdx + 1) : null;
+			}).filter(Boolean);
+			if (keys.length > 0) nodeData[baseName] = keys;
 		}
 
-		// Export native input values (non-connected)
+		// Native input values (non-connected)
 		for (let i = 0; i < node.inputs.length; i++) {
 			const input = node.inputs[i];
-			if (input.link) continue; // Skip connected inputs
-
+			if (input.link) continue;
 			const baseName = input.name.split('.')[0];
-			if (node.multiInputSlots[baseName]) continue; // Skip multi-input slots
-
-			if (node.nativeInputs && node.nativeInputs[i] !== undefined) {
+			if (node.multiInputSlots?.[baseName]) continue;
+			if (node.nativeInputs?.[i] !== undefined) {
 				const val = node.nativeInputs[i].value;
 				if (val !== null && val !== undefined && val !== '') {
 					nodeData[input.name] = this._convertExportValue(val, node.nativeInputs[i].type);
@@ -1303,53 +1360,97 @@ class WorkflowExporter {
 			}
 		}
 
-		// Export extra metadata
-		if (node.extra && Object.keys(node.extra).length > 0) {
-			nodeData.extra = { ...node.extra };
-		} else if (node.color || node.title !== `${node.schemaName}.${node.modelName}`) {
-			nodeData.extra = {};
-			if (node.color) nodeData.extra.color = node.color;
-			if (node.title !== `${node.schemaName}.${node.modelName}`) {
-				nodeData.extra.name = node.title;
-			}
+		// Extra
+		nodeData.extra = { pos: [...node.pos], size: [...node.size] };
+		if (node.extra) nodeData.extra = { ...nodeData.extra, ...node.extra };
+		if (node.title !== `${node.schemaName}.${node.modelName}`) {
+			nodeData.extra.title = node.title;
 		}
+		if (node.color) nodeData.extra.color = node.color;
 
 		return nodeData;
+	}
+
+	_tracePreviewChain(startLink, sourceNode, firstPreviewNode, nodeToIndex, processedLinks) {
+		processedLinks.add(startLink.id);
+		let currentPreviewNode = firstPreviewNode;
+		const originalEdgeInfo = firstPreviewNode._originalEdgeInfo || {};
+		
+		while (currentPreviewNode?.isPreviewNode) {
+			const outLinks = currentPreviewNode.outputs[0]?.links || [];
+			if (outLinks.length === 0) return null;
+			
+			const outLinkId = outLinks[0];
+			const outLink = this.graph.links[outLinkId];
+			if (!outLink) return null;
+			
+			processedLinks.add(outLinkId);
+			const nextNode = this.graph.getNodeById(outLink.target_id);
+			if (!nextNode) return null;
+			
+			if (nextNode.isPreviewNode) {
+				currentPreviewNode = nextNode;
+			} else {
+				const sourceIdx = nodeToIndex.get(sourceNode.id);
+				const targetIdx = nodeToIndex.get(nextNode.id);
+				if (sourceIdx === undefined || targetIdx === undefined) return null;
+				
+				const edge = {
+					type: 'edge',
+					source: sourceIdx,
+					target: targetIdx,
+					source_slot: originalEdgeInfo.sourceSlotName || 
+						sourceNode.outputs[startLink.origin_slot]?.name || 'output',
+					target_slot: originalEdgeInfo.targetSlotName || 
+						nextNode.inputs[outLink.target_slot]?.name || 'input',
+					preview: true
+				};
+				
+				if (originalEdgeInfo.data) edge.data = JSON.parse(JSON.stringify(originalEdgeInfo.data));
+				if (originalEdgeInfo.extra) {
+					const cleanExtra = JSON.parse(JSON.stringify(originalEdgeInfo.extra));
+					delete cleanExtra._isPreviewLink;
+					if (Object.keys(cleanExtra).length > 0) edge.extra = cleanExtra;
+				}
+				
+				return edge;
+			}
+		}
+		return null;
 	}
 
 	_exportEdge(link, nodeToIndex) {
 		const sourceNode = this.graph.getNodeById(link.origin_id);
 		const targetNode = this.graph.getNodeById(link.target_id);
-
 		if (!sourceNode || !targetNode) return null;
 
 		const sourceIdx = nodeToIndex.get(link.origin_id);
 		const targetIdx = nodeToIndex.get(link.target_id);
-
 		if (sourceIdx === undefined || targetIdx === undefined) return null;
 
-		const sourceSlot = sourceNode.outputs[link.origin_slot]?.name || 'output';
-		const targetSlot = targetNode.inputs[link.target_slot]?.name || 'input';
-
 		const edge = {
+			type: 'edge',
 			source: sourceIdx,
 			target: targetIdx,
-			source_slot: sourceSlot,
-			target_slot: targetSlot
+			source_slot: sourceNode.outputs[link.origin_slot]?.name || 'output',
+			target_slot: targetNode.inputs[link.target_slot]?.name || 'input'
 		};
 
+		if (link.data && Object.keys(link.data).length > 0) {
+			edge.data = JSON.parse(JSON.stringify(link.data));
+		}
 		if (link.extra && Object.keys(link.extra).length > 0) {
-			edge.extra = { ...link.extra };
+			const cleanExtra = JSON.parse(JSON.stringify(link.extra));
+			delete cleanExtra._isPreviewLink;
+			if (Object.keys(cleanExtra).length > 0) edge.extra = cleanExtra;
 		}
 
 		return edge;
 	}
 
 	_convertExportValue(val, type) {
-		if (type === 'dict' || type === 'list') {
-			if (typeof val === 'string') {
-				try { return JSON.parse(val); } catch (e) { return val; }
-			}
+		if ((type === 'dict' || type === 'list') && typeof val === 'string') {
+			try { return JSON.parse(val); } catch (e) { return val; }
 		}
 		return val;
 	}

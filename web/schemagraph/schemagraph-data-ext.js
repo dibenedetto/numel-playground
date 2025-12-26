@@ -1299,6 +1299,423 @@ function extendSchemaGraphAppWithData(SchemaGraphAppClass) {
 }
 
 // ========================================================================
+// SERIALIZATION EXTENSION
+// Extends SchemaGraph serialize/deserialize to handle Native, Data, and Preview nodes
+// ========================================================================
+
+function extendSerializationForAllNodes(SchemaGraphClass) {
+	const originalSerialize = SchemaGraphClass.prototype.serialize;
+	
+	SchemaGraphClass.prototype.serialize = function(includeCamera = false, camera = null) {
+		const data = {
+			version: '1.1',
+			nodes: [],
+			links: []
+		};
+		
+		for (const node of this.nodes) {
+			const nodeData = {
+				id: node.id,
+				type: node.title,
+				pos: node.pos.slice(),
+				size: node.size.slice(),
+				properties: JSON.parse(JSON.stringify(node.properties || {}))
+			};
+			
+			// Native nodes
+			if (node.isNative) {
+				nodeData.isNative = true;
+				nodeData.nativeType = node.title; // String, Integer, etc.
+			}
+			
+			// Schema nodes
+			if (node.schemaName) {
+				nodeData.schemaName = node.schemaName;
+			}
+			if (node.modelName) {
+				nodeData.modelName = node.modelName;
+			}
+			if (node.isRootType) {
+				nodeData.isRootType = true;
+			}
+			
+			// Native inputs (for schema nodes with editable fields)
+			if (node.nativeInputs && Object.keys(node.nativeInputs).length > 0) {
+				nodeData.nativeInputs = JSON.parse(JSON.stringify(node.nativeInputs));
+			}
+			
+			// Multi inputs
+			if (node.multiInputs && Object.keys(node.multiInputs).length > 0) {
+				nodeData.multiInputs = JSON.parse(JSON.stringify(node.multiInputs));
+			}
+			
+			// Data nodes
+			if (node.isDataNode) {
+				nodeData.isDataNode = true;
+				nodeData.dataType = node.dataType;
+				nodeData.sourceType = node.sourceType;
+				nodeData.sourceUrl = node.sourceUrl || '';
+				nodeData.sourceData = node.sourceData || null;
+				nodeData.sourceMeta = JSON.parse(JSON.stringify(node.sourceMeta || {}));
+				nodeData.isExpanded = node.isExpanded || false;
+				
+				// Type-specific data
+				if (node.imageDimensions) {
+					nodeData.imageDimensions = { ...node.imageDimensions };
+				}
+				if (node.audioDuration) {
+					nodeData.audioDuration = node.audioDuration;
+				}
+				if (node.videoDimensions) {
+					nodeData.videoDimensions = { ...node.videoDimensions };
+				}
+				if (node.videoDuration) {
+					nodeData.videoDuration = node.videoDuration;
+				}
+			}
+			
+			// Preview nodes
+			if (node.isPreviewNode) {
+				nodeData.isPreviewNode = true;
+				nodeData.previewType = node.previewType;
+				nodeData.isExpanded = node.isExpanded || false;
+				
+				// Store original edge info for proper restoration
+				if (node._originalEdgeInfo) {
+					nodeData._originalEdgeInfo = JSON.parse(JSON.stringify(node._originalEdgeInfo));
+				}
+			}
+			
+			// Workflow nodes
+			if (node.isWorkflowNode) {
+				nodeData.isWorkflowNode = true;
+				nodeData.workflowType = node.workflowType;
+				nodeData.workflowIndex = node.workflowIndex;
+				if (node.fieldRoles) {
+					nodeData.fieldRoles = JSON.parse(JSON.stringify(node.fieldRoles));
+				}
+				if (node.constantFields) {
+					nodeData.constantFields = JSON.parse(JSON.stringify(node.constantFields));
+				}
+				if (node.multiInputSlots) {
+					nodeData.multiInputSlots = JSON.parse(JSON.stringify(node.multiInputSlots));
+				}
+				if (node.multiOutputSlots) {
+					nodeData.multiOutputSlots = JSON.parse(JSON.stringify(node.multiOutputSlots));
+				}
+				if (node.extra && Object.keys(node.extra).length > 0) {
+					nodeData.extra = JSON.parse(JSON.stringify(node.extra));
+				}
+			}
+			
+			// Common optional properties
+			if (node.color) {
+				nodeData.color = node.color;
+			}
+			if (node.workflowData) {
+				nodeData.workflowData = JSON.parse(JSON.stringify(node.workflowData));
+			}
+			
+			data.nodes.push(nodeData);
+		}
+		
+		// Serialize links
+		for (const linkId in this.links) {
+			if (this.links.hasOwnProperty(linkId)) {
+				const link = this.links[linkId];
+				const linkData = {
+					id: link.id,
+					origin_id: link.origin_id,
+					origin_slot: link.origin_slot,
+					target_id: link.target_id,
+					target_slot: link.target_slot,
+					type: link.type
+				};
+				
+				if (link.data) {
+					linkData.data = JSON.parse(JSON.stringify(link.data));
+				}
+				if (link.extra) {
+					linkData.extra = JSON.parse(JSON.stringify(link.extra));
+				}
+				if (link.workflowData) {
+					linkData.workflowData = JSON.parse(JSON.stringify(link.workflowData));
+				}
+				if (link.conditionType) {
+					linkData.conditionType = link.conditionType;
+				}
+				if (link.conditionInfo) {
+					linkData.conditionInfo = JSON.parse(JSON.stringify(link.conditionInfo));
+				}
+				if (link.isConditional) {
+					linkData.isConditional = link.isConditional;
+				}
+				if (link.conditionLabel) {
+					linkData.conditionLabel = link.conditionLabel;
+				}
+				
+				data.links.push(linkData);
+			}
+		}
+		
+		if (includeCamera && camera) {
+			data.camera = {
+				x: camera.x,
+				y: camera.y,
+				scale: camera.scale
+			};
+		}
+		
+		return data;
+	};
+
+	const originalDeserialize = SchemaGraphClass.prototype.deserialize;
+	
+	SchemaGraphClass.prototype.deserialize = function(data, restoreCamera = false, camera = null) {
+		this.nodes = [];
+		this.links = {};
+		this._nodes_by_id = {};
+		this.last_link_id = 0;
+		
+		if (!data || !data.nodes) {
+			throw new Error('Invalid graph data');
+		}
+		
+		// First pass: create all nodes
+		for (const nodeData of data.nodes) {
+			let node = null;
+			
+			// Determine node type and create appropriate instance
+			if (nodeData.isDataNode) {
+				// Data node
+				const typeName = `Data.${nodeData.dataType.charAt(0).toUpperCase() + nodeData.dataType.slice(1)}`;
+				const NodeClass = DataNodeTypes[typeName];
+				
+				if (NodeClass) {
+					node = new NodeClass();
+					node.sourceType = nodeData.sourceType || 'none';
+					node.sourceUrl = nodeData.sourceUrl || '';
+					node.sourceData = nodeData.sourceData || null;
+					node.sourceMeta = nodeData.sourceMeta || {};
+					node.isExpanded = nodeData.isExpanded || false;
+					node.properties = nodeData.properties || {};
+					
+					// Type-specific restoration
+					if (nodeData.imageDimensions) {
+						node.imageDimensions = { ...nodeData.imageDimensions };
+					}
+					if (nodeData.audioDuration) {
+						node.audioDuration = nodeData.audioDuration;
+					}
+					if (nodeData.videoDimensions) {
+						node.videoDimensions = { ...nodeData.videoDimensions };
+					}
+					if (nodeData.videoDuration) {
+						node.videoDuration = nodeData.videoDuration;
+					}
+				} else {
+					console.warn('Data node type not found:', typeName);
+					continue;
+				}
+			} else if (nodeData.isPreviewNode) {
+				// Preview node
+				if (typeof PreviewNode !== 'undefined') {
+					node = new PreviewNode();
+					node.previewType = nodeData.previewType || 'auto';
+					node.isExpanded = nodeData.isExpanded || false;
+					node.properties = nodeData.properties || {};
+					
+					if (nodeData._originalEdgeInfo) {
+						node._originalEdgeInfo = JSON.parse(JSON.stringify(nodeData._originalEdgeInfo));
+					}
+				} else {
+					console.warn('PreviewNode class not found - skipping preview node');
+					continue;
+				}
+			} else if (nodeData.isNative) {
+				// Native node
+				const nodeTypeKey = 'Native.' + (nodeData.nativeType || nodeData.type);
+				
+				if (this.nodeTypes[nodeTypeKey]) {
+					node = new (this.nodeTypes[nodeTypeKey])();
+					node.properties = JSON.parse(JSON.stringify(nodeData.properties || {}));
+				} else {
+					console.warn('Native node type not found:', nodeTypeKey);
+					continue;
+				}
+			} else if (nodeData.isWorkflowNode && nodeData.schemaName) {
+				// Workflow node - needs special handling with factory
+				const nodeTypeKey = `${nodeData.schemaName}.${nodeData.modelName}`;
+				
+				if (this.nodeTypes[nodeTypeKey]) {
+					node = new (this.nodeTypes[nodeTypeKey])();
+					node.workflowType = nodeData.workflowType;
+					node.workflowIndex = nodeData.workflowIndex;
+					
+					if (nodeData.fieldRoles) {
+						node.fieldRoles = JSON.parse(JSON.stringify(nodeData.fieldRoles));
+					}
+					if (nodeData.constantFields) {
+						node.constantFields = JSON.parse(JSON.stringify(nodeData.constantFields));
+					}
+					if (nodeData.extra) {
+						node.extra = JSON.parse(JSON.stringify(nodeData.extra));
+					}
+				} else {
+					console.warn('Workflow node type not found:', nodeTypeKey);
+					continue;
+				}
+			} else if (nodeData.schemaName && nodeData.modelName) {
+				// Schema node
+				const nodeTypeKey = nodeData.schemaName + '.' + nodeData.modelName;
+				
+				if (this.nodeTypes[nodeTypeKey]) {
+					node = new (this.nodeTypes[nodeTypeKey])();
+				} else {
+					console.warn('Schema node type not found:', nodeTypeKey);
+					continue;
+				}
+			} else {
+				// Try direct type lookup
+				const nodeTypeKey = nodeData.type;
+				
+				if (this.nodeTypes[nodeTypeKey]) {
+					node = new (this.nodeTypes[nodeTypeKey])();
+				} else {
+					console.warn('Node type not found:', nodeTypeKey);
+					continue;
+				}
+			}
+			
+			if (!node) continue;
+			
+			// Common properties
+			node.id = nodeData.id;
+			node.pos = nodeData.pos.slice();
+			node.size = nodeData.size.slice();
+			
+			if (nodeData.isRootType) {
+				node.isRootType = true;
+			}
+			if (nodeData.color) {
+				node.color = nodeData.color;
+			}
+			if (nodeData.workflowData) {
+				node.workflowData = JSON.parse(JSON.stringify(nodeData.workflowData));
+			}
+			
+			// Restore native inputs
+			if (nodeData.nativeInputs) {
+				node.nativeInputs = JSON.parse(JSON.stringify(nodeData.nativeInputs));
+			}
+			
+			// Restore multi inputs structure (links will be connected later)
+			if (nodeData.multiInputs) {
+				node.multiInputs = {};
+				for (const key in nodeData.multiInputs) {
+					node.multiInputs[key] = {
+						type: nodeData.multiInputs[key].type,
+						links: [] // Will be populated when deserializing links
+					};
+				}
+			}
+			
+			// Restore multi slots for workflow nodes
+			if (nodeData.multiInputSlots) {
+				node.multiInputSlots = JSON.parse(JSON.stringify(nodeData.multiInputSlots));
+			}
+			if (nodeData.multiOutputSlots) {
+				node.multiOutputSlots = JSON.parse(JSON.stringify(nodeData.multiOutputSlots));
+			}
+			
+			this.nodes.push(node);
+			this._nodes_by_id[node.id] = node;
+			node.graph = this;
+		}
+		
+		// Second pass: restore links
+		if (data.links) {
+			for (const linkData of data.links) {
+				const originNode = this._nodes_by_id[linkData.origin_id];
+				const targetNode = this._nodes_by_id[linkData.target_id];
+				
+				if (!originNode || !targetNode) {
+					console.warn('Link skipped - missing node:', linkData.origin_id, '->', linkData.target_id);
+					continue;
+				}
+				
+				const link = new Link(
+					linkData.id,
+					linkData.origin_id,
+					linkData.origin_slot,
+					linkData.target_id,
+					linkData.target_slot,
+					linkData.type
+				);
+				
+				// Restore link metadata
+				if (linkData.data) {
+					link.data = JSON.parse(JSON.stringify(linkData.data));
+				}
+				if (linkData.extra) {
+					link.extra = JSON.parse(JSON.stringify(linkData.extra));
+				}
+				if (linkData.workflowData) {
+					link.workflowData = JSON.parse(JSON.stringify(linkData.workflowData));
+				}
+				if (linkData.conditionType) {
+					link.conditionType = linkData.conditionType;
+				}
+				if (linkData.conditionInfo) {
+					link.conditionInfo = JSON.parse(JSON.stringify(linkData.conditionInfo));
+				}
+				if (linkData.isConditional) {
+					link.isConditional = linkData.isConditional;
+				}
+				if (linkData.conditionLabel) {
+					link.conditionLabel = linkData.conditionLabel;
+				}
+				
+				this.links[linkData.id] = link;
+				
+				// Connect to origin output
+				if (originNode.outputs[linkData.origin_slot]) {
+					originNode.outputs[linkData.origin_slot].links.push(linkData.id);
+				}
+				
+				// Connect to target input
+				if (targetNode.multiInputs && targetNode.multiInputs[linkData.target_slot]) {
+					targetNode.multiInputs[linkData.target_slot].links.push(linkData.id);
+				} else if (targetNode.inputs[linkData.target_slot]) {
+					targetNode.inputs[linkData.target_slot].link = linkData.id;
+				}
+				
+				if (linkData.id > this.last_link_id) {
+					this.last_link_id = linkData.id;
+				}
+			}
+		}
+		
+		// Restore camera
+		if (restoreCamera && data.camera && camera) {
+			camera.x = data.camera.x;
+			camera.y = data.camera.y;
+			camera.scale = data.camera.scale;
+		}
+		
+		// Execute all nodes to update their outputs
+		for (const node of this.nodes) {
+			if (node.onExecute) {
+				node.onExecute();
+			}
+		}
+		
+		this.eventBus.emit('graph:deserialized', { nodeCount: this.nodes.length });
+		return true;
+	};
+}
+
+// ========================================================================
 // AUTO-INITIALIZATION
 // ========================================================================
 
@@ -1323,6 +1740,11 @@ function initializeDataNodesExtension(SchemaGraphAppClass) {
 	console.log('✨ SchemaGraph Data Nodes extension loaded');
 }
 
+// Extend serialization on SchemaGraph class
+if (typeof SchemaGraph !== 'undefined') {
+	extendSerializationForAllNodes(SchemaGraph);
+}
+
 if (typeof SchemaGraphApp !== 'undefined') {
 	initializeDataNodesExtension(SchemaGraphApp);
 }
@@ -1344,6 +1766,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		DataNodeIcons,
 		DataNodeColors,
 		DataNodeManager,
-		initializeDataNodesExtension
+		initializeDataNodesExtension,
+		extendSerializationForAllNodes
 	};
 }
