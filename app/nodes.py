@@ -109,6 +109,19 @@ class WFEndNode(WFBaseNode):
 		return result
 
 
+class WFSinkNode(WFBaseNode):
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+		return result
+
+
+class WFPassThroughNode(WFBaseNode):
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+		result.outputs["output"] = context.inputs.get("input")
+		return result
+
+
 class WFRouteNode(WFBaseNode):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
@@ -330,6 +343,8 @@ _NODE_TYPES = {
 	"workflow_options_config"  : WFWorkflowOptionsConfig,
 	"start_node"               : WFStartNode,
 	"end_node"                 : WFEndNode,
+	"sink_node"                : WFSinkNode,
+	"pass_through_node"        : WFPassThroughNode,
 	"route_node"               : WFRouteNode,
 	"combine_node"             : WFCombineNode,
 	"merge_node"               : WFMergeNode,

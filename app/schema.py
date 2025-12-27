@@ -468,6 +468,17 @@ class EndNode(BaseNode):
 	pin  : Annotated[Any                , FieldRole.INPUT   ] = None
 
 
+class SinkNode(BaseNode):
+	type : Annotated[Literal["sink_node"], FieldRole.CONSTANT] = "sink_node"
+	pin  : Annotated[Any                 , FieldRole.INPUT   ] = None
+
+
+class PassThroughNode(BaseNode):
+	type   : Annotated[Literal["pass_through_node"], FieldRole.CONSTANT] = "pass_through_node"
+	input  : Annotated[Any                         , FieldRole.INPUT   ] = None
+	output : Annotated[Any                         , FieldRole.OUTPUT  ] = None
+
+
 class RouteNode(BaseNode):
 	type    : Annotated[Literal["route_node"]           , FieldRole.CONSTANT    ] = "route_node"
 	target  : Annotated[Union[int, str]                 , FieldRole.INPUT       ] = None
@@ -589,6 +600,8 @@ WorkflowNodeUnion = Union[
 	# Workflow nodes
 	StartNode,
 	EndNode,
+	SinkNode,
+	PassThroughNode,
 	TransformNode,
 	RouteNode,
 	CombineNode,
