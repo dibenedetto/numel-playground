@@ -5,18 +5,14 @@
 // ========================================================================
 
 const PreviewType = Object.freeze({
-	AUTO: 'auto',
-	STRING: 'string',
-	NUMBER: 'number',
-	BOOLEAN: 'boolean',
-	JSON: 'json',
-	LIST: 'list',
-	IMAGE: 'image',
-	AUDIO: 'audio',
-	VIDEO: 'video',
-	MODEL3D: 'model3d',
-	UNKNOWN: 'unknown'
+	AUTO: 'auto', STRING: 'string', NUMBER: 'number', BOOLEAN: 'boolean',
+	JSON: 'json', LIST: 'list', IMAGE: 'image', AUDIO: 'audio',
+	VIDEO: 'video', MODEL3D: 'model3d', UNKNOWN: 'unknown'
 });
+
+// ========================================================================
+// PreviewNode Class
+// ========================================================================
 
 class PreviewNode extends Node {
 	constructor() {
@@ -26,7 +22,6 @@ class PreviewNode extends Node {
 		this.previewData = null;
 		this.previewError = null;
 		this.isExpanded = false;
-		this.mediaElement = null;
 		
 		this.addInput('in', 'Any');
 		this.addOutput('out', 'Any');
@@ -34,7 +29,6 @@ class PreviewNode extends Node {
 		this.size = [200, 110];
 		this.minSize = [180, 100];
 		this.maxSize = [400, 500];
-		
 		this.properties = {
 			autoDetect: true,
 			previewType: PreviewType.AUTO,
@@ -48,13 +42,9 @@ class PreviewNode extends Node {
 		const inputData = this.getInputData(0);
 		this.previewData = inputData;
 		this.previewError = null;
-		
-		if (this.properties.autoDetect) {
-			this.previewType = this._detectType(inputData);
-		} else {
-			this.previewType = this.properties.previewType;
-		}
-		
+		this.previewType = this.properties.autoDetect 
+			? this._detectType(inputData) 
+			: this.properties.previewType;
 		this.setOutputData(0, inputData);
 	}
 
@@ -72,6 +62,7 @@ class PreviewNode extends Node {
 		if (typeof data === 'number') return PreviewType.NUMBER;
 		if (typeof data === 'boolean') return PreviewType.BOOLEAN;
 		if (Array.isArray(data)) return PreviewType.LIST;
+		
 		if (typeof data === 'object') {
 			if (data.type === 'image' || data.mimeType?.startsWith('image/')) return PreviewType.IMAGE;
 			if (data.type === 'audio' || data.mimeType?.startsWith('audio/')) return PreviewType.AUDIO;
@@ -84,28 +75,21 @@ class PreviewNode extends Node {
 	}
 
 	_isImageData(str) {
-		if (!str) return false;
-		const lower = str.toLowerCase();
-		return lower.startsWith('data:image/') ||
+		return str?.toLowerCase().startsWith('data:image/') || 
 			/\.(jpg|jpeg|png|gif|webp|svg|bmp|ico)(\?|$)/i.test(str);
 	}
 
 	_isAudioData(str) {
-		if (!str) return false;
-		const lower = str.toLowerCase();
-		return lower.startsWith('data:audio/') ||
+		return str?.toLowerCase().startsWith('data:audio/') || 
 			/\.(mp3|wav|ogg|m4a|flac|aac)(\?|$)/i.test(str);
 	}
 
 	_isVideoData(str) {
-		if (!str) return false;
-		const lower = str.toLowerCase();
-		return lower.startsWith('data:video/') ||
+		return str?.toLowerCase().startsWith('data:video/') || 
 			/\.(mp4|webm|ogg|mov|avi|mkv)(\?|$)/i.test(str);
 	}
 
 	_is3DModelData(str) {
-		if (!str) return false;
 		return /\.(glb|gltf|obj|fbx|stl|3ds)(\?|$)/i.test(str);
 	}
 
@@ -115,147 +99,130 @@ class PreviewNode extends Node {
 		if (this.previewData === undefined) return 'undefined';
 		
 		switch (this.previewType) {
-			case PreviewType.STRING:
+			case PreviewType.STRING: {
 				const str = String(this.previewData);
-				if (str.length > this.properties.maxStringLength) {
-					return str.substring(0, this.properties.maxStringLength) + '...';
-				}
-				return str;
-			
+				return str.length > this.properties.maxStringLength 
+					? str.substring(0, this.properties.maxStringLength) + '...' : str;
+			}
 			case PreviewType.NUMBER:
-				return String(this.previewData);
-			
 			case PreviewType.BOOLEAN:
-				return this.previewData ? 'true' : 'false';
-			
-			case PreviewType.LIST:
+				return String(this.previewData);
+			case PreviewType.LIST: {
 				const arr = this.previewData;
-				const maxItems = this.properties.maxArrayItems;
-				if (arr.length <= maxItems) {
-					return JSON.stringify(arr, null, 2);
-				}
-				return JSON.stringify(arr.slice(0, maxItems), null, 2) + '\n...';
-			
+				const max = this.properties.maxArrayItems;
+				return JSON.stringify(arr.slice(0, max), null, 2) + (arr.length > max ? '\n...' : '');
+			}
 			case PreviewType.JSON:
 				try {
 					const json = JSON.stringify(this.previewData, null, 2);
-					if (json.length > this.properties.maxStringLength) {
-						return json.substring(0, this.properties.maxStringLength) + '...';
-					}
-					return json;
-				} catch (e) {
-					return '[Object]';
-				}
-			
-			case PreviewType.IMAGE:
-				return '🖼️ Image';
-			case PreviewType.AUDIO:
-				return '🔊 Audio';
-			case PreviewType.VIDEO:
-				return '🎬 Video';
-			case PreviewType.MODEL3D:
-				return '🧊 3D Model';
-			
-			default:
-				return String(this.previewData);
+					return json.length > this.properties.maxStringLength 
+						? json.substring(0, this.properties.maxStringLength) + '...' : json;
+				} catch { return '[Object]'; }
+			case PreviewType.IMAGE: return '🖼️ Image';
+			case PreviewType.AUDIO: return '🔊 Audio';
+			case PreviewType.VIDEO: return '🎬 Video';
+			case PreviewType.MODEL3D: return '🧊 3D Model';
+			default: return String(this.previewData);
 		}
 	}
 
 	getMediaSource() {
 		if (!this.previewData) return null;
-		
-		if (typeof this.previewData === 'string') {
-			return this.previewData;
-		}
-		
+		if (typeof this.previewData === 'string') return this.previewData;
 		if (typeof this.previewData === 'object') {
-			return this.previewData.url || this.previewData.src || this.previewData.data || null;
+			return this.previewData.url || this.previewData.src || this.previewData.data;
 		}
-		
 		return null;
 	}
 }
 
 // ========================================================================
-// Edge Hit Detection & Preview Node Insertion
+// Preview Extension Class
 // ========================================================================
 
-class EdgePreviewManager {
+class PreviewExtension extends SchemaGraphExtension {
 	constructor(app) {
-		this.app = app;
-		this.graph = app.graph;
-		this.eventBus = app.eventBus;
+		super(app);
 		this.hoveredLink = null;
 		this.linkHitDistance = 10;
-		
-		this._registerPreviewNodeType();
-		this._setupEventListeners();
-		this._injectStyles();
+		this._contextMenuData = null;
 	}
 
-	canInsertPreview(link) {
-		if (!link) {
-			return { allowed: false, reason: 'Invalid link' };
-		}
-
-		const sourceNode = this.graph.getNodeById(link.origin_id);
-		const targetNode = this.graph.getNodeById(link.target_id);
-
-		if (!sourceNode || !targetNode) {
-			return { allowed: false, reason: 'Invalid source or target node' };
-		}
-
-		if (sourceNode.isPreviewNode) {
-			return { allowed: false, reason: 'Source is already a preview node' };
-		}
-
-		if (targetNode.isPreviewNode) {
-			return { allowed: false, reason: 'Target is already a preview node' };
-		}
-
-		return { allowed: true, reason: null };
-	}
-
-	_registerPreviewNodeType() {
+	_registerNodeTypes() {
 		this.graph.nodeTypes['Native.Preview'] = PreviewNode;
 	}
 
 	_setupEventListeners() {
-		this.eventBus.on('mouse:move', (data) => this._onMouseMove(data));
-		this.eventBus.on('mouse:down', (data) => this._onMouseDown(data));
-		this.eventBus.on('mouse:dblclick', (data) => this._onDoubleClick(data));
-		this.eventBus.on('contextmenu', (data) => this._onContextMenu(data));
-		this._setupKeyboardHandler();
+		this.on('mouse:move', (data) => this._onMouseMove(data));
+		this.on('mouse:down', (data) => this._onMouseDown(data));
+		this.on('mouse:dblclick', (data) => this._onDoubleClick(data));
+		this.on('contextmenu', (data) => this._onContextMenu(data));
+		this.onDOM(document, 'keydown', (e) => this._onKeyDown(e));
 	}
 
-	_setupKeyboardHandler() {
-		document.addEventListener('keydown', (e) => {
-			if (this.app.isLocked) return;
-			
-			if (e.key === 'Delete' || e.key === 'Backspace') {
-				const selectedNodes = Array.from(this.app.selectedNodes || []);
-				const previewNodesToRemove = selectedNodes.filter(n => n.isPreviewNode);
-				if (previewNodesToRemove.length > 0) {
-					e.preventDefault();
-					e.stopPropagation();
-					
-					for (const node of previewNodesToRemove) {
-						this.removePreviewNode(node);
-					}
-					
-					this.app.selectedNodes = new Set(selectedNodes.filter(n => !n.isPreviewNode));
+	_extendAPI() {
+		const self = this;
+		
+		this.app.api = this.app.api || {};
+		this.app.api.preview = {
+			list: () => self.graph.nodes.filter(n => n.isPreviewNode),
+			expand: (nodeOrId) => {
+				const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
+				if (node?.isPreviewNode) self._setExpanded(node, true);
+			},
+			collapse: (nodeOrId) => {
+				const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
+				if (node?.isPreviewNode) self._setExpanded(node, false);
+			},
+			canInsertOnLink: (linkId) => self._canInsertPreview(self.graph.links[linkId]),
+			insertOnLink: (linkId) => {
+				const link = self.graph.links[linkId];
+				if (!link) return null;
+				const src = self.graph.getNodeById(link.origin_id);
+				const tgt = self.graph.getNodeById(link.target_id);
+				if (!src || !tgt) return null;
+				const midX = (src.pos[0] + src.size[0] + tgt.pos[0]) / 2;
+				const midY = (src.pos[1] + tgt.pos[1]) / 2;
+				return self.insertPreviewNode(link, midX, midY);
+			},
+			remove: (nodeOrId) => {
+				const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
+				return node?.isPreviewNode ? self.removePreviewNode(node) : null;
+			},
+			removeAll: () => {
+				let count = 0;
+				for (const n of [...self.graph.nodes]) {
+					if (n.isPreviewNode && self.removePreviewNode(n)) count++;
 				}
+				return count;
+			},
+			getOriginalEdgeInfo: (nodeOrId) => {
+				const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
+				return node?.isPreviewNode ? node._originalEdgeInfo : null;
 			}
-		});
+		};
+		
+		// Store reference for compatibility
+		this.app.edgePreviewManager = this;
 	}
+
+	_injectStyles() {
+		if (document.getElementById('sg-preview-styles')) return;
+		const style = document.createElement('style');
+		style.id = 'sg-preview-styles';
+		style.textContent = `
+			.sg-preview-context-menu { min-width: 180px; }
+			.sg-preview-context-menu .sg-context-menu-divider {
+				height: 1px; background: var(--sg-border-color, #1a1a1a); margin: 4px 0;
+			}
+		`;
+		document.head.appendChild(style);
+	}
+
+	// --- Event Handlers ---
 
 	_onMouseMove(data) {
-		if (this.app.connecting || this.app.dragNode || this.app.isPanning) {
-			this.hoveredLink = null;
-			return;
-		}
-		
-		if (this.app.isLocked) {
+		if (this.app.connecting || this.app.dragNode || this.app.isPanning || this.app.isLocked) {
 			this.hoveredLink = null;
 			return;
 		}
@@ -263,35 +230,25 @@ class EdgePreviewManager {
 		const [wx, wy] = this.app.screenToWorld(data.coords.screenX, data.coords.screenY);
 		const link = this._findLinkAtPosition(wx, wy);
 		
-		if (link) {
-			const check = this.canInsertPreview(link);
-			if (check.allowed) {
-				this.hoveredLink = link;
-				this.app.canvas.style.cursor = 'pointer';
-			} else {
-				this.hoveredLink = null;
-			}
+		if (link && this._canInsertPreview(link).allowed) {
+			this.hoveredLink = link;
+			this.app.canvas.style.cursor = 'pointer';
 		} else {
 			this.hoveredLink = null;
 		}
 	}
 
 	_onMouseDown(data) {
-		if (data.button !== 0) return;
-		if (this.app.connecting || this.app.dragNode) return;
-		if (this.app.isLocked) return;
+		if (data.button !== 0 || this.app.connecting || this.app.dragNode || this.app.isLocked) return;
 		
 		const [wx, wy] = this.app.screenToWorld(data.coords.screenX, data.coords.screenY);
 		const link = this._findLinkAtPosition(wx, wy);
 		
-		if (link && data.event.altKey) {
-			const check = this.canInsertPreview(link);
-			if (check.allowed) {
-				data.event.preventDefault();
-				data.event.stopPropagation();
-				this.insertPreviewNode(link, wx, wy);
-				return true;
-			}
+		if (link && data.event.altKey && this._canInsertPreview(link).allowed) {
+			data.event.preventDefault();
+			data.event.stopPropagation();
+			this.insertPreviewNode(link, wx, wy);
+			return true;
 		}
 	}
 
@@ -300,21 +257,9 @@ class EdgePreviewManager {
 		
 		for (const node of this.graph.nodes) {
 			if (!node.isPreviewNode) continue;
-			
 			if (wx >= node.pos[0] && wx <= node.pos[0] + node.size[0] &&
 				wy >= node.pos[1] && wy <= node.pos[1] + node.size[1]) {
-				
-				// Toggle expanded state inline
-				node.isExpanded = !node.isExpanded;
-				
-				if (node.isExpanded) {
-					node._collapsedSize = [...node.size];
-					node.size = [280, 200];
-				} else {
-					node.size = node._collapsedSize || [220, 80];
-				}
-				
-				this.app.draw();
+				this._setExpanded(node, !node.isExpanded);
 				return;
 			}
 		}
@@ -322,19 +267,12 @@ class EdgePreviewManager {
 
 	_onContextMenu(data) {
 		if (this.app.isLocked) return;
-	
+		
 		const [wx, wy] = this.app.screenToWorld(data.coords.screenX, data.coords.screenY);
 		
-		const link = this._findLinkAtPosition(wx, wy);
-		if (link) {
-			data.event.preventDefault();
-			this._showEdgeContextMenu(link, data.coords.screenX, data.coords.screenY, wx, wy);
-			return true;
-		}
-		
+		// Check preview nodes first
 		for (const node of this.graph.nodes) {
 			if (!node.isPreviewNode) continue;
-			
 			if (wx >= node.pos[0] && wx <= node.pos[0] + node.size[0] &&
 				wy >= node.pos[1] && wy <= node.pos[1] + node.size[1]) {
 				data.event.preventDefault();
@@ -342,153 +280,111 @@ class EdgePreviewManager {
 				return true;
 			}
 		}
+		
+		// Check edges
+		const link = this._findLinkAtPosition(wx, wy);
+		if (link) {
+			data.event.preventDefault();
+			this._showEdgeContextMenu(link, data.coords.screenX, data.coords.screenY, wx, wy);
+			return true;
+		}
 	}
 
-	_findLinkAtPosition(wx, wy) {
-		const threshold = this.linkHitDistance / this.app.camera.scale;
+	_onKeyDown(e) {
+		if (this.app.isLocked) return;
 		
-		for (const linkId in this.graph.links) {
-			const link = this.graph.links[linkId];
-			const orig = this.graph.getNodeById(link.origin_id);
-			const targ = this.graph.getNodeById(link.target_id);
-			
-			if (!orig || !targ) continue;
-			
-			const x1 = orig.pos[0] + orig.size[0];
-			const y1 = orig.pos[1] + 33 + link.origin_slot * 25;
-			const x2 = targ.pos[0];
-			const y2 = targ.pos[1] + 33 + link.target_slot * 25;
-			
-			if (this._pointNearBezier(wx, wy, x1, y1, x2, y2, threshold)) {
-				return link;
+		if (e.key === 'Delete' || e.key === 'Backspace') {
+			const selected = Array.from(this.app.selectedNodes || []);
+			const previews = selected.filter(n => n.isPreviewNode);
+			if (previews.length > 0) {
+				e.preventDefault();
+				e.stopPropagation();
+				for (const node of previews) this.removePreviewNode(node);
+				this.app.selectedNodes = new Set(selected.filter(n => !n.isPreviewNode));
 			}
 		}
-		
-		return null;
 	}
 
-	_pointNearBezier(px, py, x1, y1, x2, y2, threshold) {
-		const samples = 20;
-		const dx = x2 - x1;
-		const controlOffset = Math.min(Math.abs(dx) * 0.5, 200);
-		const cx1 = x1 + controlOffset;
-		const cx2 = x2 - controlOffset;
-		
-		for (let i = 0; i <= samples; i++) {
-			const t = i / samples;
-			const t2 = t * t;
-			const t3 = t2 * t;
-			const mt = 1 - t;
-			const mt2 = mt * mt;
-			const mt3 = mt2 * mt;
-			
-			const bx = mt3 * x1 + 3 * mt2 * t * cx1 + 3 * mt * t2 * cx2 + t3 * x2;
-			const by = mt3 * y1 + 3 * mt2 * t * y1 + 3 * mt * t2 * y2 + t3 * y2;
-			
-			const dist = Math.sqrt((px - bx) ** 2 + (py - by) ** 2);
-			if (dist < threshold) return true;
-		}
-		
-		return false;
+	// --- Core Logic ---
+
+	_canInsertPreview(link) {
+		if (!link) return { allowed: false, reason: 'Invalid link' };
+		const src = this.graph.getNodeById(link.origin_id);
+		const tgt = this.graph.getNodeById(link.target_id);
+		if (!src || !tgt) return { allowed: false, reason: 'Invalid source or target node' };
+		if (src.isPreviewNode) return { allowed: false, reason: 'Source is already a preview node' };
+		if (tgt.isPreviewNode) return { allowed: false, reason: 'Target is already a preview node' };
+		return { allowed: true, reason: null };
 	}
 
 	insertPreviewNode(link, wx, wy) {
-		if (this.app.isLocked) {
-			console.warn('Cannot insert preview: graph is locked');
-			return null;
-		}
-
-		const check = this.canInsertPreview(link);
+		if (this.app.isLocked) return null;
+		
+		const check = this._canInsertPreview(link);
 		if (!check.allowed) {
 			console.warn(`Cannot insert preview: ${check.reason}`);
 			return null;
 		}
-	
-		const sourceNode = this.graph.getNodeById(link.origin_id);
-		const targetNode = this.graph.getNodeById(link.target_id);
+
+		const src = this.graph.getNodeById(link.origin_id);
+		const tgt = this.graph.getNodeById(link.target_id);
 
 		const originalEdgeInfo = {
 			sourceNodeId: link.origin_id,
 			sourceSlotIdx: link.origin_slot,
-			sourceSlotName: sourceNode.outputs[link.origin_slot]?.name || 'output',
+			sourceSlotName: src.outputs[link.origin_slot]?.name || 'output',
 			targetNodeId: link.target_id,
 			targetSlotIdx: link.target_slot,
-			targetSlotName: targetNode.inputs[link.target_slot]?.name || 'input',
+			targetSlotName: tgt.inputs[link.target_slot]?.name || 'input',
 			linkType: link.type,
 			linkId: link.id,
 			data: link.data ? JSON.parse(JSON.stringify(link.data)) : null,
 			extra: link.extra ? JSON.parse(JSON.stringify(link.extra)) : null,
 		};
 
-		const previewNode = new PreviewNode();
-		previewNode.pos = [wx - previewNode.size[0] / 2, wy - previewNode.size[1] / 2];
-		previewNode._originalEdgeInfo = originalEdgeInfo;
+		// Create preview node
+		const preview = new PreviewNode();
+		preview.pos = [wx - preview.size[0] / 2, wy - preview.size[1] / 2];
+		preview._originalEdgeInfo = originalEdgeInfo;
 
-		if (this.graph._last_node_id === undefined) {
-			this.graph._last_node_id = 1;
-		}
-		previewNode.id = this.graph._last_node_id++;
-		previewNode.graph = this.graph;
-		this.graph.nodes.push(previewNode);
-		this.graph._nodes_by_id[previewNode.id] = previewNode;
+		if (this.graph._last_node_id === undefined) this.graph._last_node_id = 1;
+		preview.id = this.graph._last_node_id++;
+		preview.graph = this.graph;
+		this.graph.nodes.push(preview);
+		this.graph._nodes_by_id[preview.id] = preview;
 
+		// Remove original link
 		this._removeLink(link);
 
+		// Create source -> preview link
 		const link1Id = ++this.graph.last_link_id;
-		const link1 = new Link(
-			link1Id,
-			sourceNode.id,
-			originalEdgeInfo.sourceSlotIdx,
-			previewNode.id,
-			0,
-			originalEdgeInfo.linkType
-		);
+		const link1 = new Link(link1Id, src.id, originalEdgeInfo.sourceSlotIdx, preview.id, 0, originalEdgeInfo.linkType);
 		link1.extra = { _isPreviewLink: true };
-
 		this.graph.links[link1Id] = link1;
-		sourceNode.outputs[originalEdgeInfo.sourceSlotIdx].links.push(link1Id);
-		previewNode.inputs[0].link = link1Id;
+		src.outputs[originalEdgeInfo.sourceSlotIdx].links.push(link1Id);
+		preview.inputs[0].link = link1Id;
 
+		// Create preview -> target link
 		const link2Id = ++this.graph.last_link_id;
-		const link2 = new Link(
-			link2Id,
-			previewNode.id,
-			0,
-			targetNode.id,
-			originalEdgeInfo.targetSlotIdx,
-			originalEdgeInfo.linkType
-		);
+		const link2 = new Link(link2Id, preview.id, 0, tgt.id, originalEdgeInfo.targetSlotIdx, originalEdgeInfo.linkType);
 		link2.extra = { _isPreviewLink: true };
-
 		this.graph.links[link2Id] = link2;
-		previewNode.outputs[0].links.push(link2Id);
+		preview.outputs[0].links.push(link2Id);
 
-		if (targetNode.multiInputs && targetNode.multiInputs[originalEdgeInfo.targetSlotIdx]) {
-			targetNode.multiInputs[originalEdgeInfo.targetSlotIdx].links.push(link2Id);
+		if (tgt.multiInputs?.[originalEdgeInfo.targetSlotIdx]) {
+			tgt.multiInputs[originalEdgeInfo.targetSlotIdx].links.push(link2Id);
 		} else {
-			targetNode.inputs[originalEdgeInfo.targetSlotIdx].link = link2Id;
+			tgt.inputs[originalEdgeInfo.targetSlotIdx].link = link2Id;
 		}
 
-		previewNode.onExecute();
-
-		this.eventBus.emit('preview:inserted', { 
-			nodeId: previewNode.id, 
-			originalEdgeInfo: originalEdgeInfo 
-		});
-		
+		preview.onExecute();
+		this.eventBus.emit('preview:inserted', { nodeId: preview.id, originalEdgeInfo });
 		this.app.draw();
-		return previewNode;
+		return preview;
 	}
 
 	removePreviewNode(node) {
-		if (this.app.isLocked) {
-			console.warn('Cannot remove preview: graph is locked');
-			return null;
-		}
-
-		if (!node || !node.isPreviewNode) {
-			return null;
-		}
+		if (this.app.isLocked || !node?.isPreviewNode) return null;
 
 		const originalEdgeInfo = node._originalEdgeInfo;
 		const inLinkId = node.inputs[0]?.link;
@@ -499,45 +395,36 @@ class EdgePreviewManager {
 
 		let restoredLink = null;
 
+		// Restore original connections
 		if (inLink && outLinks.length > 0) {
-			const sourceNode = this.graph.getNodeById(inLink.origin_id);
-			const sourceSlotIdx = inLink.origin_slot;
+			const src = this.graph.getNodeById(inLink.origin_id);
+			const srcSlot = inLink.origin_slot;
 
 			for (const outLink of outLinks) {
-				const targetNode = this.graph.getNodeById(outLink.target_id);
-				const targetSlotIdx = outLink.target_slot;
+				const tgt = this.graph.getNodeById(outLink.target_id);
+				const tgtSlot = outLink.target_slot;
 
-				if (sourceNode && targetNode) {
+				if (src && tgt) {
 					const newLinkId = ++this.graph.last_link_id;
-					const newLink = new Link(
-						newLinkId,
-						sourceNode.id,
-						sourceSlotIdx,
-						targetNode.id,
-						targetSlotIdx,
-						originalEdgeInfo?.linkType || inLink.type
-					);
+					const newLink = new Link(newLinkId, src.id, srcSlot, tgt.id, tgtSlot, 
+						originalEdgeInfo?.linkType || inLink.type);
 
-					if (originalEdgeInfo) {
-						if (originalEdgeInfo.data) {
-							newLink.data = JSON.parse(JSON.stringify(originalEdgeInfo.data));
-						}
-						if (originalEdgeInfo.extra) {
-							const restoredExtra = JSON.parse(JSON.stringify(originalEdgeInfo.extra));
-							delete restoredExtra._isPreviewLink;
-							if (Object.keys(restoredExtra).length > 0) {
-								newLink.extra = restoredExtra;
-							}
-						}
+					if (originalEdgeInfo?.data) {
+						newLink.data = JSON.parse(JSON.stringify(originalEdgeInfo.data));
+					}
+					if (originalEdgeInfo?.extra) {
+						const restoredExtra = JSON.parse(JSON.stringify(originalEdgeInfo.extra));
+						delete restoredExtra._isPreviewLink;
+						if (Object.keys(restoredExtra).length > 0) newLink.extra = restoredExtra;
 					}
 
 					this.graph.links[newLinkId] = newLink;
-					sourceNode.outputs[sourceSlotIdx].links.push(newLinkId);
+					src.outputs[srcSlot].links.push(newLinkId);
 
-					if (targetNode.multiInputs && targetNode.multiInputs[targetSlotIdx]) {
-						targetNode.multiInputs[targetSlotIdx].links.push(newLinkId);
+					if (tgt.multiInputs?.[tgtSlot]) {
+						tgt.multiInputs[tgtSlot].links.push(newLinkId);
 					} else {
-						targetNode.inputs[targetSlotIdx].link = newLinkId;
+						tgt.inputs[tgtSlot].link = newLinkId;
 					}
 
 					this.eventBus.emit('link:created', { linkId: newLinkId });
@@ -546,53 +433,85 @@ class EdgePreviewManager {
 			}
 		}
 
-		if (inLink) {
-			this._removeLinkById(inLinkId);
-		}
-		for (const outLinkId of outLinkIds) {
-			this._removeLinkById(outLinkId);
-		}
+		// Remove preview links
+		if (inLink) this._removeLinkById(inLinkId);
+		for (const id of outLinkIds) this._removeLinkById(id);
 
-		const nodeIdx = this.graph.nodes.indexOf(node);
-		if (nodeIdx !== -1) {
-			this.graph.nodes.splice(nodeIdx, 1);
-		}
+		// Remove preview node
+		const idx = this.graph.nodes.indexOf(node);
+		if (idx !== -1) this.graph.nodes.splice(idx, 1);
 		delete this.graph._nodes_by_id[node.id];
 
-		this.eventBus.emit('preview:removed', { 
-			nodeId: node.id,
-			restoredLinkId: restoredLink?.id,
-			originalEdgeInfo: originalEdgeInfo
-		});
-
+		this.eventBus.emit('preview:removed', { nodeId: node.id, restoredLinkId: restoredLink?.id, originalEdgeInfo });
 		this.app.draw();
 		return restoredLink;
+	}
+
+	// --- Helpers ---
+
+	_setExpanded(node, expanded) {
+		node.isExpanded = expanded;
+		if (expanded) {
+			node._collapsedSize = [...node.size];
+			node.size = [280, 200];
+		} else {
+			node.size = node._collapsedSize || [200, 110];
+		}
+		this.app.draw();
+	}
+
+	_findLinkAtPosition(wx, wy) {
+		const threshold = this.linkHitDistance / this.app.camera.scale;
+		
+		for (const linkId in this.graph.links) {
+			const link = this.graph.links[linkId];
+			const src = this.graph.getNodeById(link.origin_id);
+			const tgt = this.graph.getNodeById(link.target_id);
+			if (!src || !tgt) continue;
+			
+			const x1 = src.pos[0] + src.size[0];
+			const y1 = src.pos[1] + 33 + link.origin_slot * 25;
+			const x2 = tgt.pos[0];
+			const y2 = tgt.pos[1] + 33 + link.target_slot * 25;
+			
+			if (this._pointNearBezier(wx, wy, x1, y1, x2, y2, threshold)) return link;
+		}
+		return null;
+	}
+
+	_pointNearBezier(px, py, x1, y1, x2, y2, threshold) {
+		const dx = x2 - x1;
+		const controlOffset = Math.min(Math.abs(dx) * 0.5, 200);
+		const cx1 = x1 + controlOffset, cx2 = x2 - controlOffset;
+		
+		for (let i = 0; i <= 20; i++) {
+			const t = i / 20;
+			const mt = 1 - t;
+			const bx = mt**3*x1 + 3*mt**2*t*cx1 + 3*mt*t**2*cx2 + t**3*x2;
+			const by = mt**3*y1 + 3*mt**2*t*y1 + 3*mt*t**2*y2 + t**3*y2;
+			if (Math.sqrt((px - bx)**2 + (py - by)**2) < threshold) return true;
+		}
+		return false;
 	}
 
 	_removeLinkById(linkId) {
 		const link = this.graph.links[linkId];
 		if (!link) return;
 
-		const sourceNode = this.graph.getNodeById(link.origin_id);
-		const targetNode = this.graph.getNodeById(link.target_id);
+		const src = this.graph.getNodeById(link.origin_id);
+		const tgt = this.graph.getNodeById(link.target_id);
 
-		if (sourceNode && sourceNode.outputs[link.origin_slot]) {
-			const idx = sourceNode.outputs[link.origin_slot].links.indexOf(linkId);
-			if (idx > -1) {
-				sourceNode.outputs[link.origin_slot].links.splice(idx, 1);
-			}
+		if (src?.outputs[link.origin_slot]) {
+			const idx = src.outputs[link.origin_slot].links.indexOf(linkId);
+			if (idx > -1) src.outputs[link.origin_slot].links.splice(idx, 1);
 		}
 
-		if (targetNode) {
-			if (targetNode.multiInputs && targetNode.multiInputs[link.target_slot]) {
-				const idx = targetNode.multiInputs[link.target_slot].links.indexOf(linkId);
-				if (idx > -1) {
-					targetNode.multiInputs[link.target_slot].links.splice(idx, 1);
-				}
-			} else if (targetNode.inputs[link.target_slot]) {
-				if (targetNode.inputs[link.target_slot].link === linkId) {
-					targetNode.inputs[link.target_slot].link = null;
-				}
+		if (tgt) {
+			if (tgt.multiInputs?.[link.target_slot]) {
+				const idx = tgt.multiInputs[link.target_slot].links.indexOf(linkId);
+				if (idx > -1) tgt.multiInputs[link.target_slot].links.splice(idx, 1);
+			} else if (tgt.inputs[link.target_slot]?.link === linkId) {
+				tgt.inputs[link.target_slot].link = null;
 			}
 		}
 
@@ -601,30 +520,27 @@ class EdgePreviewManager {
 	}
 
 	_removeLink(link) {
-		if (link && link.id !== undefined) {
-			this._removeLinkById(link.id);
-		}
+		if (link?.id !== undefined) this._removeLinkById(link.id);
 	}
+
+	// --- Context Menus ---
 
 	_showEdgeContextMenu(link, screenX, screenY, worldX, worldY) {
 		const menu = this._getOrCreateContextMenu();
-		const targetNode = this.graph.getNodeById(link.target_id);
-		const hasPreview = targetNode?.isPreviewNode;
+		const tgt = this.graph.getNodeById(link.target_id);
+		const hasPreview = tgt?.isPreviewNode;
 		
 		menu.innerHTML = `
 			<div class="sg-context-menu-title">Edge Options</div>
 			<div class="sg-context-menu-item" data-action="add-preview">
 				${hasPreview ? '🔄 Move Preview Here' : '👁 Add Preview'}
 			</div>
-			${hasPreview ? `<div class="sg-context-menu-item" data-action="remove-preview">❌ Remove Preview</div>` : ''}
+			${hasPreview ? '<div class="sg-context-menu-item" data-action="remove-preview">❌ Remove Preview</div>' : ''}
 			<div class="sg-context-menu-item" data-action="delete-edge">🗑️ Delete Edge</div>
 		`;
 		
-		menu.style.left = screenX + 'px';
-		menu.style.top = screenY + 'px';
-		menu.style.display = 'block';
-		
-		this._contextMenuData = { link, worldX, worldY, hasPreview, targetNode };
+		this._showMenu(menu, screenX, screenY);
+		this._contextMenuData = { link, worldX, worldY, hasPreview, targetNode: tgt };
 		
 		menu.querySelectorAll('.sg-context-menu-item').forEach(item => {
 			item.onclick = () => {
@@ -632,10 +548,6 @@ class EdgePreviewManager {
 				this._hideContextMenu();
 			};
 		});
-		
-		setTimeout(() => {
-			document.addEventListener('click', this._hideContextMenuBound, { once: true });
-		}, 0);
 	}
 
 	_showPreviewNodeContextMenu(node, screenX, screenY) {
@@ -653,10 +565,7 @@ class EdgePreviewManager {
 			<div class="sg-context-menu-item" data-action="type-string">📝 Force String</div>
 		`;
 		
-		menu.style.left = screenX + 'px';
-		menu.style.top = screenY + 'px';
-		menu.style.display = 'block';
-		
+		this._showMenu(menu, screenX, screenY);
 		this._contextMenuData = { previewNode: node };
 		
 		menu.querySelectorAll('.sg-context-menu-item').forEach(item => {
@@ -665,10 +574,6 @@ class EdgePreviewManager {
 				this._hideContextMenu();
 			};
 		});
-		
-		setTimeout(() => {
-			document.addEventListener('click', this._hideContextMenuBound, { once: true });
-		}, 0);
 	}
 
 	_handleEdgeContextAction(action) {
@@ -684,15 +589,12 @@ class EdgePreviewManager {
 				}
 				break;
 			case 'remove-preview':
-				if (targetNode?.isPreviewNode) {
-					this.removePreviewNode(targetNode);
-				}
+				if (targetNode?.isPreviewNode) this.removePreviewNode(targetNode);
 				break;
 			case 'delete-edge':
 				this._removeLink(link);
 				break;
 		}
-		
 		this.app.draw();
 	}
 
@@ -702,13 +604,7 @@ class EdgePreviewManager {
 		
 		switch (action) {
 			case 'toggle-expand':
-				previewNode.isExpanded = !previewNode.isExpanded;
-				if (previewNode.isExpanded) {
-					previewNode._collapsedSize = [...previewNode.size];
-					previewNode.size = [280, 200];
-				} else {
-					previewNode.size = previewNode._collapsedSize || [220, 80];
-				}
+				this._setExpanded(previewNode, !previewNode.isExpanded);
 				break;
 			case 'remove':
 				this.removePreviewNode(previewNode);
@@ -728,48 +624,33 @@ class EdgePreviewManager {
 				previewNode.previewType = PreviewType.STRING;
 				break;
 		}
-		
 		this.app.draw();
 	}
 
 	_getOrCreateContextMenu() {
 		let menu = document.getElementById('sg-preview-context-menu');
-		
 		if (!menu) {
 			menu = document.createElement('div');
 			menu.id = 'sg-preview-context-menu';
 			menu.className = 'sg-context-menu sg-preview-context-menu';
 			document.body.appendChild(menu);
-			this._hideContextMenuBound = () => this._hideContextMenu();
 		}
-		
 		return menu;
+	}
+
+	_showMenu(menu, x, y) {
+		menu.style.left = x + 'px';
+		menu.style.top = y + 'px';
+		menu.style.display = 'block';
+		setTimeout(() => {
+			document.addEventListener('click', () => this._hideContextMenu(), { once: true });
+		}, 0);
 	}
 
 	_hideContextMenu() {
 		const menu = document.getElementById('sg-preview-context-menu');
-		if (menu) {
-			menu.style.display = 'none';
-		}
+		if (menu) menu.style.display = 'none';
 		this._contextMenuData = null;
-	}
-
-	_injectStyles() {
-		if (document.getElementById('sg-preview-styles')) return;
-		
-		const style = document.createElement('style');
-		style.id = 'sg-preview-styles';
-		style.textContent = `
-			.sg-preview-context-menu {
-				min-width: 180px;
-			}
-			.sg-preview-context-menu .sg-context-menu-divider {
-				height: 1px;
-				background: var(--sg-border-color, #1a1a1a);
-				margin: 4px 0;
-			}
-		`;
-		document.head.appendChild(style);
 	}
 }
 
@@ -790,14 +671,13 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 
 	SchemaGraphAppClass.prototype._drawPreviewNode = function(node, colors) {
 		const style = this.drawingStyleManager.getStyle();
-		const x = node.pos[0];
-		const y = node.pos[1];
-		const w = node.size[0];
-		const h = node.size[1];
+		const x = node.pos[0], y = node.pos[1];
+		const w = node.size[0], h = node.size[1];
 		const radius = style.nodeCornerRadius;
 		const textScale = this.getTextScale();
+		const isSelected = this.isNodeSelected(node);
 		
-		// Flash intensity
+		// Flash animation
 		let flashIntensity = 0;
 		if (node._isFlashing && node._flashProgress !== undefined) {
 			flashIntensity = 1 - (node._flashProgress * node._flashProgress);
@@ -811,8 +691,6 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 			b: Math.round(baseColor.b + (flashColor.b - baseColor.b) * flashIntensity)
 		};
 		const colorStr = `rgb(${currentColor.r}, ${currentColor.g}, ${currentColor.b})`;
-		
-		const isSelected = this.isNodeSelected(node);
 		
 		// Shadow
 		if (style.nodeShadowBlur > 0 || flashIntensity > 0) {
@@ -830,7 +708,7 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 		this.ctx.fillStyle = gradient;
 		
 		this.ctx.beginPath();
-		this._roundRect(x, y, w, h, radius);
+		this._drawRoundRect(x, y, w, h, radius);
 		this.ctx.fill();
 		
 		this.ctx.strokeStyle = flashIntensity > 0 ? colorStr : (isSelected ? colors.borderHighlight : '#46a2da');
@@ -850,7 +728,7 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 		this.ctx.fillStyle = headerGradient;
 		
 		this.ctx.beginPath();
-		this._roundRectTop(x, y, w, headerH, radius);
+		this._drawRoundRectTop(x, y, w, headerH, radius);
 		this.ctx.fill();
 		
 		// Title
@@ -865,31 +743,29 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 		this.ctx.font = `bold ${8 * textScale}px ${style.textFont}`;
 		const badgeWidth = this.ctx.measureText(typeText).width + 8;
 		
-		this.ctx.fillStyle = this._getTypeColor(node.previewType);
+		this.ctx.fillStyle = this._getPreviewTypeColor(node.previewType);
 		this.ctx.beginPath();
-		this._roundRect(x + w - badgeWidth - 8, y + 6, badgeWidth, 14, 3);
+		this._drawRoundRect(x + w - badgeWidth - 8, y + 6, badgeWidth, 14, 3);
 		this.ctx.fill();
 		
 		this.ctx.fillStyle = '#fff';
 		this.ctx.textAlign = 'center';
 		this.ctx.fillText(typeText, x + w - badgeWidth / 2 - 8, y + 13);
 		
-		// Content area - placed below the header AND below the slot pins
-		const contentX = x + 8;
-		const contentW = w - 16;
-		const contentY = node.isExpanded ? y + 65 : y + 55;
-		const contentH = node.isExpanded ? h - 85 : h - 75;
-		
-		if (node.isExpanded) {
-			this._drawExpandedPreview(node, contentX, contentY, contentW, contentH, colors, textScale, style);
-		} else {
-			this._drawCollapsedPreview(node, contentX, contentY, contentW, contentH, colors, textScale, style);
-		}
-		
 		// Draw slots
 		const worldMouse = this.screenToWorld(this.mousePos[0], this.mousePos[1]);
 		this.drawInputSlot(node, 0, x, y, w, worldMouse, colors);
 		this.drawOutputSlot(node, 0, x, y, w, worldMouse, colors);
+		
+		// Content area
+		const contentY = node.isExpanded ? y + 65 : y + 55;
+		const contentH = node.isExpanded ? h - 85 : h - 75;
+		
+		if (node.isExpanded) {
+			this._drawPreviewExpanded(node, x + 8, contentY, w - 16, contentH, colors, textScale, style);
+		} else {
+			this._drawPreviewCollapsed(node, x + 8, contentY, w - 16, contentH, colors, textScale, style);
+		}
 		
 		// Footer hint
 		this.ctx.fillStyle = colors.textTertiary;
@@ -898,29 +774,41 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 		this.ctx.fillText(node.isExpanded ? 'Dbl-click to collapse' : 'Dbl-click to expand', x + w / 2, y + h - 8);
 	};
 
-	SchemaGraphAppClass.prototype._drawCollapsedPreview = function(node, x, y, w, h, colors, textScale, style) {
+	SchemaGraphAppClass.prototype._drawPreviewCollapsed = function(node, x, y, w, h, colors, textScale, style) {
 		const data = node.previewData;
 		const type = node.previewType;
 
-		// Check if data from DataNode
+		// DataNode passthrough
 		if (data && typeof data === 'object' && data.type && data.sourceType) {
 			const summary = data.meta?.filename || `${data.type} data`;
-			MediaPreviewRenderer.drawCollapsedPreview(this.ctx, data.type, summary, x, y, w, h, 
-				{ textScale, font: style.textFont, colors });
+			if (typeof MediaPreviewRenderer !== 'undefined') {
+				MediaPreviewRenderer.drawCollapsedPreview(this.ctx, data.type, summary, x, y, w, h, 
+					{ textScale, font: style.textFont, colors });
+			}
 			return;
 		}
 
 		const summary = this._getPreviewSummary(node);
-		MediaPreviewRenderer.drawCollapsedPreview(this.ctx, type, summary, x, y, w, h,
-			{ textScale, font: style.textFont, colors });
+		if (typeof MediaPreviewRenderer !== 'undefined') {
+			MediaPreviewRenderer.drawCollapsedPreview(this.ctx, type, summary, x, y, w, h,
+				{ textScale, font: style.textFont, colors });
+		} else {
+			this.ctx.fillStyle = colors.textSecondary;
+			this.ctx.font = `${10 * textScale}px ${style.textFont}`;
+			this.ctx.textAlign = 'center';
+			this.ctx.textBaseline = 'middle';
+			this.ctx.fillText(summary.substring(0, 40), x + w / 2, y + h / 2);
+		}
 	};
 
-	SchemaGraphAppClass.prototype._drawExpandedPreview = function(node, x, y, w, h, colors, textScale, style) {
+	SchemaGraphAppClass.prototype._drawPreviewExpanded = function(node, x, y, w, h, colors, textScale, style) {
 		const padding = 6;
 		const innerX = x + padding, innerY = y + padding;
 		const innerW = w - padding * 2, innerH = h - padding * 2;
 
-		MediaPreviewRenderer.drawExpandedBackground(this.ctx, x, y, w, h, { scale: this.camera.scale });
+		if (typeof MediaPreviewRenderer !== 'undefined') {
+			MediaPreviewRenderer.drawExpandedBackground(this.ctx, x, y, w, h, { scale: this.camera.scale });
+		}
 
 		this.ctx.save();
 		this.ctx.beginPath();
@@ -931,43 +819,42 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 		const type = node.previewType;
 		const opts = { textScale, font: style.textFont, colors, onLoad: () => this.draw() };
 
-		// Handle DataNode passthrough
+		// DataNode passthrough
 		if (data && typeof data === 'object' && data.type && data.sourceType) {
-			this._drawExpandedDataPreviewContent(data, innerX, innerY, innerW, innerH, opts);
+			this._drawDataPreviewContent(data, innerX, innerY, innerW, innerH, opts);
 			this.ctx.restore();
 			return;
 		}
 
-		switch (type) {
-			case PreviewType.BOOLEAN:
-				MediaPreviewRenderer.drawBooleanPreview(this.ctx, data, innerX, innerY, innerW, innerH, opts);
-				break;
-			case PreviewType.NUMBER:
-				MediaPreviewRenderer.drawNumberPreview(this.ctx, data, innerX, innerY, innerW, innerH, opts);
-				break;
-			case PreviewType.IMAGE:
-				const imgSrc = node.getMediaSource();
-				if (imgSrc) {
-					MediaPreviewRenderer.drawCachedImage(this.ctx, imgSrc, innerX, innerY, innerW, innerH, { ...opts, contain: true });
-				} else {
-					MediaPreviewRenderer.drawMediaPlaceholder(this.ctx, 'image', innerX, innerY, innerW, innerH, opts);
-				}
-				break;
-			case PreviewType.AUDIO:
-			case PreviewType.VIDEO:
-			case PreviewType.MODEL3D:
-				MediaPreviewRenderer.drawMediaPlaceholder(this.ctx, type, innerX, innerY, innerW, innerH, opts);
-				break;
-			default:
-				MediaPreviewRenderer.drawTextPreview(this.ctx, node.getPreviewText(), innerX, innerY, innerW, innerH, opts);
+		if (typeof MediaPreviewRenderer !== 'undefined') {
+			switch (type) {
+				case PreviewType.BOOLEAN:
+					MediaPreviewRenderer.drawBooleanPreview(this.ctx, data, innerX, innerY, innerW, innerH, opts);
+					break;
+				case PreviewType.NUMBER:
+					MediaPreviewRenderer.drawNumberPreview(this.ctx, data, innerX, innerY, innerW, innerH, opts);
+					break;
+				case PreviewType.IMAGE:
+					const imgSrc = node.getMediaSource();
+					if (imgSrc) MediaPreviewRenderer.drawCachedImage(this.ctx, imgSrc, innerX, innerY, innerW, innerH, { ...opts, contain: true });
+					else MediaPreviewRenderer.drawMediaPlaceholder(this.ctx, 'image', innerX, innerY, innerW, innerH, opts);
+					break;
+				case PreviewType.AUDIO:
+				case PreviewType.VIDEO:
+				case PreviewType.MODEL3D:
+					MediaPreviewRenderer.drawMediaPlaceholder(this.ctx, type, innerX, innerY, innerW, innerH, opts);
+					break;
+				default:
+					MediaPreviewRenderer.drawTextPreview(this.ctx, node.getPreviewText(), innerX, innerY, innerW, innerH, opts);
+			}
 		}
 
 		this.ctx.restore();
 	};
 
-	// Helper for DataNode data passing through preview
-	SchemaGraphAppClass.prototype._drawExpandedDataPreviewContent = function(data, x, y, w, h, opts) {
+	SchemaGraphAppClass.prototype._drawDataPreviewContent = function(data, x, y, w, h, opts) {
 		const src = data.data || data.url;
+		if (typeof MediaPreviewRenderer === 'undefined') return;
 
 		switch (data.type) {
 			case 'image':
@@ -983,206 +870,39 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 				break;
 			default:
 				MediaPreviewRenderer.drawDetailedInfoPreview(this.ctx, data.type, {
-					filename: data.meta?.filename,
-					size: data.meta?.size,
-					mimeType: data.meta?.mimeType
+					filename: data.meta?.filename, size: data.meta?.size, mimeType: data.meta?.mimeType
 				}, x, y, w, h, opts);
 		}
 	};
 
-	// Replace helper methods with delegations
-	SchemaGraphAppClass.prototype._getTypeIcon = function(type) {
-		return MediaPreviewRenderer.getTypeIcon(type);
-	};
-
-	SchemaGraphAppClass.prototype._getTypeColor = function(type) {
-		return MediaPreviewRenderer.getTypeColor(type);
-	};
-
-	SchemaGraphAppClass.prototype._formatFileSize = function(bytes) {
-		return MediaPreviewRenderer.formatFileSize(bytes);
-	};
-
-	SchemaGraphAppClass.prototype._drawBooleanPreview = function(value, x, y, w, h, textScale, style) {
-		const centerX = x + w / 2;
-		const centerY = y + h / 2;
-		const color = value ? '#92d050' : '#dc6464';
-		const icon = value ? '✓' : '✗';
-		const text = value ? 'true' : 'false';
-		
-		this.ctx.font = `bold ${28 * textScale}px ${style.textFont}`;
-		this.ctx.textAlign = 'center';
-		this.ctx.textBaseline = 'middle';
-		this.ctx.fillStyle = color;
-		this.ctx.fillText(icon, centerX, centerY - 12);
-		
-		this.ctx.font = `bold ${14 * textScale}px ${style.textFont}`;
-		this.ctx.fillText(text, centerX, centerY + 16);
-	};
-
-	SchemaGraphAppClass.prototype._drawNumberPreview = function(value, x, y, w, h, textScale, style) {
-		const centerX = x + w / 2;
-		const centerY = y + h / 2;
-		
-		this.ctx.font = `bold ${24 * textScale}px ${style.textFont}`;
-		this.ctx.textAlign = 'center';
-		this.ctx.textBaseline = 'middle';
-		this.ctx.fillStyle = '#ff9f4a';
-		this.ctx.fillText(String(value), centerX, centerY);
-	};
-
-	SchemaGraphAppClass.prototype._drawTextPreview = function(node, x, y, w, h, colors, textScale, style) {
-		const text = node.getPreviewText();
-		
-		// Split by newlines first to preserve JSON formatting
-		const rawLines = text.split('\n');
-		const lines = [];
-		
-		this.ctx.font = `${9 * textScale}px 'Courier New', monospace`;
-		
-		// Wrap each line if needed
-		for (const rawLine of rawLines) {
-			if (this.ctx.measureText(rawLine).width <= w) {
-				lines.push(rawLine);
-			} else {
-				// Wrap long lines
-				const wrapped = this._wrapText(rawLine, w, this.ctx);
-				lines.push(...wrapped);
-			}
-		}
-		
-		const lineHeight = 11 * textScale;
-		const maxLines = Math.floor(h / lineHeight);
-		
-		this.ctx.textAlign = 'left';
-		this.ctx.textBaseline = 'top';
-		this.ctx.fillStyle = colors.textSecondary;
-		
-		for (let i = 0; i < Math.min(lines.length, maxLines); i++) {
-			this.ctx.fillText(lines[i], x, y + i * lineHeight);
-		}
-		
-		if (lines.length > maxLines) {
-			this.ctx.fillStyle = colors.textTertiary;
-			this.ctx.fillText('...', x, y + maxLines * lineHeight);
-		}
-	};
-
-	SchemaGraphAppClass.prototype._drawImagePlaceholder = function(node, x, y, w, h, textScale, style) {
-		const src = node.getMediaSource();
-		const centerX = x + w / 2;
-		const centerY = y + h / 2;
-		
-		this.ctx.font = `${28 * textScale}px ${style.textFont}`;
-		this.ctx.textAlign = 'center';
-		this.ctx.textBaseline = 'middle';
-		this.ctx.fillStyle = '#00d4aa';
-		this.ctx.fillText('🖼️', centerX, centerY - 10);
-		
-		this.ctx.font = `${9 * textScale}px ${style.textFont}`;
-		this.ctx.fillStyle = '#707070';
-		const urlText = src ? (src.length > 30 ? src.slice(0, 30) + '...' : src) : 'No source';
-		this.ctx.fillText(urlText, centerX, centerY + 18);
-	};
-
-	SchemaGraphAppClass.prototype._drawMediaPlaceholder = function(type, x, y, w, h, textScale, style) {
-		const centerX = x + w / 2;
-		const centerY = y + h / 2;
-		
-		const icons = {
-			[PreviewType.AUDIO]: '🔊',
-			[PreviewType.VIDEO]: '🎬',
-			[PreviewType.MODEL3D]: '🧊'
-		};
-		
-		this.ctx.font = `${28 * textScale}px ${style.textFont}`;
-		this.ctx.textAlign = 'center';
-		this.ctx.textBaseline = 'middle';
-		this.ctx.fillStyle = this._getTypeColor(type);
-		this.ctx.fillText(icons[type] || '📄', centerX, centerY);
+	SchemaGraphAppClass.prototype._getPreviewTypeColor = function(type) {
+		if (typeof MediaPreviewRenderer !== 'undefined') return MediaPreviewRenderer.getTypeColor(type);
+		const colors = { string: '#4a9eff', number: '#ff9f4a', boolean: '#92d050', json: '#9370db', list: '#ff6b9d' };
+		return colors[type] || '#888888';
 	};
 
 	SchemaGraphAppClass.prototype._getPreviewSummary = function(node) {
 		const data = node.previewData;
-		const type = node.previewType;
-		
 		if (data === null) return 'null';
 		if (data === undefined) return 'undefined';
 		
-		switch (type) {
-			case PreviewType.STRING:
-				return `"${String(data)}"`;
-			case PreviewType.NUMBER:
-				return String(data);
-			case PreviewType.BOOLEAN:
-				return data ? 'true' : 'false';
-			case PreviewType.LIST:
-				return `Array (${data.length} items)`;
-			case PreviewType.JSON:
-				const keys = Object.keys(data);
-				return `Object (${keys.length} keys)`;
-			case PreviewType.IMAGE:
-				return 'Image';
-			case PreviewType.AUDIO:
-				return 'Audio';
-			case PreviewType.VIDEO:
-				return 'Video';
-			case PreviewType.MODEL3D:
-				return '3D Model';
-			default:
-				return String(data).slice(0, 50);
+		switch (node.previewType) {
+			case PreviewType.STRING: return `"${String(data)}"`;
+			case PreviewType.NUMBER: return String(data);
+			case PreviewType.BOOLEAN: return data ? 'true' : 'false';
+			case PreviewType.LIST: return `Array (${data.length} items)`;
+			case PreviewType.JSON: return `Object (${Object.keys(data).length} keys)`;
+			case PreviewType.IMAGE: return 'Image';
+			case PreviewType.AUDIO: return 'Audio';
+			case PreviewType.VIDEO: return 'Video';
+			case PreviewType.MODEL3D: return '3D Model';
+			default: return String(data).slice(0, 50);
 		}
-	};
-
-	SchemaGraphAppClass.prototype._roundRect = function(x, y, w, h, r) {
-		this.ctx.moveTo(x + r, y);
-		this.ctx.lineTo(x + w - r, y);
-		this.ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-		this.ctx.lineTo(x + w, y + h - r);
-		this.ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-		this.ctx.lineTo(x + r, y + h);
-		this.ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-		this.ctx.lineTo(x, y + r);
-		this.ctx.quadraticCurveTo(x, y, x + r, y);
-		this.ctx.closePath();
-	};
-	
-	SchemaGraphAppClass.prototype._roundRectTop = function(x, y, w, h, r) {
-		this.ctx.moveTo(x + r, y);
-		this.ctx.lineTo(x + w - r, y);
-		this.ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-		this.ctx.lineTo(x + w, y + h);
-		this.ctx.lineTo(x, y + h);
-		this.ctx.lineTo(x, y + r);
-		this.ctx.quadraticCurveTo(x, y, x + r, y);
-		this.ctx.closePath();
-	};
-	
-	SchemaGraphAppClass.prototype._wrapText = function(text, maxWidth, ctx) {
-		const words = text.split(/(\s+)/);
-		const lines = [];
-		let currentLine = '';
-		
-		for (const word of words) {
-			const testLine = currentLine + word;
-			if (ctx.measureText(testLine).width > maxWidth && currentLine) {
-				lines.push(currentLine.trim());
-				currentLine = word;
-			} else {
-				currentLine = testLine;
-			}
-		}
-		
-		if (currentLine.trim()) {
-			lines.push(currentLine.trim());
-		}
-		
-		return lines;
 	};
 }
 
 // ========================================================================
-// Draw hovered edge highlight - hint drawn on top via post-render
+// Draw Edge Highlight for Hover
 // ========================================================================
 
 function extendDrawLinksForPreview(SchemaGraphAppClass) {
@@ -1193,146 +913,110 @@ function extendDrawLinksForPreview(SchemaGraphAppClass) {
 		
 		this._pendingPreviewHint = null;
 		
-		if (this.edgePreviewManager?.hoveredLink) {
-			const link = this.edgePreviewManager.hoveredLink;
-			const orig = this.graph.getNodeById(link.origin_id);
-			const targ = this.graph.getNodeById(link.target_id);
-			
-			if (orig && targ) {
-				const style = this.drawingStyleManager.getStyle();
-				
-				const x1 = orig.pos[0] + orig.size[0];
-				const y1 = orig.pos[1] + 33 + link.origin_slot * 25;
-				const x2 = targ.pos[0];
-				const y2 = targ.pos[1] + 33 + link.target_slot * 25;
-				
-				const distance = Math.abs(x2 - x1);
-				const maxControlDistance = 400;
-				const controlOffset = Math.min(distance * style.linkCurve, maxControlDistance);
-				const cx1 = x1 + controlOffset;
-				const cx2 = x2 - controlOffset;
-				
-				// Glow effect
-				this.ctx.strokeStyle = '#46a2da';
-				this.ctx.lineWidth = (style.linkWidth + 4) / this.camera.scale;
-				this.ctx.globalAlpha = 0.3;
-				
-				if (style.useGlow) {
-					this.ctx.shadowColor = '#46a2da';
-					this.ctx.shadowBlur = 10 / this.camera.scale;
-				}
-				
-				this.ctx.beginPath();
-				if (style.linkCurve > 0) {
-					this.ctx.moveTo(x1, y1);
-					this.ctx.bezierCurveTo(cx1, y1, cx2, y2, x2, y2);
-				} else {
-					this.ctx.moveTo(x1, y1);
-					this.ctx.lineTo(x2, y2);
-				}
-				this.ctx.stroke();
-				
-				// Highlight line
-				this.ctx.strokeStyle = '#82c4ec';
-				this.ctx.lineWidth = (style.linkWidth + 1) / this.camera.scale;
-				this.ctx.globalAlpha = 1.0;
-				this.ctx.shadowBlur = 0;
-				
-				if (style.useDashed) {
-					this.ctx.setLineDash([8 / this.camera.scale, 4 / this.camera.scale]);
-				}
-				
-				this.ctx.beginPath();
-				if (style.linkCurve > 0) {
-					this.ctx.moveTo(x1, y1);
-					this.ctx.bezierCurveTo(cx1, y1, cx2, y2, x2, y2);
-				} else {
-					this.ctx.moveTo(x1, y1);
-					this.ctx.lineTo(x2, y2);
-				}
-				this.ctx.stroke();
-				
-				if (style.useDashed) {
-					this.ctx.setLineDash([]);
-				}
-				
-				// Calculate midpoint for hint
-				const midT = 0.5;
-				const mt = 1 - midT;
-				let midX, midY;
-				
-				if (style.linkCurve > 0) {
-					midX = mt*mt*mt*x1 + 3*mt*mt*midT*cx1 + 3*mt*midT*midT*cx2 + midT*midT*midT*x2;
-					midY = mt*mt*mt*y1 + 3*mt*mt*midT*y1 + 3*mt*midT*midT*y2 + midT*midT*midT*y2;
-				} else {
-					midX = (x1 + x2) / 2;
-					midY = (y1 + y2) / 2;
-				}
-				
-				// Store hint for post-render
-				this._pendingPreviewHint = { midX, midY, style };
-			}
+		if (!this.edgePreviewManager?.hoveredLink) return;
+		
+		const link = this.edgePreviewManager.hoveredLink;
+		const src = this.graph.getNodeById(link.origin_id);
+		const tgt = this.graph.getNodeById(link.target_id);
+		if (!src || !tgt) return;
+		
+		const style = this.drawingStyleManager.getStyle();
+		const x1 = src.pos[0] + src.size[0];
+		const y1 = src.pos[1] + 33 + link.origin_slot * 25;
+		const x2 = tgt.pos[0];
+		const y2 = tgt.pos[1] + 33 + link.target_slot * 25;
+		
+		const distance = Math.abs(x2 - x1);
+		const controlOffset = Math.min(distance * style.linkCurve, 400);
+		const cx1 = x1 + controlOffset, cx2 = x2 - controlOffset;
+		
+		// Glow effect
+		this.ctx.strokeStyle = '#46a2da';
+		this.ctx.lineWidth = (style.linkWidth + 4) / this.camera.scale;
+		this.ctx.globalAlpha = 0.3;
+		
+		if (style.useGlow) {
+			this.ctx.shadowColor = '#46a2da';
+			this.ctx.shadowBlur = 10 / this.camera.scale;
 		}
+		
+		this.ctx.beginPath();
+		if (style.linkCurve > 0) {
+			this.ctx.moveTo(x1, y1);
+			this.ctx.bezierCurveTo(cx1, y1, cx2, y2, x2, y2);
+		} else {
+			this.ctx.moveTo(x1, y1);
+			this.ctx.lineTo(x2, y2);
+		}
+		this.ctx.stroke();
+		
+		// Highlight line
+		this.ctx.strokeStyle = '#82c4ec';
+		this.ctx.lineWidth = (style.linkWidth + 1) / this.camera.scale;
+		this.ctx.globalAlpha = 1.0;
+		this.ctx.shadowBlur = 0;
+		
+		if (style.useDashed) {
+			this.ctx.setLineDash([8 / this.camera.scale, 4 / this.camera.scale]);
+		}
+		
+		this.ctx.beginPath();
+		if (style.linkCurve > 0) {
+			this.ctx.moveTo(x1, y1);
+			this.ctx.bezierCurveTo(cx1, y1, cx2, y2, x2, y2);
+		} else {
+			this.ctx.moveTo(x1, y1);
+			this.ctx.lineTo(x2, y2);
+		}
+		this.ctx.stroke();
+		
+		if (style.useDashed) this.ctx.setLineDash([]);
+		
+		// Calculate midpoint for hint
+		const t = 0.5, mt = 1 - t;
+		let midX, midY;
+		if (style.linkCurve > 0) {
+			midX = mt**3*x1 + 3*mt**2*t*cx1 + 3*mt*t**2*cx2 + t**3*x2;
+			midY = mt**3*y1 + 3*mt**2*t*y1 + 3*mt*t**2*y2 + t**3*y2;
+		} else {
+			midX = (x1 + x2) / 2;
+			midY = (y1 + y2) / 2;
+		}
+		
+		this._pendingPreviewHint = { midX, midY, style };
 	};
 	
-	// Draw preview hint on top of everything
+	// Draw preview hint on top
 	SchemaGraphAppClass.prototype._drawPreviewHint = function() {
 		if (!this._pendingPreviewHint) return;
 
-		// Apply camera transform (same as main draw)
 		this.ctx.save();
 		this.ctx.translate(this.camera.x, this.camera.y);
 		this.ctx.scale(this.camera.scale, this.camera.scale);
 
 		const { midX, midY, style } = this._pendingPreviewHint;
 		const hintText = 'Alt+Click to add Preview';
-		const fixedSizeHint = true;
+		const fontSize = 16 / this.camera.scale;
+		const padX = 10 / this.camera.scale;
+		const padY = 14 / this.camera.scale;
+		const radius = 4 / this.camera.scale;
 
+		this.ctx.font = `bold ${fontSize}px ${style.textFont}`;
 		this.ctx.textAlign = 'center';
 		this.ctx.textBaseline = 'middle';
-			
-		// Background for text
+		const textWidth = this.ctx.measureText(hintText).width;
+
+		// Background
 		this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
 		this.ctx.beginPath();
-
-		if (fixedSizeHint) {
-			const fontSize = 16 / this.camera.scale;
-			const padX = 10 / this.camera.scale;
-			const padY = 14 / this.camera.scale;
-			const offX = 0 / this.camera.scale;
-			const offY = -2 / this.camera.scale;
-			const radius = 4 / this.camera.scale;
-
-			this.ctx.font = `bold ${fontSize}px ${style.textFont}`;
-			const textWidth = this.ctx.measureText(hintText).width;
-
-			this.ctx.roundRect(
-				midX - textWidth/2 - padX + offX, 
-				midY - padY + offY, 
-				textWidth + padX * 2, 
-				padY * 2, 
-				radius
-			);
-		} else {
-			const textScale = this.getTextScale();
-			this.ctx.font = `bold ${10 * textScale}px ${style.textFont}`;
-			const textWidth = this.ctx.measureText(hintText).width;
-
-			this.ctx.roundRect(
-				midX - textWidth/2 - 6, 
-				midY - 10, 
-				textWidth + 12, 
-				20, 
-				4
-			);
-		}
-
+		this.ctx.roundRect(midX - textWidth/2 - padX, midY - padY, textWidth + padX * 2, padY * 2, radius);
 		this.ctx.fill();
 
 		this.ctx.strokeStyle = '#46a2da';
 		this.ctx.lineWidth = 1 / this.camera.scale;
 		this.ctx.stroke();
 
+		// Text
 		this.ctx.fillStyle = '#82c4ec';
 		this.ctx.fillText(hintText, midX, midY);
 
@@ -1340,7 +1024,7 @@ function extendDrawLinksForPreview(SchemaGraphAppClass) {
 		this._pendingPreviewHint = null;
 	};
 
-	// Hook into main draw to render hint last
+	// Hook into main draw
 	const originalDraw = SchemaGraphAppClass.prototype.draw;
 	SchemaGraphAppClass.prototype.draw = function() {
 		originalDraw.call(this);
@@ -1349,106 +1033,12 @@ function extendDrawLinksForPreview(SchemaGraphAppClass) {
 }
 
 // ========================================================================
-// Extend SchemaGraphApp with Preview API
+// Extend removeNode to handle preview nodes
 // ========================================================================
 
-function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
-	const originalCreateAPI = SchemaGraphAppClass.prototype._createAPI;
-	
-	SchemaGraphAppClass.prototype._createAPI = function() {
-		const api = originalCreateAPI.call(this);
-		
-		api.preview = {
-			list: () => {
-				return this.graph.nodes.filter(n => n.isPreviewNode);
-			},
-			
-			expand: (nodeOrId) => {
-				const node = typeof nodeOrId === 'string' 
-					? this.graph.getNodeById(nodeOrId) 
-					: nodeOrId;
-				if (node?.isPreviewNode && !node.isExpanded) {
-					node._collapsedSize = [...node.size];
-					node.size = [260, 250];
-					node.isExpanded = true;
-					this.draw();
-				}
-			},
-			
-			collapse: (nodeOrId) => {
-				const node = typeof nodeOrId === 'string' 
-					? this.graph.getNodeById(nodeOrId) 
-					: nodeOrId;
-				if (node?.isPreviewNode && node.isExpanded) {
-					node.size = node._collapsedSize || [200, 110];
-					node.isExpanded = false;
-					this.draw();
-				}
-			},
-
-			canInsertOnLink: (linkId) => {
-				const link = this.graph.links[linkId];
-				return this.edgePreviewManager.canInsertPreview(link);
-			},
-
-			insertOnLink: (linkId) => {
-				if (this.isLocked) return null;
-				
-				const link = this.graph.links[linkId];
-				if (!link) return null;
-				
-				const orig = this.graph.getNodeById(link.origin_id);
-				const targ = this.graph.getNodeById(link.target_id);
-				if (!orig || !targ) return null;
-				
-				const midX = (orig.pos[0] + orig.size[0] + targ.pos[0]) / 2;
-				const midY = (orig.pos[1] + targ.pos[1]) / 2;
-				
-				return this.edgePreviewManager.insertPreviewNode(link, midX, midY);
-			},
-
-			remove: (nodeOrId) => {
-				if (this.isLocked) return null;
-				
-				const node = typeof nodeOrId === 'string' 
-					? this.graph.getNodeById(nodeOrId) 
-					: nodeOrId;
-				
-				if (!node?.isPreviewNode) return null;
-				
-				return this.edgePreviewManager.removePreviewNode(node);
-			},
-
-			removeAll: () => {
-				if (this.isLocked) return 0;
-				
-				const previewNodes = this.graph.nodes.filter(n => n.isPreviewNode);
-				let count = 0;
-				for (const node of previewNodes) {
-					if (this.edgePreviewManager.removePreviewNode(node)) count++;
-				}
-				return count;
-			},
-
-			getOriginalEdgeInfo: (nodeOrId) => {
-				const node = typeof nodeOrId === 'string' 
-					? this.graph.getNodeById(nodeOrId) 
-					: nodeOrId;
-				
-				return node?.isPreviewNode ? node._originalEdgeInfo : null;
-			}
-		};
-		
-		return api;
-	};
-	
-	const originalSetupEventListeners = SchemaGraphAppClass.prototype.setupEventListeners;
-	SchemaGraphAppClass.prototype.setupEventListeners = function() {
-		originalSetupEventListeners.call(this);
-		this.edgePreviewManager = new EdgePreviewManager(this);
-	};
-
+function extendRemoveNodeForPreview(SchemaGraphAppClass) {
 	const originalRemoveNode = SchemaGraphAppClass.prototype.removeNode;
+	
 	SchemaGraphAppClass.prototype.removeNode = function(node) {
 		if (!node) return;
 		
@@ -1462,11 +1052,9 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 		if (this.edgePreviewManager) {
 			const previewsToRemove = [];
 			
-			// Check all links connected to this node
 			for (const linkId in this.graph.links) {
 				const link = this.graph.links[linkId];
 				if (link.origin_id === node.id || link.target_id === node.id) {
-					// Check if connected node is a preview node
 					const otherId = link.origin_id === node.id ? link.target_id : link.origin_id;
 					const otherNode = this.graph.getNodeById(otherId);
 					if (otherNode?.isPreviewNode && !previewsToRemove.includes(otherNode)) {
@@ -1475,31 +1063,24 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 				}
 			}
 			
-			// Remove connected preview nodes (don't restore edges since parent is being deleted)
 			for (const preview of previewsToRemove) {
 				this._removePreviewNodeWithoutRestore(preview);
 			}
 		}
 		
-		if (originalRemoveNode) {
-			originalRemoveNode.call(this, node);
-		}
+		if (originalRemoveNode) originalRemoveNode.call(this, node);
 	};
 
-	// Helper to remove preview node without restoring the original edge
 	SchemaGraphAppClass.prototype._removePreviewNodeWithoutRestore = function(node) {
 		if (!node?.isPreviewNode) return;
 		
 		const mgr = this.edgePreviewManager;
-		
-		// Remove links
 		const inLinkId = node.inputs[0]?.link;
 		const outLinkIds = node.outputs[0]?.links || [];
 		
 		if (inLinkId) mgr._removeLinkById(inLinkId);
 		for (const id of outLinkIds) mgr._removeLinkById(id);
 		
-		// Remove node
 		const idx = this.graph.nodes.indexOf(node);
 		if (idx !== -1) this.graph.nodes.splice(idx, 1);
 		delete this.graph._nodes_by_id[node.id];
@@ -1509,131 +1090,26 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 }
 
 // ========================================================================
-// AUTO-INITIALIZATION
-// ========================================================================
-
-if (typeof SchemaGraphApp !== 'undefined') {
-	extendDrawNodeForPreview(SchemaGraphApp);
-	extendDrawLinksForPreview(SchemaGraphApp);
-	extendSchemaGraphAppWithPreview(SchemaGraphApp);
-}
-
-if (typeof module !== 'undefined' && module.exports) {
-	module.exports = {
-		PreviewType,
-		PreviewNode,
-		EdgePreviewManager,
-		extendDrawNodeForPreview,
-		extendDrawLinksForPreview,
-		extendSchemaGraphAppWithPreview
-	};
-}
-
-
-
-
-
-
-
-
-
-
-
-// ========================================================================
-// SCHEMAGRAPH PREVIEW EXTENSION - Enhanced Data Node Previews
-// Updates to extendDrawNodeForPreview in schemagraph-preview-ext.js
-// ========================================================================
-
-// ========================================================================
-// MEDIA PLAYER MANAGER - Handles audio/video playback
+// Media Player Manager
 // ========================================================================
 
 class PreviewMediaManager {
 	constructor(app) {
 		this.app = app;
 		this.audioElement = null;
-		this.videoElement = null;
 		this.activeAudioNode = null;
-		this.activeVideoNode = null;
-		
-		this._setupEventListeners();
 	}
 
-	_setupEventListeners() {
-		// Handle clicks on preview nodes for media controls
-		this.app.eventBus.on('mouse:click', (data) => this._onClick(data));
-		
-		// Handle scroll for text previews
-		this.app.canvas.addEventListener('wheel', (e) => this._onWheel(e), { passive: false });
-	}
-
-	_onClick(data) {
-		const [wx, wy] = this.app.screenToWorld(data.coords.screenX, data.coords.screenY);
-		
-		for (const node of this.app.graph.nodes) {
-			if (!node.isPreviewNode || !node.isExpanded) continue;
-			
-			// Check audio button
-			if (node._audioPlayerBtn) {
-				const btn = node._audioPlayerBtn;
-				if (wx >= btn.x && wx <= btn.x + btn.w && wy >= btn.y && wy <= btn.y + btn.h) {
-					this._toggleAudio(node, btn.src);
-					data.event.preventDefault();
-					return;
-				}
-			}
-			
-			// Check video button
-			if (node._videoPlayerBtn) {
-				const btn = node._videoPlayerBtn;
-				if (wx >= btn.x && wx <= btn.x + btn.w && wy >= btn.y && wy <= btn.y + btn.h) {
-					this._toggleVideo(node, btn.src);
-					data.event.preventDefault();
-					return;
-				}
-			}
-		}
-	}
-
-	_onWheel(e) {
-		const rect = this.app.canvas.getBoundingClientRect();
-		const screenX = (e.clientX - rect.left) / rect.width * this.app.canvas.width;
-		const screenY = (e.clientY - rect.top) / rect.height * this.app.canvas.height;
-		const [wx, wy] = this.app.screenToWorld(screenX, screenY);
-		
-		for (const node of this.app.graph.nodes) {
-			if (!node.isPreviewNode || !node.isExpanded) continue;
-			if (!node._scrollInfo) continue;
-			
-			// Check if mouse is over the scrollable area
-			if (wx >= node.pos[0] && wx <= node.pos[0] + node.size[0] &&
-				wy >= node.pos[1] + 65 && wy <= node.pos[1] + node.size[1] - 20) {
-				
-				e.preventDefault();
-				
-				const delta = e.deltaY > 0 ? 1 : -1;
-				node._scrollOffset = Math.max(0, Math.min(
-					node._scrollInfo.maxScroll,
-					(node._scrollOffset || 0) + delta
-				));
-				
-				this.app.draw();
-				return;
-			}
-		}
-	}
-
-	_toggleAudio(node, src) {
+	toggleAudio(node, src) {
 		if (node._isPlaying) {
-			this._stopAudio();
+			this.stopAudio();
 		} else {
-			this._playAudio(node, src);
+			this.playAudio(node, src);
 		}
 	}
 
-	_playAudio(node, src) {
-		this._stopAudio();
-		this._stopVideo();
+	playAudio(node, src) {
+		this.stopAudio();
 		
 		this.audioElement = new Audio(src);
 		this.audioElement.onended = () => {
@@ -1654,7 +1130,7 @@ class PreviewMediaManager {
 		this.app.draw();
 	}
 
-	_stopAudio() {
+	stopAudio() {
 		if (this.audioElement) {
 			this.audioElement.pause();
 			this.audioElement.src = '';
@@ -1666,123 +1142,40 @@ class PreviewMediaManager {
 		}
 		this.app.draw();
 	}
-
-	_toggleVideo(node, src) {
-		if (node._isPlaying) {
-			this._stopVideo();
-		} else {
-			this._playVideo(node, src);
-		}
-	}
-
-	_playVideo(node, src) {
-		this._stopAudio();
-		this._stopVideo();
-		
-		// Create video overlay
-		this._createVideoOverlay(node, src);
-	}
-
-	_stopVideo() {
-		const overlay = document.getElementById('sg-video-overlay');
-		if (overlay) {
-			const video = overlay.querySelector('video');
-			if (video) {
-				video.pause();
-				video.src = '';
-			}
-			overlay.remove();
-		}
-		if (this.activeVideoNode) {
-			this.activeVideoNode._isPlaying = false;
-			this.activeVideoNode = null;
-		}
-		this.app.draw();
-	}
-
-	_createVideoOverlay(node, src) {
-		// Remove existing overlay
-		this._stopVideo();
-		
-		// Create overlay
-		const overlay = document.createElement('div');
-		overlay.id = 'sg-video-overlay';
-		overlay.style.cssText = `
-			position: fixed;
-			top: 0; left: 0; right: 0; bottom: 0;
-			background: rgba(0, 0, 0, 0.85);
-			display: flex;
-			align-items: center;
-			justify-content: center;
-			z-index: 10000;
-		`;
-		
-		// Close button
-		const closeBtn = document.createElement('button');
-		closeBtn.textContent = '✕ Close';
-		closeBtn.style.cssText = `
-			position: absolute;
-			top: 20px; right: 20px;
-			background: #ff4757;
-			color: white;
-			border: none;
-			padding: 10px 20px;
-			border-radius: 4px;
-			cursor: pointer;
-			font-size: 14px;
-		`;
-		closeBtn.onclick = () => this._stopVideo();
-		
-		// Video element
-		const video = document.createElement('video');
-		video.src = src;
-		video.controls = true;
-		video.autoplay = true;
-		video.style.cssText = `
-			max-width: 90%;
-			max-height: 80%;
-			border-radius: 8px;
-		`;
-		video.onended = () => this._stopVideo();
-		
-		overlay.appendChild(video);
-		overlay.appendChild(closeBtn);
-		
-		// Close on background click
-		overlay.onclick = (e) => {
-			if (e.target === overlay) this._stopVideo();
-		};
-		
-		document.body.appendChild(overlay);
-		
-		node._isPlaying = true;
-		this.activeVideoNode = node;
-		this.app.draw();
-	}
 }
 
-
 // ========================================================================
-// EXTEND EdgePreviewManager to include media manager
+// AUTO-INITIALIZATION
 // ========================================================================
 
-// Add to EdgePreviewManager constructor or setupEventListeners:
-// this.mediaManager = new PreviewMediaManager(this.app);
-
-function extendPreviewWithMediaManager(SchemaGraphAppClass) {
-	const originalSetupEventListeners = SchemaGraphAppClass.prototype.setupEventListeners;
-	
-	SchemaGraphAppClass.prototype.setupEventListeners = function() {
-		originalSetupEventListeners.call(this);
-		
-		// Initialize media manager after edge preview manager
-		if (this.edgePreviewManager) {
-			this.previewMediaManager = new PreviewMediaManager(this);
-		}
-	};
-}
-
-// Auto-init
 if (typeof SchemaGraphApp !== 'undefined') {
-	extendPreviewWithMediaManager(SchemaGraphApp);
+	extendDrawNodeForPreview(SchemaGraphApp);
+	extendDrawLinksForPreview(SchemaGraphApp);
+	extendRemoveNodeForPreview(SchemaGraphApp);
+	
+	// Register with extension system if available
+	if (typeof extensionRegistry !== 'undefined') {
+		extensionRegistry.register('preview', PreviewExtension);
+	} else {
+		// Fallback: hook into setupEventListeners directly
+		const originalSetup = SchemaGraphApp.prototype.setupEventListeners;
+		SchemaGraphApp.prototype.setupEventListeners = function() {
+			originalSetup.call(this);
+			this.edgePreviewManager = new PreviewExtension(this);
+			this.previewMediaManager = new PreviewMediaManager(this);
+		};
+	}
+	
+	console.log('✨ SchemaGraph Preview extension loaded');
+}
+
+// ========================================================================
+// Exports
+// ========================================================================
+
+if (typeof module !== 'undefined' && module.exports) {
+	module.exports = {
+		PreviewType, PreviewNode, PreviewExtension, PreviewMediaManager,
+		extendDrawNodeForPreview, extendDrawLinksForPreview, extendRemoveNodeForPreview
+	};
 }
