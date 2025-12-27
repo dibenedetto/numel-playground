@@ -812,15 +812,17 @@ function extendDrawNodeForData(SchemaGraphAppClass) {
 		this.ctx.font = `${8 * textScale}px ${style.textFont}`;
 		this.ctx.textAlign = 'center';
 
-		let hint;
+		let hint = null;
 		if (!node.hasData()) {
-			hint = 'Drop file or double-click';
+			// hint = 'Drop file or double-click';
 		} else if (node.isExpanded) {
 			hint = 'Dbl-click header to collapse';
 		} else {
 			hint = 'Dbl-click to expand • Right-click for options';
 		}
-		this.ctx.fillText(hint, x + w / 2, y + h - 8);
+		if (hint != null) {
+			this.ctx.fillText(hint, x + w / 2, y + h - 8);
+		}
 	};
 
 	SchemaGraphAppClass.prototype._drawDataNodeCollapsed = function(node, x, y, w, h, colors, textScale, style) {
