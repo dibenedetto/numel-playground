@@ -1461,14 +1461,59 @@ function extendSchemaGraphAppWithPreview(SchemaGraphAppClass) {
 	SchemaGraphAppClass.prototype.removeNode = function(node) {
 		if (!node) return;
 		
+		// If removing a preview node, use preview manager
 		if (node.isPreviewNode && this.edgePreviewManager) {
 			this.edgePreviewManager.removePreviewNode(node);
 			return;
 		}
 		
+		// For regular nodes: find and remove connected preview nodes first
+		if (this.edgePreviewManager) {
+			const previewsToRemove = [];
+			
+			// Check all links connected to this node
+			for (const linkId in this.graph.links) {
+				const link = this.graph.links[linkId];
+				if (link.origin_id === node.id || link.target_id === node.id) {
+					// Check if connected node is a preview node
+					const otherId = link.origin_id === node.id ? link.target_id : link.origin_id;
+					const otherNode = this.graph.getNodeById(otherId);
+					if (otherNode?.isPreviewNode && !previewsToRemove.includes(otherNode)) {
+						previewsToRemove.push(otherNode);
+					}
+				}
+			}
+			
+			// Remove connected preview nodes (don't restore edges since parent is being deleted)
+			for (const preview of previewsToRemove) {
+				this._removePreviewNodeWithoutRestore(preview);
+			}
+		}
+		
 		if (originalRemoveNode) {
 			originalRemoveNode.call(this, node);
 		}
+	};
+
+	// Helper to remove preview node without restoring the original edge
+	SchemaGraphAppClass.prototype._removePreviewNodeWithoutRestore = function(node) {
+		if (!node?.isPreviewNode) return;
+		
+		const mgr = this.edgePreviewManager;
+		
+		// Remove links
+		const inLinkId = node.inputs[0]?.link;
+		const outLinkIds = node.outputs[0]?.links || [];
+		
+		if (inLinkId) mgr._removeLinkById(inLinkId);
+		for (const id of outLinkIds) mgr._removeLinkById(id);
+		
+		// Remove node
+		const idx = this.graph.nodes.indexOf(node);
+		if (idx !== -1) this.graph.nodes.splice(idx, 1);
+		delete this.graph._nodes_by_id[node.id];
+		
+		this.eventBus.emit('preview:removed', { nodeId: node.id, restored: false });
 	};
 }
 
@@ -1491,4 +1536,1026 @@ if (typeof module !== 'undefined' && module.exports) {
 		extendDrawLinksForPreview,
 		extendSchemaGraphAppWithPreview
 	};
+}
+
+
+
+
+
+
+
+
+
+
+
+// ========================================================================
+// SCHEMAGRAPH PREVIEW EXTENSION - Enhanced Data Node Previews
+// Updates to extendDrawNodeForPreview in schemagraph-preview-ext.js
+// ========================================================================
+
+// Add image cache for thumbnails
+const PreviewImageCache = new Map();
+const PreviewVideoFrameCache = new Map();
+
+// ========================================================================
+// COLLAPSED PREVIEW - Updated to handle data types better
+// ========================================================================
+
+SchemaGraphApp.prototype._drawCollapsedPreview = function(node, x, y, w, h, colors, textScale, style) {
+	const data = node.previewData;
+	const type = node.previewType;
+	const centerY = y + h / 2;
+
+	// Check if this is data from a DataNode
+	if (data && typeof data === 'object' && data.type && data.sourceType) {
+		this._drawCollapsedDataPreview(node, data, x, y, w, h, colors, textScale, style);
+		return;
+	}
+
+	// Standard preview (non-data nodes)
+	const icon = this._getTypeIcon(type);
+	const summary = this._getPreviewSummary(node);
+	
+	this.ctx.font = `${18 * textScale}px ${style.textFont}`;
+	this.ctx.textAlign = 'center';
+	this.ctx.textBaseline = 'middle';
+	this.ctx.fillStyle = this._getTypeColor(type);
+	this.ctx.fillText(icon, x + 14, centerY);
+	
+	this.ctx.font = `${10 * textScale}px ${style.textFont}`;
+	this.ctx.textAlign = 'left';
+	this.ctx.fillStyle = colors.textPrimary;
+	
+	const textX = x + 32;
+	const maxTextW = w - 36;
+	let displayText = summary;
+	if (this.ctx.measureText(displayText).width > maxTextW) {
+		while (displayText.length > 3 && this.ctx.measureText(displayText + '...').width > maxTextW) {
+			displayText = displayText.slice(0, -1);
+		}
+		displayText += '...';
+	}
+	this.ctx.fillText(displayText, textX, centerY);
+};
+
+
+// ========================================================================
+// COLLAPSED DATA PREVIEW - Handles different data types
+// ========================================================================
+
+SchemaGraphApp.prototype._drawCollapsedDataPreview = function(node, data, x, y, w, h, colors, textScale, style) {
+	const dataType = data.type; // text, image, audio, video, etc.
+	const centerY = y + h / 2;
+	
+	const icons = {
+		'text': '📝', 'document': '📄', 'image': '🖼️',
+		'audio': '🔊', 'video': '🎬', 'model3d': '🧊', 'binary': '📦'
+	};
+	const typeColors = {
+		'text': '#4a9eff', 'document': '#ff9f4a', 'image': '#00d4aa',
+		'audio': '#ffd700', 'video': '#ff4757', 'model3d': '#00bcd4', 'binary': '#9370db'
+	};
+	
+	const icon = icons[dataType] || '📄';
+	const color = typeColors[dataType] || '#888';
+	const filename = data.meta?.filename || 'Unknown';
+	
+	switch (dataType) {
+		case 'text':
+			this._drawCollapsedTextPreview(data, x, y, w, h, icon, color, colors, textScale, style);
+			break;
+		case 'image':
+			this._drawCollapsedImagePreview(data, x, y, w, h, icon, color, colors, textScale, style);
+			break;
+		case 'video':
+			this._drawCollapsedVideoPreview(data, x, y, w, h, icon, color, colors, textScale, style);
+			break;
+		default:
+			// document, audio, model3d, binary - icon + description
+			this.ctx.font = `${16 * textScale}px ${style.textFont}`;
+			this.ctx.textAlign = 'center';
+			this.ctx.textBaseline = 'middle';
+			this.ctx.fillStyle = color;
+			this.ctx.fillText(icon, x + 14, centerY);
+			
+			this.ctx.font = `${10 * textScale}px ${style.textFont}`;
+			this.ctx.textAlign = 'left';
+			this.ctx.fillStyle = colors.textPrimary;
+			
+			let desc = filename;
+			if (data.meta?.size) {
+				desc += ` (${this._formatFileSize(data.meta.size)})`;
+			}
+			const maxW = w - 36;
+			if (this.ctx.measureText(desc).width > maxW) {
+				desc = desc.slice(0, 20) + '...';
+			}
+			this.ctx.fillText(desc, x + 32, centerY);
+			break;
+	}
+};
+
+
+// ========================================================================
+// TEXT - Collapsed: icon + description + first lines
+// ========================================================================
+
+SchemaGraphApp.prototype._drawCollapsedTextPreview = function(data, x, y, w, h, icon, color, colors, textScale, style) {
+	const textContent = data.data || '';
+	const filename = data.meta?.filename || 'Text';
+	
+	// Icon
+	this.ctx.font = `${14 * textScale}px ${style.textFont}`;
+	this.ctx.textAlign = 'center';
+	this.ctx.textBaseline = 'middle';
+	this.ctx.fillStyle = color;
+	this.ctx.fillText(icon, x + 12, y + 12);
+	
+	// Filename
+	this.ctx.font = `${9 * textScale}px ${style.textFont}`;
+	this.ctx.textAlign = 'left';
+	this.ctx.fillStyle = colors.textSecondary;
+	this.ctx.fillText(filename, x + 26, y + 12);
+	
+	// First lines of text
+	if (textContent) {
+		this.ctx.font = `${8 * textScale}px 'Courier New', monospace`;
+		this.ctx.fillStyle = colors.textPrimary;
+		
+		const lines = textContent.split('\n').slice(0, 3);
+		const lineHeight = 10 * textScale;
+		const startY = y + 26;
+		
+		for (let i = 0; i < lines.length; i++) {
+			let line = lines[i].substring(0, 40);
+			if (lines[i].length > 40) line += '...';
+			this.ctx.fillText(line, x + 4, startY + i * lineHeight);
+		}
+	}
+};
+
+
+// ========================================================================
+// IMAGE - Collapsed: icon + description + thumbnail
+// ========================================================================
+
+SchemaGraphApp.prototype._drawCollapsedImagePreview = function(data, x, y, w, h, icon, color, colors, textScale, style) {
+	const filename = data.meta?.filename || 'Image';
+	const imgSrc = data.data || data.url;
+	
+	// Left side: icon + description
+	this.ctx.font = `${12 * textScale}px ${style.textFont}`;
+	this.ctx.textAlign = 'left';
+	this.ctx.textBaseline = 'middle';
+	this.ctx.fillStyle = color;
+	this.ctx.fillText(icon, x + 4, y + h / 2 - 8);
+	
+	this.ctx.font = `${8 * textScale}px ${style.textFont}`;
+	this.ctx.fillStyle = colors.textSecondary;
+	let desc = filename;
+	if (data.meta?.width && data.meta?.height) {
+		desc = `${data.meta.width}×${data.meta.height}`;
+	}
+	this.ctx.fillText(desc, x + 4, y + h / 2 + 8);
+	
+	// Right side: thumbnail
+	const thumbSize = Math.min(h - 8, 50);
+	const thumbX = x + w - thumbSize - 4;
+	const thumbY = y + (h - thumbSize) / 2;
+	
+	if (imgSrc) {
+		this._drawCachedImage(imgSrc, thumbX, thumbY, thumbSize, thumbSize, colors);
+	} else {
+		// Placeholder
+		this.ctx.fillStyle = 'rgba(0,0,0,0.3)';
+		this.ctx.fillRect(thumbX, thumbY, thumbSize, thumbSize);
+		this.ctx.font = `${16 * textScale}px ${style.textFont}`;
+		this.ctx.textAlign = 'center';
+		this.ctx.fillStyle = color;
+		this.ctx.fillText(icon, thumbX + thumbSize / 2, thumbY + thumbSize / 2);
+	}
+};
+
+
+// ========================================================================
+// VIDEO - Collapsed: icon + description + middle frame
+// ========================================================================
+
+SchemaGraphApp.prototype._drawCollapsedVideoPreview = function(data, x, y, w, h, icon, color, colors, textScale, style) {
+	const filename = data.meta?.filename || 'Video';
+	const videoSrc = data.data || data.url;
+	
+	// Left side: icon + description
+	this.ctx.font = `${12 * textScale}px ${style.textFont}`;
+	this.ctx.textAlign = 'left';
+	this.ctx.textBaseline = 'middle';
+	this.ctx.fillStyle = color;
+	this.ctx.fillText(icon, x + 4, y + h / 2 - 8);
+	
+	this.ctx.font = `${8 * textScale}px ${style.textFont}`;
+	this.ctx.fillStyle = colors.textSecondary;
+	let desc = filename;
+	if (data.meta?.duration) {
+		const mins = Math.floor(data.meta.duration / 60);
+		const secs = Math.floor(data.meta.duration % 60);
+		desc = `${mins}:${secs.toString().padStart(2, '0')}`;
+	}
+	this.ctx.fillText(desc, x + 4, y + h / 2 + 8);
+	
+	// Right side: video frame thumbnail
+	const thumbSize = Math.min(h - 8, 50);
+	const thumbX = x + w - thumbSize - 4;
+	const thumbY = y + (h - thumbSize) / 2;
+	
+	if (videoSrc) {
+		this._drawCachedVideoFrame(videoSrc, thumbX, thumbY, thumbSize, thumbSize, colors, color, icon);
+	} else {
+		// Placeholder
+		this.ctx.fillStyle = 'rgba(0,0,0,0.3)';
+		this.ctx.fillRect(thumbX, thumbY, thumbSize, thumbSize);
+		this.ctx.font = `${16 * textScale}px ${style.textFont}`;
+		this.ctx.textAlign = 'center';
+		this.ctx.fillStyle = color;
+		this.ctx.fillText(icon, thumbX + thumbSize / 2, thumbY + thumbSize / 2);
+	}
+};
+
+
+// ========================================================================
+// EXPANDED PREVIEW - Updated for data types
+// ========================================================================
+
+SchemaGraphApp.prototype._drawExpandedPreview = function(node, x, y, w, h, colors, textScale, style) {
+	const radius = 6;
+	
+	// Background
+	this.ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+	this.ctx.beginPath();
+	this.ctx.roundRect(x, y, w, h, radius);
+	this.ctx.fill();
+	
+	this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+	this.ctx.lineWidth = 1 / this.camera.scale;
+	this.ctx.stroke();
+	
+	const padding = 6;
+	const innerX = x + padding;
+	const innerY = y + padding;
+	const innerW = w - padding * 2;
+	const innerH = h - padding * 2;
+	
+	this.ctx.save();
+	this.ctx.beginPath();
+	this.ctx.roundRect(innerX, innerY, innerW, innerH, radius - 2);
+	this.ctx.clip();
+	
+	const data = node.previewData;
+	const type = node.previewType;
+	
+	// Check if this is data from a DataNode
+	if (data && typeof data === 'object' && data.type && data.sourceType) {
+		this._drawExpandedDataPreview(node, data, innerX, innerY, innerW, innerH, colors, textScale, style);
+	} else {
+		// Standard previews
+		switch (type) {
+			case PreviewType.BOOLEAN:
+				this._drawBooleanPreview(data, innerX, innerY, innerW, innerH, textScale, style);
+				break;
+			case PreviewType.NUMBER:
+				this._drawNumberPreview(data, innerX, innerY, innerW, innerH, textScale, style);
+				break;
+			default:
+				this._drawTextPreview(node, innerX, innerY, innerW, innerH, colors, textScale, style);
+		}
+	}
+	
+	this.ctx.restore();
+};
+
+
+// ========================================================================
+// EXPANDED DATA PREVIEW - Dispatch by type
+// ========================================================================
+
+SchemaGraphApp.prototype._drawExpandedDataPreview = function(node, data, x, y, w, h, colors, textScale, style) {
+	const dataType = data.type;
+	
+	switch (dataType) {
+		case 'text':
+			this._drawExpandedTextDataPreview(node, data, x, y, w, h, colors, textScale, style);
+			break;
+		case 'document':
+			this._drawExpandedDocumentPreview(node, data, x, y, w, h, colors, textScale, style);
+			break;
+		case 'image':
+			this._drawExpandedImagePreview(node, data, x, y, w, h, colors, textScale, style);
+			break;
+		case 'audio':
+			this._drawExpandedAudioPreview(node, data, x, y, w, h, colors, textScale, style);
+			break;
+		case 'video':
+			this._drawExpandedVideoPreview(node, data, x, y, w, h, colors, textScale, style);
+			break;
+		case 'model3d':
+			this._drawExpandedModel3DPreview(node, data, x, y, w, h, colors, textScale, style);
+			break;
+		case 'binary':
+			this._drawExpandedBinaryPreview(node, data, x, y, w, h, colors, textScale, style);
+			break;
+		default:
+			this._drawGenericPreview(node, x, y, w, h, colors, textScale, style);
+	}
+};
+
+
+// ========================================================================
+// TEXT - Expanded: scrollable text
+// ========================================================================
+
+SchemaGraphApp.prototype._drawExpandedTextDataPreview = function(node, data, x, y, w, h, colors, textScale, style) {
+	const textContent = data.data || '';
+	const lines = textContent.split('\n');
+	const lineHeight = 11 * textScale;
+	
+	// Initialize scroll state
+	if (node._scrollOffset === undefined) node._scrollOffset = 0;
+	
+	const visibleLines = Math.floor(h / lineHeight);
+	const totalLines = lines.length;
+	const maxScroll = Math.max(0, totalLines - visibleLines);
+	
+	// Draw text
+	this.ctx.font = `${9 * textScale}px 'Courier New', monospace`;
+	this.ctx.textAlign = 'left';
+	this.ctx.textBaseline = 'top';
+	this.ctx.fillStyle = colors.textSecondary;
+	
+	const startLine = Math.floor(node._scrollOffset);
+	for (let i = 0; i < visibleLines + 1 && startLine + i < totalLines; i++) {
+		let line = lines[startLine + i] || '';
+		if (this.ctx.measureText(line).width > w) {
+			while (line.length > 3 && this.ctx.measureText(line + '...').width > w) {
+				line = line.slice(0, -1);
+			}
+			line += '...';
+		}
+		this.ctx.fillText(line, x, y + i * lineHeight);
+	}
+	
+	// Draw scrollbar if needed
+	if (totalLines > visibleLines) {
+		const scrollbarW = 4;
+		const scrollbarH = (visibleLines / totalLines) * h;
+		const scrollbarY = y + (node._scrollOffset / maxScroll) * (h - scrollbarH);
+		
+		this.ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+		this.ctx.fillRect(x + w - scrollbarW, scrollbarY, scrollbarW, scrollbarH);
+		
+		// Store scroll info for interaction
+		node._scrollInfo = { maxScroll, x: x + w - scrollbarW, y, w: scrollbarW, h };
+	}
+};
+
+
+// ========================================================================
+// DOCUMENT - Expanded: detailed description
+// ========================================================================
+
+SchemaGraphApp.prototype._drawExpandedDocumentPreview = function(node, data, x, y, w, h, colors, textScale, style) {
+	const filename = data.meta?.filename || 'Document';
+	const size = this._formatFileSize(data.meta?.size || 0);
+	const mimeType = data.meta?.mimeType || 'application/octet-stream';
+	
+	const centerX = x + w / 2;
+	
+	// Icon
+	this.ctx.font = `${32 * textScale}px ${style.textFont}`;
+	this.ctx.textAlign = 'center';
+	this.ctx.textBaseline = 'middle';
+	this.ctx.fillStyle = '#ff9f4a';
+	this.ctx.fillText('📄', centerX, y + 30);
+	
+	// Filename
+	this.ctx.font = `bold ${11 * textScale}px ${style.textFont}`;
+	this.ctx.fillStyle = colors.textPrimary;
+	this.ctx.fillText(filename, centerX, y + 60);
+	
+	// Details
+	this.ctx.font = `${9 * textScale}px ${style.textFont}`;
+	this.ctx.fillStyle = colors.textSecondary;
+	this.ctx.fillText(`Size: ${size}`, centerX, y + 80);
+	this.ctx.fillText(`Type: ${mimeType}`, centerX, y + 95);
+	
+	// Source info
+	if (data.sourceType === 'url' && data.url) {
+		this.ctx.fillStyle = colors.textTertiary;
+		const url = data.url.length > 35 ? data.url.slice(0, 35) + '...' : data.url;
+		this.ctx.fillText(url, centerX, y + 115);
+	}
+};
+
+
+// ========================================================================
+// IMAGE - Expanded: larger resolution
+// ========================================================================
+
+SchemaGraphApp.prototype._drawExpandedImagePreview = function(node, data, x, y, w, h, colors, textScale, style) {
+	const imgSrc = data.data || data.url;
+	
+	if (imgSrc) {
+		this._drawCachedImage(imgSrc, x, y, w, h, colors, true);
+	} else {
+		// Placeholder
+		const centerX = x + w / 2;
+		const centerY = y + h / 2;
+		
+		this.ctx.font = `${40 * textScale}px ${style.textFont}`;
+		this.ctx.textAlign = 'center';
+		this.ctx.textBaseline = 'middle';
+		this.ctx.fillStyle = '#00d4aa';
+		this.ctx.fillText('🖼️', centerX, centerY - 15);
+		
+		this.ctx.font = `${10 * textScale}px ${style.textFont}`;
+		this.ctx.fillStyle = colors.textSecondary;
+		this.ctx.fillText('No image data', centerX, centerY + 25);
+	}
+};
+
+
+// ========================================================================
+// AUDIO - Expanded: audio player
+// ========================================================================
+
+SchemaGraphApp.prototype._drawExpandedAudioPreview = function(node, data, x, y, w, h, colors, textScale, style) {
+	const audioSrc = data.data || data.url;
+	const filename = data.meta?.filename || 'Audio';
+	const duration = data.meta?.duration;
+	
+	const centerX = x + w / 2;
+	
+	// Icon
+	this.ctx.font = `${32 * textScale}px ${style.textFont}`;
+	this.ctx.textAlign = 'center';
+	this.ctx.textBaseline = 'middle';
+	this.ctx.fillStyle = '#ffd700';
+	this.ctx.fillText('🔊', centerX, y + 25);
+	
+	// Filename
+	this.ctx.font = `${10 * textScale}px ${style.textFont}`;
+	this.ctx.fillStyle = colors.textPrimary;
+	this.ctx.fillText(filename, centerX, y + 50);
+	
+	// Duration
+	if (duration) {
+		const mins = Math.floor(duration / 60);
+		const secs = Math.floor(duration % 60);
+		this.ctx.fillStyle = colors.textSecondary;
+		this.ctx.fillText(`${mins}:${secs.toString().padStart(2, '0')}`, centerX, y + 65);
+	}
+	
+	// Draw play button
+	const btnY = y + h - 40;
+	const btnW = 60;
+	const btnH = 24;
+	const btnX = centerX - btnW / 2;
+	
+	// Store button bounds for click handling
+	node._audioPlayerBtn = { x: btnX, y: btnY, w: btnW, h: btnH, src: audioSrc };
+	
+	// Button background
+	this.ctx.fillStyle = node._isPlaying ? '#ff4757' : '#ffd700';
+	this.ctx.beginPath();
+	this.ctx.roundRect(btnX, btnY, btnW, btnH, 4);
+	this.ctx.fill();
+	
+	// Button text
+	this.ctx.font = `bold ${10 * textScale}px ${style.textFont}`;
+	this.ctx.fillStyle = '#000';
+	this.ctx.fillText(node._isPlaying ? '⏹ Stop' : '▶ Play', centerX, btnY + btnH / 2);
+};
+
+
+// ========================================================================
+// VIDEO - Expanded: video player
+// ========================================================================
+
+SchemaGraphApp.prototype._drawExpandedVideoPreview = function(node, data, x, y, w, h, colors, textScale, style) {
+	const videoSrc = data.data || data.url;
+	const filename = data.meta?.filename || 'Video';
+	
+	// Draw video frame as background
+	if (videoSrc) {
+		this._drawCachedVideoFrame(videoSrc, x, y, w, h - 35, colors, '#ff4757', '🎬', true);
+	} else {
+		this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
+		this.ctx.fillRect(x, y, w, h - 35);
+		
+		this.ctx.font = `${32 * textScale}px ${style.textFont}`;
+		this.ctx.textAlign = 'center';
+		this.ctx.fillStyle = '#ff4757';
+		this.ctx.fillText('🎬', x + w / 2, y + (h - 35) / 2);
+	}
+	
+	// Draw play button overlay
+	const btnY = y + h - 30;
+	const btnW = 60;
+	const btnH = 22;
+	const btnX = x + w / 2 - btnW / 2;
+	
+	node._videoPlayerBtn = { x: btnX, y: btnY, w: btnW, h: btnH, src: videoSrc };
+	
+	this.ctx.fillStyle = node._isPlaying ? '#ff4757' : '#00d4aa';
+	this.ctx.beginPath();
+	this.ctx.roundRect(btnX, btnY, btnW, btnH, 4);
+	this.ctx.fill();
+	
+	this.ctx.font = `bold ${9 * textScale}px ${style.textFont}`;
+	this.ctx.textAlign = 'center';
+	this.ctx.fillStyle = '#000';
+	this.ctx.fillText(node._isPlaying ? '⏹ Stop' : '▶ Play', x + w / 2, btnY + btnH / 2);
+};
+
+
+// ========================================================================
+// MODEL3D - Expanded: description + placeholder
+// ========================================================================
+
+SchemaGraphApp.prototype._drawExpandedModel3DPreview = function(node, data, x, y, w, h, colors, textScale, style) {
+	const filename = data.meta?.filename || '3D Model';
+	const size = this._formatFileSize(data.meta?.size || 0);
+	
+	const centerX = x + w / 2;
+	
+	// Icon
+	this.ctx.font = `${32 * textScale}px ${style.textFont}`;
+	this.ctx.textAlign = 'center';
+	this.ctx.textBaseline = 'middle';
+	this.ctx.fillStyle = '#00bcd4';
+	this.ctx.fillText('🧊', centerX, y + 30);
+	
+	// Filename
+	this.ctx.font = `bold ${11 * textScale}px ${style.textFont}`;
+	this.ctx.fillStyle = colors.textPrimary;
+	this.ctx.fillText(filename, centerX, y + 60);
+	
+	// Size
+	this.ctx.font = `${9 * textScale}px ${style.textFont}`;
+	this.ctx.fillStyle = colors.textSecondary;
+	this.ctx.fillText(`Size: ${size}`, centerX, y + 80);
+	
+	// Placeholder box
+	const boxY = y + 95;
+	const boxH = h - 105;
+	
+	this.ctx.strokeStyle = 'rgba(0, 188, 212, 0.5)';
+	this.ctx.lineWidth = 1 / this.camera.scale;
+	this.ctx.setLineDash([4 / this.camera.scale, 4 / this.camera.scale]);
+	this.ctx.strokeRect(x + 10, boxY, w - 20, boxH);
+	this.ctx.setLineDash([]);
+	
+	// Placeholder text
+	this.ctx.font = `${8 * textScale}px ${style.textFont}`;
+	this.ctx.fillStyle = colors.textTertiary;
+	this.ctx.fillText('3D Preview', centerX, boxY + boxH / 2 - 8);
+	this.ctx.fillText('(Three.js integration)', centerX, boxY + boxH / 2 + 8);
+};
+
+
+// ========================================================================
+// BINARY - Expanded: detailed description
+// ========================================================================
+
+SchemaGraphApp.prototype._drawExpandedBinaryPreview = function(node, data, x, y, w, h, colors, textScale, style) {
+	const filename = data.meta?.filename || 'Binary file';
+	const size = this._formatFileSize(data.meta?.size || 0);
+	const mimeType = data.meta?.mimeType || 'application/octet-stream';
+	
+	const centerX = x + w / 2;
+	
+	// Icon
+	this.ctx.font = `${32 * textScale}px ${style.textFont}`;
+	this.ctx.textAlign = 'center';
+	this.ctx.textBaseline = 'middle';
+	this.ctx.fillStyle = '#9370db';
+	this.ctx.fillText('📦', centerX, y + 30);
+	
+	// Filename
+	this.ctx.font = `bold ${11 * textScale}px ${style.textFont}`;
+	this.ctx.fillStyle = colors.textPrimary;
+	this.ctx.fillText(filename, centerX, y + 60);
+	
+	// Details
+	this.ctx.font = `${9 * textScale}px ${style.textFont}`;
+	this.ctx.fillStyle = colors.textSecondary;
+	this.ctx.fillText(`Size: ${size}`, centerX, y + 80);
+	this.ctx.fillText(`Type: ${mimeType}`, centerX, y + 95);
+	
+	// Hex preview hint
+	this.ctx.fillStyle = colors.textTertiary;
+	this.ctx.font = `${8 * textScale}px ${style.textFont}`;
+	this.ctx.fillText('Binary data', centerX, y + 115);
+};
+
+
+// ========================================================================
+// HELPER: Draw cached image
+// ========================================================================
+
+SchemaGraphApp.prototype._drawCachedImage = function(src, x, y, w, h, colors, contain = false) {
+	let img = PreviewImageCache.get(src);
+	
+	if (!img) {
+		img = new Image();
+		img.onload = () => {
+			img._loaded = true;
+			this.draw(); // Redraw when loaded
+		};
+		img.onerror = () => {
+			img._error = true;
+		};
+		img.src = src;
+		PreviewImageCache.set(src, img);
+	}
+	
+	if (img._loaded) {
+		// Calculate aspect-fit dimensions
+		const imgAspect = img.width / img.height;
+		const boxAspect = w / h;
+		
+		let drawW, drawH, drawX, drawY;
+		
+		if (contain) {
+			if (imgAspect > boxAspect) {
+				drawW = w;
+				drawH = w / imgAspect;
+			} else {
+				drawH = h;
+				drawW = h * imgAspect;
+			}
+			drawX = x + (w - drawW) / 2;
+			drawY = y + (h - drawH) / 2;
+		} else {
+			// Cover
+			if (imgAspect > boxAspect) {
+				drawH = h;
+				drawW = h * imgAspect;
+				drawX = x + (w - drawW) / 2;
+				drawY = y;
+			} else {
+				drawW = w;
+				drawH = w / imgAspect;
+				drawX = x;
+				drawY = y + (h - drawH) / 2;
+			}
+		}
+		
+		this.ctx.drawImage(img, drawX, drawY, drawW, drawH);
+	} else if (img._error) {
+		this.ctx.fillStyle = colors.textTertiary;
+		this.ctx.font = '12px sans-serif';
+		this.ctx.textAlign = 'center';
+		this.ctx.fillText('Failed to load', x + w / 2, y + h / 2);
+	} else {
+		// Loading
+		this.ctx.fillStyle = colors.textTertiary;
+		this.ctx.font = '10px sans-serif';
+		this.ctx.textAlign = 'center';
+		this.ctx.fillText('Loading...', x + w / 2, y + h / 2);
+	}
+};
+
+
+// ========================================================================
+// HELPER: Draw cached video frame
+// ========================================================================
+
+SchemaGraphApp.prototype._drawCachedVideoFrame = function(src, x, y, w, h, colors, color, icon, large = false) {
+	let frame = PreviewVideoFrameCache.get(src);
+	
+	if (!frame) {
+		frame = { canvas: null, loading: true };
+		PreviewVideoFrameCache.set(src, frame);
+		
+		// Create video element to extract frame
+		const video = document.createElement('video');
+		video.crossOrigin = 'anonymous';
+		video.muted = true;
+		video.preload = 'metadata';
+		
+		video.onloadedmetadata = () => {
+			video.currentTime = video.duration / 2; // Middle frame
+		};
+		
+		video.onseeked = () => {
+			const canvas = document.createElement('canvas');
+			canvas.width = video.videoWidth;
+			canvas.height = video.videoHeight;
+			const ctx = canvas.getContext('2d');
+			ctx.drawImage(video, 0, 0);
+			frame.canvas = canvas;
+			frame.loading = false;
+			this.draw();
+		};
+		
+		video.onerror = () => {
+			frame.error = true;
+			frame.loading = false;
+		};
+		
+		video.src = src;
+	}
+	
+	if (frame.canvas) {
+		// Draw the frame
+		const imgAspect = frame.canvas.width / frame.canvas.height;
+		const boxAspect = w / h;
+		
+		let drawW, drawH, drawX, drawY;
+		if (imgAspect > boxAspect) {
+			drawW = w;
+			drawH = w / imgAspect;
+		} else {
+			drawH = h;
+			drawW = h * imgAspect;
+		}
+		drawX = x + (w - drawW) / 2;
+		drawY = y + (h - drawH) / 2;
+		
+		this.ctx.drawImage(frame.canvas, drawX, drawY, drawW, drawH);
+	} else if (frame.error) {
+		this.ctx.fillStyle = 'rgba(0,0,0,0.3)';
+		this.ctx.fillRect(x, y, w, h);
+		this.ctx.fillStyle = colors.textTertiary;
+		this.ctx.font = '10px sans-serif';
+		this.ctx.textAlign = 'center';
+		this.ctx.fillText('No preview', x + w / 2, y + h / 2);
+	} else {
+		// Loading placeholder
+		this.ctx.fillStyle = 'rgba(0,0,0,0.3)';
+		this.ctx.fillRect(x, y, w, h);
+		this.ctx.font = large ? '24px sans-serif' : '14px sans-serif';
+		this.ctx.textAlign = 'center';
+		this.ctx.fillStyle = color;
+		this.ctx.fillText(icon, x + w / 2, y + h / 2);
+	}
+};
+
+
+// ========================================================================
+// HELPER: Format file size
+// ========================================================================
+
+SchemaGraphApp.prototype._formatFileSize = function(bytes) {
+	if (!bytes) return '0 B';
+	const units = ['B', 'KB', 'MB', 'GB'];
+	let i = 0;
+	while (bytes >= 1024 && i < units.length - 1) {
+		bytes /= 1024;
+		i++;
+	}
+	return `${bytes.toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
+};
+
+
+// ========================================================================
+// MEDIA PLAYER MANAGER - Handles audio/video playback
+// ========================================================================
+
+class PreviewMediaManager {
+	constructor(app) {
+		this.app = app;
+		this.audioElement = null;
+		this.videoElement = null;
+		this.activeAudioNode = null;
+		this.activeVideoNode = null;
+		
+		this._setupEventListeners();
+	}
+
+	_setupEventListeners() {
+		// Handle clicks on preview nodes for media controls
+		this.app.eventBus.on('mouse:click', (data) => this._onClick(data));
+		
+		// Handle scroll for text previews
+		this.app.canvas.addEventListener('wheel', (e) => this._onWheel(e), { passive: false });
+	}
+
+	_onClick(data) {
+		const [wx, wy] = this.app.screenToWorld(data.coords.screenX, data.coords.screenY);
+		
+		for (const node of this.app.graph.nodes) {
+			if (!node.isPreviewNode || !node.isExpanded) continue;
+			
+			// Check audio button
+			if (node._audioPlayerBtn) {
+				const btn = node._audioPlayerBtn;
+				if (wx >= btn.x && wx <= btn.x + btn.w && wy >= btn.y && wy <= btn.y + btn.h) {
+					this._toggleAudio(node, btn.src);
+					data.event.preventDefault();
+					return;
+				}
+			}
+			
+			// Check video button
+			if (node._videoPlayerBtn) {
+				const btn = node._videoPlayerBtn;
+				if (wx >= btn.x && wx <= btn.x + btn.w && wy >= btn.y && wy <= btn.y + btn.h) {
+					this._toggleVideo(node, btn.src);
+					data.event.preventDefault();
+					return;
+				}
+			}
+		}
+	}
+
+	_onWheel(e) {
+		const rect = this.app.canvas.getBoundingClientRect();
+		const screenX = (e.clientX - rect.left) / rect.width * this.app.canvas.width;
+		const screenY = (e.clientY - rect.top) / rect.height * this.app.canvas.height;
+		const [wx, wy] = this.app.screenToWorld(screenX, screenY);
+		
+		for (const node of this.app.graph.nodes) {
+			if (!node.isPreviewNode || !node.isExpanded) continue;
+			if (!node._scrollInfo) continue;
+			
+			// Check if mouse is over the scrollable area
+			if (wx >= node.pos[0] && wx <= node.pos[0] + node.size[0] &&
+				wy >= node.pos[1] + 65 && wy <= node.pos[1] + node.size[1] - 20) {
+				
+				e.preventDefault();
+				
+				const delta = e.deltaY > 0 ? 1 : -1;
+				node._scrollOffset = Math.max(0, Math.min(
+					node._scrollInfo.maxScroll,
+					(node._scrollOffset || 0) + delta
+				));
+				
+				this.app.draw();
+				return;
+			}
+		}
+	}
+
+	_toggleAudio(node, src) {
+		if (node._isPlaying) {
+			this._stopAudio();
+		} else {
+			this._playAudio(node, src);
+		}
+	}
+
+	_playAudio(node, src) {
+		this._stopAudio();
+		this._stopVideo();
+		
+		this.audioElement = new Audio(src);
+		this.audioElement.onended = () => {
+			node._isPlaying = false;
+			this.activeAudioNode = null;
+			this.app.draw();
+		};
+		this.audioElement.onerror = () => {
+			node._isPlaying = false;
+			this.activeAudioNode = null;
+			this.app.showError?.('Failed to play audio');
+			this.app.draw();
+		};
+		
+		this.audioElement.play();
+		node._isPlaying = true;
+		this.activeAudioNode = node;
+		this.app.draw();
+	}
+
+	_stopAudio() {
+		if (this.audioElement) {
+			this.audioElement.pause();
+			this.audioElement.src = '';
+			this.audioElement = null;
+		}
+		if (this.activeAudioNode) {
+			this.activeAudioNode._isPlaying = false;
+			this.activeAudioNode = null;
+		}
+		this.app.draw();
+	}
+
+	_toggleVideo(node, src) {
+		if (node._isPlaying) {
+			this._stopVideo();
+		} else {
+			this._playVideo(node, src);
+		}
+	}
+
+	_playVideo(node, src) {
+		this._stopAudio();
+		this._stopVideo();
+		
+		// Create video overlay
+		this._createVideoOverlay(node, src);
+	}
+
+	_stopVideo() {
+		const overlay = document.getElementById('sg-video-overlay');
+		if (overlay) {
+			const video = overlay.querySelector('video');
+			if (video) {
+				video.pause();
+				video.src = '';
+			}
+			overlay.remove();
+		}
+		if (this.activeVideoNode) {
+			this.activeVideoNode._isPlaying = false;
+			this.activeVideoNode = null;
+		}
+		this.app.draw();
+	}
+
+	_createVideoOverlay(node, src) {
+		// Remove existing overlay
+		this._stopVideo();
+		
+		// Create overlay
+		const overlay = document.createElement('div');
+		overlay.id = 'sg-video-overlay';
+		overlay.style.cssText = `
+			position: fixed;
+			top: 0; left: 0; right: 0; bottom: 0;
+			background: rgba(0, 0, 0, 0.85);
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			z-index: 10000;
+		`;
+		
+		// Close button
+		const closeBtn = document.createElement('button');
+		closeBtn.textContent = '✕ Close';
+		closeBtn.style.cssText = `
+			position: absolute;
+			top: 20px; right: 20px;
+			background: #ff4757;
+			color: white;
+			border: none;
+			padding: 10px 20px;
+			border-radius: 4px;
+			cursor: pointer;
+			font-size: 14px;
+		`;
+		closeBtn.onclick = () => this._stopVideo();
+		
+		// Video element
+		const video = document.createElement('video');
+		video.src = src;
+		video.controls = true;
+		video.autoplay = true;
+		video.style.cssText = `
+			max-width: 90%;
+			max-height: 80%;
+			border-radius: 8px;
+		`;
+		video.onended = () => this._stopVideo();
+		
+		overlay.appendChild(video);
+		overlay.appendChild(closeBtn);
+		
+		// Close on background click
+		overlay.onclick = (e) => {
+			if (e.target === overlay) this._stopVideo();
+		};
+		
+		document.body.appendChild(overlay);
+		
+		node._isPlaying = true;
+		this.activeVideoNode = node;
+		this.app.draw();
+	}
+}
+
+
+// ========================================================================
+// EXTEND EdgePreviewManager to include media manager
+// ========================================================================
+
+// Add to EdgePreviewManager constructor or setupEventListeners:
+// this.mediaManager = new PreviewMediaManager(this.app);
+
+function extendPreviewWithMediaManager(SchemaGraphAppClass) {
+	const originalSetupEventListeners = SchemaGraphAppClass.prototype.setupEventListeners;
+	
+	SchemaGraphAppClass.prototype.setupEventListeners = function() {
+		originalSetupEventListeners.call(this);
+		
+		// Initialize media manager after edge preview manager
+		if (this.edgePreviewManager) {
+			this.previewMediaManager = new PreviewMediaManager(this);
+		}
+	};
+}
+
+// Auto-init
+if (typeof SchemaGraphApp !== 'undefined') {
+	extendPreviewWithMediaManager(SchemaGraphApp);
 }
