@@ -10,7 +10,8 @@ const DataType = Object.freeze({
 	IMAGE: 'image',
 	AUDIO: 'audio',
 	VIDEO: 'video',
-	MODEL3D: 'model3d'
+	MODEL3D: 'model3d',
+	BINARY: 'binary'
 });
 
 const DataMimeTypes = {
@@ -19,7 +20,8 @@ const DataMimeTypes = {
 	[DataType.IMAGE]: ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml', 'image/bmp', 'image/ico'],
 	[DataType.AUDIO]: ['audio/mpeg', 'audio/wav', 'audio/ogg', 'audio/mp4', 'audio/flac', 'audio/aac'],
 	[DataType.VIDEO]: ['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-msvideo'],
-	[DataType.MODEL3D]: ['model/gltf-binary', 'model/gltf+json', 'model/obj', 'model/fbx', 'model/stl']
+	[DataType.MODEL3D]: ['model/gltf-binary', 'model/gltf+json', 'model/obj', 'model/fbx', 'model/stl'],
+	[DataType.BINARY]: ['application/octet-stream', 'application/zip', 'application/x-tar', 'application/gzip', 'application/x-7z-compressed']
 };
 
 const DataExtensions = {
@@ -28,7 +30,8 @@ const DataExtensions = {
 	[DataType.IMAGE]: ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico'],
 	[DataType.AUDIO]: ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac'],
 	[DataType.VIDEO]: ['.mp4', '.webm', '.ogv', '.mov', '.avi', '.mkv'],
-	[DataType.MODEL3D]: ['.glb', '.gltf', '.obj', '.fbx', '.stl', '.3ds']
+	[DataType.MODEL3D]: ['.glb', '.gltf', '.obj', '.fbx', '.stl', '.3ds'],
+	[DataType.BINARY]: ['.bin', '.dat', '.zip', '.tar', '.gz', '.7z', '.rar', '.exe', '.dll', '.so']
 };
 
 // ========================================================================
@@ -321,6 +324,28 @@ class Model3DDataNode extends DataNode {
 	_getOutputType() { return 'Model3D'; }
 }
 
+class BinaryDataNode extends DataNode {
+	constructor() {
+		super('Binary', DataType.BINARY);
+		this.size = [200, 100];
+	}
+
+	_getOutputType() { return 'Binary'; }
+
+	getAcceptedExtensions() { return ['*']; }
+	getAcceptedMimeTypes() { return ['*/*']; }
+
+	getDisplaySummary() {
+		if (!this.hasData()) return 'No file';
+		const name = this.sourceMeta.filename || 'Unknown';
+		const size = this._formatSize(this.sourceMeta.size);
+		const ext = name.includes('.') ? name.split('.').pop().toUpperCase() : 'BIN';
+		if (this.sourceType === 'url') return `🔗 ${name}`;
+		if (this.sourceType === 'file') return `📦 ${ext} (${size})`;
+		return `📦 ${name}`;
+	}
+}
+
 // ========================================================================
 // Data Node Registry
 // ========================================================================
@@ -331,7 +356,8 @@ const DataNodeTypes = {
 	'Data.Image': ImageDataNode,
 	'Data.Audio': AudioDataNode,
 	'Data.Video': VideoDataNode,
-	'Data.Model3D': Model3DDataNode
+	'Data.Model3D': Model3DDataNode,
+	'Data.Binary': BinaryDataNode
 };
 
 const DataNodeIcons = {
@@ -340,7 +366,8 @@ const DataNodeIcons = {
 	[DataType.IMAGE]: '🖼️',
 	[DataType.AUDIO]: '🔊',
 	[DataType.VIDEO]: '🎬',
-	[DataType.MODEL3D]: '🧊'
+	[DataType.MODEL3D]: '🧊',
+	[DataType.BINARY]: '📦'
 };
 
 const DataNodeColors = {
@@ -349,7 +376,8 @@ const DataNodeColors = {
 	[DataType.IMAGE]: '#00d4aa',
 	[DataType.AUDIO]: '#ffd700',
 	[DataType.VIDEO]: '#ff4757',
-	[DataType.MODEL3D]: '#00bcd4'
+	[DataType.MODEL3D]: '#00bcd4',
+	[DataType.BINARY]: '#9370db'
 };
 
 // ========================================================================
@@ -422,36 +450,27 @@ class DataNodeManager {
 		
 		for (const file of files) {
 			const dataType = this._detectDataType(file);
-			if (!dataType) {
-				console.warn(`Unsupported file type: ${file.type || file.name}`);
-				continue;
-			}
-			
 			const nodeType = `Data.${dataType.charAt(0).toUpperCase() + dataType.slice(1)}`;
-			const NodeClass = DataNodeTypes[nodeType];
+			let NodeClass = DataNodeTypes[nodeType];
 			
-			if (!NodeClass) continue;
+			if (!NodeClass) {
+				console.warn(`Node class not found: ${nodeType}, using Binary`);
+				NodeClass = BinaryDataNode;
+			}
 			
 			const node = new NodeClass();
 			node.pos = [wx, wy + offsetY];
 			
-			// Register with graph
-			if (this.graph._last_node_id === undefined) {
-				this.graph._last_node_id = 1;
-			}
+			if (this.graph._last_node_id === undefined) this.graph._last_node_id = 1;
 			node.id = this.graph._last_node_id++;
 			node.graph = this.graph;
 			this.graph.nodes.push(node);
 			this.graph._nodes_by_id[node.id] = node;
 			
-			// Load file content
 			this._loadFileIntoNode(file, node);
-			
 			offsetY += node.size[1] + 20;
-			
 			this.eventBus.emit('node:created', { type: nodeType, nodeId: node.id });
 		}
-		
 		this.app.draw();
 	}
 
@@ -479,6 +498,7 @@ class DataNodeManager {
 		
 		// Check by MIME type first
 		for (const [dataType, mimes] of Object.entries(DataMimeTypes)) {
+			if (dataType === DataType.BINARY) continue;
 			if (mimes.some(m => mimeType.startsWith(m.split('/')[0] + '/') || mimeType === m)) {
 				return dataType;
 			}
@@ -487,12 +507,14 @@ class DataNodeManager {
 		// Fall back to extension
 		const ext = '.' + filename.split('.').pop().toLowerCase();
 		for (const [dataType, extensions] of Object.entries(DataExtensions)) {
+			if (dataType === DataType.BINARY) continue;
 			if (extensions.includes(ext)) {
 				return dataType;
 			}
 		}
 		
-		return null;
+		// Default to binary (instead of null)
+		return DataType.BINARY;
 	}
 
 	_onDoubleClick(data) {
@@ -510,7 +532,7 @@ class DataNodeManager {
 				const contentY = node.pos[1] + 50;
 				const footerY = node.pos[1] + node.size[1] - 20;
 				
-				// Double-click on header: toggle expand/collapse
+				// Header: toggle expand
 				if (wy < headerY) {
 					node.isExpanded = !node.isExpanded;
 					if (node.isExpanded) {
@@ -523,19 +545,15 @@ class DataNodeManager {
 					return;
 				}
 				
-				// Double-click on content area
+				// Content area
 				if (wy >= contentY && wy < footerY) {
-					// If no data: open file picker
 					if (!node.hasData()) {
 						this._triggerFileInput(node);
 						return;
 					}
-					
-					// If has data: for text nodes, edit inline; otherwise toggle expand
 					if (node.dataType === 'text') {
 						this._showDataEditDialog(node);
 					} else {
-						// Toggle expand for media nodes
 						node.isExpanded = !node.isExpanded;
 						if (node.isExpanded) {
 							node._collapsedSize = [...node.size];
@@ -548,7 +566,7 @@ class DataNodeManager {
 					return;
 				}
 				
-				// Double-click on footer area: open file picker (quick way to replace)
+				// Footer: open file picker
 				if (wy >= footerY) {
 					this._triggerFileInput(node);
 					return;
@@ -672,7 +690,9 @@ class DataNodeManager {
 	_triggerFileInput(node, callback) {
 		const input = document.createElement('input');
 		input.type = 'file';
-		input.accept = node.getAcceptedExtensions().join(',');
+		
+		const extensions = node.getAcceptedExtensions();
+		input.accept = (extensions.length === 1 && extensions[0] === '*') ? '' : extensions.join(',');
 		
 		input.onchange = (e) => {
 			const file = e.target.files[0];
@@ -681,7 +701,6 @@ class DataNodeManager {
 				if (callback) callback(file);
 			}
 		};
-		
 		input.click();
 	}
 
@@ -902,10 +921,13 @@ function extendDrawNodeForData(SchemaGraphAppClass) {
 			case DataType.TEXT:
 				this._drawTextPreviewInData(node, innerX, innerY, innerW, innerH, colors, textScale, style);
 				break;
+			case DataType.BINARY:
+				this._drawBinaryPreview(node, innerX, innerY, innerW, innerH, colors, textScale, style);
+				break;
 			default:
 				this._drawGenericPreview(node, innerX, innerY, innerW, innerH, colors, textScale, style);
 		}
-		
+
 		this.ctx.restore();
 	};
 
@@ -999,6 +1021,27 @@ function extendDrawNodeForData(SchemaGraphAppClass) {
 		this.ctx.font = `${10 * textScale}px ${style.textFont}`;
 		this.ctx.fillStyle = node.hasData() ? colors.textSecondary : colors.textTertiary;
 		this.ctx.fillText(node.getDisplaySummary(), centerX, centerY + 20);
+	};
+
+	SchemaGraphAppClass.prototype._drawBinaryPreview = function(node, x, y, w, h, colors, textScale, style) {
+		const centerX = x + w / 2;
+		const centerY = y + h / 2;
+		
+		this.ctx.font = `${28 * textScale}px ${style.textFont}`;
+		this.ctx.textAlign = 'center';
+		this.ctx.textBaseline = 'middle';
+		this.ctx.fillStyle = DataNodeColors[DataType.BINARY];
+		this.ctx.fillText('📦', centerX, centerY - 20);
+		
+		this.ctx.font = `${10 * textScale}px ${style.textFont}`;
+		this.ctx.fillStyle = colors.textPrimary;
+		this.ctx.fillText(node.sourceMeta?.filename || 'Unknown file', centerX, centerY + 10);
+		
+		this.ctx.font = `${9 * textScale}px ${style.textFont}`;
+		this.ctx.fillStyle = colors.textSecondary;
+		const size = node._formatSize(node.sourceMeta?.size || 0);
+		const mimeType = node.sourceMeta?.mimeType || 'application/octet-stream';
+		this.ctx.fillText(`${size} • ${mimeType}`, centerX, centerY + 28);
 	};
 
 	SchemaGraphAppClass.prototype._drawRoundRect = function(x, y, w, h, r) {

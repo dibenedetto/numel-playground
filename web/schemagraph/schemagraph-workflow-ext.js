@@ -859,18 +859,24 @@ class WorkflowImporter {
 			'data_audio': 'audio',
 			'data_video': 'video',
 			'data_model3d': 'model3d',
-			'data': nodeData.data_type || 'text'  // Generic data node
+			'data_binary': 'binary',
+			'data': nodeData.data_type || 'binary'  // Generic data node defaults to binary
 		};
 
-		const dataType = typeMap[nodeData.type] || 'text';
+		const dataType = typeMap[nodeData.type] || 'binary';
 		const capitalizedType = dataType.charAt(0).toUpperCase() + dataType.slice(1);
 		const nodeTypeKey = `Data.${capitalizedType}`;
 		
-		// Try to get the specific DataNode class
-		const NodeClass = typeof DataNodeTypes !== 'undefined' ? DataNodeTypes[nodeTypeKey] : null;
+		// Try to get the specific DataNode class, fallback to Binary
+		let NodeClass = typeof DataNodeTypes !== 'undefined' ? DataNodeTypes[nodeTypeKey] : null;
 
 		if (!NodeClass) {
-			console.error(`Data node type not found: ${nodeTypeKey}`);
+			console.warn(`Data node type not found: ${nodeTypeKey}, falling back to Binary`);
+			NodeClass = typeof DataNodeTypes !== 'undefined' ? DataNodeTypes['Data.Binary'] : null;
+		}
+
+		if (!NodeClass) {
+			console.error(`Binary fallback node type not found`);
 			return null;
 		}
 
@@ -1181,8 +1187,8 @@ class WorkflowImporter {
 // ========================================================================
 
 const DataExportMode = Object.freeze({
-	REFERENCE : 'reference',  // Export by URL/path (default, smaller files)
-	EMBEDDED  : 'embedded'     // Export with base64 data (larger but self-contained)
+	REFERENCE: 'reference',  // Export by URL/path (default, smaller files)
+	EMBEDDED: 'embedded'     // Export with base64 data (larger but self-contained)
 });
 
 class WorkflowExporter {
@@ -1299,7 +1305,8 @@ class WorkflowExporter {
 			'image': 'data_image',
 			'audio': 'data_audio',
 			'video': 'data_video',
-			'model3d': 'data_model3d'
+			'model3d': 'data_model3d',
+			'binary': 'data_binary'
 		};
 
 		const nodeData = {
@@ -1402,7 +1409,8 @@ class WorkflowExporter {
 			'image': '.png',
 			'audio': '.mp3',
 			'video': '.mp4',
-			'model3d': '.glb'
+			'model3d': '.glb',
+			'binary': '.bin'
 		};
 		const ext = extMap[node.dataType] || '.bin';
 		const timestamp = Date.now();
