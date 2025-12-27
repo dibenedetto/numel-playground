@@ -506,24 +506,53 @@ class DataNodeManager {
 			if (wx >= node.pos[0] && wx <= node.pos[0] + node.size[0] &&
 				wy >= node.pos[1] && wy <= node.pos[1] + node.size[1]) {
 				
-				// Check if clicking on the content area (below header)
+				const headerY = node.pos[1] + 26;
 				const contentY = node.pos[1] + 50;
-				if (wy >= contentY) {
-					this._showDataEditDialog(node);
+				const footerY = node.pos[1] + node.size[1] - 20;
+				
+				// Double-click on header: toggle expand/collapse
+				if (wy < headerY) {
+					node.isExpanded = !node.isExpanded;
+					if (node.isExpanded) {
+						node._collapsedSize = [...node.size];
+						node.size = [280, this._getExpandedHeight(node)];
+					} else {
+						node.size = node._collapsedSize || [200, 100];
+					}
+					this.app.draw();
 					return;
 				}
 				
-				// Toggle expanded state
-				node.isExpanded = !node.isExpanded;
-				if (node.isExpanded) {
-					node._collapsedSize = [...node.size];
-					node.size = [280, this._getExpandedHeight(node)];
-				} else {
-					node.size = node._collapsedSize || [200, 100];
+				// Double-click on content area
+				if (wy >= contentY && wy < footerY) {
+					// If no data: open file picker
+					if (!node.hasData()) {
+						this._triggerFileInput(node);
+						return;
+					}
+					
+					// If has data: for text nodes, edit inline; otherwise toggle expand
+					if (node.dataType === 'text') {
+						this._showDataEditDialog(node);
+					} else {
+						// Toggle expand for media nodes
+						node.isExpanded = !node.isExpanded;
+						if (node.isExpanded) {
+							node._collapsedSize = [...node.size];
+							node.size = [280, this._getExpandedHeight(node)];
+						} else {
+							node.size = node._collapsedSize || [200, 100];
+						}
+						this.app.draw();
+					}
+					return;
 				}
 				
-				this.app.draw();
-				return;
+				// Double-click on footer area: open file picker (quick way to replace)
+				if (wy >= footerY) {
+					this._triggerFileInput(node);
+					return;
+				}
 			}
 		}
 	}
@@ -640,7 +669,7 @@ class DataNodeManager {
 		}
 	}
 
-	_triggerFileInput(node) {
+	_triggerFileInput(node, callback) {
 		const input = document.createElement('input');
 		input.type = 'file';
 		input.accept = node.getAcceptedExtensions().join(',');
@@ -649,6 +678,7 @@ class DataNodeManager {
 			const file = e.target.files[0];
 			if (file) {
 				this._loadFileIntoNode(file, node);
+				if (callback) callback(file);
 			}
 		};
 		
@@ -781,39 +811,63 @@ function extendDrawNodeForData(SchemaGraphAppClass) {
 		this.ctx.fillStyle = colors.textTertiary;
 		this.ctx.font = `${8 * textScale}px ${style.textFont}`;
 		this.ctx.textAlign = 'center';
-		
-		const hint = node.hasData() 
-			? (node.isExpanded ? 'Dbl-click to collapse' : 'Dbl-click to expand')
-			: 'Drop file or right-click';
+
+		let hint;
+		if (!node.hasData()) {
+			hint = 'Drop file or double-click';
+		} else if (node.isExpanded) {
+			hint = 'Dbl-click header to collapse';
+		} else {
+			hint = 'Dbl-click to expand • Right-click for options';
+		}
 		this.ctx.fillText(hint, x + w / 2, y + h - 8);
 	};
 
 	SchemaGraphAppClass.prototype._drawDataNodeCollapsed = function(node, x, y, w, h, colors, textScale, style) {
-		const icon = DataNodeIcons[node.dataType];
-		const summary = node.getDisplaySummary();
 		const centerY = y + h / 2;
 		
-		// Icon
-		this.ctx.font = `${16 * textScale}px ${style.textFont}`;
-		this.ctx.textAlign = 'center';
-		this.ctx.textBaseline = 'middle';
-		this.ctx.fillStyle = DataNodeColors[node.dataType];
-		this.ctx.fillText(icon, x + 14, centerY);
-		
-		// Summary
-		this.ctx.font = `${10 * textScale}px ${style.textFont}`;
-		this.ctx.textAlign = 'left';
-		this.ctx.fillStyle = node.hasData() ? colors.textPrimary : colors.textTertiary;
-		
-		let displayText = summary;
-		const maxW = w - 36;
-		if (this.ctx.measureText(displayText).width > maxW) {
-			while (displayText.length > 3 && this.ctx.measureText(displayText + '...').width > maxW) {
-				displayText = displayText.slice(0, -1);
+		if (!node.hasData()) {
+			// No data: show prompt to select file
+			const icon = DataNodeIcons[node.dataType];
+			
+			// Icon (dimmed)
+			this.ctx.font = `${20 * textScale}px ${style.textFont}`;
+			this.ctx.textAlign = 'center';
+			this.ctx.textBaseline = 'middle';
+			this.ctx.fillStyle = colors.textTertiary;
+			this.ctx.fillText(icon, x + w / 2, centerY - 8);
+			
+			// Hint text
+			this.ctx.font = `${9 * textScale}px ${style.textFont}`;
+			this.ctx.fillStyle = colors.textTertiary;
+			this.ctx.fillText('Double-click to select file', x + w / 2, centerY + 12);
+		} else {
+			// Has data: show summary
+			const icon = DataNodeIcons[node.dataType];
+			const summary = node.getDisplaySummary();
+			
+			// Icon
+			this.ctx.font = `${16 * textScale}px ${style.textFont}`;
+			this.ctx.textAlign = 'center';
+			this.ctx.textBaseline = 'middle';
+			this.ctx.fillStyle = DataNodeColors[node.dataType];
+			this.ctx.fillText(icon, x + 14, centerY);
+			
+			// Summary
+			this.ctx.font = `${10 * textScale}px ${style.textFont}`;
+			this.ctx.textAlign = 'left';
+			this.ctx.fillStyle = colors.textPrimary;
+			
+			let displayText = summary;
+			const maxW = w - 36;
+			if (this.ctx.measureText(displayText).width > maxW) {
+				while (displayText.length > 3 && this.ctx.measureText(displayText + '...').width > maxW) {
+					displayText = displayText.slice(0, -1);
+				}
+				displayText += '...';
 			}
-			displayText += '...';
+			this.ctx.fillText(displayText, x + 32, centerY);
 		}
-		this.ctx.fillText(displayText, x + 32, centerY);
 	};
 
 	SchemaGraphAppClass.prototype._drawDataNodeExpanded = function(node, x, y, w, h, colors, textScale, style) {

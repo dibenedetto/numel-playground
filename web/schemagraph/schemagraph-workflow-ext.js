@@ -722,10 +722,22 @@ class WorkflowImporter {
 		this.eventBus = eventBus;
 	}
 
-	import(workflowData, schemaName, schema) {
+	/**
+	 * Import workflow from JSON
+	 * @param {Object} workflowData - Workflow JSON
+	 * @param {string} schemaName - Schema name
+	 * @param {Object} schema - Schema definition
+	 * @param {Object} options - Import options
+	 * @param {boolean} options.includeLayout - Restore node positions/sizes (default: true)
+	 */
+	import(workflowData, schemaName, schema, options = {}) {
 		if (!workflowData?.nodes) {
 			throw new Error('Invalid workflow data: missing nodes array');
 		}
+
+		this.importOptions = {
+			includeLayout: options.includeLayout !== false  // Default true
+		};
 
 		this.graph.nodes = [];
 		this.graph.links = {};
@@ -763,6 +775,11 @@ class WorkflowImporter {
 			for (const edgeData of workflowData.edges) {
 				this._createEdge(edgeData, createdNodes);
 			}
+		}
+
+		// Auto-layout if layout was not restored
+		if (this.importOptions?.includeLayout === false) {
+			this._autoLayoutNodes(createdNodes);
 		}
 
 		// Execute all nodes
@@ -816,9 +833,14 @@ class WorkflowImporter {
 			node.properties.value = nodeData.value;
 		}
 
-		// Restore position/size from extra
-		if (nodeData.extra?.pos) node.pos = [...nodeData.extra.pos];
-		if (nodeData.extra?.size) node.size = [...nodeData.extra.size];
+		// Restore position/size from extra (if layout enabled)
+		if (this.importOptions?.includeLayout !== false) {
+			if (nodeData.extra?.pos) node.pos = [...nodeData.extra.pos];
+			if (nodeData.extra?.size) node.size = [...nodeData.extra.size];
+		} else {
+			// Auto-layout position will be set after all nodes are created
+			node.pos = [0, 0];
+		}
 
 		node.workflowIndex = index;
 		return node;
@@ -914,9 +936,13 @@ class WorkflowImporter {
 			if (nodeData.duration) node.videoDuration = nodeData.duration;
 		}
 
-		// Restore position/size/expanded from extra
-		if (nodeData.extra?.pos) node.pos = [...nodeData.extra.pos];
-		if (nodeData.extra?.size) node.size = [...nodeData.extra.size];
+		// Restore position/size/expanded from extra (if layout enabled)
+		if (this.importOptions?.includeLayout !== false) {
+			if (nodeData.extra?.pos) node.pos = [...nodeData.extra.pos];
+			if (nodeData.extra?.size) node.size = [...nodeData.extra.size];
+		} else {
+			node.pos = [0, 0];
+		}
 		node.isExpanded = nodeData.extra?.isExpanded || false;
 
 		node.workflowIndex = index;
@@ -950,9 +976,13 @@ class WorkflowImporter {
 		this.graph.nodes.push(node);
 		this.graph._nodes_by_id[node.id] = node;
 
-		// Restore position/size from extra
-		if (nodeData.extra?.pos) node.pos = [...nodeData.extra.pos];
-		if (nodeData.extra?.size) node.size = [...nodeData.extra.size];
+		// Restore position/size from extra (if layout enabled)
+		if (this.importOptions?.includeLayout !== false) {
+			if (nodeData.extra?.pos) node.pos = [...nodeData.extra.pos];
+			if (nodeData.extra?.size) node.size = [...nodeData.extra.size];
+		} else {
+			node.pos = [0, 0];
+		}
 
 		node.workflowIndex = index;
 
@@ -995,6 +1025,28 @@ class WorkflowImporter {
 
 	_snakeToPascal(str) {
 		return str.split('_').map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join('');
+	}
+
+	/**
+	 * Auto-layout nodes in a grid pattern
+	 */
+	_autoLayoutNodes(nodes) {
+		const validNodes = nodes.filter(n => n);
+		const count = validNodes.length;
+		if (count === 0) return;
+
+		const cols = Math.ceil(Math.sqrt(count));
+		const spacingX = 280;
+		const spacingY = 200;
+		const startX = 100;
+		const startY = 100;
+
+		for (let i = 0; i < validNodes.length; i++) {
+			const node = validNodes[i];
+			const col = i % cols;
+			const row = Math.floor(i / cols);
+			node.pos = [startX + col * spacingX, startY + row * spacingY];
+		}
 	}
 
 	_populateNodeFields(node, nodeData) {
@@ -1129,8 +1181,8 @@ class WorkflowImporter {
 // ========================================================================
 
 const DataExportMode = Object.freeze({
-	REFERENCE: 'reference',  // Export by URL/path (default, smaller files)
-	EMBEDDED: 'embedded'     // Export with base64 data (larger but self-contained)
+	REFERENCE : 'reference',  // Export by URL/path (default, smaller files)
+	EMBEDDED  : 'embedded'     // Export with base64 data (larger but self-contained)
 });
 
 class WorkflowExporter {
@@ -1145,11 +1197,13 @@ class WorkflowExporter {
 	 * @param {Object} options - Export options
 	 * @param {string} options.dataExportMode - 'reference' (default) or 'embedded'
 	 * @param {string} options.dataBasePath - Base path for file references (e.g., 'assets/')
+	 * @param {boolean} options.includeLayout - Include node position and size (default: true)
 	 */
 	export(schemaName, workflowInfo = {}, options = {}) {
 		this.exportOptions = {
 			dataExportMode: options.dataExportMode || DataExportMode.REFERENCE,
-			dataBasePath: options.dataBasePath || ''
+			dataBasePath: options.dataBasePath || '',
+			includeLayout: options.includeLayout !== false  // Default true
 		};
 		const wf = JSON.parse(JSON.stringify(workflowInfo));
 		const workflow = {
@@ -1325,11 +1379,15 @@ class WorkflowExporter {
 		}
 
 		// Extra (position, size, expanded state)
-		nodeData.extra = {
-			pos: [...node.pos],
-			size: [...node.size]
-		};
+		nodeData.extra = {};
+		if (this.exportOptions?.includeLayout !== false) {
+			nodeData.extra.pos = [...node.pos];
+			nodeData.extra.size = [...node.size];
+		}
 		if (node.isExpanded) nodeData.extra.isExpanded = true;
+		
+		// Remove empty extra
+		if (Object.keys(nodeData.extra).length === 0) delete nodeData.extra;
 
 		return nodeData;
 	}
@@ -1376,12 +1434,16 @@ class WorkflowExporter {
 
 		const nodeData = {
 			type: typeMap[nativeType] || 'native_string',
-			value: value,
-			extra: {
+			value: value
+		};
+
+		// Layout info
+		if (this.exportOptions?.includeLayout !== false) {
+			nodeData.extra = {
 				pos: [...node.pos],
 				size: [...node.size]
-			}
-		};
+			};
+		}
 
 		return nodeData;
 	}
@@ -1448,12 +1510,22 @@ class WorkflowExporter {
 		}
 
 		// Extra
-		nodeData.extra = { pos: [...node.pos], size: [...node.size] };
-		if (node.extra) nodeData.extra = { ...nodeData.extra, ...node.extra };
+		nodeData.extra = {};
+		if (this.exportOptions?.includeLayout !== false) {
+			nodeData.extra.pos = [...node.pos];
+			nodeData.extra.size = [...node.size];
+		}
+		if (node.extra) {
+			const { pos, size, ...rest } = node.extra;
+			nodeData.extra = { ...nodeData.extra, ...rest };
+		}
 		if (node.title !== `${node.schemaName}.${node.modelName}`) {
 			nodeData.extra.title = node.title;
 		}
 		if (node.color) nodeData.extra.color = node.color;
+		
+		// Remove empty extra
+		if (Object.keys(nodeData.extra).length === 0) delete nodeData.extra;
 
 		return nodeData;
 	}
