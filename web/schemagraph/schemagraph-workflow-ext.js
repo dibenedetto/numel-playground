@@ -826,6 +826,7 @@ class WorkflowImporter {
 
 	/**
 	 * Create Data node from schema format
+	 * Supports: source_url, source_path, source_data
 	 */
 	_createDataNode(nodeData, index) {
 		// Map schema type to JS dataType
@@ -862,8 +863,27 @@ class WorkflowImporter {
 
 		// Restore source info
 		node.sourceType = nodeData.source_type || 'none';
-		if (nodeData.source_url) node.sourceUrl = nodeData.source_url;
-		if (nodeData.source_data) node.sourceData = nodeData.source_data;
+		
+		// Handle different source types
+		if (nodeData.source_url) {
+			node.sourceUrl = nodeData.source_url;
+			node.sourceType = 'url';
+		} else if (nodeData.source_path) {
+			// File path reference - store as URL for now, can be loaded later
+			node.sourceUrl = nodeData.source_path;
+			node.sourceType = 'file';
+			// Mark that this needs loading from path
+			node._sourcePath = nodeData.source_path;
+		} else if (nodeData.source_data) {
+			node.sourceData = nodeData.source_data;
+			// Determine if it's inline or file based on content
+			if (nodeData.source_type === 'inline' || 
+				(typeof nodeData.source_data === 'string' && !nodeData.source_data.startsWith('data:'))) {
+				node.sourceType = 'inline';
+			} else {
+				node.sourceType = 'file';
+			}
+		}
 		
 		// Restore source metadata
 		if (nodeData.source_meta) {
@@ -1108,12 +1128,29 @@ class WorkflowImporter {
 // WorkflowExporter
 // ========================================================================
 
+const DataExportMode = Object.freeze({
+	REFERENCE: 'reference',  // Export by URL/path (default, smaller files)
+	EMBEDDED: 'embedded'     // Export with base64 data (larger but self-contained)
+});
+
 class WorkflowExporter {
 	constructor(graph) {
 		this.graph = graph;
 	}
 
-	export(schemaName, workflowInfo = {}) {
+	/**
+	 * Export workflow to JSON
+	 * @param {string} schemaName - Schema name
+	 * @param {Object} workflowInfo - Additional workflow metadata
+	 * @param {Object} options - Export options
+	 * @param {string} options.dataExportMode - 'reference' (default) or 'embedded'
+	 * @param {string} options.dataBasePath - Base path for file references (e.g., 'assets/')
+	 */
+	export(schemaName, workflowInfo = {}, options = {}) {
+		this.exportOptions = {
+			dataExportMode: options.dataExportMode || DataExportMode.REFERENCE,
+			dataBasePath: options.dataBasePath || ''
+		};
 		const wf = JSON.parse(JSON.stringify(workflowInfo));
 		const workflow = {
 			...wf,
@@ -1189,11 +1226,18 @@ class WorkflowExporter {
 	/**
 	 * Export Data node per schema.py:
 	 * type: "data_<dataType>" | "data"
-	 * source_type, source_url, source_data, source_meta
+	 * source_type, source_url, source_path, source_data, source_meta
 	 * + type-specific fields (dimensions, duration, encoding, language)
 	 * extra: { pos, size, isExpanded }
+	 * 
+	 * Export modes:
+	 * - REFERENCE: exports URL/path only (smaller, requires external files)
+	 * - EMBEDDED: exports base64 data inline (larger, self-contained)
 	 */
 	_exportDataNode(node) {
+		const mode = this.exportOptions?.dataExportMode || DataExportMode.REFERENCE;
+		const basePath = this.exportOptions?.dataBasePath || '';
+
 		// Map JS dataType to schema type
 		const typeMap = {
 			'text': 'data_text',
@@ -1214,14 +1258,40 @@ class WorkflowExporter {
 			nodeData.data_type = node.dataType || null;
 		}
 
-		// Source URL or data
-		if (node.sourceType === 'url' && node.sourceUrl) {
-			nodeData.source_url = node.sourceUrl;
-		} else if ((node.sourceType === 'file' || node.sourceType === 'inline') && node.sourceData) {
-			nodeData.source_data = node.sourceData;
+		// Source handling based on export mode
+		if (node.sourceType === 'url') {
+			// URL source: always export the URL
+			nodeData.source_url = node.sourceUrl || '';
+		} else if (node.sourceType === 'file') {
+			if (mode === DataExportMode.EMBEDDED) {
+				// Embedded mode: include base64 data
+				if (node.sourceData) {
+					nodeData.source_data = node.sourceData;
+				}
+			} else {
+				// Reference mode: export file path
+				const filename = node.sourceMeta?.filename || this._generateFilename(node);
+				nodeData.source_path = basePath + filename;
+			}
+		} else if (node.sourceType === 'inline') {
+			if (mode === DataExportMode.EMBEDDED) {
+				// Embedded mode: include inline content
+				if (node.sourceData) {
+					nodeData.source_data = node.sourceData;
+				}
+			} else {
+				// Reference mode for inline text: still embed (usually small)
+				// But for binary data, use path reference
+				if (node.dataType === 'text' && node.sourceData) {
+					nodeData.source_data = node.sourceData;
+				} else if (node.sourceData) {
+					const filename = node.sourceMeta?.filename || this._generateFilename(node);
+					nodeData.source_path = basePath + filename;
+				}
+			}
 		}
 
-		// Source metadata
+		// Source metadata (always include for reference resolution)
 		if (node.sourceMeta && Object.keys(node.sourceMeta).length > 0) {
 			nodeData.source_meta = {
 				filename: node.sourceMeta.filename || null,
@@ -1262,6 +1332,23 @@ class WorkflowExporter {
 		if (node.isExpanded) nodeData.extra.isExpanded = true;
 
 		return nodeData;
+	}
+
+	/**
+	 * Generate a filename for data nodes without one
+	 */
+	_generateFilename(node) {
+		const extMap = {
+			'text': '.txt',
+			'document': '.pdf',
+			'image': '.png',
+			'audio': '.mp3',
+			'video': '.mp4',
+			'model3d': '.glb'
+		};
+		const ext = extMap[node.dataType] || '.bin';
+		const timestamp = Date.now();
+		return `${node.dataType}_${node.id || timestamp}${ext}`;
 	}
 
 	/**
@@ -1454,6 +1541,37 @@ class WorkflowExporter {
 		}
 		return val;
 	}
+
+	/**
+	 * Get list of data files that need to be saved alongside the workflow JSON
+	 * (for reference-mode exports)
+	 * @returns {Array<{path: string, data: string, mimeType: string}>}
+	 */
+	getDataFiles(schemaName, options = {}) {
+		const basePath = options.dataBasePath || '';
+		const files = [];
+
+		for (const node of this.graph.nodes) {
+			if (!node.isDataNode) continue;
+			if (node.sourceType !== 'file' && node.sourceType !== 'inline') continue;
+			if (!node.sourceData) continue;
+
+			// Skip inline text (embedded in JSON)
+			if (node.sourceType === 'inline' && node.dataType === 'text') continue;
+
+			const filename = node.sourceMeta?.filename || this._generateFilename(node);
+			const path = basePath + filename;
+			
+			files.push({
+				path: path,
+				data: node.sourceData,
+				mimeType: node.sourceMeta?.mimeType || 'application/octet-stream',
+				nodeId: node.id
+			});
+		}
+
+		return files;
+	}
 }
 
 // ========================================================================
@@ -1630,6 +1748,7 @@ if (typeof module !== 'undefined' && module.exports) {
 		WorkflowSchemaParser,
 		WorkflowNodeFactory,
 		WorkflowImporter,
+		DataExportMode,
 		WorkflowExporter,
 		extendSchemaGraphWithWorkflow,
 		extendSchemaGraphAppWithWorkflow

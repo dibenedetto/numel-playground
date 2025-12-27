@@ -349,9 +349,39 @@ class AgentChat(BaseInteractive):
 	config : Annotated[Union[int, AgentConfig], FieldRole.INPUT   ] = None
 
 
-WorkflowNodeUnion = Union[
-	# BaseConfig, BaseNode
+class SourceType(str, Enum):
+	NONE   = "none"    # No data loaded
+	URL    = "url"     # Remote URL (http/https)
+	FILE   = "file"    # Local file (via source_path or embedded in source_data)
+	INLINE = "inline"  # Inline content (typically text, stored in source_data)
 
+
+class SourceMeta(BaseModel):
+	filename      : Optional[str]   = None  # Original filename
+	mime_type     : Optional[str]   = None  # MIME type (e.g., "image/png")
+	size          : Optional[int]   = None  # Size in bytes
+	last_modified : Optional[int]   = None  # Timestamp (ms since epoch)
+	width         : Optional[int]   = None  # Width in pixels (images/video)
+	height        : Optional[int]   = None  # Height in pixels (images/video)
+	duration      : Optional[float] = None  # Duration in seconds (audio/video)
+	encoding      : Optional[str]   = None  # Text encoding (e.g., "utf-8")
+	language      : Optional[str]   = None  # Content language/format (e.g., "markdown", "json")
+
+
+class BaseDataNode(BaseType):
+	type        : Annotated[Literal["base_data_node"], FieldRole.CONSTANT] = "base_data_node"
+	source_type : Annotated[SourceType               , FieldRole.INPUT   ] = SourceType.NONE
+	source_url  : Annotated[Optional[str]            , FieldRole.INPUT   ] = None  # For URL sources
+	source_path : Annotated[Optional[str]            , FieldRole.INPUT   ] = None  # For file path references
+	source_data : Annotated[Optional[str]            , FieldRole.INPUT   ] = None  # For embedded base64/raw data
+	source_meta : Annotated[Optional[SourceMeta]     , FieldRole.INPUT   ] = None
+
+	@property
+	def output(self) -> Annotated[BaseDataNode, FieldRole.OUTPUT]:
+		return self
+
+
+WorkflowNodeUnion = Union[
 	InfoConfig             ,
 	BackendConfig          ,
 	ModelConfig            ,
@@ -377,6 +407,8 @@ WorkflowNodeUnion = Union[
 
 	ToolCall               ,
 	AgentChat              ,
+
+	BaseDataNode           ,
 ]
 
 
