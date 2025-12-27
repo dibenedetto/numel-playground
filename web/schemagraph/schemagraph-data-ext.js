@@ -195,6 +195,19 @@ class TextDataNode extends DataNode {
 		this.properties.language = 'plain';
 	}
 	_getOutputType() { return 'Text'; }
+	setFromFile(file, textContent) {
+		this.sourceType = 'file';
+		this.sourceUrl = '';
+		this.sourceData = textContent;  // Plain text, not base64
+		this.sourceMeta = {
+			filename: file.name,
+			mimeType: file.type || this._guessMimeType(file.name),
+			size: file.size,
+			lastModified: file.lastModified
+		};
+		this.properties.url = '';
+		this.onExecute();
+	}
 	getDisplaySummary() {
 		if (!this.hasData()) return 'No text';
 		if (this.sourceType === 'inline' && this.sourceData) {
@@ -454,14 +467,25 @@ class DataNodesExtension extends SchemaGraphExtension {
 	_loadFileIntoNode(file, node) {
 		const reader = new FileReader();
 		reader.onload = (e) => {
-			node.setFromFile(file, e.target.result);
+			if (node.dataType === DataType.TEXT) {
+				// For text nodes: store plain text, not base64
+				node.setFromFile(file, e.target.result);
+			} else {
+				node.setFromFile(file, e.target.result);
+			}
 			this.app.draw();
 		};
 		reader.onerror = () => {
 			console.error('File read error');
 			this.app.showError?.(`Failed to read file: ${file.name}`);
 		};
-		reader.readAsDataURL(file);
+		
+		// Use readAsText for text files, readAsDataURL for binary/media
+		if (node.dataType === DataType.TEXT) {
+			reader.readAsText(file);
+		} else {
+			reader.readAsDataURL(file);
+		}
 	}
 
 	_detectDataType(file) {
@@ -499,24 +523,24 @@ class DataNodesExtension extends SchemaGraphExtension {
 				const contentY = node.pos[1] + 50;
 				const footerY = node.pos[1] + node.size[1] - 20;
 				
+				// Double-click on header: toggle expand
 				if (wy < headerY) {
 					this._toggleExpand(node);
 					return;
 				}
 				
+				// Double-click on content area
 				if (wy >= contentY && wy < footerY) {
 					if (!node.hasData()) {
 						this._triggerFileInput(node);
-						return;
-					}
-					if (node.dataType === 'text') {
-						this._showDataEditDialog(node);
 					} else {
+						// Has data: toggle expand (for ALL types including text)
 						this._toggleExpand(node);
 					}
 					return;
 				}
 				
+				// Double-click on footer: trigger file input
 				if (wy >= footerY) {
 					this._triggerFileInput(node);
 					return;
