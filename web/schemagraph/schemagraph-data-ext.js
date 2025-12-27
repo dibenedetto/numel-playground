@@ -845,87 +845,77 @@ function extendDrawNodeForData(SchemaGraphAppClass) {
 	};
 
 	SchemaGraphAppClass.prototype._drawDataNodeCollapsed = function(node, x, y, w, h, colors, textScale, style) {
-		const centerY = y + h / 2;
-		
 		if (!node.hasData()) {
-			// No data: show prompt to select file
+			// No data prompt
 			const icon = DataNodeIcons[node.dataType];
-			
-			// Icon (dimmed)
 			this.ctx.font = `${20 * textScale}px ${style.textFont}`;
 			this.ctx.textAlign = 'center';
 			this.ctx.textBaseline = 'middle';
 			this.ctx.fillStyle = colors.textTertiary;
-			this.ctx.fillText(icon, x + w / 2, centerY - 8);
-			
-			// Hint text
+			this.ctx.fillText(icon, x + w / 2, y + h / 2 - 8);
 			this.ctx.font = `${9 * textScale}px ${style.textFont}`;
-			this.ctx.fillStyle = colors.textTertiary;
-			this.ctx.fillText('Double-click to select file', x + w / 2, centerY + 12);
-		} else {
-			// Has data: show summary
-			const icon = DataNodeIcons[node.dataType];
-			const summary = node.getDisplaySummary();
-			
-			// Icon
-			this.ctx.font = `${16 * textScale}px ${style.textFont}`;
-			this.ctx.textAlign = 'center';
-			this.ctx.textBaseline = 'middle';
-			this.ctx.fillStyle = DataNodeColors[node.dataType];
-			this.ctx.fillText(icon, x + 14, centerY);
-			
-			// Summary
-			this.ctx.font = `${10 * textScale}px ${style.textFont}`;
-			this.ctx.textAlign = 'left';
-			this.ctx.fillStyle = colors.textPrimary;
-			
-			let displayText = summary;
-			const maxW = w - 36;
-			if (this.ctx.measureText(displayText).width > maxW) {
-				while (displayText.length > 3 && this.ctx.measureText(displayText + '...').width > maxW) {
-					displayText = displayText.slice(0, -1);
-				}
-				displayText += '...';
-			}
-			this.ctx.fillText(displayText, x + 32, centerY);
+			this.ctx.fillText('Double-click to select file', x + w / 2, y + h / 2 + 12);
+			return;
 		}
+
+		const summary = node.getDisplaySummary();
+		MediaPreviewRenderer.drawCollapsedPreview(
+			this.ctx, node.dataType, summary, x, y, w, h,
+			{ textScale, font: style.textFont, colors }
+		);
 	};
 
 	SchemaGraphAppClass.prototype._drawDataNodeExpanded = function(node, x, y, w, h, colors, textScale, style) {
-		// Background
-		this.ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-		this.ctx.beginPath();
-		this.ctx.roundRect(x, y, w, h, 6);
-		this.ctx.fill();
-		
-		this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-		this.ctx.lineWidth = 1 / this.camera.scale;
-		this.ctx.stroke();
-		
 		const padding = 6;
-		const innerX = x + padding;
-		const innerY = y + padding;
-		const innerW = w - padding * 2;
-		const innerH = h - padding * 2;
-		
-		// Clip content
+		const innerX = x + padding, innerY = y + padding;
+		const innerW = w - padding * 2, innerH = h - padding * 2;
+
+		MediaPreviewRenderer.drawExpandedBackground(this.ctx, x, y, w, h, { scale: this.camera.scale });
+
 		this.ctx.save();
 		this.ctx.beginPath();
 		this.ctx.roundRect(innerX, innerY, innerW, innerH, 4);
 		this.ctx.clip();
-		
+
+		const opts = { textScale, font: style.textFont, colors, onLoad: () => this.draw() };
+
 		switch (node.dataType) {
 			case DataType.IMAGE:
-				this._drawImagePreview(node, innerX, innerY, innerW, innerH, textScale, style);
+				const imgSrc = node.sourceData || node.sourceUrl;
+				if (imgSrc) {
+					MediaPreviewRenderer.drawCachedImage(this.ctx, imgSrc, innerX, innerY, innerW, innerH, { ...opts, contain: true });
+				} else {
+					MediaPreviewRenderer.drawMediaPlaceholder(this.ctx, 'image', innerX, innerY, innerW, innerH, opts);
+				}
 				break;
+
+			case DataType.VIDEO:
+				const vidSrc = node.sourceData || node.sourceUrl;
+				if (vidSrc) {
+					MediaPreviewRenderer.drawCachedVideoFrame(this.ctx, vidSrc, innerX, innerY, innerW, innerH, opts);
+				} else {
+					MediaPreviewRenderer.drawMediaPlaceholder(this.ctx, 'video', innerX, innerY, innerW, innerH, opts);
+				}
+				break;
+
 			case DataType.TEXT:
-				this._drawTextPreviewInData(node, innerX, innerY, innerW, innerH, colors, textScale, style);
+				MediaPreviewRenderer.drawTextPreview(this.ctx, node.sourceData || '', innerX, innerY, innerW, innerH, opts);
 				break;
+
+			case DataType.DOCUMENT:
 			case DataType.BINARY:
-				this._drawBinaryPreview(node, innerX, innerY, innerW, innerH, colors, textScale, style);
+			case DataType.MODEL3D:
+				MediaPreviewRenderer.drawDetailedInfoPreview(this.ctx, node.dataType, {
+					filename: node.sourceMeta?.filename,
+					size: node.sourceMeta?.size,
+					mimeType: node.sourceMeta?.mimeType
+				}, innerX, innerY, innerW, innerH, opts);
 				break;
+
 			default:
-				this._drawGenericPreview(node, innerX, innerY, innerW, innerH, colors, textScale, style);
+				MediaPreviewRenderer.drawMediaPlaceholder(this.ctx, node.dataType, innerX, innerY, innerW, innerH, {
+					...opts, label: node.getDisplaySummary()
+				});
 		}
 
 		this.ctx.restore();
