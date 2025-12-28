@@ -385,10 +385,10 @@ class WFAgentChat(WFBaseInteractive):
 
 
 class ImplementedBackend(BaseModel):
-	handles   : List[Any]
-	run_tool  : Callable
-	run_agent : Callable
-	agent_app : Callable
+	handles       : List[Any]
+	run_tool      : Callable
+	run_agent     : Callable
+	get_agent_app : Callable
 
 
 _NODE_TYPES = {

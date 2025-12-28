@@ -263,10 +263,14 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 			)
 
 		if True:
-			item.__fastapi = AgentOS(
+			app = AgentOS(
 				agents     = [item],
 				interfaces = [AGUI(agent=item)]
 			).get_app()
+
+			item.__bag = {
+				"app": app
+			}
 
 		impl[index] = item
 
@@ -328,16 +332,16 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		return result
 
 
-	def agent_app(agent: Any) -> FastAPI:
-		app = agent.__fastapi
+	def get_agent_app(agent: Any) -> FastAPI:
+		app = agent.__bag["app"]
 		return app
 
 
 	backend = ImplementedBackend(
-		handles   = impl,
-		run_tool  = run_tool,
-		run_agent = run_agent,
-		agent_app = agent_app,
+		handles       = impl,
+		run_tool      = run_tool,
+		run_agent     = run_agent,
+		get_agent_app = get_agent_app,
 	)
 
 	return backend
