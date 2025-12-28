@@ -30,13 +30,78 @@ class WFBaseType:
 		self.impl   = impl
 		
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		raise NotImplementedError
+		result = NodeExecutionResult()
+		return result
+
+
+class WFBaseNativeNode(WFBaseType):
+	pass
+
+
+class WFStringNode(WFBaseNativeNode):
+	pass
+
+
+class WFIntegerNode(WFBaseNativeNode):
+	pass
+
+
+class WFFloatNode(WFBaseNativeNode):
+	pass
+
+
+class WFBooleanNode(WFBaseNativeNode):
+	pass
+
+
+class WFListNode(WFBaseNativeNode):
+	pass
+
+
+class WFDictNode(WFBaseNativeNode):
+	pass
+
+
+class WFBaseDataNode(WFBaseType):
+	pass
+
+
+class WFDataNode(WFBaseDataNode):
+	pass
+
+
+class WFTextDataNode(WFBaseDataNode):
+	pass
+
+
+class WFDocumentDataNode(WFBaseDataNode):
+	pass
+
+
+class WFImageDataNode(WFBaseDataNode):
+	pass
+
+
+class WFAudioDataNode(WFBaseDataNode):
+	pass
+
+
+class WFVideoDataNode(WFBaseDataNode):
+	pass
+
+
+class WFModel3DDataNode(WFBaseDataNode):
+	pass
+
+
+class WFBinaryDataNode(WFBaseDataNode):
+	pass
 
 
 class WFBaseConfig(WFBaseType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
-		result.outputs = {"get": self.config}
+		result.outputs["get"] = self.config
 		return result
 
 
@@ -104,15 +169,11 @@ class WFStartNode(WFBaseNode):
 
 
 class WFEndNode(WFBaseNode):
-	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
-		return result
+	pass
 
 
 class WFSinkNode(WFBaseNode):
-	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
-		return result
+	pass
 
 
 class WFPassThroughNode(WFBaseNode):
@@ -330,6 +391,22 @@ class ImplementedBackend(BaseModel):
 
 
 _NODE_TYPES = {
+	"native_string"            : WFStringNode,
+	"native_integer"           : WFIntegerNode,
+	"native_float"             : WFFloatNode,
+	"native_boolean"           : WFBooleanNode,
+	"native_list"              : WFListNode,
+	"native_dict"              : WFDictNode,
+
+	"data"                     : WFDataNode,
+	"data_text"                : WFTextDataNode,
+	"data_document"            : WFDocumentDataNode,
+	"data_image"               : WFImageDataNode,
+	"data_audio"               : WFAudioDataNode,
+	"data_video"               : WFVideoDataNode,
+	"data_model3d"             : WFModel3DDataNode,
+	"data_binary"              : WFBinaryDataNode,
+
 	"info_config"              : WFInfoConfig,
 	"backend_config"           : WFBackendConfig,
 	"model_config"             : WFModelConfig,
@@ -343,6 +420,7 @@ _NODE_TYPES = {
 	"agent_options_config"     : WFAgentOptionsConfig,
 	"agent_config"             : WFAgentConfig,
 	"workflow_options_config"  : WFWorkflowOptionsConfig,
+
 	"start_node"               : WFStartNode,
 	"end_node"                 : WFEndNode,
 	"sink_node"                : WFSinkNode,
@@ -354,6 +432,7 @@ _NODE_TYPES = {
 	"user_input_node"          : WFUserInputNode,
 	"tool_node"                : WFToolNode,
 	"agent_node"               : WFAgentNode,
+
 	"tool_call"                : WFToolCall,
 	"agent_chat"               : WFAgentChat,
 }
