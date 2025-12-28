@@ -584,7 +584,7 @@ async function startExecution() {
 		const workflowName = visualizer.currentWorkflowName;
 		addLog('info', `⏳ Starting "${workflowName}"...`);
 
-		const initialData = {zu: "dfds", "peppi": 4, "nu": { "pi":11, "no": null}};
+		const initialData = null;
 		const response = await client.startWorkflow(workflowName, initialData);
 
 		if (response.status !== 'started') {

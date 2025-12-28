@@ -528,18 +528,18 @@ DEFAULT_TOOL_NODE_ARGS : Dict[str, Any] = {}
 
 
 class ToolNode(BaseNode):
-	type   : Annotated[Literal["tool_node"]  , FieldRole.CONSTANT] = "tool_node"
-	config : Annotated[Union[int, ToolConfig], FieldRole.INPUT   ] = None
-	args   : Annotated[Dict[str, Any]        , FieldRole.INPUT   ] = DEFAULT_TOOL_NODE_ARGS
-	input  : Annotated[Any                   , FieldRole.INPUT   ] = None
-	output : Annotated[Any                   , FieldRole.OUTPUT  ] = None
+	type   : Annotated[Literal["tool_node"], FieldRole.CONSTANT] = "tool_node"
+	config : Annotated[ToolConfig          , FieldRole.INPUT   ] = None
+	args   : Annotated[Dict[str, Any]      , FieldRole.INPUT   ] = DEFAULT_TOOL_NODE_ARGS
+	input  : Annotated[Any                 , FieldRole.INPUT   ] = None
+	output : Annotated[Any                 , FieldRole.OUTPUT  ] = None
 
 
 class AgentNode(BaseNode):
-	type   : Annotated[Literal["agent_node"]  , FieldRole.CONSTANT] = "agent_node"
-	config : Annotated[Union[int, AgentConfig], FieldRole.INPUT   ] = None
-	input  : Annotated[Any                    , FieldRole.INPUT   ] = None
-	output : Annotated[Any                    , FieldRole.OUTPUT  ] = None
+	type   : Annotated[Literal["agent_node"], FieldRole.CONSTANT] = "agent_node"
+	config : Annotated[AgentConfig          , FieldRole.INPUT   ] = None
+	input  : Annotated[Any                  , FieldRole.INPUT   ] = None
+	output : Annotated[Any                  , FieldRole.OUTPUT  ] = None
 
 
 # ========================================================================
@@ -551,13 +551,13 @@ class BaseInteractive(BaseType):
 
 
 class ToolCall(BaseInteractive):
-	type   : Annotated[Literal["tool_call"]  , FieldRole.CONSTANT] = "tool_call"
-	config : Annotated[Union[int, ToolConfig], FieldRole.INPUT   ] = None
+	type   : Annotated[Literal["tool_call"], FieldRole.CONSTANT] = "tool_call"
+	config : Annotated[ToolConfig          , FieldRole.INPUT   ] = None
 
 
 class AgentChat(BaseInteractive):
-	type   : Annotated[Literal["agent_chat"]  , FieldRole.CONSTANT] = "agent_chat"
-	config : Annotated[Union[int, AgentConfig], FieldRole.INPUT   ] = None
+	type   : Annotated[Literal["agent_chat"], FieldRole.CONSTANT] = "agent_chat"
+	config : Annotated[AgentConfig          , FieldRole.INPUT   ] = None
 
 
 # ========================================================================
