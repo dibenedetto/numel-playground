@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from typing   import Any, Callable, Dict, List, Optional
 
 
-from schema   import BaseType
+from schema   import DEFAULT_TRANSFORM_NODE_LANG, DEFAULT_TRANSFORM_NODE_SCRIPT, DEFAULT_TRANSFORM_NODE_CONTEXT, BaseType
 
 
 class NodeExecutionContext:
@@ -209,15 +209,17 @@ class WFTransformNode(WFBaseNode):
 		result = NodeExecutionResult()
 		
 		try:
-			lang   = context.inputs.get("lang"  , "python")
-			script = context.inputs.get("script", ""      )
-			input  = context.inputs.get("input" , {}      )
+			lang   = context.inputs.get("lang"   , DEFAULT_TRANSFORM_NODE_LANG   )
+			script = context.inputs.get("script" , DEFAULT_TRANSFORM_NODE_SCRIPT )
+			ctx    = context.inputs.get("context", DEFAULT_TRANSFORM_NODE_CONTEXT)
+			input  = context.inputs.get("input"  , {})
 
 			if lang == "python":
 				local_vars = {
-					"context" : context.variables,
-					"input"   : input,
-					"output"  : None,
+					"variables" : context.variables,
+					"context"   : ctx,
+					"input"     : input,
+					"output"    : None,
 				}
 				exec(script, {"__builtins__": {}}, local_vars)
 				output = local_vars.get("output", input)
