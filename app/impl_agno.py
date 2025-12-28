@@ -341,14 +341,3 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 	)
 
 	return backend
-
-
-def generate_app_agno(self, agent_index: int) -> FastAPI:
-	agent    = self.config_impl.agents[agent_index]
-	agent_os = AgentOS(
-		agents     = [agent],
-		interfaces = [AGUI(agent=agent)]
-	)
-	app = agent_os.get_app()
-	agent.agent_os = agent_os
-	return app
