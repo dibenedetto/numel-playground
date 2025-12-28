@@ -27,6 +27,10 @@ class UserInputRequest(BaseModel):
 	input_data : Any
 
 
+class ToolCallRequest(BaseModel):
+	args : Any
+
+
 def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, manager: WorkflowManager, engine: WorkflowEngine):
 
 	@app.post("/shutdown")
@@ -68,6 +72,39 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		nonlocal schema_code
 		result = {
 			"schema": schema_code,
+		}
+		return result
+
+
+	@app.post("/chat_open/{name}")
+	async def chat_open(name: str):
+		raise HTTPException(status_code=501, detail=f"Chat open not implemented")
+		result = {
+			"name"  : name,
+			"port"  : 0,
+			"error" : 501,
+		}
+		return result
+
+
+	@app.post("/chat_close")
+	@app.post("/chat_close/{name}")
+	async def chat_close(name: Optional[str] = None):
+		raise HTTPException(status_code=501, detail=f"Chat close not implemented")
+		result = {
+			"name"  : name,
+			"error" : 501,
+		}
+		return result
+
+
+	@app.post("/tool_call/{name}")
+	async def tool_call(name: str, request: ToolCallRequest):
+		raise HTTPException(status_code=501, detail=f"Tool call not implemented")
+		result = {
+			"name"    : name,
+			"request" : request,
+			"error"   : 501,
 		}
 		return result
 

@@ -3,7 +3,7 @@
 import copy
 
 
-# from   fastapi                         import FastAPI
+from   fastapi                         import FastAPI
 from   typing                          import Any, List
 
 
@@ -16,8 +16,8 @@ from   agno.knowledge.knowledge        import Knowledge
 from   agno.memory.manager             import MemoryManager
 from   agno.models.ollama              import Ollama
 from   agno.models.openai              import OpenAIChat
-# from   agno.os                         import AgentOS
-# from   agno.os.interfaces.agui         import AGUI
+from   agno.os                         import AgentOS
+from   agno.os.interfaces.agui         import AGUI
 from   agno.session.summary            import SessionSummaryManager
 from   agno.tools.duckduckgo           import DuckDuckGoTools
 from   agno.tools.reasoning            import ReasoningTools
@@ -322,10 +322,34 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		return result
 
 
+	async def generate_agent_app(agent: Any) -> FastAPI:
+		# if hasattr(agent, "__agno_agent_os"):
+		# 	return None
+		agent_os = AgentOS(
+			agents     = [agent],
+			interfaces = [AGUI(agent=agent)]
+		)
+		app = agent_os.get_app()
+		agent.__agno_agent_os = agent_os
+		return app
+
+
 	backend = ImplementedBackend(
-		handles   = impl,
-		run_tool  = run_tool,
-		run_agent = run_agent,
+		handles            = impl,
+		run_tool           = run_tool,
+		run_agent          = run_agent,
+		generate_agent_app = generate_agent_app,
 	)
 
 	return backend
+
+
+def generate_app_agno(self, agent_index: int) -> FastAPI:
+	agent    = self.config_impl.agents[agent_index]
+	agent_os = AgentOS(
+		agents     = [agent],
+		interfaces = [AGUI(agent=agent)]
+	)
+	app = agent_os.get_app()
+	agent.agent_os = agent_os
+	return app
