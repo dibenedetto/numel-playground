@@ -1219,9 +1219,6 @@ class WorkflowExporter {
 // ========================================================================
 
 class WorkflowExtension extends SchemaGraphExtension {
-	static id = 'workflow';
-	static dependencies = ['data', 'preview'];  // Optional: load after data/preview extensions
-
 	constructor(app) {
 		super(app);
 		this.parser = new WorkflowSchemaParser();
@@ -1242,14 +1239,20 @@ class WorkflowExtension extends SchemaGraphExtension {
 	}
 
 	_extendAPI() {
-		return {
-			registerSchema: (name, code) => this.registerWorkflowSchema(name, code),
-			import: (data, schemaName, options) => this.importWorkflow(data, schemaName, options),
-			export: (schemaName, workflowInfo, options) => this.exportWorkflow(schemaName, workflowInfo, options),
-			download: (schemaName, workflowInfo, options) => this.downloadWorkflow(schemaName, workflowInfo, options),
-			getDataFiles: (schemaName, options) => this.getDataFiles(schemaName, options),
-			isWorkflowSchema: (name) => this.graph.schemas[name]?.isWorkflow === true
+		const self = this;
+		
+		this.app.api = this.app.api || {};
+		this.app.api.workflow = {
+			registerSchema: (name, code) => self.registerWorkflowSchema(name, code),
+			import: (data, schemaName, options) => self.importWorkflow(data, schemaName, options),
+			export: (schemaName, workflowInfo, options) => self.exportWorkflow(schemaName, workflowInfo, options),
+			download: (schemaName, workflowInfo, options) => self.downloadWorkflow(schemaName, workflowInfo, options),
+			getDataFiles: (schemaName, options) => self.getDataFiles(schemaName, options),
+			isWorkflowSchema: (name) => self.graph.schemas[name]?.isWorkflow === true
 		};
+		
+		// Store reference for compatibility
+		this.app.workflowManager = this;
 	}
 
 	registerWorkflowSchema(schemaName, schemaCode) {
@@ -1485,8 +1488,7 @@ if (typeof SchemaGraphApp !== 'undefined') {
 		const originalSetup = SchemaGraphApp.prototype.setupEventListeners;
 		SchemaGraphApp.prototype.setupEventListeners = function() {
 			originalSetup.call(this);
-			this.edgePreviewManager = new PreviewExtension(this);
-			this.previewMediaManager = new PreviewMediaManager(this);
+			this.workflowManager = new WorkflowExtension(this);
 		};
 	}
 	
