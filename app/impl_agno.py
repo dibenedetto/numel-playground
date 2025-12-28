@@ -262,6 +262,12 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 				session_summary_manager = session_summary_manager,
 			)
 
+		if True:
+			item.__fastapi = AgentOS(
+				agents     = [item],
+				interfaces = [AGUI(agent=item)]
+			).get_app()
+
 		impl[index] = item
 
 
@@ -322,23 +328,16 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		return result
 
 
-	async def generate_agent_app(agent: Any) -> FastAPI:
-		# if hasattr(agent, "__agno_agent_os"):
-		# 	return None
-		agent_os = AgentOS(
-			agents     = [agent],
-			interfaces = [AGUI(agent=agent)]
-		)
-		app = agent_os.get_app()
-		agent.__agno_agent_os = agent_os
+	def agent_app(agent: Any) -> FastAPI:
+		app = agent.__fastapi
 		return app
 
 
 	backend = ImplementedBackend(
-		handles            = impl,
-		run_tool           = run_tool,
-		run_agent          = run_agent,
-		generate_agent_app = generate_agent_app,
+		handles   = impl,
+		run_tool  = run_tool,
+		run_agent = run_agent,
+		agent_app = agent_app,
 	)
 
 	return backend
