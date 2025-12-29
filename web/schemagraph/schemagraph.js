@@ -2613,6 +2613,7 @@ class SchemaGraphApp {
 						if (wx >= boxX && wx <= boxX + boxW && wy >= boxY && wy <= boxY + boxH) {
 							if (node.nativeInputs[j].type === 'bool') {
 								node.nativeInputs[j].value = !node.nativeInputs[j].value;
+								document.getElementById('sg-nodeInput')?.dispatchEvent(new Event('change'));
 								this.draw();
 								return;
 							}
@@ -2635,6 +2636,7 @@ class SchemaGraphApp {
 					wy >= valueY && wy <= valueY + valueHeight) {
 				if (node.title === 'Boolean') {
 					node.properties.value = !node.properties.value;
+					document.getElementById('sg-nodeInput')?.dispatchEvent(new Event('change'));
 					this.draw();
 				} else {
 					this.showInputOverlay(node, null, node.pos[0] + 8, valueY, data.coords.rect);

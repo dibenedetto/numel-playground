@@ -202,7 +202,6 @@ class PreviewExtension extends SchemaGraphExtension {
 			}
 		};
 		
-		// Store reference for compatibility
 		this.app.edgePreviewManager = this;
 	}
 
@@ -270,7 +269,6 @@ class PreviewExtension extends SchemaGraphExtension {
 		
 		const [wx, wy] = this.app.screenToWorld(data.coords.screenX, data.coords.screenY);
 		
-		// Check preview nodes first
 		for (const node of this.graph.nodes) {
 			if (!node.isPreviewNode) continue;
 			if (wx >= node.pos[0] && wx <= node.pos[0] + node.size[0] &&
@@ -281,7 +279,6 @@ class PreviewExtension extends SchemaGraphExtension {
 			}
 		}
 		
-		// Check edges
 		const link = this._findLinkAtPosition(wx, wy);
 		if (link) {
 			data.event.preventDefault();
@@ -347,35 +344,19 @@ class PreviewExtension extends SchemaGraphExtension {
 		preview.pos = [wx - preview.size[0] / 2, wy - preview.size[1] / 2];
 		preview._originalEdgeInfo = originalEdgeInfo;
 
-		if (this.graph._last_node_id === undefined) this.graph._last_node_id = 1;
-		preview.id = this.graph._last_node_id++;
-		preview.graph = this.graph;
-		this.graph.nodes.push(preview);
-		this.graph._nodes_by_id[preview.id] = preview;
+		// Use proper API - emits node:created
+		this.graph.addNode(preview);
 
-		// Remove original link
-		this._removeLink(link);
+		// Remove original link using proper API - emits link:removed
+		this.graph.removeLink(link.id);
 
-		// Create source -> preview link
-		const link1Id = ++this.graph.last_link_id;
-		const link1 = new Link(link1Id, src.id, originalEdgeInfo.sourceSlotIdx, preview.id, 0, originalEdgeInfo.linkType);
-		link1.extra = { _isPreviewLink: true };
-		this.graph.links[link1Id] = link1;
-		src.outputs[originalEdgeInfo.sourceSlotIdx].links.push(link1Id);
-		preview.inputs[0].link = link1Id;
+		// Create source -> preview link using proper API - emits link:created
+		const link1 = this.graph.addLink(src.id, originalEdgeInfo.sourceSlotIdx, preview.id, 0, originalEdgeInfo.linkType);
+		if (link1) link1.extra = { _isPreviewLink: true };
 
-		// Create preview -> target link
-		const link2Id = ++this.graph.last_link_id;
-		const link2 = new Link(link2Id, preview.id, 0, tgt.id, originalEdgeInfo.targetSlotIdx, originalEdgeInfo.linkType);
-		link2.extra = { _isPreviewLink: true };
-		this.graph.links[link2Id] = link2;
-		preview.outputs[0].links.push(link2Id);
-
-		if (tgt.multiInputs?.[originalEdgeInfo.targetSlotIdx]) {
-			tgt.multiInputs[originalEdgeInfo.targetSlotIdx].links.push(link2Id);
-		} else {
-			tgt.inputs[originalEdgeInfo.targetSlotIdx].link = link2Id;
-		}
+		// Create preview -> target link using proper API - emits link:created
+		const link2 = this.graph.addLink(preview.id, 0, tgt.id, originalEdgeInfo.targetSlotIdx, originalEdgeInfo.linkType);
+		if (link2) link2.extra = { _isPreviewLink: true };
 
 		preview.onExecute();
 		this.eventBus.emit('preview:inserted', { nodeId: preview.id, originalEdgeInfo });
@@ -405,42 +386,30 @@ class PreviewExtension extends SchemaGraphExtension {
 				const tgtSlot = outLink.target_slot;
 
 				if (src && tgt) {
-					const newLinkId = ++this.graph.last_link_id;
-					const newLink = new Link(newLinkId, src.id, srcSlot, tgt.id, tgtSlot, 
-						originalEdgeInfo?.linkType || inLink.type);
+					// Use proper API - emits link:created
+					const newLink = this.graph.addLink(src.id, srcSlot, tgt.id, tgtSlot, originalEdgeInfo?.linkType || inLink.type);
 
-					if (originalEdgeInfo?.data) {
-						newLink.data = JSON.parse(JSON.stringify(originalEdgeInfo.data));
+					if (newLink) {
+						if (originalEdgeInfo?.data) {
+							newLink.data = JSON.parse(JSON.stringify(originalEdgeInfo.data));
+						}
+						if (originalEdgeInfo?.extra) {
+							const restoredExtra = JSON.parse(JSON.stringify(originalEdgeInfo.extra));
+							delete restoredExtra._isPreviewLink;
+							if (Object.keys(restoredExtra).length > 0) newLink.extra = restoredExtra;
+						}
+						restoredLink = newLink;
 					}
-					if (originalEdgeInfo?.extra) {
-						const restoredExtra = JSON.parse(JSON.stringify(originalEdgeInfo.extra));
-						delete restoredExtra._isPreviewLink;
-						if (Object.keys(restoredExtra).length > 0) newLink.extra = restoredExtra;
-					}
-
-					this.graph.links[newLinkId] = newLink;
-					src.outputs[srcSlot].links.push(newLinkId);
-
-					if (tgt.multiInputs?.[tgtSlot]) {
-						tgt.multiInputs[tgtSlot].links.push(newLinkId);
-					} else {
-						tgt.inputs[tgtSlot].link = newLinkId;
-					}
-
-					this.eventBus.emit('link:created', { linkId: newLinkId });
-					restoredLink = newLink;
 				}
 			}
 		}
 
-		// Remove preview links
-		if (inLink) this._removeLinkById(inLinkId);
-		for (const id of outLinkIds) this._removeLinkById(id);
+		// Remove preview links using proper API - emits link:removed
+		if (inLinkId) this.graph.removeLink(inLinkId);
+		for (const id of outLinkIds) this.graph.removeLink(id);
 
-		// Remove preview node
-		const idx = this.graph.nodes.indexOf(node);
-		if (idx !== -1) this.graph.nodes.splice(idx, 1);
-		delete this.graph._nodes_by_id[node.id];
+		// Remove preview node using proper API - emits node:removed
+		this.graph.removeNode(node);
 
 		this.eventBus.emit('preview:removed', { nodeId: node.id, restoredLinkId: restoredLink?.id, originalEdgeInfo });
 		this.app.draw();
@@ -492,35 +461,6 @@ class PreviewExtension extends SchemaGraphExtension {
 			if (Math.sqrt((px - bx)**2 + (py - by)**2) < threshold) return true;
 		}
 		return false;
-	}
-
-	_removeLinkById(linkId) {
-		const link = this.graph.links[linkId];
-		if (!link) return;
-
-		const src = this.graph.getNodeById(link.origin_id);
-		const tgt = this.graph.getNodeById(link.target_id);
-
-		if (src?.outputs[link.origin_slot]) {
-			const idx = src.outputs[link.origin_slot].links.indexOf(linkId);
-			if (idx > -1) src.outputs[link.origin_slot].links.splice(idx, 1);
-		}
-
-		if (tgt) {
-			if (tgt.multiInputs?.[link.target_slot]) {
-				const idx = tgt.multiInputs[link.target_slot].links.indexOf(linkId);
-				if (idx > -1) tgt.multiInputs[link.target_slot].links.splice(idx, 1);
-			} else if (tgt.inputs[link.target_slot]?.link === linkId) {
-				tgt.inputs[link.target_slot].link = null;
-			}
-		}
-
-		delete this.graph.links[linkId];
-		this.eventBus.emit('link:deleted', { linkId });
-	}
-
-	_removeLink(link) {
-		if (link?.id !== undefined) this._removeLinkById(link.id);
 	}
 
 	// --- Context Menus ---
@@ -592,7 +532,7 @@ class PreviewExtension extends SchemaGraphExtension {
 				if (targetNode?.isPreviewNode) this.removePreviewNode(targetNode);
 				break;
 			case 'delete-edge':
-				this._removeLink(link);
+				this.graph.removeLink(link.id);
 				break;
 		}
 		this.app.draw();
@@ -677,7 +617,6 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 		const textScale = this.getTextScale();
 		const isSelected = this.isNodeSelected(node);
 		
-		// Flash animation
 		let flashIntensity = 0;
 		if (node._isFlashing && node._flashProgress !== undefined) {
 			flashIntensity = 1 - (node._flashProgress * node._flashProgress);
@@ -692,7 +631,6 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 		};
 		const colorStr = `rgb(${currentColor.r}, ${currentColor.g}, ${currentColor.b})`;
 		
-		// Shadow
 		if (style.nodeShadowBlur > 0 || flashIntensity > 0) {
 			this.ctx.shadowColor = flashIntensity > 0 
 				? `rgba(${flashColor.r}, ${flashColor.g}, ${flashColor.b}, ${0.8 * flashIntensity})`
@@ -701,7 +639,6 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 			this.ctx.shadowOffsetY = flashIntensity > 0 ? 0 : style.nodeShadowOffset / this.camera.scale;
 		}
 		
-		// Body
 		const gradient = this.ctx.createLinearGradient(x, y, x, y + h);
 		gradient.addColorStop(0, isSelected ? '#3a5a7a' : '#2d3d4d');
 		gradient.addColorStop(1, isSelected ? '#2a4a6a' : '#1d2d3d');
@@ -718,7 +655,6 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 		this.ctx.shadowBlur = 0;
 		this.ctx.shadowOffsetY = 0;
 		
-		// Header
 		const headerH = 26;
 		const headerGradient = this.ctx.createLinearGradient(x, y, x, y + headerH);
 		headerGradient.addColorStop(0, flashIntensity > 0 ? colorStr : '#46a2da');
@@ -731,14 +667,12 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 		this._drawRoundRectTop(x, y, w, headerH, radius);
 		this.ctx.fill();
 		
-		// Title
 		this.ctx.fillStyle = colors.textPrimary;
 		this.ctx.font = `bold ${11 * textScale}px ${style.textFont}`;
 		this.ctx.textBaseline = 'middle';
 		this.ctx.textAlign = 'left';
 		this.ctx.fillText('Preview 👁', x + 8, y + 13);
 		
-		// Type badge
 		const typeText = node.previewType.toUpperCase();
 		this.ctx.font = `bold ${8 * textScale}px ${style.textFont}`;
 		const badgeWidth = this.ctx.measureText(typeText).width + 8;
@@ -752,12 +686,10 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 		this.ctx.textAlign = 'center';
 		this.ctx.fillText(typeText, x + w - badgeWidth / 2 - 8, y + 13);
 		
-		// Draw slots
 		const worldMouse = this.screenToWorld(this.mousePos[0], this.mousePos[1]);
 		this.drawInputSlot(node, 0, x, y, w, worldMouse, colors);
 		this.drawOutputSlot(node, 0, x, y, w, worldMouse, colors);
 		
-		// Content area
 		const contentY = node.isExpanded ? y + 65 : y + 55;
 		const contentH = node.isExpanded ? h - 85 : h - 75;
 		
@@ -767,7 +699,6 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 			this._drawPreviewCollapsed(node, x + 8, contentY, w - 16, contentH, colors, textScale, style);
 		}
 		
-		// Footer hint
 		this.ctx.fillStyle = colors.textTertiary;
 		this.ctx.font = `${8 * textScale}px ${style.textFont}`;
 		this.ctx.textAlign = 'center';
@@ -778,7 +709,6 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 		const data = node.previewData;
 		const type = node.previewType;
 
-		// DataNode passthrough
 		if (data && typeof data === 'object' && data.type && data.sourceType) {
 			const summary = data.meta?.filename || `${data.type} data`;
 			if (typeof MediaPreviewRenderer !== 'undefined') {
@@ -819,7 +749,6 @@ function extendDrawNodeForPreview(SchemaGraphAppClass) {
 		const type = node.previewType;
 		const opts = { textScale, font: style.textFont, colors, onLoad: () => this.draw() };
 
-		// DataNode passthrough
 		if (data && typeof data === 'object' && data.type && data.sourceType) {
 			this._drawDataPreviewContent(data, innerX, innerY, innerW, innerH, opts);
 			this.ctx.restore();
@@ -930,7 +859,6 @@ function extendDrawLinksForPreview(SchemaGraphAppClass) {
 		const controlOffset = Math.min(distance * style.linkCurve, 400);
 		const cx1 = x1 + controlOffset, cx2 = x2 - controlOffset;
 		
-		// Glow effect
 		this.ctx.strokeStyle = '#46a2da';
 		this.ctx.lineWidth = (style.linkWidth + 4) / this.camera.scale;
 		this.ctx.globalAlpha = 0.3;
@@ -950,7 +878,6 @@ function extendDrawLinksForPreview(SchemaGraphAppClass) {
 		}
 		this.ctx.stroke();
 		
-		// Highlight line
 		this.ctx.strokeStyle = '#82c4ec';
 		this.ctx.lineWidth = (style.linkWidth + 1) / this.camera.scale;
 		this.ctx.globalAlpha = 1.0;
@@ -972,7 +899,6 @@ function extendDrawLinksForPreview(SchemaGraphAppClass) {
 		
 		if (style.useDashed) this.ctx.setLineDash([]);
 		
-		// Calculate midpoint for hint
 		const t = 0.5, mt = 1 - t;
 		let midX, midY;
 		if (style.linkCurve > 0) {
@@ -986,7 +912,6 @@ function extendDrawLinksForPreview(SchemaGraphAppClass) {
 		this._pendingPreviewHint = { midX, midY, style };
 	};
 	
-	// Draw preview hint on top
 	SchemaGraphAppClass.prototype._drawPreviewHint = function() {
 		if (!this._pendingPreviewHint) return;
 
@@ -1006,7 +931,6 @@ function extendDrawLinksForPreview(SchemaGraphAppClass) {
 		this.ctx.textBaseline = 'middle';
 		const textWidth = this.ctx.measureText(hintText).width;
 
-		// Background
 		this.ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
 		this.ctx.beginPath();
 		this.ctx.roundRect(midX - textWidth/2 - padX, midY - padY, textWidth + padX * 2, padY * 2, radius);
@@ -1016,7 +940,6 @@ function extendDrawLinksForPreview(SchemaGraphAppClass) {
 		this.ctx.lineWidth = 1 / this.camera.scale;
 		this.ctx.stroke();
 
-		// Text
 		this.ctx.fillStyle = '#82c4ec';
 		this.ctx.fillText(hintText, midX, midY);
 
@@ -1024,7 +947,6 @@ function extendDrawLinksForPreview(SchemaGraphAppClass) {
 		this._pendingPreviewHint = null;
 	};
 
-	// Hook into main draw
 	const originalDraw = SchemaGraphAppClass.prototype.draw;
 	SchemaGraphAppClass.prototype.draw = function() {
 		originalDraw.call(this);
@@ -1042,13 +964,11 @@ function extendRemoveNodeForPreview(SchemaGraphAppClass) {
 	SchemaGraphAppClass.prototype.removeNode = function(node) {
 		if (!node) return;
 		
-		// If removing a preview node, use preview manager
 		if (node.isPreviewNode && this.edgePreviewManager) {
 			this.edgePreviewManager.removePreviewNode(node);
 			return;
 		}
 		
-		// For regular nodes: find and remove connected preview nodes first
 		if (this.edgePreviewManager) {
 			const previewsToRemove = [];
 			
@@ -1068,22 +988,26 @@ function extendRemoveNodeForPreview(SchemaGraphAppClass) {
 			}
 		}
 		
-		if (originalRemoveNode) originalRemoveNode.call(this, node);
+		// Use graph's removeNode API (emits events)
+		if (this.graph?.removeNode) {
+			this.graph.removeNode(node);
+		} else if (originalRemoveNode) {
+			originalRemoveNode.call(this, node);
+		}
 	};
 
 	SchemaGraphAppClass.prototype._removePreviewNodeWithoutRestore = function(node) {
 		if (!node?.isPreviewNode) return;
 		
-		const mgr = this.edgePreviewManager;
 		const inLinkId = node.inputs[0]?.link;
 		const outLinkIds = node.outputs[0]?.links || [];
 		
-		if (inLinkId) mgr._removeLinkById(inLinkId);
-		for (const id of outLinkIds) mgr._removeLinkById(id);
+		// Remove links using proper API
+		if (inLinkId) this.graph.removeLink(inLinkId);
+		for (const id of outLinkIds) this.graph.removeLink(id);
 		
-		const idx = this.graph.nodes.indexOf(node);
-		if (idx !== -1) this.graph.nodes.splice(idx, 1);
-		delete this.graph._nodes_by_id[node.id];
+		// Remove node using proper API
+		this.graph.removeNode(node);
 		
 		this.eventBus.emit('preview:removed', { nodeId: node.id, restored: false });
 	};
@@ -1153,11 +1077,9 @@ if (typeof SchemaGraphApp !== 'undefined') {
 	extendDrawLinksForPreview(SchemaGraphApp);
 	extendRemoveNodeForPreview(SchemaGraphApp);
 	
-	// Register with extension system if available
 	if (typeof extensionRegistry !== 'undefined') {
 		extensionRegistry.register('preview', PreviewExtension);
 	} else {
-		// Fallback: hook into setupEventListeners directly
 		const originalSetup = SchemaGraphApp.prototype.setupEventListeners;
 		SchemaGraphApp.prototype.setupEventListeners = function() {
 			originalSetup.call(this);

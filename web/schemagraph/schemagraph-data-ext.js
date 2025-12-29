@@ -34,7 +34,6 @@ const DataExtensions = {
 	[DataType.BINARY]: ['.bin', '.dat', '.zip', '.tar', '.gz', '.7z', '.rar', '.exe', '.dll', '.so']
 };
 
-// Use shared constants if available, otherwise define locally
 const DataNodeIcons = (typeof NodeIcons !== 'undefined') ? NodeIcons : {
 	[DataType.TEXT]: '📝',
 	[DataType.DOCUMENT]: '📄',
@@ -198,7 +197,7 @@ class TextDataNode extends DataNode {
 	setFromFile(file, textContent) {
 		this.sourceType = 'file';
 		this.sourceUrl = '';
-		this.sourceData = textContent;  // Plain text, not base64
+		this.sourceData = textContent;
 		this.sourceMeta = {
 			filename: file.name,
 			mimeType: file.type || this._guessMimeType(file.name),
@@ -377,7 +376,6 @@ class DataNodesExtension extends SchemaGraphExtension {
 			types: () => Object.keys(DataNodeTypes).map(t => t.replace('Data.', '').toLowerCase())
 		};
 		
-		// Store reference for compatibility
 		app.dataNodeManager = this;
 	}
 
@@ -453,13 +451,9 @@ class DataNodesExtension extends SchemaGraphExtension {
 		const node = new NodeClass();
 		node.pos = [x, y];
 		
-		if (this.graph._last_node_id === undefined) this.graph._last_node_id = 1;
-		node.id = this.graph._last_node_id++;
-		node.graph = this.graph;
-		this.graph.nodes.push(node);
-		this.graph._nodes_by_id[node.id] = node;
+		// Use proper API - emits node:created event
+		this.graph.addNode(node);
 		
-		this.eventBus.emit('node:created', { type: typeName, nodeId: node.id });
 		this.app.draw();
 		return node;
 	}
@@ -468,7 +462,6 @@ class DataNodesExtension extends SchemaGraphExtension {
 		const reader = new FileReader();
 		reader.onload = (e) => {
 			if (node.dataType === DataType.TEXT) {
-				// For text nodes: store plain text, not base64
 				node.setFromFile(file, e.target.result);
 			} else {
 				node.setFromFile(file, e.target.result);
@@ -480,7 +473,6 @@ class DataNodesExtension extends SchemaGraphExtension {
 			this.app.showError?.(`Failed to read file: ${file.name}`);
 		};
 		
-		// Use readAsText for text files, readAsDataURL for binary/media
 		if (node.dataType === DataType.TEXT) {
 			reader.readAsText(file);
 		} else {
@@ -523,24 +515,20 @@ class DataNodesExtension extends SchemaGraphExtension {
 				const contentY = node.pos[1] + 50;
 				const footerY = node.pos[1] + node.size[1] - 20;
 				
-				// Double-click on header: toggle expand
 				if (wy < headerY) {
 					this._toggleExpand(node);
 					return;
 				}
 				
-				// Double-click on content area
 				if (wy >= contentY && wy < footerY) {
 					if (!node.hasData()) {
 						this._triggerFileInput(node);
 					} else {
-						// Has data: toggle expand (for ALL types including text)
 						this._toggleExpand(node);
 					}
 					return;
 				}
 				
-				// Double-click on footer: trigger file input
 				if (wy >= footerY) {
 					this._triggerFileInput(node);
 					return;
@@ -711,14 +699,12 @@ function extendDrawNodeForData(SchemaGraphAppClass) {
 		const isSelected = this.isNodeSelected(node);
 		const nodeColor = DataNodeColors[node.dataType] || '#46a2da';
 		
-		// Shadow
 		if (style.nodeShadowBlur > 0) {
 			this.ctx.shadowColor = colors.nodeShadow;
 			this.ctx.shadowBlur = style.nodeShadowBlur / this.camera.scale;
 			this.ctx.shadowOffsetY = style.nodeShadowOffset / this.camera.scale;
 		}
 		
-		// Body gradient
 		const bodyGradient = this.ctx.createLinearGradient(x, y, x, y + h);
 		bodyGradient.addColorStop(0, isSelected ? '#3a4a5a' : '#2a3a4a');
 		bodyGradient.addColorStop(1, isSelected ? '#2a3a4a' : '#1a2a3a');
@@ -728,7 +714,6 @@ function extendDrawNodeForData(SchemaGraphAppClass) {
 		this._drawRoundRect(x, y, w, h, radius);
 		this.ctx.fill();
 		
-		// Border
 		this.ctx.strokeStyle = isSelected ? colors.borderHighlight : nodeColor;
 		this.ctx.lineWidth = (isSelected ? 2 : 1.5) / this.camera.scale;
 		this.ctx.stroke();
@@ -736,7 +721,6 @@ function extendDrawNodeForData(SchemaGraphAppClass) {
 		this.ctx.shadowBlur = 0;
 		this.ctx.shadowOffsetY = 0;
 		
-		// Header
 		const headerH = 26;
 		const headerGradient = this.ctx.createLinearGradient(x, y, x, y + headerH);
 		headerGradient.addColorStop(0, nodeColor);
@@ -747,7 +731,6 @@ function extendDrawNodeForData(SchemaGraphAppClass) {
 		this._drawRoundRectTop(x, y, w, headerH, radius);
 		this.ctx.fill();
 		
-		// Title with icon
 		const icon = DataNodeIcons[node.dataType] || '📦';
 		this.ctx.fillStyle = colors.textPrimary;
 		this.ctx.font = `bold ${11 * textScale}px ${style.textFont}`;
@@ -755,13 +738,11 @@ function extendDrawNodeForData(SchemaGraphAppClass) {
 		this.ctx.textAlign = 'left';
 		this.ctx.fillText(`${icon} ${node.title}`, x + 8, y + 13);
 		
-		// Draw slots
 		const worldMouse = this.screenToWorld(this.mousePos[0], this.mousePos[1]);
 		for (let i = 0; i < node.outputs.length; i++) {
 			this.drawOutputSlot(node, i, x, y, w, worldMouse, colors);
 		}
 		
-		// Content area
 		const contentY = y + 50;
 		const contentH = h - 70;
 		const contentX = x + 8;
@@ -773,14 +754,12 @@ function extendDrawNodeForData(SchemaGraphAppClass) {
 			this._drawDataNodeCollapsed(node, contentX, contentY, contentW, contentH, colors, textScale, style);
 		}
 		
-		// Footer hint
 		this.ctx.fillStyle = colors.textTertiary;
 		this.ctx.font = `${8 * textScale}px ${style.textFont}`;
 		this.ctx.textAlign = 'center';
 
 		let hint = null;
 		if (!node.hasData()) {
-			// No hint when empty
 		} else if (node.isExpanded) {
 			hint = 'Dbl-click header to collapse';
 		} else {
@@ -880,7 +859,6 @@ function extendContextMenuForData(SchemaGraphAppClass) {
 		const contextMenu = document.getElementById('sg-contextMenu');
 		let html = '';
 		
-		// Native types
 		if (this.nativeTypesEnabled) {
 			html += '<div class="sg-context-menu-category">Native Types</div>';
 			const natives = ['Native.String', 'Native.Integer', 'Native.Boolean', 'Native.Float', 'Native.List', 'Native.Dict'];
@@ -890,7 +868,6 @@ function extendContextMenuForData(SchemaGraphAppClass) {
 			}
 		}
 		
-		// Data nodes
 		if (this.dataNodesEnabled) {
 			html += '<div class="sg-context-menu-category">Data Sources</div>';
 			for (const typeName of Object.keys(DataNodeTypes)) {
@@ -901,7 +878,6 @@ function extendContextMenuForData(SchemaGraphAppClass) {
 			}
 		}
 		
-		// Schema types
 		for (const schemaName of Object.keys(this.graph.schemas)) {
 			if (!this.graph.isSchemaEnabled(schemaName)) continue;
 			
@@ -956,12 +932,8 @@ function extendContextMenuForData(SchemaGraphAppClass) {
 					if (NodeClass) {
 						const node = new NodeClass();
 						node.pos = [posX - 90, posY - 40];
-						if (this.graph._last_node_id === undefined) this.graph._last_node_id = 1;
-						node.id = this.graph._last_node_id++;
-						node.graph = this.graph;
-						this.graph.nodes.push(node);
-						this.graph._nodes_by_id[node.id] = node;
-						this.eventBus.emit('node:created', { type, nodeId: node.id });
+						// Use proper API
+						this.graph.addNode(node);
 					}
 				} else {
 					const node = this.graph.createNode(type);
@@ -988,7 +960,6 @@ function extendSchemaListForData(SchemaGraphAppClass) {
 		
 		let html = '';
 		
-		// Native Types toggle
 		const isNativeEnabled = this.nativeTypesEnabled !== false;
 		html += `
 			<div class="sg-schema-item">
@@ -997,12 +968,11 @@ function extendSchemaListForData(SchemaGraphAppClass) {
 					<span class="sg-schema-item-count">(6 types)</span>
 				</div>
 				<button class="sg-schema-toggle-btn ${isNativeEnabled ? 'enabled' : 'disabled'}" id="sg-nativeTypesToggle">
-					${isNativeEnabled ? '👁️ Visible' : '🚫 Hidden'}
+					${isNativeEnabled ? '👁 Visible' : '🚫 Hidden'}
 				</button>
 			</div>
 		`;
 		
-		// Data Sources toggle
 		const isDataEnabled = this.dataNodesEnabled !== false;
 		html += `
 			<div class="sg-schema-item">
@@ -1011,18 +981,16 @@ function extendSchemaListForData(SchemaGraphAppClass) {
 					<span class="sg-schema-item-count">(7 types)</span>
 				</div>
 				<button class="sg-schema-toggle-btn ${isDataEnabled ? 'enabled' : 'disabled'}" id="sg-dataNodesToggle">
-					${isDataEnabled ? '👁️ Visible' : '🚫 Hidden'}
+					${isDataEnabled ? '👁 Visible' : '🚫 Hidden'}
 				</button>
 			</div>
 		`;
 		
-		// Separator
 		const schemas = Object.keys(this.graph.schemas);
 		if (schemas.length > 0) {
 			html += '<div style="border-top: 1px solid var(--sg-border-color); margin: 8px 0;"></div>';
 		}
 		
-		// Schema entries
 		for (const schemaName of schemas) {
 			let nodeCount = 0, typeCount = 0;
 			for (const node of this.graph.nodes) {
@@ -1041,7 +1009,7 @@ function extendSchemaListForData(SchemaGraphAppClass) {
 					</div>
 					<div style="display: flex; gap: 4px;">
 						<button class="sg-schema-toggle-btn ${isEnabled ? 'enabled' : 'disabled'}" data-schema="${schemaName}">
-							${isEnabled ? '👁️ Enabled' : '🚫 Disabled'}
+							${isEnabled ? '👁 Enabled' : '🚫 Disabled'}
 						</button>
 						<button class="sg-schema-remove-btn" data-schema="${schemaName}">Remove</button>
 					</div>
@@ -1055,7 +1023,6 @@ function extendSchemaListForData(SchemaGraphAppClass) {
 		
 		listEl.innerHTML = html;
 		
-		// Event handlers
 		document.getElementById('sg-nativeTypesToggle')?.addEventListener('click', (e) => {
 			e.stopPropagation();
 			this.nativeTypesEnabled = !this.nativeTypesEnabled;
@@ -1094,7 +1061,6 @@ function extendSerializationForDataNodes(SchemaGraphClass) {
 	SchemaGraphClass.prototype.serialize = function(includeCamera = false, camera = null) {
 		const data = originalSerialize ? originalSerialize.call(this, includeCamera, camera) : { version: '1.1', nodes: [], links: [] };
 		
-		// Ensure data nodes are properly serialized
 		for (let i = 0; i < this.nodes.length; i++) {
 			const node = this.nodes[i];
 			if (node.isDataNode && data.nodes[i]) {
@@ -1126,11 +1092,9 @@ if (typeof SchemaGraphApp !== 'undefined') {
 	extendContextMenuForData(SchemaGraphApp);
 	extendSchemaListForData(SchemaGraphApp);
 	
-	// Register with extension system if available
 	if (typeof extensionRegistry !== 'undefined') {
 		extensionRegistry.register('dataNodes', DataNodesExtension);
 	} else {
-		// Fallback: hook into setupEventListeners directly
 		const originalSetup = SchemaGraphApp.prototype.setupEventListeners;
 		SchemaGraphApp.prototype.setupEventListeners = function() {
 			originalSetup.call(this);

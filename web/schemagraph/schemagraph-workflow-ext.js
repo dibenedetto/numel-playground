@@ -671,10 +671,12 @@ class WorkflowImporter {
 
 		this.importOptions = { includeLayout: options.includeLayout !== false };
 
+		// Clear existing graph data
 		this.graph.nodes = [];
 		this.graph.links = {};
 		this.graph._nodes_by_id = {};
 		this.graph.last_link_id = 0;
+		if (this.graph._last_node_id === undefined) this.graph._last_node_id = 1;
 
 		const typeMap = schema ? this._buildTypeMap(schema) : {};
 		const factory = schema ? new WorkflowNodeFactory(this.graph, {
@@ -732,8 +734,7 @@ class WorkflowImporter {
 		if (!NodeClass) { console.error(`Native node type not found: Native.${nativeType}`); return null; }
 
 		const node = new NodeClass();
-		this._registerNode(node);
-
+		
 		if (nodeData.value !== undefined) {
 			node.properties = node.properties || {};
 			node.properties.value = nodeData.value;
@@ -741,6 +742,10 @@ class WorkflowImporter {
 
 		this._applyLayout(node, nodeData);
 		node.workflowIndex = index;
+		
+		// Use proper API - emits node:created
+		this.graph.addNode(node);
+		
 		return node;
 	}
 
@@ -757,7 +762,6 @@ class WorkflowImporter {
 		if (!NodeClass) { console.error('Binary fallback node type not found'); return null; }
 
 		const node = new NodeClass();
-		this._registerNode(node);
 
 		node.sourceType = nodeData.source_type || 'none';
 		if (nodeData.source_url) { node.sourceUrl = nodeData.source_url; node.sourceType = 'url'; }
@@ -791,6 +795,10 @@ class WorkflowImporter {
 		this._applyLayout(node, nodeData);
 		node.isExpanded = nodeData.extra?.isExpanded || false;
 		node.workflowIndex = index;
+		
+		// Use proper API - emits node:created
+		this.graph.addNode(node);
+		
 		return node;
 	}
 
@@ -803,7 +811,6 @@ class WorkflowImporter {
 		const node = factory.createNode(modelName, nodeData);
 		if (!node) return null;
 
-		this._registerNode(node);
 		this._applyLayout(node, nodeData);
 		node.workflowIndex = index;
 
@@ -815,15 +822,11 @@ class WorkflowImporter {
 		}
 
 		this._populateNodeFields(node, nodeData);
+		
+		// Use proper API - emits node:created
+		this.graph.addNode(node);
+		
 		return node;
-	}
-
-	_registerNode(node) {
-		if (this.graph._last_node_id === undefined) this.graph._last_node_id = 1;
-		node.id = this.graph._last_node_id++;
-		node.graph = this.graph;
-		this.graph.nodes.push(node);
-		this.graph._nodes_by_id[node.id] = node;
 	}
 
 	_applyLayout(node, nodeData) {
@@ -916,15 +919,16 @@ class WorkflowImporter {
 	}
 
 	_createStandardEdge(sourceNode, sourceSlotIdx, targetNode, targetSlotIdx, data, extra) {
-		const linkId = ++this.graph.last_link_id;
-		const link = new Link(linkId, sourceNode.id, sourceSlotIdx, targetNode.id, targetSlotIdx, sourceNode.outputs[sourceSlotIdx]?.type || 'Any');
-		if (data) link.data = JSON.parse(JSON.stringify(data));
-		if (extra) link.extra = JSON.parse(JSON.stringify(extra));
-		this.graph.links[linkId] = link;
-		sourceNode.outputs[sourceSlotIdx].links.push(linkId);
-		if (targetNode.multiInputs?.[targetSlotIdx]) targetNode.multiInputs[targetSlotIdx].links.push(linkId);
-		else targetNode.inputs[targetSlotIdx].link = linkId;
-		this.eventBus.emit('link:created', { linkId });
+		const linkType = sourceNode.outputs[sourceSlotIdx]?.type || 'Any';
+		
+		// Use proper API - emits link:created
+		const link = this.graph.addLink(sourceNode.id, sourceSlotIdx, targetNode.id, targetSlotIdx, linkType);
+		
+		if (link) {
+			if (data) link.data = JSON.parse(JSON.stringify(data));
+			if (extra) link.extra = JSON.parse(JSON.stringify(extra));
+		}
+		
 		return link;
 	}
 
@@ -934,7 +938,6 @@ class WorkflowImporter {
 		const linkType = sourceNode.outputs[sourceSlotIdx]?.type || 'Any';
 
 		const previewNode = new PreviewNode();
-		this._registerNode(previewNode);
 		previewNode.pos = [midX, midY];
 		previewNode._originalEdgeInfo = {
 			sourceNodeId: sourceNode.id, sourceSlotIdx, sourceSlotName: sourceSlot,
@@ -942,20 +945,17 @@ class WorkflowImporter {
 			data: edgeData.data ? JSON.parse(JSON.stringify(edgeData.data)) : null,
 			extra: edgeData.extra ? JSON.parse(JSON.stringify(edgeData.extra)) : null
 		};
+		
+		// Use proper API - emits node:created
+		this.graph.addNode(previewNode);
 
-		const link1Id = ++this.graph.last_link_id;
-		const link1 = new Link(link1Id, sourceNode.id, sourceSlotIdx, previewNode.id, 0, linkType);
-		link1.extra = { _isPreviewLink: true };
-		this.graph.links[link1Id] = link1;
-		sourceNode.outputs[sourceSlotIdx].links.push(link1Id);
-		previewNode.inputs[0].link = link1Id;
+		// Use proper API - emits link:created
+		const link1 = this.graph.addLink(sourceNode.id, sourceSlotIdx, previewNode.id, 0, linkType);
+		if (link1) link1.extra = { _isPreviewLink: true };
 
-		const link2Id = ++this.graph.last_link_id;
-		const link2 = new Link(link2Id, previewNode.id, 0, targetNode.id, targetSlotIdx, linkType);
-		link2.extra = { _isPreviewLink: true };
-		this.graph.links[link2Id] = link2;
-		previewNode.outputs[0].links.push(link2Id);
-		targetNode.inputs[targetSlotIdx].link = link2Id;
+		// Use proper API - emits link:created
+		const link2 = this.graph.addLink(previewNode.id, 0, targetNode.id, targetSlotIdx, linkType);
+		if (link2) link2.extra = { _isPreviewLink: true };
 
 		this.eventBus.emit('preview:inserted', { nodeId: previewNode.id });
 		return { link1, link2, previewNode };

@@ -12,7 +12,7 @@ let schemaGraph = null;
 let currentExecutionId = null;
 let pendingRemoveName = null;
 let singleMode = true;
-let previousWorkflow = null;
+let workflowDirty = true;
 
 // DOM Elements
 const $ = id => document.getElementById(id);
@@ -31,6 +31,12 @@ document.addEventListener('DOMContentLoaded', () => {
 			visualizer.addNodeAtPosition(nodeType, wx, wy);
 		}
 	};
+
+	// schemaGraph.api.events.enableDebug();
+	schemaGraph.api.events.onGraphChanged((e) => {
+		workflowDirty = true;
+		// console.log('Graph modified:', e.originalEvent);
+	});
 
 	// Create visualizer
 	visualizer = new WorkflowVisualizer(schemaGraph);
@@ -197,7 +203,7 @@ async function disconnect() {
 	visualizer.graphNodes = [];
 
 	currentExecutionId = null;
-	previousWorkflow = null;
+	workflowDirty = true;
 	
 	$('connectBtn').textContent = 'Connect';
 	$('connectBtn').classList.remove('nw-btn-danger');
@@ -340,7 +346,7 @@ async function loadSelectedWorkflow() {
 	const name = $('workflowSelect').value;
 	if (!name || !client) return;
 
-	previousWorkflow = null;
+	workflowDirty = true;
 
 	try {
 		addLog('info', `📂 Loading "${name}"...`);
@@ -408,7 +414,7 @@ async function handleSingleImport(event) {
 	const file = event.target.files?.[0];
 	if (!file) return;
 
-	previousWorkflow = null;
+	workflowDirty = true;
 
 	try {
 		const text = await file.text();
@@ -509,7 +515,7 @@ async function confirmRemoveWorkflow() {
 function clearWorkflow() {
 	if (!visualizer.currentWorkflow) return;
 
-	previousWorkflow = null;
+	workflowDirty = true;
 
 	schemaGraph.api.graph.clear();
 	schemaGraph.api.view.reset();
@@ -532,7 +538,7 @@ function clearWorkflow() {
 
 function toggleWorkflowMode() {
 	singleMode = $('singleModeSwitch').checked;
-	previousWorkflow = null;
+	workflowDirty = true;
 	
 	$('multiWorkflowControls').style.display = singleMode ? 'none' : 'block';
 	$('singleWorkflowControls').style.display = singleMode ? 'block' : 'none';
@@ -563,15 +569,14 @@ async function startExecution() {
 
 		// In single mode, sync to backend if dirty
 		if (singleMode) {
-			const workflow = visualizer.exportWorkflow();
-			const workflowDirty = !areSemanticallyEqual(workflow, previousWorkflow, true);
 			if (workflowDirty) {
-				previousWorkflow = JSON.parse(JSON.stringify(workflow))
+				const workflow = visualizer.exportWorkflow();
 				addLog('info', '⏳ Syncing workflow to backend...');
 				await client.removeWorkflow();
 				const name = visualizer.currentWorkflowName || 'single_workflow';
 				const response = await client.addWorkflow(workflow, name);
 				if (response.status === 'added' || response.status === 'updated') {
+					workflowDirty = false;
 					visualizer.currentWorkflowName = response.name;
 					$('singleWorkflowName').textContent = response.name;
 					addLog('success', `✅ Synced "${response.name}"`);
