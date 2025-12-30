@@ -100,7 +100,7 @@ class WorkflowManager:
 		if not result:
 			return None
 		if not result["backend"]:
-			result["backend"] = self._build_backend(result["workflow"])
+			self._setup(result)
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_IMPL,
 		)
@@ -122,6 +122,15 @@ class WorkflowManager:
 			"apps"     : None,
 		}
 		return result
+
+
+	def _setup(self, data: Any) -> None:
+		workflow = data["workflow"]
+		backend  = self._build_backend(workflow)
+		# TODO: add apps (servers)
+		apps     = [None] * len(backend.handles)
+		data["backend"] = backend
+		data["apps"   ] = apps
 
 
 	def _build_backend(self, workflow: Workflow) -> ImplementedBackend:
