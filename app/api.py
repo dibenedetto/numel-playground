@@ -137,9 +137,11 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 	async def get_workflow(name: Optional[str] = None):
 		nonlocal manager
 		workflow = await manager.get(name)
+		if workflow:
+			workflow = workflow["workflow"].model_dump()
 		result   = {
 			"name"     : name,
-			"workflow" : workflow.model_dump() if workflow else None,
+			"workflow" : workflow,
 		}
 		return result
 
@@ -158,10 +160,14 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 	async def start_workflow(request: WorkflowStartRequest):
 		nonlocal engine, manager
 		try:
-			workflow = await manager.get(request.name)
-			if not workflow:
+			impl = await manager.impl(request.name)
+			if not impl:
 				raise HTTPException(status_code=404, detail=f"Workflow 'request.name' not found")
-			execution_id = await engine.start_workflow(workflow=workflow, initial_data=request.initial_data)
+			execution_id = await engine.start_workflow(
+				workflow     = impl["workflow"],
+				backend      = impl["backend"],
+				initial_data = request.initial_data,
+			)
 			result = {
 				"execution_id" : execution_id,
 				"status"       : "started",

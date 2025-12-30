@@ -268,7 +268,7 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 				interfaces = [AGUI(agent=item)]
 			).get_app()
 
-			item.__bag = {
+			item.__extra = {
 				"app": app
 			}
 
@@ -333,7 +333,7 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 
 
 	def get_agent_app(agent: Any) -> FastAPI:
-		app = agent.__bag["app"]
+		app = agent.__extra["app"]
 		return app
 
 

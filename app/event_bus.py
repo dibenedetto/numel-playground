@@ -18,6 +18,7 @@ class EventType(str, Enum):
 	MANAGER_ADDED   = "manager.added"
 	MANAGER_REMOVED = "manager.removed"
 	MANAGER_GOT     = "manager.got"
+	MANAGER_IMPL    = "manager.impl"
 	MANAGER_LISTED  = "manager.listed"
 
 	# Workflow events

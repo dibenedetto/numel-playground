@@ -5,21 +5,25 @@ import copy
 
 
 # from   pathlib   import Path
-from   typing    import Dict, List, Optional
+from   typing    import Any, Dict, List, Optional
 
 
-from   event_bus import EventBus, EventType, get_event_bus
+from   event_bus import EventBus, EventType
 from   schema    import InfoConfig, Workflow, WorkflowOptionsConfig
 # from   utils     import log_print
 
 
+from nodes     import ImplementedBackend
+from impl_agno import build_backend_agno
+
+
 class WorkflowManager:
 
-	# def __init__(self, event_bus: Optional[EventBus] = None, storage_dir: str = "workflows"):
-	def __init__(self, event_bus: Optional[EventBus] = None):
-		self._event_bus  : EventBus            = event_bus or get_event_bus()
-		self._current_id : int                 = 0
-		self._workflows  : Dict[str, Workflow] = {}
+	# def __init__(self, event_bus: EventBus, storage_dir: str = "workflows"):
+	def __init__(self, event_bus: EventBus):
+		self._event_bus  : EventBus       = event_bus
+		self._current_id : int            = 0
+		self._workflows  : Dict[str, Any] = {}
 		# self._storage_dir = Path(storage_dir)
 		# self._storage_dir.mkdir(exist_ok=True)
 
@@ -32,7 +36,7 @@ class WorkflowManager:
 		)
 
 	async def create(self, name: str, description: str = None) -> Workflow:
-		workflow = Workflow(
+		wf = Workflow(
 			info = InfoConfig(
 				name        = name,
 				description = description
@@ -41,11 +45,11 @@ class WorkflowManager:
 			nodes   = [],
 			edges   = [],
 		)
-		self._workflows[name] = workflow
+		self._workflows[name] = self._make_workflow(wf)
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_CREATED,
 		)
-		return workflow
+		return wf
 
 
 	async def add(self, workflow: Workflow, name: Optional[str] = None) -> str:
@@ -57,7 +61,7 @@ class WorkflowManager:
 				self._current_id += 1
 				name = f"workflow_{self._current_id}"
 		wf.link()
-		self._workflows[name] = wf
+		self._workflows[name] = self._make_workflow(wf)
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_ADDED,
 		)
@@ -79,13 +83,26 @@ class WorkflowManager:
 
 	async def get(self, name: str) -> Optional[Workflow]:
 		if not name:
-			result = copy.deepcopy(self._workflows)
+			result = {key:copy.deepcopy(value["workflow"]) for key, value in self._workflows.items()}
 		elif name in self._workflows:
-			result = copy.deepcopy(self._workflows[name])
+			data   = self._workflows.get(name)
+			result = copy.deepcopy(data["workflow"]) if data else None
 		else:
 			return None
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_GOT,
+		)
+		return result
+
+
+	async def impl(self, name: str) -> Optional[Any]:
+		result = self._workflows.get(name)
+		if not result:
+			return None
+		if not result["backend"]:
+			result["backend"] = self._build_backend(result["workflow"])
+		await self._event_bus.emit(
+			event_type = EventType.MANAGER_IMPL,
 		)
 		return result
 
@@ -96,6 +113,19 @@ class WorkflowManager:
 			event_type = EventType.MANAGER_LISTED,
 		)
 		return result
+
+
+	def _make_workflow(self, workflow: Workflow) -> Any:
+		result = {
+			"workflow" : workflow,
+			"backend"  : None,
+			"apps"     : None,
+		}
+		return result
+
+
+	def _build_backend(self, workflow: Workflow) -> ImplementedBackend:
+		return build_backend_agno(workflow)
 
 
 	# def load(self, filepath: str, name: Optional[str] = None) -> Workflow:

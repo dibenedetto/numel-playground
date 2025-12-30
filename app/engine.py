@@ -12,12 +12,9 @@ from   pydantic    import BaseModel
 from   typing      import Any, Dict, List, Optional, Set, Tuple
 
 
-from   event_bus   import EventBus, EventType, get_event_bus
+from   event_bus   import EventBus, EventType
 from   nodes       import ImplementedBackend, NodeExecutionContext, NodeExecutionResult, create_node
 from   schema      import Edge, BaseType, BaseNode, Workflow
-
-
-from   impl_agno   import build_backend_agno
 
 
 DEFAULT_ENGINE_NODE_DELAY_SEC         : float = 0.0
@@ -52,21 +49,17 @@ class WorkflowExecutionState(BaseModel):
 	error           : Optional[str] = None
 
 
-def build_backend(workflow: Workflow) -> ImplementedBackend:
-	return build_backend_agno(workflow)
-
-
 class WorkflowEngine:
 	"""Frontier-based workflow execution engine"""
 
-	def __init__(self, event_bus: Optional[EventBus] = None):
-		self.event_bus           : EventBus                          = event_bus or get_event_bus()
+	def __init__(self, event_bus: EventBus):
+		self.event_bus           : EventBus                          = event_bus
 		self.executions          : Dict[str, WorkflowExecutionState] = {}
 		self.execution_tasks     : Dict[str, asyncio.Task]           = {}
 		self.pending_user_inputs : Dict[str, asyncio.Future]         = {}
 
 
-	async def start_workflow(self, workflow: Workflow, initial_data: Optional[Dict[str, Any]] = None) -> str:
+	async def start_workflow(self, workflow: Workflow, backend: ImplementedBackend, initial_data: Optional[Dict[str, Any]] = None) -> str:
 		"""Start a new workflow execution"""
 		execution_id = str(uuid.uuid4())
 		workflow_id  = workflow.info.name if workflow.info else "workflow"
@@ -87,13 +80,13 @@ class WorkflowEngine:
 			data         = {"initial_data": initial_data}
 		)
 
-		task = asyncio.create_task(self._execute_workflow(workflow, state, initial_data or {}))
+		task = asyncio.create_task(self._execute_workflow(workflow, backend, state, initial_data or {}))
 		self.execution_tasks[execution_id] = task
 
 		return execution_id
 
 
-	async def _execute_workflow(self, workflow: Workflow, state: WorkflowExecutionState, initial_data: Dict[str, Any]):
+	async def _execute_workflow(self, workflow: Workflow, backend: ImplementedBackend, state: WorkflowExecutionState, initial_data: Dict[str, Any]):
 		"""Main execution loop - frontier-based"""
 		try:
 			exec_delay_sec = (workflow.extra or {}).get("exec_delay_sec", DEFAULT_ENGINE_EXEC_DELAY_SEC)
@@ -112,7 +105,6 @@ class WorkflowEngine:
 			active_edges = [e for e in edges if isinstance(nodes[e.source], BaseNode) and isinstance(nodes[e.target], BaseNode)]
 
 			# Instantiate node executors
-			backend        = build_backend(workflow)
 			node_instances = self._instantiate_nodes(nodes, edges, backend)
 
 			# Build dependency graph from edges
