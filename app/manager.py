@@ -73,8 +73,7 @@ class WorkflowManager:
 
 	async def remove(self, name: Optional[str] = None) -> bool:
 		if not name:
-			names = self._workflows.keys()
-			self._workflows = {}
+			names = list(self._workflows.keys())
 		elif name in self._workflows:
 			names = [name]
 		else:
@@ -83,6 +82,8 @@ class WorkflowManager:
 			data = self._workflows[key]
 			if data["apps"]:
 				for item in data["apps"]:
+					if not item:
+						continue
 					server = item["server"]
 					task   = item["task"  ]
 					if server and server.should_exit is False:

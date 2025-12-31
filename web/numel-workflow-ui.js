@@ -417,6 +417,22 @@ async function handleFileUpload(event) {
 	event.target.value = '';
 }
 
+async function syncWorkflow() {
+	const workflow = visualizer.exportWorkflow();
+	addLog('info', '⏳ Syncing workflow to backend...');
+	await client.removeWorkflow();
+	const name = visualizer.currentWorkflowName || 'single_workflow';
+	const response = await client.addWorkflow(workflow, name);
+	if (response.status === 'added' || response.status === 'updated') {
+		workflowDirty = false;
+		visualizer.currentWorkflowName = response.name;
+		$('singleWorkflowName').textContent = response.name;
+		addLog('success', `✅ Synced "${response.name}"`);
+	} else {
+		throw new Error('Failed to sync workflow');
+	}
+}
+
 async function handleSingleImport(event) {
 	const file = event.target.files?.[0];
 	if (!file) return;
@@ -435,10 +451,10 @@ async function handleSingleImport(event) {
 		const loaded = visualizer.loadWorkflow(workflow, file.name.replace('.json', ''));
 		if (loaded) {
 			enableStart(true);
-			$('singleWorkflowName').textContent = visualizer.currentWorkflowName || 'Untitled';
+			// $('singleWorkflowName').textContent = visualizer.currentWorkflowName || 'Untitled';
 			addLog('success', `📂 Imported "${visualizer.currentWorkflowName}" (local)`);
+			await syncWorkflow();
 		}
-
 	} catch (error) {
 		addLog('error', `❌ Failed to import: ${error.message}`);
 	}
@@ -578,19 +594,7 @@ async function startExecution() {
 		// In single mode, sync to backend if dirty
 		if (singleMode) {
 			if (workflowDirty) {
-				const workflow = visualizer.exportWorkflow();
-				addLog('info', '⏳ Syncing workflow to backend...');
-				await client.removeWorkflow();
-				const name = visualizer.currentWorkflowName || 'single_workflow';
-				const response = await client.addWorkflow(workflow, name);
-				if (response.status === 'added' || response.status === 'updated') {
-					workflowDirty = false;
-					visualizer.currentWorkflowName = response.name;
-					$('singleWorkflowName').textContent = response.name;
-					addLog('success', `✅ Synced "${response.name}"`);
-				} else {
-					throw new Error('Failed to sync workflow');
-				}
+				await syncWorkflow();
 			}
 		}
 
