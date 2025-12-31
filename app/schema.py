@@ -22,6 +22,22 @@ class FieldRole(str, Enum):
 
 
 # ========================================================================
+# DECORATORS
+# ========================================================================
+
+def node_button(id: str, label: str = "", icon: str = "", position: str = "footer", **kwargs):
+	def decorator(cls):
+		return cls
+	return decorator
+
+
+def node_dropzone(accept: str = "*", area: str = "content", label: str = "Drop file here", **kwargs):
+	def decorator(cls):
+		return cls
+	return decorator
+
+
+# ========================================================================
 # BASE TYPE
 # ========================================================================
 
@@ -306,14 +322,17 @@ DEFAULT_CONTENT_DB_KNOWLEDGE_TABLE_NAME : str  = "knowledge"
 DEFAULT_CONTENT_DB_FALLBACK             : bool = False
 
 
+@node_button(id="import", label="Import", icon="📥", position="header-right")
+@node_dropzone(accept=".json,.txt", area="content", label="Drop file")
 class ContentDBConfig(BaseConfig):
-	type                 : Annotated[Literal["content_db_config"], FieldRole.CONSTANT] = "content_db_config"
-	engine               : Annotated[str                         , FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_ENGINE
-	url                  : Annotated[str                         , FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_URL
-	memory_table_name    : Annotated[str                         , FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_MEMORY_TABLE_NAME
-	session_table_name   : Annotated[str                         , FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_SESSION_TABLE_NAME
-	knowledge_table_name : Annotated[str                         , FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_KNOWLEDGE_TABLE_NAME
-	fallback             : Annotated[bool                        , FieldRole.INPUT   ] = DEFAULT_CONTENT_DB_FALLBACK
+	type                 : Annotated[Literal["content_db_config"], FieldRole.CONSTANT  ] = "content_db_config"
+	interactable         : Annotated[bool                        , FieldRole.ANNOTATION] = DEFAULT_EDGE_PREVIEW
+	engine               : Annotated[str                         , FieldRole.INPUT     ] = DEFAULT_CONTENT_DB_ENGINE
+	url                  : Annotated[str                         , FieldRole.INPUT     ] = DEFAULT_CONTENT_DB_URL
+	memory_table_name    : Annotated[str                         , FieldRole.INPUT     ] = DEFAULT_CONTENT_DB_MEMORY_TABLE_NAME
+	session_table_name   : Annotated[str                         , FieldRole.INPUT     ] = DEFAULT_CONTENT_DB_SESSION_TABLE_NAME
+	knowledge_table_name : Annotated[str                         , FieldRole.INPUT     ] = DEFAULT_CONTENT_DB_KNOWLEDGE_TABLE_NAME
+	fallback             : Annotated[bool                        , FieldRole.INPUT     ] = DEFAULT_CONTENT_DB_FALLBACK
 
 	@property
 	def get(self) -> Annotated[ContentDBConfig, FieldRole.OUTPUT]:
@@ -327,6 +346,8 @@ DEFAULT_INDEX_DB_TABLE_NAME  : str  = "documents"
 DEFAULT_INDEX_DB_FALLBACK    : bool = False
 
 
+@node_button(id="import", label="Import", icon="📥", position="header-right")
+@node_dropzone(accept=".json,.txt", area="content", label="Drop file")
 class IndexDBConfig(BaseConfig):
 	type        : Annotated[Literal["index_db_config"], FieldRole.CONSTANT] = "index_db_config"
 	engine      : Annotated[str                       , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_ENGINE
@@ -384,6 +405,8 @@ DEFAULT_KNOWLEDGE_MANAGER_QUERY       : bool = True
 DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS : int  = 10
 
 
+@node_button(id="import", label="Import", icon="📥", position="header-right")
+@node_dropzone(accept=".json,.txt", area="content", label="Drop file")
 class KnowledgeManagerConfig(BaseConfig):
 	type        : Annotated[Literal["knowledge_manager_config"], FieldRole.CONSTANT] = "knowledge_manager_config"
 	query       : Annotated[bool                               , FieldRole.INPUT   ] = DEFAULT_KNOWLEDGE_MANAGER_QUERY
