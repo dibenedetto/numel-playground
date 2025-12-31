@@ -235,6 +235,7 @@ class InteractiveExtension extends SchemaGraphExtension {
 			
 			if (node && node._dropZone?.enabled) {
 				e.preventDefault();
+				e.stopImmediatePropagation();  // <-- Add this
 				e.dataTransfer.dropEffect = 'copy';
 				
 				if (this._activeDropNode !== node) {
@@ -246,7 +247,7 @@ class InteractiveExtension extends SchemaGraphExtension {
 				this.app.draw();
 			}
 		});
-		
+
 		this.onDOM(canvas, 'dragleave', (e) => {
 			// Check if actually leaving canvas
 			const rect = canvas.getBoundingClientRect();
@@ -271,17 +272,20 @@ class InteractiveExtension extends SchemaGraphExtension {
 			
 			if (node && node._dropZone?.enabled) {
 				e.preventDefault();
-				e.stopPropagation();
+				e.stopImmediatePropagation();  // <-- Changed from stopPropagation()
 				
 				const files = Array.from(e.dataTransfer.files);
 				const dropZone = node._dropZone;
 				
-				// Filter files by accept
 				const filteredFiles = this._filterFilesByAccept(files, dropZone.accept);
 				
 				if (filteredFiles.length > 0 && dropZone.callback) {
 					dropZone.callback(node, filteredFiles, e);
 				}
+				
+				this._activeDropNode = null;
+				this.app.draw();
+				return;  // Early return
 			}
 			
 			this._activeDropNode = null;

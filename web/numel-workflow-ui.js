@@ -38,6 +38,14 @@ document.addEventListener('DOMContentLoaded', () => {
 		// console.log('Graph modified:', e.originalEvent);
 	});
 
+	schemaGraph.eventBus.on('node:buttonClicked', (data) => {
+		console.log('Button clicked:', data.buttonId, 'on node:', data.nodeId);
+	});
+
+	schemaGraph.eventBus.on('node:fileDrop', (data) => {
+		console.log('Files dropped on node:', data.nodeId, data.files);
+	});
+
 	// Create visualizer
 	visualizer = new WorkflowVisualizer(schemaGraph);
 
