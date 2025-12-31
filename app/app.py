@@ -36,7 +36,7 @@ async def run_server(args: Any):
 		seed_everything(args.seed)
 
 	event_bus   : EventBus        = get_event_bus   ()
-	manager     : WorkflowManager = WorkflowManager (event_bus)
+	manager     : WorkflowManager = WorkflowManager (args.port, event_bus)
 	engine      : WorkflowEngine  = WorkflowEngine  (event_bus)
 	schema_code : str             = getsource       (schema)
 
@@ -56,7 +56,8 @@ async def run_server(args: Any):
 
 	setup_api(server, app, event_bus, schema_code, manager, engine)
 
-	await server.serve()
+	await server  .serve  ()
+	await manager .remove ()
 
 	log_print("Server shut down.")
 

@@ -48,6 +48,12 @@ document.addEventListener('DOMContentLoaded', () => {
 	addLog('info', '🚀 Numel Workflow ready');
 });
 
+window.addEventListener('beforeunload', (e) => {
+	if (client?.isConnected) {
+		disconnect();
+	}
+});
+
 function setupEventListeners() {
 	// Connection
 	$('connectBtn').addEventListener('click', toggleConnection);
@@ -148,7 +154,7 @@ async function connect() {
 
 		// visualizer.schemaGraph.api.workflow.debug();
 
-// Connect WebSocket
+		// Connect WebSocket
 		client.connectWebSocket();
 		setupClientEvents();
 
@@ -190,6 +196,7 @@ async function disconnect() {
 	}
 
 	if (client) {
+		await client.removeWorkflow();
 		client.disconnectWebSocket();
 		client = null;
 	}
@@ -512,14 +519,15 @@ async function confirmRemoveWorkflow() {
 	}
 }
 
-function clearWorkflow() {
+async function clearWorkflow() {
 	if (!visualizer.currentWorkflow) return;
 
 	workflowDirty = true;
 
 	schemaGraph.api.graph.clear();
 	schemaGraph.api.view.reset();
-	
+	await client.removeWorkflow();
+
 	visualizer.currentWorkflow = null;
 	visualizer.currentWorkflowName = null;
 	visualizer.graphNodes = [];

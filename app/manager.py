@@ -1,7 +1,9 @@
 # manager
 
+import asyncio
 import copy
 # import json
+import uvicorn
 
 
 # from   pathlib   import Path
@@ -20,7 +22,8 @@ from impl_agno import build_backend_agno
 class WorkflowManager:
 
 	# def __init__(self, event_bus: EventBus, storage_dir: str = "workflows"):
-	def __init__(self, event_bus: EventBus):
+	def __init__(self, port: int, event_bus: EventBus):
+		self._port       : int            = port
 		self._event_bus  : EventBus       = event_bus
 		self._current_id : int            = 0
 		self._workflows  : Dict[str, Any] = {}
@@ -70,11 +73,23 @@ class WorkflowManager:
 
 	async def remove(self, name: Optional[str] = None) -> bool:
 		if not name:
+			names = self._workflows.keys()
 			self._workflows = {}
 		elif name in self._workflows:
-			del self._workflows[name]
+			names = [name]
 		else:
 			return False
+		for key in names:
+			data = self._workflows[key]
+			if data["apps"]:
+				for item in data["apps"]:
+					server = item["server"]
+					task   = item["task"  ]
+					if server and server.should_exit is False:
+						server.should_exit = True
+					if task:
+						await task
+			del self._workflows[key]
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_REMOVED,
 		)
@@ -83,28 +98,52 @@ class WorkflowManager:
 
 	async def get(self, name: str) -> Optional[Workflow]:
 		if not name:
-			result = {key:copy.deepcopy(value["workflow"]) for key, value in self._workflows.items()}
+			result = {key:value["workflow"] for key, value in self._workflows.items()}
 		elif name in self._workflows:
 			data   = self._workflows.get(name)
-			result = copy.deepcopy(data["workflow"]) if data else None
+			result = data["workflow"] if data else None
 		else:
 			return None
+		result = copy.deepcopy(result)
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_GOT,
 		)
 		return result
 
 
-	async def impl(self, name: str) -> Optional[Any]:
-		result = self._workflows.get(name)
-		if not result:
+	async def impl(self, name: str) -> Any:
+		data = self._workflows.get(name)
+		if not data:
 			return None
-		if not result["backend"]:
-			self._setup(result)
+		if data["backend"] is not None:
+			return data
+		workflow = data["workflow"]
+		backend  = self._build_backend(workflow)
+		apps     = [None] * len(backend.handles)
+		host     = "0.0.0.0"
+		port     = self._port + 1
+		for i, (node, handle) in enumerate(zip(workflow.nodes, backend.handles)):
+			if node.type != "agent_config":
+				continue
+			app    = backend.get_agent_app(handle)
+			config = uvicorn.Config(app, host=host, port=port)
+			server = uvicorn.Server(config)
+			task   = asyncio.create_task(server.serve())
+			info   = {
+				"app"    : app,
+				"config" : config,
+				"server" : server,
+				"task"   : task,
+			}
+			apps[i]   = info
+			node.port = port
+			port += 1
+		data["backend"] = backend
+		data["apps"   ] = apps
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_IMPL,
 		)
-		return result
+		return data
 
 
 	async def list(self) -> List[str]:
@@ -122,15 +161,6 @@ class WorkflowManager:
 			"apps"     : None,
 		}
 		return result
-
-
-	def _setup(self, data: Any) -> None:
-		workflow = data["workflow"]
-		backend  = self._build_backend(workflow)
-		# TODO: add apps (servers)
-		apps     = [None] * len(backend.handles)
-		data["backend"] = backend
-		data["apps"   ] = apps
 
 
 	def _build_backend(self, workflow: Workflow) -> ImplementedBackend:

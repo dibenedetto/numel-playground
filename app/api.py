@@ -1,15 +1,18 @@
 # api
 
-from fastapi   import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from pydantic  import BaseModel
-from typing    import Any, Dict, Optional
+import copy
 
 
-from engine    import WorkflowEngine
-from event_bus import EventBus
-from manager   import WorkflowManager
-from schema    import Workflow
-from utils     import get_time_str, log_print
+from   fastapi   import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from   pydantic  import BaseModel
+from   typing    import Any, Dict, Optional
+
+
+from   engine    import WorkflowEngine
+from   event_bus import EventBus
+from   manager   import WorkflowManager
+from   schema    import Workflow
+from   utils     import get_time_str, log_print
 
 
 class WorkflowUploadRequest(BaseModel):
@@ -112,10 +115,13 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 	@app.post("/add")
 	async def add_workflow(request: WorkflowUploadRequest):
 		nonlocal manager
-		name   = await manager.add(request.workflow, request.name)
+		name = await manager.add(request.workflow, request.name)
+		impl = await manager.impl(name)
+		wf   = impl["workflow"].model_dump() if impl else None
 		result = {
-			"name"   : name,
-			"status" : "added" if name else "failed",
+			"name"     : name,
+			"workflow" : wf,
+			"status"   : "added" if name else "failed",
 		}
 		return result
 

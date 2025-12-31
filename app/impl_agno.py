@@ -29,6 +29,7 @@ from   agno.vectordb.search            import SearchType
 
 from   schema                          import *
 from   nodes                           import ImplementedBackend
+from   utils                           import add_middleware
 
 
 def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
@@ -267,6 +268,8 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 				agents     = [item],
 				interfaces = [AGUI(agent=item)]
 			).get_app()
+
+			add_middleware(app)
 
 			item.__extra = {
 				"app": app

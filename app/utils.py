@@ -3,8 +3,21 @@
 import os
 
 
-from   datetime  import datetime
-from   typing    import Optional
+from   datetime                import datetime
+from   typing                  import Optional
+from   fastapi                 import FastAPI
+from   fastapi.middleware.cors import CORSMiddleware
+
+
+def get_time_str() -> str:
+	now = datetime.now()
+	res = now.strftime("%Y-%m-%d %H:%M:%S")
+	return res
+
+
+def log_print(*args, **kwargs) -> None:
+	ts = get_time_str()
+	print(f"[log {ts}]", *args, **kwargs)
 
 
 def seed_everything(seed: Optional[int] = None) -> None:
@@ -29,12 +42,11 @@ def seed_everything(seed: Optional[int] = None) -> None:
 		pass
 
 
-def get_time_str() -> str:
-	now = datetime.now()
-	res = now.strftime("%Y-%m-%d %H:%M:%S")
-	return res
-
-
-def log_print(*args, **kwargs) -> None:
-	ts = get_time_str()
-	print(f"[log {ts}]", *args, **kwargs)
+def add_middleware(app: FastAPI) -> None:
+	app.add_middleware(
+		CORSMiddleware,
+		allow_credentials = False,
+		allow_headers     = ["*"],
+		allow_methods     = ["*"],
+		allow_origins     = ["*"],
+	)

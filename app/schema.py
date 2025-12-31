@@ -435,6 +435,7 @@ class AgentOptionsConfig(BaseConfig):
 
 class AgentConfig(BaseConfig):
 	type          : Annotated[Literal["agent_config"]                            , FieldRole.CONSTANT   ] = "agent_config"
+	port          : Annotated[Optional[int]                                      , FieldRole.ANNOTATION ] = None
 	info          : Annotated[Optional[InfoConfig]                               , FieldRole.INPUT      ] = None
 	options       : Annotated[Optional[AgentOptionsConfig]                       , FieldRole.INPUT      ] = None
 	backend       : Annotated[BackendConfig                                      , FieldRole.INPUT      ] = None
