@@ -1243,16 +1243,678 @@ class WorkflowExtension extends SchemaGraphExtension {
 		
 		this.app.api = this.app.api || {};
 		this.app.api.workflow = {
+			// Existing methods...
 			registerSchema: (name, code) => self.registerWorkflowSchema(name, code),
 			import: (data, schemaName, options) => self.importWorkflow(data, schemaName, options),
 			export: (schemaName, workflowInfo, options) => self.exportWorkflow(schemaName, workflowInfo, options),
 			download: (schemaName, workflowInfo, options) => self.downloadWorkflow(schemaName, workflowInfo, options),
 			getDataFiles: (schemaName, options) => self.getDataFiles(schemaName, options),
-			isWorkflowSchema: (name) => self.graph.schemas[name]?.isWorkflow === true
+			isWorkflowSchema: (name) => self.graph.schemas[name]?.isWorkflow === true,
+			
+			// === NEW: Node lookup methods ===
+			
+			// Find graph nodes by workflow type
+			findNodesByType: (type) => self._findNodesByType(type),
+			
+			// Find first graph node by workflow type
+			findNodeByType: (type) => self._findNodesByType(type)[0] || null,
+			
+			// Find graph nodes by schema and model name
+			findNodesByModel: (schemaName, modelName) => self._findNodesByModel(schemaName, modelName),
+			
+			// Convert graph node to workflow node data
+			toWorkflowNode: (nodeOrId) => self._toWorkflowNode(nodeOrId),
+			
+			// Get graph node from workflow index
+			getNodeByWorkflowIndex: (index) => self._getNodeByWorkflowIndex(index),
+			
+			// Get all workflow nodes as array (matches export format)
+			getWorkflowNodes: () => self._getWorkflowNodes(),
+			
+			// Get workflow node by index
+			getWorkflowNodeByIndex: (index) => self._getWorkflowNodes()[index] || null,
+			
+			// Find workflow node data by type
+			findWorkflowNodesByType: (type) => self._getWorkflowNodes().filter(n => n.type === type),
+			
+			// Get graph node ID from workflow index
+			getGraphNodeIdByWorkflowIndex: (index) => {
+				const node = self._getNodeByWorkflowIndex(index);
+				return node?.id || null;
+			},
+			
+			// Get workflow index from graph node
+			getWorkflowIndex: (nodeOrId) => {
+				const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
+				return node?.workflowIndex ?? null;
+			},
+
+			// === Multi-slot management ===
+			
+			// Add a sub-slot to a multi-input field
+			addMultiInputSlot: (nodeOrId, fieldName, key) => {
+				return self._addMultiSlot(nodeOrId, fieldName, key, 'input');
+			},
+			
+			// Remove a sub-slot from a multi-input field
+			removeMultiInputSlot: (nodeOrId, fieldName, key) => {
+				return self._removeMultiSlot(nodeOrId, fieldName, key, 'input');
+			},
+			
+			// Add a sub-slot to a multi-output field
+			addMultiOutputSlot: (nodeOrId, fieldName, key) => {
+				return self._addMultiSlot(nodeOrId, fieldName, key, 'output');
+			},
+			
+			// Remove a sub-slot from a multi-output field
+			removeMultiOutputSlot: (nodeOrId, fieldName, key) => {
+				return self._removeMultiSlot(nodeOrId, fieldName, key, 'output');
+			},
+			
+			// Get current keys for a multi-input field
+			getMultiInputKeys: (nodeOrId, fieldName) => {
+				return self._getMultiSlotKeys(nodeOrId, fieldName, 'input');
+			},
+			
+			// Get current keys for a multi-output field
+			getMultiOutputKeys: (nodeOrId, fieldName) => {
+				return self._getMultiSlotKeys(nodeOrId, fieldName, 'output');
+			},
+			
+			// Set all keys for a multi-input field (replaces existing)
+			setMultiInputKeys: (nodeOrId, fieldName, keys) => {
+				return self._setMultiSlotKeys(nodeOrId, fieldName, keys, 'input');
+			},
+			
+			// Set all keys for a multi-output field (replaces existing)
+			setMultiOutputKeys: (nodeOrId, fieldName, keys) => {
+				return self._setMultiSlotKeys(nodeOrId, fieldName, keys, 'output');
+			},
+			
+			// Rename a sub-slot key
+			renameMultiInputSlot: (nodeOrId, fieldName, oldKey, newKey) => {
+				return self._renameMultiSlot(nodeOrId, fieldName, oldKey, newKey, 'input');
+			},
+			
+			renameMultiOutputSlot: (nodeOrId, fieldName, oldKey, newKey) => {
+				return self._renameMultiSlot(nodeOrId, fieldName, oldKey, newKey, 'output');
+			},
+			
+			// Get multi-field info for a node
+			getMultiFields: (nodeOrId) => {
+				return self._getMultiFields(nodeOrId);
+			}
 		};
 		
-		// Store reference for compatibility
 		this.app.workflowManager = this;
+	}
+
+	// === Implementation methods ===
+
+	_findNodesByType(type) {
+		return this.graph.nodes.filter(node => {
+			if (!node.isWorkflowNode) return false;
+			const nodeType = node.workflowType || node.constantFields?.type || node.modelName?.toLowerCase();
+			return nodeType === type;
+		});
+	}
+
+	_findNodesByModel(schemaName, modelName) {
+		return this.graph.nodes.filter(node => {
+			return node.schemaName === schemaName && node.modelName === modelName;
+		});
+	}
+
+	_getNodeByWorkflowIndex(index) {
+		return this.graph.nodes.find(node => node.workflowIndex === index) || null;
+	}
+
+	_toWorkflowNode(nodeOrId) {
+		const node = typeof nodeOrId === 'object' ? nodeOrId : this.graph.getNodeById(nodeOrId);
+		if (!node) return null;
+		
+		// Handle different node types
+		if (node.isDataNode) {
+			return this._toWorkflowDataNode(node);
+		}
+		if (node.isNative) {
+			return this._toWorkflowNativeNode(node);
+		}
+		if (node.isWorkflowNode) {
+			return this._toWorkflowSchemaNode(node);
+		}
+		
+		// Generic node
+		return {
+			type: node.type || node.title || 'unknown',
+			id: node.id,
+			index: node.workflowIndex
+		};
+	}
+
+	_toWorkflowSchemaNode(node) {
+		const workflowNode = {
+			type: node.workflowType || node.constantFields?.type || node.modelName?.toLowerCase() || 'unknown',
+			_graphId: node.id,
+			_index: node.workflowIndex
+		};
+		
+		// Add constant fields (except type which is already set)
+		if (node.constantFields) {
+			for (const key in node.constantFields) {
+				if (key !== 'type') {
+					workflowNode[key] = node.constantFields[key];
+				}
+			}
+		}
+		
+		// Add multi-input slot keys
+		for (const [baseName, slotIndices] of Object.entries(node.multiInputSlots || {})) {
+			const keys = slotIndices.map(idx => {
+				const name = node.inputs[idx].name;
+				const dotIdx = name.indexOf('.');
+				return dotIdx !== -1 ? name.substring(dotIdx + 1) : null;
+			}).filter(Boolean);
+			if (keys.length > 0) workflowNode[baseName] = keys;
+		}
+		
+		// Add multi-output slot keys
+		for (const [baseName, slotIndices] of Object.entries(node.multiOutputSlots || {})) {
+			const keys = slotIndices.map(idx => {
+				const name = node.outputs[idx].name;
+				const dotIdx = name.indexOf('.');
+				return dotIdx !== -1 ? name.substring(dotIdx + 1) : null;
+			}).filter(Boolean);
+			if (keys.length > 0) workflowNode[baseName] = keys;
+		}
+		
+		// Add input values (both native and connected)
+		for (let i = 0; i < node.inputs.length; i++) {
+			const input = node.inputs[i];
+			const baseName = input.name.split('.')[0];
+			
+			// Skip multi-input base names (already handled above)
+			if (node.multiInputSlots?.[baseName]) continue;
+			
+			// Check for connected data first
+			if (input.link) {
+				const connectedData = node.getInputData(i);
+				if (connectedData !== undefined && connectedData !== null) {
+					workflowNode[input.name] = connectedData;
+				}
+			} 
+			// Then check native input value
+			else if (node.nativeInputs?.[i] !== undefined) {
+				const nativeInput = node.nativeInputs[i];
+				const val = nativeInput.value;
+				if (val !== null && val !== undefined && val !== '') {
+					workflowNode[input.name] = this._convertNativeValue(val, nativeInput.type);
+				}
+			}
+		}
+		
+		return workflowNode;
+	}
+
+	_toWorkflowDataNode(node) {
+		const typeMap = {
+			'text': 'data_text',
+			'document': 'data_document',
+			'image': 'data_image',
+			'audio': 'data_audio',
+			'video': 'data_video',
+			'model3d': 'data_model3d',
+			'binary': 'data_binary'
+		};
+		
+		const workflowNode = {
+			type: typeMap[node.dataType] || 'data',
+			source_type: node.sourceType || 'none',
+			_graphId: node.id,
+			_index: node.workflowIndex
+		};
+		
+		if (node.sourceType === 'url') {
+			workflowNode.source_url = node.sourceUrl || '';
+		} else if (node.sourceType === 'file' || node.sourceType === 'inline') {
+			if (node.sourceData) {
+				workflowNode.source_data = node.sourceData;
+			}
+		}
+		
+		if (node.sourceMeta) {
+			workflowNode.source_meta = {
+				filename: node.sourceMeta.filename || null,
+				mime_type: node.sourceMeta.mimeType || null,
+				size: node.sourceMeta.size || null
+			};
+		}
+		
+		return workflowNode;
+	}
+
+	_toWorkflowNativeNode(node) {
+		const typeMap = {
+			'String': 'native_string',
+			'Integer': 'native_integer',
+			'Float': 'native_float',
+			'Boolean': 'native_boolean',
+			'List': 'native_list',
+			'Dict': 'native_dict'
+		};
+		
+		return {
+			type: typeMap[node.title] || 'native_string',
+			value: node.properties?.value,
+			_graphId: node.id,
+			_index: node.workflowIndex
+		};
+	}
+
+	_getWorkflowNodes() {
+		// Get all exportable nodes sorted by workflow index
+		const nodes = this.graph.nodes
+			.filter(n => !n.isPreviewNode)
+			.sort((a, b) => {
+				if (a.workflowIndex !== undefined && b.workflowIndex !== undefined) {
+					return a.workflowIndex - b.workflowIndex;
+				}
+				return (a.id || 0) - (b.id || 0);
+			});
+		
+		return nodes.map(node => this._toWorkflowNode(node));
+	}
+
+	_convertNativeValue(val, type) {
+		if (val === null || val === undefined) return val;
+		if ((type === 'dict' || type === 'list') && typeof val === 'string') {
+			try { return JSON.parse(val); } catch { return val; }
+		}
+		return val;
+	}
+
+	// === Multi-slot implementation ===
+
+	_getNode(nodeOrId) {
+		return typeof nodeOrId === 'object' ? nodeOrId : this.graph.getNodeById(nodeOrId);
+	}
+
+	_getMultiFields(nodeOrId) {
+		const node = this._getNode(nodeOrId);
+		if (!node) return null;
+		
+		const result = {
+			inputs: {},
+			outputs: {}
+		};
+		
+		for (const [fieldName, slotIndices] of Object.entries(node.multiInputSlots || {})) {
+			result.inputs[fieldName] = slotIndices.map(idx => {
+				const name = node.inputs[idx]?.name || '';
+				const dotIdx = name.indexOf('.');
+				return dotIdx !== -1 ? name.substring(dotIdx + 1) : name;
+			});
+		}
+		
+		for (const [fieldName, slotIndices] of Object.entries(node.multiOutputSlots || {})) {
+			result.outputs[fieldName] = slotIndices.map(idx => {
+				const name = node.outputs[idx]?.name || '';
+				const dotIdx = name.indexOf('.');
+				return dotIdx !== -1 ? name.substring(dotIdx + 1) : name;
+			});
+		}
+		
+		return result;
+	}
+
+	_getMultiSlotKeys(nodeOrId, fieldName, type) {
+		const node = this._getNode(nodeOrId);
+		if (!node) return [];
+		
+		const slotsMap = type === 'input' ? node.multiInputSlots : node.multiOutputSlots;
+		const slots = type === 'input' ? node.inputs : node.outputs;
+		const slotIndices = slotsMap?.[fieldName];
+		
+		if (!slotIndices) return [];
+		
+		return slotIndices.map(idx => {
+			const name = slots[idx]?.name || '';
+			const dotIdx = name.indexOf('.');
+			return dotIdx !== -1 ? name.substring(dotIdx + 1) : name;
+		});
+	}
+
+	_addMultiSlot(nodeOrId, fieldName, key, type) {
+		const node = this._getNode(nodeOrId);
+		if (!node) return false;
+		
+		const slotsMap = type === 'input' ? node.multiInputSlots : node.multiOutputSlots;
+		const slots = type === 'input' ? node.inputs : node.outputs;
+		
+		if (!slotsMap?.[fieldName]) {
+			console.warn(`[Workflow] Field "${fieldName}" is not a multi-${type} field`);
+			return false;
+		}
+		
+		// Check if key already exists
+		const existingKeys = this._getMultiSlotKeys(node, fieldName, type);
+		if (existingKeys.includes(key)) {
+			console.warn(`[Workflow] Key "${key}" already exists in ${fieldName}`);
+			return false;
+		}
+		
+		// Get the type from existing slots or schema
+		const existingSlotIdx = slotsMap[fieldName][0];
+		const existingSlot = slots[existingSlotIdx];
+		const slotType = existingSlot?.type || 'Any';
+		
+		// Find insertion position (after last slot of this field)
+		const lastIdx = Math.max(...slotsMap[fieldName]);
+		const insertIdx = lastIdx + 1;
+		
+		// Create new slot
+		const slotName = `${fieldName}.${key}`;
+		const newSlot = {
+			name: slotName,
+			type: slotType,
+			link: null,
+			links: type === 'output' ? [] : undefined
+		};
+		
+		if (type === 'output') {
+			newSlot.links = [];
+			delete newSlot.link;
+		}
+		
+		// Insert slot at correct position
+		slots.splice(insertIdx, 0, newSlot);
+		
+		// Update slot indices for this field
+		slotsMap[fieldName].push(insertIdx);
+		
+		// Update indices for other multi-fields that come after
+		this._adjustSlotIndicesAfterInsert(node, insertIdx, type);
+		
+		// Update native inputs if applicable
+		if (type === 'input' && node.nativeInputs) {
+			this._adjustNativeInputsAfterInsert(node, insertIdx);
+		}
+		
+		// Update link references
+		this._adjustLinkIndicesAfterInsert(node, insertIdx, type);
+		
+		// Resize node
+		this._resizeNode(node);
+		
+		// Emit event
+		this.eventBus.emit('node:slotAdded', {
+			nodeId: node.id,
+			fieldName,
+			key,
+			type,
+			slotIndex: insertIdx
+		});
+		
+		this.app.draw?.();
+		return true;
+	}
+
+	_removeMultiSlot(nodeOrId, fieldName, key, type) {
+		const node = this._getNode(nodeOrId);
+		if (!node) return false;
+		
+		const slotsMap = type === 'input' ? node.multiInputSlots : node.multiOutputSlots;
+		const slots = type === 'input' ? node.inputs : node.outputs;
+		
+		if (!slotsMap?.[fieldName]) {
+			console.warn(`[Workflow] Field "${fieldName}" is not a multi-${type} field`);
+			return false;
+		}
+		
+		// Find the slot index for this key
+		const slotName = `${fieldName}.${key}`;
+		const slotIdx = slotsMap[fieldName].find(idx => slots[idx]?.name === slotName);
+		
+		if (slotIdx === undefined) {
+			console.warn(`[Workflow] Key "${key}" not found in ${fieldName}`);
+			return false;
+		}
+		
+		// Don't allow removing last slot
+		if (slotsMap[fieldName].length <= 1) {
+			console.warn(`[Workflow] Cannot remove last slot of ${fieldName}`);
+			return false;
+		}
+		
+		// Disconnect any links to this slot
+		this._disconnectSlot(node, slotIdx, type);
+		
+		// Remove from slots array
+		slots.splice(slotIdx, 1);
+		
+		// Remove from field's slot indices
+		const fieldIdxPos = slotsMap[fieldName].indexOf(slotIdx);
+		slotsMap[fieldName].splice(fieldIdxPos, 1);
+		
+		// Update indices for this field (slots after removed one shift down)
+		slotsMap[fieldName] = slotsMap[fieldName].map(idx => idx > slotIdx ? idx - 1 : idx);
+		
+		// Update indices for other multi-fields
+		this._adjustSlotIndicesAfterRemove(node, slotIdx, type);
+		
+		// Update native inputs
+		if (type === 'input' && node.nativeInputs) {
+			this._adjustNativeInputsAfterRemove(node, slotIdx);
+		}
+		
+		// Update link references
+		this._adjustLinkIndicesAfterRemove(node, slotIdx, type);
+		
+		// Resize node
+		this._resizeNode(node);
+		
+		// Emit event
+		this.eventBus.emit('node:slotRemoved', {
+			nodeId: node.id,
+			fieldName,
+			key,
+			type
+		});
+		
+		this.app.draw?.();
+		return true;
+	}
+
+	_setMultiSlotKeys(nodeOrId, fieldName, keys, type) {
+		const node = this._getNode(nodeOrId);
+		if (!node) return false;
+		
+		const slotsMap = type === 'input' ? node.multiInputSlots : node.multiOutputSlots;
+		
+		if (!slotsMap?.[fieldName]) {
+			console.warn(`[Workflow] Field "${fieldName}" is not a multi-${type} field`);
+			return false;
+		}
+		
+		if (!Array.isArray(keys) || keys.length === 0) {
+			console.warn(`[Workflow] Keys must be a non-empty array`);
+			return false;
+		}
+		
+		const currentKeys = this._getMultiSlotKeys(node, fieldName, type);
+		
+		// Remove keys that are no longer needed
+		for (const key of currentKeys) {
+			if (!keys.includes(key)) {
+				this._removeMultiSlot(node, fieldName, key, type);
+			}
+		}
+		
+		// Add new keys
+		for (const key of keys) {
+			if (!currentKeys.includes(key)) {
+				this._addMultiSlot(node, fieldName, key, type);
+			}
+		}
+		
+		// Reorder to match requested order
+		this._reorderMultiSlots(node, fieldName, keys, type);
+		
+		return true;
+	}
+
+	_renameMultiSlot(nodeOrId, fieldName, oldKey, newKey, type) {
+		const node = this._getNode(nodeOrId);
+		if (!node) return false;
+		
+		const slotsMap = type === 'input' ? node.multiInputSlots : node.multiOutputSlots;
+		const slots = type === 'input' ? node.inputs : node.outputs;
+		
+		if (!slotsMap?.[fieldName]) {
+			console.warn(`[Workflow] Field "${fieldName}" is not a multi-${type} field`);
+			return false;
+		}
+		
+		const oldSlotName = `${fieldName}.${oldKey}`;
+		const newSlotName = `${fieldName}.${newKey}`;
+		
+		// Find the slot
+		const slotIdx = slotsMap[fieldName].find(idx => slots[idx]?.name === oldSlotName);
+		
+		if (slotIdx === undefined) {
+			console.warn(`[Workflow] Key "${oldKey}" not found in ${fieldName}`);
+			return false;
+		}
+		
+		// Check new key doesn't exist
+		const existingKeys = this._getMultiSlotKeys(node, fieldName, type);
+		if (existingKeys.includes(newKey)) {
+			console.warn(`[Workflow] Key "${newKey}" already exists in ${fieldName}`);
+			return false;
+		}
+		
+		// Rename
+		slots[slotIdx].name = newSlotName;
+		
+		this.eventBus.emit('node:slotRenamed', {
+			nodeId: node.id,
+			fieldName,
+			oldKey,
+			newKey,
+			type
+		});
+		
+		this.app.draw?.();
+		return true;
+	}
+
+	_disconnectSlot(node, slotIdx, type) {
+		if (type === 'input') {
+			const linkId = node.inputs[slotIdx]?.link;
+			if (linkId) {
+				this.graph.removeLink(linkId);
+			}
+		} else {
+			const linkIds = node.outputs[slotIdx]?.links || [];
+			for (const linkId of [...linkIds]) {
+				this.graph.removeLink(linkId);
+			}
+		}
+	}
+
+	_adjustSlotIndicesAfterInsert(node, insertIdx, type) {
+		const slotsMap = type === 'input' ? node.multiInputSlots : node.multiOutputSlots;
+		
+		for (const [fieldName, indices] of Object.entries(slotsMap)) {
+			slotsMap[fieldName] = indices.map(idx => idx >= insertIdx && idx !== insertIdx ? idx + 1 : idx);
+		}
+	}
+
+	_adjustSlotIndicesAfterRemove(node, removeIdx, type) {
+		const slotsMap = type === 'input' ? node.multiInputSlots : node.multiOutputSlots;
+		
+		for (const [fieldName, indices] of Object.entries(slotsMap)) {
+			slotsMap[fieldName] = indices.map(idx => idx > removeIdx ? idx - 1 : idx);
+		}
+	}
+
+	_adjustNativeInputsAfterInsert(node, insertIdx) {
+		const newNativeInputs = {};
+		for (const [idx, value] of Object.entries(node.nativeInputs)) {
+			const numIdx = parseInt(idx);
+			if (numIdx >= insertIdx) {
+				newNativeInputs[numIdx + 1] = value;
+			} else {
+				newNativeInputs[numIdx] = value;
+			}
+		}
+		node.nativeInputs = newNativeInputs;
+	}
+
+	_adjustNativeInputsAfterRemove(node, removeIdx) {
+		const newNativeInputs = {};
+		for (const [idx, value] of Object.entries(node.nativeInputs)) {
+			const numIdx = parseInt(idx);
+			if (numIdx === removeIdx) {
+				continue; // Skip removed
+			} else if (numIdx > removeIdx) {
+				newNativeInputs[numIdx - 1] = value;
+			} else {
+				newNativeInputs[numIdx] = value;
+			}
+		}
+		node.nativeInputs = newNativeInputs;
+	}
+
+	_adjustLinkIndicesAfterInsert(node, insertIdx, type) {
+		// Update all links that reference slots after insertIdx
+		for (const linkId in this.graph.links) {
+			const link = this.graph.links[linkId];
+			
+			if (type === 'input' && link.target_id === node.id) {
+				if (link.target_slot >= insertIdx) {
+					link.target_slot++;
+				}
+			} else if (type === 'output' && link.origin_id === node.id) {
+				if (link.origin_slot >= insertIdx) {
+					link.origin_slot++;
+				}
+			}
+		}
+	}
+
+	_adjustLinkIndicesAfterRemove(node, removeIdx, type) {
+		for (const linkId in this.graph.links) {
+			const link = this.graph.links[linkId];
+			
+			if (type === 'input' && link.target_id === node.id) {
+				if (link.target_slot > removeIdx) {
+					link.target_slot--;
+				}
+			} else if (type === 'output' && link.origin_id === node.id) {
+				if (link.origin_slot > removeIdx) {
+					link.origin_slot--;
+				}
+			}
+		}
+	}
+
+	_reorderMultiSlots(node, fieldName, keys, type) {
+		// TODO: Implement slot reordering if needed
+		// This is complex as it requires careful link and index management
+	}
+
+	_resizeNode(node) {
+		const maxSlots = Math.max(node.inputs?.length || 0, node.outputs?.length || 0, 1);
+		const minHeight = Math.max(80, 35 + maxSlots * 25);
+		
+		if (node.size[1] < minHeight) {
+			node.size[1] = minHeight;
+		}
+		
+		if (node.minSize) {
+			node.minSize[1] = Math.max(node.minSize[1], minHeight);
+		}
 	}
 
 	registerWorkflowSchema(schemaName, schemaCode) {
