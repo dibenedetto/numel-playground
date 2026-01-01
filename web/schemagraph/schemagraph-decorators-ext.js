@@ -23,26 +23,57 @@ class NodeDecoratorParser {
 		
 		const lines = code.split('\n');
 		let pendingDecorators = [];
+		let accumulatingDecorator = null;
+		let accumulatingType = null;
+		let bracketDepth = 0;
 		
 		for (let i = 0; i < lines.length; i++) {
 			const line = lines[i];
 			const trimmed = line.trim();
 			
-			// Check for decorator
-			const buttonMatch = trimmed.match(/^@node_button\s*\((.+)\)\s*$/);
-			if (buttonMatch) {
-				const config = this._parseDecoratorArgs(buttonMatch[1]);
-				if (config) {
-					pendingDecorators.push({ type: DecoratorType.BUTTON, config });
+			// If we're accumulating a multi-line decorator
+			if (accumulatingDecorator !== null) {
+				accumulatingDecorator += ' ' + trimmed;
+				
+				for (const char of trimmed) {
+					if (char === '(') bracketDepth++;
+					else if (char === ')') bracketDepth--;
+				}
+				
+				if (bracketDepth === 0) {
+					const config = this._parseAccumulatedDecorator(accumulatingDecorator, accumulatingType);
+					if (config) {
+						pendingDecorators.push({ type: accumulatingType, config });
+					}
+					accumulatingDecorator = null;
+					accumulatingType = null;
 				}
 				continue;
 			}
 			
-			const dropzoneMatch = trimmed.match(/^@node_dropzone\s*\((.+)\)\s*$/);
-			if (dropzoneMatch) {
-				const config = this._parseDecoratorArgs(dropzoneMatch[1]);
-				if (config) {
-					pendingDecorators.push({ type: DecoratorType.DROPZONE, config });
+			// Check for decorator start
+			const buttonStart = trimmed.startsWith('@node_button');
+			const dropzoneStart = trimmed.startsWith('@node_dropzone');
+			
+			if (buttonStart || dropzoneStart) {
+				const decoratorType = buttonStart ? DecoratorType.BUTTON : DecoratorType.DROPZONE;
+				
+				bracketDepth = 0;
+				for (const char of trimmed) {
+					if (char === '(') bracketDepth++;
+					else if (char === ')') bracketDepth--;
+				}
+				
+				if (bracketDepth === 0) {
+					// Single-line decorator
+					const config = this._parseAccumulatedDecorator(trimmed, decoratorType);
+					if (config) {
+						pendingDecorators.push({ type: decoratorType, config });
+					}
+				} else {
+					// Multi-line decorator
+					accumulatingDecorator = trimmed;
+					accumulatingType = decoratorType;
 				}
 				continue;
 			}
@@ -56,13 +87,25 @@ class NodeDecoratorParser {
 				continue;
 			}
 			
-			// Non-decorator, non-class line clears pending (unless empty/comment)
+			// Non-decorator, non-class line clears pending
 			if (trimmed && !trimmed.startsWith('#') && !trimmed.startsWith('@')) {
 				pendingDecorators = [];
 			}
 		}
 		
 		return this.decorators;
+	}
+
+	_parseAccumulatedDecorator(decoratorStr, type) {
+		const pattern = type === DecoratorType.BUTTON 
+			? /^@node_button\s*\((.+)\)\s*$/
+			: /^@node_dropzone\s*\((.+)\)\s*$/;
+		
+		const match = decoratorStr.match(pattern);
+		if (match) {
+			return this._parseDecoratorArgs(match[1]);
+		}
+		return null;
 	}
 
 	_parseDecoratorArgs(argsStr) {

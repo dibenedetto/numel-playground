@@ -37,6 +37,11 @@ def node_dropzone(accept: str = "*", area: str = "content", label: str = "Drop f
 	return decorator
 
 
+def node_chat(**kwargs):
+	def decorator(cls): return cls
+	return decorator
+
+
 # ========================================================================
 # BASE TYPE
 # ========================================================================
@@ -579,9 +584,21 @@ class ToolCall(BaseInteractive):
 	config : Annotated[ToolConfig          , FieldRole.INPUT   ] = None
 
 
+@node_chat(
+	title               = "Agent Chat",
+	placeholder         = "Ask the agent...",
+	config_field        = "config",
+	system_prompt_field = "system_prompt",
+	min_width           = 350,
+	min_height          = 450,
+	show_timestamps     = True,
+	stream_response     = True
+)
 class AgentChat(BaseInteractive):
-	type   : Annotated[Literal["agent_chat"], FieldRole.CONSTANT] = "agent_chat"
-	config : Annotated[AgentConfig          , FieldRole.INPUT   ] = None
+	type          : Annotated[Literal["agent_chat"], FieldRole.CONSTANT] = "agent_chat"
+	config        : Annotated[AgentConfig          , FieldRole.INPUT   ] = None
+	system_prompt : Annotated[Optional[str]        , FieldRole.INPUT   ] = None
+	response      : Annotated[str                  , FieldRole.OUTPUT  ] = None
 
 
 # ========================================================================
