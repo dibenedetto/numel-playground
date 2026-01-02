@@ -21,6 +21,15 @@
 		},
 		{
 			"type" : "end_node"
+		},
+		{
+			"type"   : "route_node",
+			"output" : ["o1", "o2", "o3"]
+		},
+		{
+			"type"   : "combine_node",
+			"input"  : ["ippo", "s13"],
+			"output" : ["bu", "tr32!", "rovy"]
 		}
 	],
 	"edges" : [

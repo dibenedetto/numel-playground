@@ -247,6 +247,7 @@ class WorkflowVisualizer {
 		}, 0);
 
 		console.log(`✅ Loaded workflow: ${this.currentWorkflowName}`);
+
 		return true;
 	}
 

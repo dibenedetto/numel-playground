@@ -25,6 +25,9 @@ class MultiSlotUIExtension extends SchemaGraphExtension {
 	_extendAPI() {
 		const self = this;
 		
+		// Store reference for drawing code
+		this.app.multiSlotUI = this;
+		
 		this.app.api = this.app.api || {};
 		this.app.api.multiSlotUI = {
 			showManager: (nodeOrId, fieldName, type) => self._showSlotManager(nodeOrId, fieldName, type),
@@ -38,6 +41,161 @@ class MultiSlotUIExtension extends SchemaGraphExtension {
 		const style = document.createElement('style');
 		style.id = 'sg-multislot-ui-styles';
 		style.textContent = `
+			/* Input/Confirm Dialog */
+			.sg-input-dialog-overlay {
+				position: fixed;
+				top: 0;
+				left: 0;
+				right: 0;
+				bottom: 0;
+				background: rgba(0, 0, 0, 0.6);
+				z-index: 10000;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+			}
+			
+			.sg-input-dialog {
+				background: var(--sg-bg-secondary);
+				border: 1px solid var(--sg-border-color);
+				border-radius: 8px;
+				min-width: 300px;
+				max-width: 400px;
+				box-shadow: 0 8px 32px var(--sg-node-shadow);
+				animation: sg-dialog-appear 0.15s ease-out;
+			}
+			
+			@keyframes sg-dialog-appear {
+				from { opacity: 0; transform: scale(0.95); }
+				to { opacity: 1; transform: scale(1); }
+			}
+			
+			.sg-input-dialog-header {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				padding: 12px 16px;
+				border-bottom: 1px solid var(--sg-border-color);
+				background: var(--sg-node-header);
+				border-radius: 8px 8px 0 0;
+			}
+			
+			.sg-input-dialog-title {
+				font-weight: 600;
+				color: var(--sg-text-primary);
+				font-size: 14px;
+			}
+			
+			.sg-input-dialog-close {
+				background: none;
+				border: none;
+				color: var(--sg-text-tertiary);
+				font-size: 20px;
+				cursor: pointer;
+				padding: 0;
+				width: 24px;
+				height: 24px;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				border-radius: 4px;
+				line-height: 1;
+			}
+			
+			.sg-input-dialog-close:hover {
+				background: var(--sg-bg-tertiary);
+				color: var(--sg-text-primary);
+			}
+			
+			.sg-input-dialog-body {
+				padding: 16px;
+				background: var(--sg-bg-secondary);
+			}
+			
+			.sg-input-dialog-label {
+				display: block;
+				color: var(--sg-text-secondary);
+				font-size: 13px;
+				margin-bottom: 8px;
+			}
+			
+			.sg-input-dialog-input {
+				width: 100%;
+				background: var(--sg-bg-primary);
+				border: 1px solid var(--sg-border-color);
+				border-radius: 4px;
+				padding: 10px 12px;
+				color: var(--sg-text-primary);
+				font-size: 14px;
+				font-family: 'Monaco', 'Menlo', monospace;
+				box-sizing: border-box;
+			}
+			
+			.sg-input-dialog-input:focus {
+				outline: none;
+				border-color: var(--sg-accent-blue);
+				box-shadow: 0 0 0 2px rgba(70, 162, 218, 0.3);
+			}
+			
+			.sg-input-dialog-input::placeholder {
+				color: var(--sg-text-tertiary);
+			}
+			
+			.sg-confirm-dialog-message {
+				color: var(--sg-text-secondary);
+				font-size: 14px;
+				margin: 0;
+				line-height: 1.5;
+			}
+			
+			.sg-input-dialog-footer {
+				display: flex;
+				justify-content: flex-end;
+				gap: 8px;
+				padding: 12px 16px;
+				border-top: 1px solid var(--sg-border-color);
+				background: var(--sg-bg-tertiary);
+				border-radius: 0 0 8px 8px;
+			}
+			
+			.sg-input-dialog-btn {
+				padding: 8px 16px;
+				border-radius: 4px;
+				font-size: 13px;
+				font-weight: 500;
+				cursor: pointer;
+				border: 1px solid transparent;
+				transition: all 0.15s;
+			}
+			
+			.sg-input-dialog-cancel {
+				background: var(--sg-bg-quaternary);
+				color: var(--sg-text-secondary);
+				border-color: var(--sg-border-color);
+			}
+			
+			.sg-input-dialog-cancel:hover {
+				background: var(--sg-bg-tertiary);
+				color: var(--sg-text-primary);
+			}
+			
+			.sg-input-dialog-confirm {
+				background: var(--sg-accent-blue);
+				color: var(--sg-text-primary);
+			}
+			
+			.sg-input-dialog-confirm:hover {
+				background: var(--sg-accent-blue-light);
+			}
+			
+			.sg-input-dialog-confirm.sg-confirm-danger {
+				background: var(--sg-accent-red);
+			}
+			
+			.sg-input-dialog-confirm.sg-confirm-danger:hover {
+				background: var(--sg-error-text);
+			}
+			
 			/* Slot Manager Modal */
 			.sg-slot-manager-overlay {
 				position: fixed;
@@ -53,15 +211,15 @@ class MultiSlotUIExtension extends SchemaGraphExtension {
 			}
 			
 			.sg-slot-manager {
-				background: #1a1d21;
-				border: 1px solid #3a3f44;
+				background: var(--sg-bg-secondary);
+				border: 1px solid var(--sg-border-color);
 				border-radius: 8px;
 				min-width: 320px;
 				max-width: 480px;
 				max-height: 80vh;
 				display: flex;
 				flex-direction: column;
-				box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+				box-shadow: 0 8px 32px var(--sg-node-shadow);
 			}
 			
 			.sg-slot-manager-header {
@@ -69,21 +227,21 @@ class MultiSlotUIExtension extends SchemaGraphExtension {
 				justify-content: space-between;
 				align-items: center;
 				padding: 12px 16px;
-				border-bottom: 1px solid #3a3f44;
-				background: linear-gradient(135deg, #2d5a7b, #1e3a5f);
+				border-bottom: 1px solid var(--sg-border-color);
+				background: var(--sg-node-header);
 				border-radius: 8px 8px 0 0;
 			}
 			
 			.sg-slot-manager-title {
 				font-weight: 600;
-				color: #fff;
+				color: var(--sg-text-primary);
 				font-size: 14px;
 			}
 			
 			.sg-slot-manager-close {
 				background: none;
 				border: none;
-				color: #888;
+				color: var(--sg-text-tertiary);
 				font-size: 20px;
 				cursor: pointer;
 				padding: 0;
@@ -96,14 +254,15 @@ class MultiSlotUIExtension extends SchemaGraphExtension {
 			}
 			
 			.sg-slot-manager-close:hover {
-				background: rgba(255, 255, 255, 0.1);
-				color: #fff;
+				background: var(--sg-bg-tertiary);
+				color: var(--sg-text-primary);
 			}
 			
 			.sg-slot-manager-body {
 				padding: 16px;
 				overflow-y: auto;
 				flex: 1;
+				background: var(--sg-bg-secondary);
 			}
 			
 			.sg-slot-manager-list {
@@ -117,39 +276,39 @@ class MultiSlotUIExtension extends SchemaGraphExtension {
 				align-items: center;
 				gap: 8px;
 				padding: 8px 12px;
-				background: rgba(255, 255, 255, 0.05);
-				border: 1px solid rgba(255, 255, 255, 0.1);
+				background: var(--sg-bg-tertiary);
+				border: 1px solid var(--sg-border-color);
 				border-radius: 6px;
 			}
 			
 			.sg-slot-item-key {
 				flex: 1;
-				background: rgba(0, 0, 0, 0.3);
-				border: 1px solid rgba(255, 255, 255, 0.1);
+				background: var(--sg-bg-primary);
+				border: 1px solid var(--sg-border-color);
 				border-radius: 4px;
 				padding: 6px 10px;
-				color: #fff;
+				color: var(--sg-text-primary);
 				font-size: 13px;
 				font-family: 'Monaco', 'Menlo', monospace;
 			}
 			
 			.sg-slot-item-key:focus {
 				outline: none;
-				border-color: #2d5a7b;
+				border-color: var(--sg-accent-blue);
 			}
 			
 			.sg-slot-item-connected {
 				font-size: 10px;
-				color: #5cb85c;
+				color: var(--sg-accent-green);
 				padding: 2px 6px;
-				background: rgba(92, 184, 92, 0.2);
+				background: var(--sg-bg-quaternary);
 				border-radius: 3px;
 			}
 			
 			.sg-slot-item-btn {
 				background: none;
 				border: none;
-				color: #888;
+				color: var(--sg-text-tertiary);
 				font-size: 14px;
 				cursor: pointer;
 				padding: 4px;
@@ -160,13 +319,13 @@ class MultiSlotUIExtension extends SchemaGraphExtension {
 			}
 			
 			.sg-slot-item-btn:hover {
-				background: rgba(255, 255, 255, 0.1);
-				color: #fff;
+				background: var(--sg-bg-quaternary);
+				color: var(--sg-text-primary);
 			}
 			
 			.sg-slot-item-btn.delete:hover {
-				background: rgba(217, 83, 79, 0.3);
-				color: #f88;
+				background: var(--sg-error-bg);
+				color: var(--sg-error-text);
 			}
 			
 			.sg-slot-item-btn:disabled {
@@ -179,8 +338,8 @@ class MultiSlotUIExtension extends SchemaGraphExtension {
 				justify-content: space-between;
 				align-items: center;
 				padding: 12px 16px;
-				border-top: 1px solid #3a3f44;
-				background: rgba(0, 0, 0, 0.2);
+				border-top: 1px solid var(--sg-border-color);
+				background: var(--sg-bg-tertiary);
 				border-radius: 0 0 8px 8px;
 			}
 			
@@ -192,27 +351,27 @@ class MultiSlotUIExtension extends SchemaGraphExtension {
 			
 			.sg-slot-add-input {
 				flex: 1;
-				background: rgba(0, 0, 0, 0.3);
-				border: 1px solid rgba(255, 255, 255, 0.1);
+				background: var(--sg-bg-primary);
+				border: 1px solid var(--sg-border-color);
 				border-radius: 4px;
 				padding: 8px 12px;
-				color: #fff;
+				color: var(--sg-text-primary);
 				font-size: 13px;
 			}
 			
 			.sg-slot-add-input:focus {
 				outline: none;
-				border-color: #2d5a7b;
+				border-color: var(--sg-accent-blue);
 			}
 			
 			.sg-slot-add-input::placeholder {
-				color: #555;
+				color: var(--sg-text-tertiary);
 			}
 			
 			.sg-slot-add-btn {
-				background: #2d5a7b;
+				background: var(--sg-accent-blue);
 				border: none;
-				color: #fff;
+				color: var(--sg-text-primary);
 				padding: 8px 16px;
 				border-radius: 4px;
 				cursor: pointer;
@@ -221,12 +380,12 @@ class MultiSlotUIExtension extends SchemaGraphExtension {
 			}
 			
 			.sg-slot-add-btn:hover {
-				background: #3d7a9b;
+				background: var(--sg-accent-blue-light);
 			}
 			
 			.sg-slot-empty {
 				text-align: center;
-				color: #666;
+				color: var(--sg-text-tertiary);
 				padding: 20px;
 				font-style: italic;
 			}
@@ -241,18 +400,18 @@ class MultiSlotUIExtension extends SchemaGraphExtension {
 				position: absolute;
 				right: 8px;
 				font-size: 8px;
-				color: #888;
+				color: var(--sg-text-tertiary);
 			}
 			
 			.sg-context-submenu {
 				position: absolute;
 				left: 100%;
 				top: 0;
-				background: var(--sg-surface, #1a1a1a);
-				border: 1px solid var(--sg-border-color, #333);
+				background: var(--sg-bg-secondary);
+				border: 1px solid var(--sg-border-color);
 				border-radius: 6px;
 				min-width: 160px;
-				box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+				box-shadow: 0 4px 12px var(--sg-node-shadow);
 				display: none;
 				z-index: 1001;
 			}
@@ -263,6 +422,137 @@ class MultiSlotUIExtension extends SchemaGraphExtension {
 		`;
 		
 		document.head.appendChild(style);
+	}
+
+	// ================================================================
+	// Dialog Helpers
+	// ================================================================
+
+	_showInputDialog(options) {
+		const { title, label, value, placeholder, onConfirm, onCancel } = options;
+		
+		// Remove existing dialog
+		const existing = document.getElementById('sg-input-dialog-overlay');
+		if (existing) existing.remove();
+		
+		const overlay = document.createElement('div');
+		overlay.id = 'sg-input-dialog-overlay';
+		overlay.className = 'sg-input-dialog-overlay';
+		
+		overlay.innerHTML = `
+			<div class="sg-input-dialog">
+				<div class="sg-input-dialog-header">
+					<span class="sg-input-dialog-title">${title || 'Input'}</span>
+					<button class="sg-input-dialog-close">&times;</button>
+				</div>
+				<div class="sg-input-dialog-body">
+					<label class="sg-input-dialog-label">${label || 'Value:'}</label>
+					<input type="text" class="sg-input-dialog-input" value="${value || ''}" placeholder="${placeholder || ''}">
+				</div>
+				<div class="sg-input-dialog-footer">
+					<button class="sg-input-dialog-btn sg-input-dialog-cancel">Cancel</button>
+					<button class="sg-input-dialog-btn sg-input-dialog-confirm">OK</button>
+				</div>
+			</div>
+		`;
+		
+		document.body.appendChild(overlay);
+		
+		const input = overlay.querySelector('.sg-input-dialog-input');
+		const closeBtn = overlay.querySelector('.sg-input-dialog-close');
+		const cancelBtn = overlay.querySelector('.sg-input-dialog-cancel');
+		const confirmBtn = overlay.querySelector('.sg-input-dialog-confirm');
+		
+		const close = (confirmed = false) => {
+			if (confirmed && onConfirm) {
+				onConfirm(input.value);
+			} else if (!confirmed && onCancel) {
+				onCancel();
+			}
+			overlay.remove();
+		};
+		
+		// Focus and select input
+		setTimeout(() => {
+			input.focus();
+			input.select();
+		}, 10);
+		
+		// Event handlers
+		closeBtn.onclick = () => close(false);
+		cancelBtn.onclick = () => close(false);
+		confirmBtn.onclick = () => close(true);
+		
+		input.onkeydown = (e) => {
+			if (e.key === 'Enter') close(true);
+			if (e.key === 'Escape') close(false);
+		};
+		
+		overlay.onclick = (e) => {
+			if (e.target === overlay) close(false);
+		};
+	}
+
+	_showConfirmDialog(options) {
+		const { title, message, onConfirm, onCancel } = options;
+		
+		const existing = document.getElementById('sg-confirm-dialog-overlay');
+		if (existing) existing.remove();
+		
+		const overlay = document.createElement('div');
+		overlay.id = 'sg-confirm-dialog-overlay';
+		overlay.className = 'sg-input-dialog-overlay';
+		
+		overlay.innerHTML = `
+			<div class="sg-input-dialog">
+				<div class="sg-input-dialog-header">
+					<span class="sg-input-dialog-title">${title || 'Confirm'}</span>
+					<button class="sg-input-dialog-close">&times;</button>
+				</div>
+				<div class="sg-input-dialog-body">
+					<p class="sg-confirm-dialog-message">${message || 'Are you sure?'}</p>
+				</div>
+				<div class="sg-input-dialog-footer">
+					<button class="sg-input-dialog-btn sg-input-dialog-cancel">Cancel</button>
+					<button class="sg-input-dialog-btn sg-input-dialog-confirm sg-confirm-danger">Remove</button>
+				</div>
+			</div>
+		`;
+		
+		document.body.appendChild(overlay);
+		
+		const closeBtn = overlay.querySelector('.sg-input-dialog-close');
+		const cancelBtn = overlay.querySelector('.sg-input-dialog-cancel');
+		const confirmBtn = overlay.querySelector('.sg-input-dialog-confirm');
+		
+		const close = (confirmed = false) => {
+			if (confirmed && onConfirm) {
+				onConfirm();
+			} else if (!confirmed && onCancel) {
+				onCancel();
+			}
+			overlay.remove();
+		};
+		
+		closeBtn.onclick = () => close(false);
+		cancelBtn.onclick = () => close(false);
+		confirmBtn.onclick = () => close(true);
+		
+		overlay.onclick = (e) => {
+			if (e.target === overlay) close(false);
+		};
+		
+		// Focus confirm button
+		setTimeout(() => confirmBtn.focus(), 10);
+		
+		// Escape to cancel
+		const escHandler = (e) => {
+			if (e.key === 'Escape') {
+				close(false);
+				document.removeEventListener('keydown', escHandler);
+			}
+		};
+		document.addEventListener('keydown', escHandler);
 	}
 
 	// ================================================================
@@ -455,6 +745,11 @@ class MultiSlotUIExtension extends SchemaGraphExtension {
 		const node = this.graph.getNodeById(btn.nodeId);
 		if (!node) return;
 		
+		// Clear any drag state to prevent node following mouse
+		this.app.dragNode = null;
+		this.app.dragging = false;
+		this.app.isPanning = false;
+		
 		// Generate unique key
 		const existingKeys = btn.type === 'input'
 			? this.app.api.workflow.getMultiInputKeys(node, btn.fieldName)
@@ -467,30 +762,49 @@ class MultiSlotUIExtension extends SchemaGraphExtension {
 			newKey = `${btn.fieldName}_${counter}`;
 		}
 		
-		// Show prompt for custom key name
-		const key = prompt(`Enter name for new ${btn.type}:`, newKey);
-		if (!key || !key.trim()) return;
-		
-		const trimmedKey = key.trim().replace(/[^a-zA-Z0-9_]/g, '_');
-		
-		if (btn.type === 'input') {
-			this.app.api.workflow.addMultiInputSlot(node, btn.fieldName, trimmedKey);
-		} else {
-			this.app.api.workflow.addMultiOutputSlot(node, btn.fieldName, trimmedKey);
-		}
+		// Show styled dialog
+		this._showInputDialog({
+			title: `Add ${btn.type} slot`,
+			label: `Enter name for new ${btn.type}:`,
+			value: newKey,
+			placeholder: 'slot_name',
+			onConfirm: (key) => {
+				if (!key || !key.trim()) return;
+				const trimmedKey = key.trim().replace(/[^a-zA-Z0-9_]/g, '_');
+				
+				if (btn.type === 'input') {
+					this.app.api.workflow.addMultiInputSlot(node, btn.fieldName, trimmedKey);
+				} else {
+					this.app.api.workflow.addMultiOutputSlot(node, btn.fieldName, trimmedKey);
+				}
+			}
+		});
 	}
 
 	_handleRemoveButtonClick(btn) {
 		const node = this.graph.getNodeById(btn.nodeId);
 		if (!node) return;
 		
+		// Clear any drag state
+		this.app.dragNode = null;
+		this.app.dragging = false;
+		this.app.isPanning = false;
+		
 		// Confirm if connected
 		if (btn.isConnected) {
-			if (!confirm(`"${btn.key}" is connected. Remove anyway?`)) {
-				return;
-			}
+			this._showConfirmDialog({
+				title: 'Remove connected slot',
+				message: `"${btn.key}" is connected. Remove anyway?`,
+				onConfirm: () => {
+					this._doRemoveSlot(btn, node);
+				}
+			});
+		} else {
+			this._doRemoveSlot(btn, node);
 		}
-		
+	}
+	
+	_doRemoveSlot(btn, node) {
 		if (btn.type === 'input') {
 			this.app.api.workflow.removeMultiInputSlot(node, btn.fieldName, btn.key);
 		} else {
@@ -634,17 +948,29 @@ class MultiSlotUIExtension extends SchemaGraphExtension {
 	}
 
 	_handleSlotContextAction(action, node, slotInfo) {
+		// Clear drag state
+		this.app.dragNode = null;
+		this.app.dragging = false;
+		this.app.isPanning = false;
+		
 		switch (action) {
 			case 'rename':
-				const newKey = prompt(`Rename "${slotInfo.key}" to:`, slotInfo.key);
-				if (newKey && newKey.trim() && newKey !== slotInfo.key) {
-					const trimmedKey = newKey.trim().replace(/[^a-zA-Z0-9_]/g, '_');
-					if (slotInfo.type === 'input') {
-						this.app.api.workflow.renameMultiInputSlot(node, slotInfo.fieldName, slotInfo.key, trimmedKey);
-					} else {
-						this.app.api.workflow.renameMultiOutputSlot(node, slotInfo.fieldName, slotInfo.key, trimmedKey);
+				this._showInputDialog({
+					title: 'Rename slot',
+					label: `Rename "${slotInfo.key}" to:`,
+					value: slotInfo.key,
+					placeholder: 'new_name',
+					onConfirm: (newKey) => {
+						if (newKey && newKey.trim() && newKey !== slotInfo.key) {
+							const trimmedKey = newKey.trim().replace(/[^a-zA-Z0-9_]/g, '_');
+							if (slotInfo.type === 'input') {
+								this.app.api.workflow.renameMultiInputSlot(node, slotInfo.fieldName, slotInfo.key, trimmedKey);
+							} else {
+								this.app.api.workflow.renameMultiOutputSlot(node, slotInfo.fieldName, slotInfo.key, trimmedKey);
+							}
+						}
 					}
-				}
+				});
 				break;
 				
 			case 'add':
@@ -657,12 +983,23 @@ class MultiSlotUIExtension extends SchemaGraphExtension {
 				
 			case 'remove':
 				if (slotInfo.isConnected) {
-					if (!confirm(`"${slotInfo.key}" is connected. Remove anyway?`)) return;
-				}
-				if (slotInfo.type === 'input') {
-					this.app.api.workflow.removeMultiInputSlot(node, slotInfo.fieldName, slotInfo.key);
+					this._showConfirmDialog({
+						title: 'Remove connected slot',
+						message: `"${slotInfo.key}" is connected. Remove anyway?`,
+						onConfirm: () => {
+							if (slotInfo.type === 'input') {
+								this.app.api.workflow.removeMultiInputSlot(node, slotInfo.fieldName, slotInfo.key);
+							} else {
+								this.app.api.workflow.removeMultiOutputSlot(node, slotInfo.fieldName, slotInfo.key);
+							}
+						}
+					});
 				} else {
-					this.app.api.workflow.removeMultiOutputSlot(node, slotInfo.fieldName, slotInfo.key);
+					if (slotInfo.type === 'input') {
+						this.app.api.workflow.removeMultiInputSlot(node, slotInfo.fieldName, slotInfo.key);
+					} else {
+						this.app.api.workflow.removeMultiOutputSlot(node, slotInfo.fieldName, slotInfo.key);
+					}
 				}
 				break;
 				
