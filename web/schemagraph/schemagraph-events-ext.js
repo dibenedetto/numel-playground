@@ -85,7 +85,7 @@ class GraphEventEmitter {
 		this._listeners = new Map();
 		this._onceListeners = new Map();
 	}
-	s
+	
 	on(event, callback) {
 		if (!this._listeners.has(event)) this._listeners.set(event, new Set());
 		this._listeners.get(event).add(callback);
