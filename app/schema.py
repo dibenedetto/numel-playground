@@ -606,6 +606,7 @@ class AgentChat(BaseInteractive):
 	config        : Annotated[AgentConfig          , FieldRole.INPUT   ] = None
 	system_prompt : Annotated[Optional[str]        , FieldRole.INPUT   ] = None
 	response      : Annotated[Any                  , FieldRole.OUTPUT  ] = None
+	chat          : Annotated[Any                  , FieldRole.OUTPUT  ] = None
 
 
 # ========================================================================
