@@ -219,6 +219,8 @@ class ChatOverlayManager {
 	}
 
 	_handleSend(node, input) {
+		if (this.app.isLocked) return;
+
 		const text = input?.value?.trim();
 		if (!text) return;
 		
@@ -571,7 +573,26 @@ class ChatExtension extends SchemaGraphExtension {
 				const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
 				return node?.chatMessages || [];
 			},
-			
+			setSendEnabled: (enabled, nodeOrId) => {
+				function isEmpty(value) {
+					return (value == null || (typeof value === 'string' && value.trim().length === 0));
+				}
+				let sendBtns = null;
+				if (isEmpty(nodeOrId)) {
+					sendBtns = Array.from(document.querySelectorAll('.sg-chat-send-btn'));
+				}
+				else {
+					const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
+					const overlay = self.overlayManager.overlays.get(node?.id);
+					const sendBtn = overlay?.querySelector('.sg-chat-send-btn');
+					sendBtns = []
+					if (sendBtn) sendBtns.push(sendBtn);
+				}
+				sendBtns.forEach((sendBtn) => {
+					sendBtn.disabled = !enabled;
+				});
+			},
+
 			setState: (nodeOrId, state, error = null) => {
 				const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
 				if (node?.isChat) {

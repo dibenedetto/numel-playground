@@ -426,6 +426,7 @@ async function handleFileUpload(event) {
 }
 
 async function syncWorkflow() {
+	schemaGraph.api.lock.lock('Syncing workflow...');
 	const workflow = visualizer.exportWorkflow();
 	addLog('info', '⏳ Syncing workflow to backend...');
 	await client.removeWorkflow();
@@ -437,8 +438,10 @@ async function syncWorkflow() {
 		$('singleWorkflowName').textContent = response.name;
 		addLog('success', `✅ Synced "${response.name}"`);
 	} else {
+		schemaGraph.api.lock.unlock();
 		throw new Error('Failed to sync workflow');
 	}
+	schemaGraph.api.lock.unlock();
 }
 
 async function handleSingleImport(event) {
@@ -448,6 +451,8 @@ async function handleSingleImport(event) {
 	workflowDirty = true;
 
 	try {
+		schemaGraph.api.lock.lock();
+
 		const text = await file.text();
 		const workflow = JSON.parse(text);
 
@@ -457,6 +462,8 @@ async function handleSingleImport(event) {
 
 		// Load into visualizer (memory only)
 		const loaded = visualizer.loadWorkflow(workflow, file.name.replace('.json', ''));
+		schemaGraph.api.lock.unlock();
+
 		if (loaded) {
 			enableStart(true);
 			// $('singleWorkflowName').textContent = visualizer.currentWorkflowName || 'Untitled';
@@ -466,6 +473,8 @@ async function handleSingleImport(event) {
 	} catch (error) {
 		addLog('error', `❌ Failed to import: ${error.message}`);
 	}
+
+	schemaGraph.api.lock.unlock();
 
 	event.target.value = '';
 }

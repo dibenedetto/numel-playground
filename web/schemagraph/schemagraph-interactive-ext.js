@@ -50,12 +50,17 @@ class InteractiveExtension extends SchemaGraphExtension {
 			addButton: (node, config) => self.addButton(node, config),
 			removeButton: (node, buttonId) => self.removeButton(node, buttonId),
 			getButtons: (node) => node._buttons || [],
-			
+			setButtonEnabled: (nodeOrId, buttonId, enabled) => self.setButtonEnabled(nodeOrId, buttonId, enabled),
+			setButtonVisible: (nodeOrId, buttonId, visible) => self.setButtonVisible(nodeOrId, buttonId, visible),
+			getButton: (nodeOrId, buttonId) => self.getButton(nodeOrId, buttonId),
+
 			// Drop zone API
 			setDropZone: (node, config) => self.setDropZone(node, config),
 			removeDropZone: (node) => self.removeDropZone(node),
 			getDropZone: (node) => node._dropZone || null,
-			
+			setDropZoneEnabled: (nodeOrId, enabled) => self.setDropZoneEnabled(nodeOrId, enabled),
+			setDropZoneLabel: (nodeOrId, label) => self.setDropZoneLabel(nodeOrId, label),
+
 			// Constants
 			ButtonPosition,
 			DropZoneArea
@@ -132,6 +137,33 @@ class InteractiveExtension extends SchemaGraphExtension {
 		return false;
 	}
 
+	setButtonEnabled(nodeOrId, buttonId, enabled) {
+		const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
+		const btn = node?._buttons?.find(b => b.id === buttonId);
+		if (btn) {
+			btn.enabled = enabled;
+			self.app.draw();
+			return true;
+		}
+		return false;
+	}
+
+	setButtonVisible(nodeOrId, buttonId, visible) {
+		const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
+		const btn = node?._buttons?.find(b => b.id === buttonId);
+		if (btn) {
+			btn.visible = visible;
+			self.app.draw();
+			return true;
+		}
+		return false;
+	}
+
+	getButton(nodeOrId, buttonId) {
+		const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
+		return node?._buttons?.find(b => b.id === buttonId) || null;
+	}
+
 	// ================================================================
 	// Drop Zone Management
 	// ================================================================
@@ -160,6 +192,26 @@ class InteractiveExtension extends SchemaGraphExtension {
 		delete node._dropZone;
 		this._dropZones.delete(node.id);
 		return true;
+	}
+
+	setDropZoneEnabled(nodeOrId, enabled) {
+		const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
+		if (node?._dropZone) {
+			node._dropZone.enabled = enabled;
+			self.app.draw();
+			return true;
+		}
+		return false;
+	}
+
+	setDropZoneLabel(nodeOrId, label) {
+		const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
+		if (node?._dropZone) {
+			node._dropZone.label = label;
+			self.app.draw();
+			return true;
+		}
+		return false;
 	}
 
 	// ================================================================
