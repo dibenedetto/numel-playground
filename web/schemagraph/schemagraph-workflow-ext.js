@@ -826,7 +826,15 @@ class WorkflowImporter {
 		}
 
 		this._populateNodeFields(node, nodeData);
-		
+
+		node.annotations = {};
+		const roles = schema?.fieldRoles?.[modelName] || {};
+		for (const [fieldName, role] of Object.entries(roles)) {
+			if (role === FieldRole.ANNOTATION && nodeData[fieldName] !== undefined) {
+				node.annotations[fieldName] = nodeData[fieldName];
+			}
+		}
+
 		// Use proper API - emits node:created
 		this.graph.addNode(node);
 		
@@ -1137,6 +1145,14 @@ class WorkflowExporter {
 		if (node.title !== `${node.schemaName}.${node.modelName}`) nodeData.extra.title = node.title;
 		if (node.color) nodeData.extra.color = node.color;
 		if (Object.keys(nodeData.extra).length === 0) delete nodeData.extra;
+
+		if (node.annotations) {
+			for (const [key, value] of Object.entries(node.annotations)) {
+				if (value !== null && value !== undefined) {
+					nodeData[key] = value;
+				}
+			}
+		}
 
 		return nodeData;
 	}

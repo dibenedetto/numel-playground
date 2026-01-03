@@ -3,11 +3,14 @@
    ======================================================================== */
 
 // Constants
-const _FORCE_PREVIEW_ON_SAME_DATA = true;
+const FORCE_PREVIEW_ON_SAME_DATA = true;
+const CHAT_STATE_USE_INDEX       = false; // Set true to force index-based mapping
+
 
 // Global State
 let client = null;
 let visualizer = null;
+let agentChatManager = null;
 let schemaGraph = null;
 let currentExecutionId = null;
 let pendingRemoveName = null;
@@ -162,6 +165,9 @@ async function connect() {
 
 		// visualizer.schemaGraph.api.workflow.debug();
 
+		agentChatManager = new AgentChatManager(schemaGraph, syncWorkflow);
+		addLog('info', '💬 Agent chat manager initialized');
+
 		// Connect WebSocket
 		client.connectWebSocket();
 		setupClientEvents();
@@ -202,6 +208,9 @@ async function disconnect() {
 	if (schemaGraph?.api?.lock?.isLocked()) {
 		schemaGraph.api.lock.unlock();
 	}
+
+	agentChatManager?.disconnectAll();
+	agentChatManager = null;
 
 	if (client) {
 		await client.removeWorkflow();
@@ -423,32 +432,83 @@ async function handleFileUpload(event) {
 }
 
 async function syncWorkflow(force = false) {
-	if (!force && !workflowDirty) return
+	if (!force && !workflowDirty) return;
 
-	schemaGraph.api.lock.lock('Syncing workflow...');
+	schemaGraph.api.lock.lock('Syncing...');
 
-	const workflow = visualizer.exportWorkflow();
-	addLog('info', '⏳ Syncing workflow to backend...');
-
-	await client.removeWorkflow();
-
-	const name = visualizer.currentWorkflowName || 'single_workflow';
-	const response = await client.addWorkflow(workflow, name);
-	if (response.status === 'added' || response.status === 'updated') {
-		const loaded = visualizer.loadWorkflow(response.workflow, response.name, null);
-		if (!loaded) {
-			schemaGraph.api.lock.unlock();
-			throw new Error('Failed to sync workflow');
+	try {
+		// Save chat state before reload
+		const chatState = saveChatState();
+		
+		const workflow = visualizer.exportWorkflow();
+		await client.removeWorkflow();
+		
+		const name = visualizer.currentWorkflowName || 'custom_workflow';
+		const response = await client.addWorkflow(workflow, name);
+		
+		if (response.status === 'added' || response.status === 'updated') {
+			// Clear handlers (node IDs will change)
+			agentChatManager?.disconnectAll();
+			
+			// Reload entire workflow from backend
+			if (response.workflow) {
+				visualizer.loadWorkflow(response.workflow, response.name);
+			}
+			
+			// Restore chat messages
+			restoreChatState(chatState);
+			
+			workflowDirty = false;
+			schemaGraph.eventBus.emit('workflow:synced');
+			addLog('success', `✅ Synced "${response.name}"`);
+		} else {
+			throw new Error('Sync failed');
 		}
-		$('singleWorkflowName').textContent = response.name;
-		addLog('success', `✅ Synced "${response.name}"`);
-	} else {
+	} finally {
 		schemaGraph.api.lock.unlock();
-		throw new Error('Failed to sync workflow');
 	}
+}
 
-	workflowDirty = false;
-	schemaGraph.api.lock.unlock();
+function saveChatState() {
+	const state = new Map(); // id or index -> { messages, inputValue }
+	
+	for (const node of schemaGraph.graph.nodes) {
+		if (!node?.isChat) continue;
+		
+		const key = CHAT_STATE_USE_INDEX ? node.workflowIndex : node.workflowId;
+		if (key === undefined) continue;
+		
+		state.set(key, {
+			messages: [...(node.chatMessages || [])],
+			inputValue: node._chatInputValue || ''
+		});
+	}
+	
+	return state;
+}
+
+function restoreChatState(state) {
+	if (!state?.size) return;
+	
+	for (const node of schemaGraph.graph.nodes) {
+		if (!node?.isChat) continue;
+		
+		const key = CHAT_STATE_USE_INDEX ? node.workflowIndex : node.workflowId;
+		const saved = state.get(key);
+		if (!saved) continue;
+		
+		node.chatMessages = saved.messages;
+		node._chatInputValue = saved.inputValue;
+		
+		// Update overlay
+		schemaGraph.chatManager?.overlayManager?.updateMessages(node);
+		
+		const overlay = schemaGraph.chatManager?.overlayManager?.overlays?.get(node.id);
+		const input = overlay?.querySelector('.sg-chat-input');
+		if (input && saved.inputValue) {
+			input.value = saved.inputValue;
+		}
+	}
 }
 
 async function handleSingleImport(event) {
@@ -718,7 +778,7 @@ function updateConnectedPreviews(workflowNodeIdx, outputs) {
 function updatePreviewNode(previewNode, data, previewManager) {
 	// Store previous data for comparison
 	// const hadData = previewNode.previewData !== null && previewNode.previewData !== undefined;
-	const dataChanged = _FORCE_PREVIEW_ON_SAME_DATA || !deepEqual(previewNode.previewData, data);
+	const dataChanged = FORCE_PREVIEW_ON_SAME_DATA || !deepEqual(previewNode.previewData, data);
 	
 	// Update node data
 	previewNode.previewData = data;
