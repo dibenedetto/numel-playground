@@ -6,7 +6,7 @@ from __future__ import annotations
 from enum       import Enum
 from pydantic   import BaseModel, Field
 from typing     import Annotated, Any, Dict, List, Literal, Optional, Union
-
+from uuid       import uuid4
 
 # ========================================================================
 # FIELD ROLES
@@ -46,10 +46,15 @@ def node_chat(**kwargs):
 # BASE TYPE
 # ========================================================================
 
+def generate_id():
+	return str(uuid4())
+
+
 class BaseType(BaseModel):
-	type  : Annotated[Literal["base_type"]    , FieldRole.CONSTANT] = "base_type"
-	data  : Annotated[Optional[Any]           , FieldRole.INPUT   ] = None
-	extra : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
+	type  : Annotated[Literal["base_type"]    , FieldRole.CONSTANT  ] = "base_type"
+	id    : Annotated[str                     , FieldRole.ANNOTATION] = Field(default_factory=generate_id)
+	data  : Annotated[Optional[Any]           , FieldRole.INPUT     ] = None
+	extra : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT     ] = None
 
 
 # ========================================================================

@@ -2,7 +2,8 @@
    NUMEL WORKFLOW - Core Client & Visualizer
    ======================================================================== */
 
-const WORKFLOW_SCHEMA_NAME = "Workflow";
+const WORKFLOW_SCHEMA_NAME    = "Workflow";
+const DEFAULT_WORKFLOW_LAYOUT = 'hierarchical-vertical';
 
 // ========================================================================
 // WorkflowClient - Backend Communication
@@ -211,7 +212,7 @@ class WorkflowVisualizer {
 	
 	// --- Workflow Loading ---
 
-	loadWorkflow(workflow, name = null) {
+	loadWorkflow(workflow, name = null, layout = DEFAULT_WORKFLOW_LAYOUT) {
 		if (!this.isReady) {
 			console.error('Schema not registered');
 			return false;
@@ -241,10 +242,14 @@ class WorkflowVisualizer {
 		});
 
 		// Apply layout
-		setTimeout(() => {
-			this.schemaGraph.api.layout.apply('hierarchical-vertical');
-			setTimeout(() => this.schemaGraph.api.view.center(), 50);
-		}, 0);
+		// setTimeout(() => {
+		// 	this.schemaGraph.api.layout.apply(layout);
+		// 	setTimeout(() => this.schemaGraph.api.view.center(), 50);
+		// }, 0);
+		if (layout) {
+			this.schemaGraph.api.layout.apply(layout);
+			this.schemaGraph.api.view.center();
+		}
 
 		console.log(`✅ Loaded workflow: ${this.currentWorkflowName}`);
 

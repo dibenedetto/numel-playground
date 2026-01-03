@@ -218,7 +218,6 @@ async function disconnect() {
 	visualizer.graphNodes = [];
 
 	currentExecutionId = null;
-	workflowDirty = true;
 	
 	$('connectBtn').textContent = 'Connect';
 	$('connectBtn').classList.remove('nw-btn-danger');
@@ -361,8 +360,6 @@ async function loadSelectedWorkflow() {
 	const name = $('workflowSelect').value;
 	if (!name || !client) return;
 
-	workflowDirty = true;
-
 	try {
 		addLog('info', `📂 Loading "${name}"...`);
 		const response = await client.getWorkflow(name);
@@ -425,30 +422,38 @@ async function handleFileUpload(event) {
 	event.target.value = '';
 }
 
-async function syncWorkflow() {
+async function syncWorkflow(force = false) {
+	if (!force && !workflowDirty) return
+
 	schemaGraph.api.lock.lock('Syncing workflow...');
+
 	const workflow = visualizer.exportWorkflow();
 	addLog('info', '⏳ Syncing workflow to backend...');
+
 	await client.removeWorkflow();
+
 	const name = visualizer.currentWorkflowName || 'single_workflow';
 	const response = await client.addWorkflow(workflow, name);
 	if (response.status === 'added' || response.status === 'updated') {
-		workflowDirty = false;
-		visualizer.currentWorkflowName = response.name;
+		const loaded = visualizer.loadWorkflow(response.workflow, response.name, null);
+		if (!loaded) {
+			schemaGraph.api.lock.unlock();
+			throw new Error('Failed to sync workflow');
+		}
 		$('singleWorkflowName').textContent = response.name;
 		addLog('success', `✅ Synced "${response.name}"`);
 	} else {
 		schemaGraph.api.lock.unlock();
 		throw new Error('Failed to sync workflow');
 	}
+
+	workflowDirty = false;
 	schemaGraph.api.lock.unlock();
 }
 
 async function handleSingleImport(event) {
 	const file = event.target.files?.[0];
 	if (!file) return;
-
-	workflowDirty = true;
 
 	try {
 		schemaGraph.api.lock.lock();
@@ -555,8 +560,6 @@ async function confirmRemoveWorkflow() {
 async function clearWorkflow() {
 	if (!visualizer.currentWorkflow) return;
 
-	workflowDirty = true;
-
 	schemaGraph.api.graph.clear();
 	schemaGraph.api.view.reset();
 	await client.removeWorkflow();
@@ -610,9 +613,7 @@ async function startExecution() {
 
 		// In single mode, sync to backend if dirty
 		if (singleMode) {
-			if (workflowDirty) {
-				await syncWorkflow();
-			}
+			await syncWorkflow();
 		}
 
 		const workflowName = visualizer.currentWorkflowName;

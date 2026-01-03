@@ -811,12 +811,16 @@ class WorkflowImporter {
 		const node = factory.createNode(modelName, nodeData);
 		if (!node) return null;
 
+		if (nodeData.id) {
+			node.workflowId = nodeData.id;
+		}
+
 		this._applyLayout(node, nodeData);
 		node.workflowIndex = index;
 
 		if (nodeData.extra) {
 			node.extra = { ...nodeData.extra };
-			delete node.extra.pos; delete node.extra.size;
+			// delete node.extra.pos; delete node.extra.size;
 			if (nodeData.extra.title) node.title = nodeData.extra.title;
 			if (nodeData.extra.color) node.color = nodeData.extra.color;
 		}
@@ -1100,6 +1104,11 @@ class WorkflowExporter {
 
 	_exportWorkflowNode(node) {
 		const nodeData = { type: node.workflowType || node.constantFields?.type || node.modelName?.toLowerCase() || 'unknown' };
+
+		if (node.workflowId) {
+			nodeData.id = node.workflowId;
+		}
+
 		if (node.constantFields) for (const key in node.constantFields) if (key !== 'type') nodeData[key] = node.constantFields[key];
 
 		for (const [baseName, slotIndices] of Object.entries(node.multiInputSlots || {})) {
@@ -1976,7 +1985,7 @@ class WorkflowExtension extends SchemaGraphExtension {
 			this.app.ui?.update?.schemaList?.();
 			this.app.ui?.update?.nodeTypesList?.();
 			this.app.draw?.();
-			this.app.centerView?.();
+			// this.app.centerView?.();
 			return true;
 		} catch (e) {
 			this.app.showError?.('Workflow import failed: ' + e.message);
