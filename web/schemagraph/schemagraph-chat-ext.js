@@ -637,8 +637,8 @@ class ChatExtension extends SchemaGraphExtension {
 				display: flex;
 				flex-direction: column;
 				height: 100%;
-				background: rgba(20, 24, 28, 0.95);
-				border: 1px solid rgba(255, 255, 255, 0.1);
+				background: var(--sg-bg-secondary, #2a2a2a);
+				border: 1px solid var(--sg-border-color, #1a1a1a);
 				border-radius: 4px;
 				overflow: hidden;
 			}
@@ -648,17 +648,17 @@ class ChatExtension extends SchemaGraphExtension {
 				align-items: center;
 				gap: 6px;
 				padding: 4px 8px;
-				background: rgba(0, 0, 0, 0.3);
+				background: var(--sg-bg-tertiary, #353535);
 				font-size: 10px;
-				color: #888;
-				border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+				color: var(--sg-text-tertiary, #707070);
+				border-bottom: 1px solid var(--sg-border-color, #1a1a1a);
 			}
 			
 			.sg-chat-status-indicator {
 				width: 6px;
 				height: 6px;
 				border-radius: 50%;
-				background: #666;
+				background: var(--sg-text-tertiary, #666);
 				flex-shrink: 0;
 			}
 			
@@ -674,12 +674,12 @@ class ChatExtension extends SchemaGraphExtension {
 				gap: 2px;
 			}
 			
-			.sg-chat-state-idle .sg-chat-status-indicator { background: #666; }
-			.sg-chat-state-connecting .sg-chat-status-indicator { background: #f0ad4e; animation: sg-chat-pulse 1s infinite; }
-			.sg-chat-state-ready .sg-chat-status-indicator { background: #5cb85c; }
-			.sg-chat-state-sending .sg-chat-status-indicator { background: #5bc0de; animation: sg-chat-pulse 0.5s infinite; }
-			.sg-chat-state-streaming .sg-chat-status-indicator { background: #5bc0de; animation: sg-chat-pulse 0.3s infinite; }
-			.sg-chat-state-error .sg-chat-status-indicator { background: #d9534f; }
+			.sg-chat-state-idle .sg-chat-status-indicator { background: var(--sg-text-tertiary, #666); }
+			.sg-chat-state-connecting .sg-chat-status-indicator { background: var(--sg-accent-orange, #f0ad4e); animation: sg-chat-pulse 1s infinite; }
+			.sg-chat-state-ready .sg-chat-status-indicator { background: var(--sg-accent-green, #5cb85c); }
+			.sg-chat-state-sending .sg-chat-status-indicator { background: var(--sg-accent-blue, #5bc0de); animation: sg-chat-pulse 0.5s infinite; }
+			.sg-chat-state-streaming .sg-chat-status-indicator { background: var(--sg-accent-blue, #5bc0de); animation: sg-chat-pulse 0.3s infinite; }
+			.sg-chat-state-error .sg-chat-status-indicator { background: var(--sg-accent-red, #d9534f); }
 			
 			@keyframes sg-chat-pulse {
 				0%, 100% { opacity: 1; }
@@ -689,7 +689,7 @@ class ChatExtension extends SchemaGraphExtension {
 			.sg-chat-btn {
 				background: transparent;
 				border: none;
-				color: #888;
+				color: var(--sg-text-tertiary, #888);
 				width: 18px;
 				height: 18px;
 				border-radius: 3px;
@@ -702,8 +702,8 @@ class ChatExtension extends SchemaGraphExtension {
 			}
 			
 			.sg-chat-btn:hover {
-				background: rgba(255, 255, 255, 0.1);
-				color: #fff;
+				background: var(--sg-bg-quaternary, rgba(255, 255, 255, 0.1));
+				color: var(--sg-text-primary, #fff);
 			}
 			
 			.sg-chat-messages {
@@ -714,6 +714,7 @@ class ChatExtension extends SchemaGraphExtension {
 				flex-direction: column;
 				gap: 8px;
 				min-height: 0;
+				background: var(--sg-bg-primary, #1e1e1e);
 			}
 			
 			.sg-chat-msg {
@@ -726,31 +727,31 @@ class ChatExtension extends SchemaGraphExtension {
 			
 			.sg-chat-msg-user {
 				align-self: flex-end;
-				background: #2d5a7b;
-				color: #fff;
+				background: var(--sg-accent-blue, #2d5a7b);
+				color: var(--sg-text-primary, #fff);
 				border-bottom-right-radius: 2px;
 			}
 			
 			.sg-chat-msg-assistant {
 				align-self: flex-start;
-				background: #2d3136;
-				color: #e0e0e0;
+				background: var(--sg-bg-tertiary, #2d3136);
+				color: var(--sg-text-secondary, #e0e0e0);
 				border-bottom-left-radius: 2px;
 			}
 			
 			.sg-chat-msg-system {
 				align-self: center;
-				background: rgba(255, 255, 255, 0.05);
-				color: #888;
+				background: var(--sg-bg-quaternary, rgba(255, 255, 255, 0.05));
+				color: var(--sg-text-tertiary, #888);
 				font-style: italic;
 				font-size: 11px;
 			}
 			
 			.sg-chat-msg-error {
 				align-self: center;
-				background: rgba(217, 83, 79, 0.2);
-				color: #f88;
-				border: 1px solid rgba(217, 83, 79, 0.3);
+				background: var(--sg-error-bg, rgba(217, 83, 79, 0.2));
+				color: var(--sg-error-text, #f88);
+				border: 1px solid var(--sg-error-border, rgba(217, 83, 79, 0.3));
 			}
 			
 			.sg-chat-msg-header {
@@ -772,7 +773,7 @@ class ChatExtension extends SchemaGraphExtension {
 			}
 			
 			.sg-chat-msg-content pre.sg-chat-code {
-				background: rgba(0, 0, 0, 0.4);
+				background: var(--sg-bg-primary, rgba(0, 0, 0, 0.4));
 				padding: 6px;
 				border-radius: 3px;
 				overflow-x: auto;
@@ -782,7 +783,7 @@ class ChatExtension extends SchemaGraphExtension {
 			}
 			
 			.sg-chat-msg-content code.sg-chat-inline-code {
-				background: rgba(0, 0, 0, 0.3);
+				background: var(--sg-bg-primary, rgba(0, 0, 0, 0.3));
 				padding: 1px 4px;
 				border-radius: 2px;
 				font-size: 11px;
@@ -793,17 +794,17 @@ class ChatExtension extends SchemaGraphExtension {
 				display: flex;
 				gap: 6px;
 				padding: 8px;
-				background: rgba(0, 0, 0, 0.2);
-				border-top: 1px solid rgba(255, 255, 255, 0.05);
+				background: var(--sg-bg-tertiary, rgba(0, 0, 0, 0.2));
+				border-top: 1px solid var(--sg-border-color, rgba(255, 255, 255, 0.05));
 			}
 			
 			.sg-chat-input {
 				flex: 1;
-				background: rgba(0, 0, 0, 0.3);
-				border: 1px solid rgba(255, 255, 255, 0.1);
+				background: var(--sg-bg-primary, rgba(0, 0, 0, 0.3));
+				border: 1px solid var(--sg-border-color, rgba(255, 255, 255, 0.1));
 				border-radius: 6px;
 				padding: 6px 10px;
-				color: #fff;
+				color: var(--sg-text-primary, #fff);
 				font-size: 12px;
 				resize: none;
 				min-height: 18px;
@@ -814,17 +815,17 @@ class ChatExtension extends SchemaGraphExtension {
 			
 			.sg-chat-input:focus {
 				outline: none;
-				border-color: rgba(45, 90, 123, 0.8);
+				border-color: var(--sg-accent-blue, rgba(45, 90, 123, 0.8));
 			}
 			
 			.sg-chat-input::placeholder {
-				color: #555;
+				color: var(--sg-text-quaternary, #555);
 			}
 			
 			.sg-chat-send-btn {
-				background: #2d5a7b;
+				background: var(--sg-accent-blue, #2d5a7b);
 				border: none;
-				color: #fff;
+				color: var(--sg-text-primary, #fff);
 				width: 32px;
 				height: 32px;
 				border-radius: 6px;
@@ -838,11 +839,11 @@ class ChatExtension extends SchemaGraphExtension {
 			}
 			
 			.sg-chat-send-btn:hover:not(:disabled) {
-				background: #3d7a9b;
+				background: var(--sg-accent-blue-light, #3d7a9b);
 			}
 			
 			.sg-chat-send-btn:disabled {
-				background: #3a3f44;
+				background: var(--sg-bg-quaternary, #3a3f44);
 				cursor: not-allowed;
 				opacity: 0.5;
 			}
@@ -857,12 +858,12 @@ class ChatExtension extends SchemaGraphExtension {
 			}
 			
 			.sg-chat-messages::-webkit-scrollbar-thumb {
-				background: rgba(255, 255, 255, 0.1);
+				background: var(--sg-bg-quaternary, rgba(255, 255, 255, 0.1));
 				border-radius: 2px;
 			}
 			
 			.sg-chat-messages::-webkit-scrollbar-thumb:hover {
-				background: rgba(255, 255, 255, 0.2);
+				background: var(--sg-text-tertiary, rgba(255, 255, 255, 0.2));
 			}
 		`;
 		

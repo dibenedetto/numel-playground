@@ -235,8 +235,11 @@ class InteractiveExtension extends SchemaGraphExtension {
 			
 			if (node && node._dropZone?.enabled) {
 				e.preventDefault();
-				e.stopImmediatePropagation();  // <-- Add this
+				e.stopImmediatePropagation();
 				e.dataTransfer.dropEffect = 'copy';
+				
+				// Remove canvas highlight from data extension
+				canvas.classList.remove('sg-file-drag-over');
 				
 				if (this._activeDropNode !== node) {
 					this._activeDropNode = node;
@@ -246,13 +249,12 @@ class InteractiveExtension extends SchemaGraphExtension {
 				this._activeDropNode = null;
 				this.app.draw();
 			}
-		});
+		}, true);  // <-- Use capture phase to run before data extension
 
 		this.onDOM(canvas, 'dragleave', (e) => {
-			// Check if actually leaving canvas
 			const rect = canvas.getBoundingClientRect();
 			if (e.clientX < rect.left || e.clientX > rect.right ||
-			    e.clientY < rect.top || e.clientY > rect.bottom) {
+				e.clientY < rect.top || e.clientY > rect.bottom) {
 				if (this._activeDropNode) {
 					this._activeDropNode = null;
 					this.app.draw();
@@ -272,7 +274,10 @@ class InteractiveExtension extends SchemaGraphExtension {
 			
 			if (node && node._dropZone?.enabled) {
 				e.preventDefault();
-				e.stopImmediatePropagation();  // <-- Changed from stopPropagation()
+				e.stopImmediatePropagation();
+				
+				// Remove canvas highlight
+				canvas.classList.remove('sg-file-drag-over');
 				
 				const files = Array.from(e.dataTransfer.files);
 				const dropZone = node._dropZone;
@@ -285,12 +290,12 @@ class InteractiveExtension extends SchemaGraphExtension {
 				
 				this._activeDropNode = null;
 				this.app.draw();
-				return;  // Early return
+				return;
 			}
 			
 			this._activeDropNode = null;
 			this.app.draw();
-		});
+		}, true);  // <-- Use capture phase
 	}
 
 	_findDropTargetNode(wx, wy) {

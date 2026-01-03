@@ -1,11 +1,11 @@
 # schema.py
-# Unified workflow schema with native values, data sources, and workflow nodes
 
 from __future__ import annotations
 
-from enum     import Enum
-from pydantic import BaseModel, Field
-from typing   import Annotated, Any, Dict, List, Literal, Optional, Union
+
+from enum       import Enum
+from pydantic   import BaseModel, Field
+from typing     import Annotated, Any, Dict, List, Literal, Optional, Union
 
 
 # ========================================================================
@@ -327,8 +327,8 @@ DEFAULT_CONTENT_DB_KNOWLEDGE_TABLE_NAME : str  = "knowledge"
 DEFAULT_CONTENT_DB_FALLBACK             : bool = False
 
 
-@node_button(id="import", label="Import", icon="📥", position="header-right")
-@node_dropzone(accept=".json,.txt", area="content", label="Drop file")
+# @node_button(id="import", label="Import", icon="📥", position="header-right")
+# @node_dropzone(accept=".json,.txt", area="content", label="Drop file")
 class ContentDBConfig(BaseConfig):
 	type                 : Annotated[Literal["content_db_config"], FieldRole.CONSTANT  ] = "content_db_config"
 	interactable         : Annotated[bool                        , FieldRole.ANNOTATION] = DEFAULT_EDGE_PREVIEW
@@ -351,8 +351,8 @@ DEFAULT_INDEX_DB_TABLE_NAME  : str  = "documents"
 DEFAULT_INDEX_DB_FALLBACK    : bool = False
 
 
-@node_button(id="import", label="Import", icon="📥", position="header-right")
-@node_dropzone(accept=".json,.txt", area="content", label="Drop file")
+# @node_button(id="import", label="Import", icon="📥", position="header-right")
+# @node_dropzone(accept=".json,.txt", area="content", label="Drop file")
 class IndexDBConfig(BaseConfig):
 	type        : Annotated[Literal["index_db_config"], FieldRole.CONSTANT] = "index_db_config"
 	engine      : Annotated[str                       , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_ENGINE
@@ -410,8 +410,8 @@ DEFAULT_KNOWLEDGE_MANAGER_QUERY       : bool = True
 DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS : int  = 10
 
 
-@node_button(id="import", label="Import", icon="📥", position="header-right")
-@node_dropzone(accept=".json,.txt", area="content", label="Drop file")
+@node_button(id="import", label="Import", icon="📥", position="footer-right")
+@node_dropzone(accept=".csv,.doc,.docx,.json,.md,.pdf,.pptx,.txt,.xls,.xlsx", area="content", label="Drop file")
 class KnowledgeManagerConfig(BaseConfig):
 	type        : Annotated[Literal["knowledge_manager_config"], FieldRole.CONSTANT] = "knowledge_manager_config"
 	query       : Annotated[bool                               , FieldRole.INPUT   ] = DEFAULT_KNOWLEDGE_MANAGER_QUERY
@@ -580,8 +580,10 @@ class BaseInteractive(BaseType):
 
 
 class ToolCall(BaseInteractive):
-	type   : Annotated[Literal["tool_call"], FieldRole.CONSTANT] = "tool_call"
-	config : Annotated[ToolConfig          , FieldRole.INPUT   ] = None
+	type   : Annotated[Literal["tool_call"]    , FieldRole.CONSTANT] = "tool_call"
+	config : Annotated[ToolConfig              , FieldRole.INPUT   ] = None
+	args   : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
+	result : Annotated[Any                     , FieldRole.OUTPUT  ] = None
 
 
 @node_chat(
@@ -598,7 +600,7 @@ class AgentChat(BaseInteractive):
 	type          : Annotated[Literal["agent_chat"], FieldRole.CONSTANT] = "agent_chat"
 	config        : Annotated[AgentConfig          , FieldRole.INPUT   ] = None
 	system_prompt : Annotated[Optional[str]        , FieldRole.INPUT   ] = None
-	response      : Annotated[str                  , FieldRole.OUTPUT  ] = None
+	response      : Annotated[Any                  , FieldRole.OUTPUT  ] = None
 
 
 # ========================================================================
@@ -725,15 +727,14 @@ NATIVE_NODE_TYPES = {
 	"native_dict"   : DictNode,
 }
 
-DATA_NODE_TYPES = {
-	"data"         : DataNode,
-	"data_text"    : TextDataNode,
-	"data_document": DocumentDataNode,
-	"data_image"   : ImageDataNode,
-	"data_audio"   : AudioDataNode,
-	"data_video"   : VideoDataNode,
-	"data_model3d" : Model3DDataNode,
-	"data_binary"  : BinaryDataNode,
+
+NATIVE_NODE_TYPES = {
+	"native_string" : StringNode,
+	"native_integer": IntegerNode,
+	"native_float"  : FloatNode,
+	"native_boolean": BooleanNode,
+	"native_list"   : ListNode,
+	"native_dict"   : DictNode,
 }
 
 
