@@ -1436,26 +1436,27 @@ class SchemaGraphApp {
 	 * @param {string} reason - Reason for locking (shown in UI)
 	 */
 	lock(reason = 'Graph locked') {
-		if (this.isLocked) return;
-		
-		this.isLocked = true;
 		this.lockReason = reason;
-		
-		// Cancel any in-progress operations
-		this.connecting = null;
-		this.selectionRect = null;
-		this.selectionStart = null;
-		this.editingNode = null;
-		
-		// Hide context menu
-		document.getElementById('sg-contextMenu')?.classList.remove('show');
-		
-		// Hide any open dialogs
-		document.getElementById('sg-schemaDialog')?.classList.remove('show');
-		document.getElementById('sg-schemaRemovalDialog')?.classList.remove('show');
-		
-		// Update cursor
-		this.canvas.classList.add('sg-locked');
+
+		if (!this.isLocked) {
+			this.isLocked = true;
+			
+			// Cancel any in-progress operations
+			this.connecting = null;
+			this.selectionRect = null;
+			this.selectionStart = null;
+			this.editingNode = null;
+			
+			// Hide context menu
+			document.getElementById('sg-contextMenu')?.classList.remove('show');
+			
+			// Hide any open dialogs
+			document.getElementById('sg-schemaDialog')?.classList.remove('show');
+			document.getElementById('sg-schemaRemovalDialog')?.classList.remove('show');
+			
+			// Update cursor
+			this.canvas.classList.add('sg-locked');
+		}
 		
 		this.eventBus.emit('graph:locked', { reason });
 		this.draw();

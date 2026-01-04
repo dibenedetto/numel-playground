@@ -2,8 +2,116 @@
    NUMEL AGENT CHAT MANAGER - Agent Chat Management
    ======================================================================== */
 
+class AgentHandler {
+
+	constructor() {
+		this._clear();
+	}
+
+	static _randomId() {
+		// https://gist.github.com/jed/982883?permalink_comment_id=852670#gistcomment-852670
+		return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,a=>(a^Math.random()*16>>a/4).toString(16));
+	}
+
+	static _randomMessageId() {
+		const id = `numel-message-${AgentHandler._randomId()}`;
+		return id;
+	}
+
+	_clear() {
+		this.url       = null;
+		this.name      = null;
+		this.callbacks = null;
+		this.agent     = null;
+	}
+
+	_handleAGUIEvent(event) {
+		// addLog("ag-ui", event);
+		if (!event) return;
+		this.onEvent?.(event);
+		this.callbacks[event.type]?.(event);
+	}
+
+	connect(
+		url,
+		name                 = null,
+		onEvent              = null,
+		onRunStarted         = null,
+		onRunFinished        = null,
+		onRunError           = null,
+		onToolCallStart      = null,
+		onToolCallResult     = null,
+		onTextMessageStart   = null,
+		onTextMessageEnd     = null,
+		onTextMessageContent = null,
+	) {
+		this.disconnect();
+
+		const callbacks = {}
+		callbacks[AGUI.EventType.RUN_STARTED         ] = onRunStarted;
+		callbacks[AGUI.EventType.RUN_FINISHED        ] = onRunFinished;
+		callbacks[AGUI.EventType.RUN_ERROR           ] = onRunError;
+		callbacks[AGUI.EventType.TOOL_CALL_START     ] = onToolCallStart;
+		callbacks[AGUI.EventType.TOOL_CALL_RESULT    ] = onToolCallResult;
+		callbacks[AGUI.EventType.TEXT_MESSAGE_START  ] = onTextMessageStart;
+		callbacks[AGUI.EventType.TEXT_MESSAGE_END    ] = onTextMessageEnd;
+		callbacks[AGUI.EventType.TEXT_MESSAGE_CONTENT] = onTextMessageContent;
+		callbacks[AGUI.EventType.TEXT_MESSAGE_CHUNK  ] = onTextMessageContent;
+
+		const self       = this;
+		const target     = `${url}/agui`;
+		const subscriber = {
+			onEvent(params) {
+				self._handleAGUIEvent(params.event)
+			}
+		};
+
+		const agent = new AGUI.HttpAgent({
+			name : this.name,
+			url  : target,
+		});
+		agent.subscribe(subscriber);
+
+		this.url       = url;
+		this.name      = name;
+		this.onEvent   = onEvent;
+		this.callbacks = callbacks;
+		this.agent     = agent;
+
+		return true;
+	}
+
+	disconnect() {
+		if (!this.isConnected()) {
+			return false;
+		}
+		this._clear();
+		return true;
+	}
+
+	isConnected() {
+		return (this.agent != null);
+	}
+
+	async send(message) {
+		if (!this.isConnected()) {
+			return null;
+		}
+		const messageId   = AgentHandler._randomMessageId();
+		const userMessage = {
+			id      : messageId,
+			role    : "user",
+			content : message,
+		};
+		this.agent.setMessages([userMessage]);
+		return await this.agent.runAgent({});
+	}
+};
+
+
 class AgentChatManager {
-	constructor(app, syncWorkflowFn) {
+	constructor(url, app, syncWorkflowFn) {
+		this.url = url;
 		this.app = app;
 		this.syncWorkflow = syncWorkflowFn;  // async () => Promise<void>
 		this.handlers = new Map();           // nodeId -> { handler, port, dirty }
@@ -93,12 +201,13 @@ class AgentChatManager {
 		}
 
 		// Create and connect new handler
-		const handler = new AgentHandler();
-		const url = `http://localhost:${port}`;
-		const name = updatedConfig?.info?.name || null;
+		const handler   = new AgentHandler();
+		const baseUrl   = this.url.substr(0, this.url.lastIndexOf(":"));
+		const url       = `${baseUrl}:${port}`;
+		const name      = updatedConfig?.info?.name || null;
 		const callbacks = this._createCallbacks(node);
 
-		await handler.connect(
+		handler.connect(
 			url,
 			name,
 			callbacks.onEvent,

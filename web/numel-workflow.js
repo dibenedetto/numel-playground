@@ -218,7 +218,7 @@ class WorkflowVisualizer {
 			return false;
 		}
 
-		if (!this._validateWorkflow(workflow)) {
+		if (!this.validateWorkflow(workflow)) {
 			return false;
 		}
 
@@ -256,7 +256,7 @@ class WorkflowVisualizer {
 		return true;
 	}
 
-	_validateWorkflow(workflow) {
+	validateWorkflow(workflow) {
 		if (!workflow?.nodes || !Array.isArray(workflow.nodes)) {
 			console.error('Invalid workflow: missing nodes array');
 			return false;

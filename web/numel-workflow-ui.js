@@ -165,7 +165,7 @@ async function connect() {
 
 		// visualizer.schemaGraph.api.workflow.debug();
 
-		agentChatManager = new AgentChatManager(schemaGraph, syncWorkflow);
+		agentChatManager = new AgentChatManager(serverUrl, schemaGraph, syncWorkflow);
 		addLog('info', '💬 Agent chat manager initialized');
 
 		// Connect WebSocket
@@ -431,7 +431,7 @@ async function handleFileUpload(event) {
 	event.target.value = '';
 }
 
-async function syncWorkflow(force = false) {
+async function syncWorkflow(workflow = null, name = null, force = false) {
 	if (!force && !workflowDirty) return;
 
 	schemaGraph.api.lock.lock('Syncing...');
@@ -440,10 +440,15 @@ async function syncWorkflow(force = false) {
 		// Save chat state before reload
 		const chatState = saveChatState();
 		
-		const workflow = visualizer.exportWorkflow();
-		await client.removeWorkflow();
+		if (workflow == null) {
+			workflow = visualizer.exportWorkflow();
+		}
 		
-		const name = visualizer.currentWorkflowName || 'custom_workflow';
+		if (!name) {
+			name = workflow?.info?.name || visualizer.currentWorkflowName || 'custom_workflow';
+		}
+
+		await client.removeWorkflow();
 		const response = await client.addWorkflow(workflow, name);
 		
 		if (response.status === 'added' || response.status === 'updated') {
@@ -516,7 +521,7 @@ async function handleSingleImport(event) {
 	if (!file) return;
 
 	try {
-		schemaGraph.api.lock.lock();
+		schemaGraph.api.lock.lock('Importing...');
 
 		const text = await file.text();
 		const workflow = JSON.parse(text);
@@ -525,15 +530,12 @@ async function handleSingleImport(event) {
 		schemaGraph.api.graph.clear();
 		schemaGraph.api.view.reset();
 
-		// Load into visualizer (memory only)
-		const loaded = visualizer.loadWorkflow(workflow, file.name.replace('.json', ''));
-		schemaGraph.api.lock.unlock();
-
-		if (loaded) {
+		// Validate
+		const validated = visualizer.validateWorkflow(workflow);
+		if (validated) {
+			await syncWorkflow(workflow, workflow?.info?.name || file.name.replace('.json', ''), true);
 			enableStart(true);
-			// $('singleWorkflowName').textContent = visualizer.currentWorkflowName || 'Untitled';
 			addLog('success', `📂 Imported "${visualizer.currentWorkflowName}" (local)`);
-			await syncWorkflow();
 		}
 	} catch (error) {
 		addLog('error', `❌ Failed to import: ${error.message}`);

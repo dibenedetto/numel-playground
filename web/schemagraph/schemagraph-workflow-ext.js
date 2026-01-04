@@ -828,7 +828,7 @@ class WorkflowImporter {
 		this._populateNodeFields(node, nodeData);
 
 		node.annotations = {};
-		const roles = schema?.fieldRoles?.[modelName] || {};
+		const roles = this.graph.schemas[schemaName]?.fieldRoles?.[modelName] || {};
 		for (const [fieldName, role] of Object.entries(roles)) {
 			if (role === FieldRole.ANNOTATION && nodeData[fieldName] !== undefined) {
 				node.annotations[fieldName] = nodeData[fieldName];

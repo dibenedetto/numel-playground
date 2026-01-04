@@ -63,6 +63,7 @@ class WorkflowManager:
 			else:
 				self._current_id += 1
 				name = f"workflow_{self._current_id}"
+		await self.remove(name)
 		wf.link()
 		self._workflows[name] = self._make_workflow(wf)
 		await self._event_bus.emit(
@@ -80,16 +81,7 @@ class WorkflowManager:
 			return False
 		for key in names:
 			data = self._workflows[key]
-			if data["apps"]:
-				for item in data["apps"]:
-					if not item:
-						continue
-					server = item["server"]
-					task   = item["task"  ]
-					if server and server.should_exit is False:
-						server.should_exit = True
-					if task:
-						await task
+			await self._kill_workflow(data)
 			del self._workflows[key]
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_REMOVED,
@@ -162,6 +154,19 @@ class WorkflowManager:
 			"apps"     : None,
 		}
 		return result
+
+
+	async def _kill_workflow(self, data: Any):
+		if data["apps"]:
+			for item in data["apps"]:
+				if not item:
+					continue
+				server = item["server"]
+				task   = item["task"  ]
+				if server and server.should_exit is False:
+					server.should_exit = True
+				if task:
+					await task
 
 
 	def _build_backend(self, workflow: Workflow) -> ImplementedBackend:
