@@ -9,12 +9,12 @@
 		{
 			"type"   : "model_config",
 			"source" : "ollama",
-			"id"     : "mistral"
+			"name"   : "mistral"
 		},
 		{
 			"type"   : "embedding_config",
 			"source" : "ollama",
-			"id"     : "mistral"
+			"name"   : "mistral"
 		},
 		{
 			"type"         : "prompt_config",

@@ -170,6 +170,10 @@ class AgentChatManager {
 	async _ensureConnected(node) {
 		const nodeId = node.id;
 		let entry = this.handlers.get(nodeId);
+		if (!entry) {
+			node.extra = node.extra || {};
+			node.extra.ref_id = node.id;  // Preserve node ID across syncs
+		}
 
 		// Get AgentConfig from connected input
 		const agentConfig = this._getConnectedAgentConfig(node);

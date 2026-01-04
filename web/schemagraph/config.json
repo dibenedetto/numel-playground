@@ -23,14 +23,14 @@
 	"models" : [
 		{
 			"type" : "ollama",
-			"id"   : "mistral"
+			"name" : "mistral"
 		}
 	],
 
 	"embeddings" : [
 		{
 			"type" : "ollama",
-			"id"   : "mistral"
+			"name" : "mistral"
 		}
 	],
 
@@ -150,11 +150,11 @@
 			"prompt" : {
 				"model" : {
 					"type" : "ollama",
-					"id"   : "mistral"
+					"name" : "mistral"
 				},
 				"embedding" : {
 					"type" : "ollama",
-					"id"   : "kimi"
+					"name" : "kimi"
 				},
 				"description"  : "Numel AI Master",
 				"instructions" : [

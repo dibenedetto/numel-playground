@@ -8,7 +8,7 @@
 		{
 			"type"   : "model_config",
 			"source" : "ollama",
-			"id"     : "mistral"
+			"name"   : "mistral"
 		},
 		{
 			"type" : "agent_config"

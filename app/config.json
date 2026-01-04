@@ -24,12 +24,12 @@
 		{
 			"type"   : "model_config",
 			"source" : "ollama",
-			"id"     : "mistral"
+			"name"   : "mistral"
 		},
 		{
 			"type"   : "embedding_config",
 			"source" : "ollama",
-			"id"     : "mistral"
+			"name"   : "mistral"
 		},
 		{
 			"type"   : "content_db_config",

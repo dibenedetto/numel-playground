@@ -62,9 +62,9 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "model_config", "Invalid Agno model"
 		if item_config.source == "ollama":
-			item = Ollama(id=item_config.id)
+			item = Ollama(id=item_config.name)
 		elif item_config.source == "openai":
-			item = OpenAIChat(id=item_config.id)
+			item = OpenAIChat(id=item_config.name)
 		else:
 			raise ValueError(f"Unsupported Agno model")
 		impl[index] = item

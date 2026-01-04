@@ -439,8 +439,9 @@ async function syncWorkflow(workflow = null, name = null, force = false) {
 	try {
 		// Save chat state before reload
 		const chatState = saveChatState();
-		
-		if (workflow == null) {
+
+		const workflowEmpty = workflow == null;
+		if (workflowEmpty) {
 			workflow = visualizer.exportWorkflow();
 		}
 		
@@ -457,7 +458,8 @@ async function syncWorkflow(workflow = null, name = null, force = false) {
 			
 			// Reload entire workflow from backend
 			if (response.workflow) {
-				visualizer.loadWorkflow(response.workflow, response.name);
+				const layout = workflowEmpty ? null : DEFAULT_WORKFLOW_LAYOUT;
+				visualizer.loadWorkflow(response.workflow, response.name, layout);
 			}
 			
 			// Restore chat messages

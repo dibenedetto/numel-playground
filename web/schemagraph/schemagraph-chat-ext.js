@@ -1027,9 +1027,10 @@ class ChatExtension extends SchemaGraphExtension {
 		node.minSize = [minW, minH];
 		
 		// Create overlay
-		setTimeout(() => {
-			this.overlayManager.createOverlay(node);
-		}, 0);
+		// setTimeout(() => {
+		// 	this.overlayManager.createOverlay(node);
+		// }, 0);
+		this.overlayManager.createOverlay(node);
 		
 		console.log(`[ChatExtension] Applied chat to node ${node.id} (${modelName})`);
 	}

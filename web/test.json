@@ -1,0 +1,74 @@
+{
+	"type": "workflow",
+	"id": "879dcf6a-2034-4d43-aff6-9cc23889754f",
+	"data": null,
+	"extra": null,
+	"info": null,
+	"options": null,
+	"nodes": [
+		{
+			"type": "backend_config",
+			"id": "25abec43-1534-47b0-a188-e60bfd8352cc",
+			"name": "agno",
+			"fallback": false,
+			"extra": {
+				"pos": [
+					100,
+					-275
+				],
+				"size": [
+					220,
+					160
+				]
+			}
+		},
+		{
+			"type": "model_config",
+			"id": "28a1e9f8-e62f-49e2-9193-37f0238815e8",
+			"source": "ollama",
+			"name": "mistral",
+			"fallback": false,
+			"extra": {
+				"pos": [
+					89.2065411185435,
+					90.96672352395493
+				],
+				"size": [
+					220,
+					185
+				]
+			}
+		},
+		{
+			"type": "agent_config",
+			"id": "ecf21a64-2001-4513-a8ad-fd3cf20f8d4a",
+			"extra": {
+				"pos": [
+					420.8159564142376,
+					-102.4490614272462
+				],
+				"size": [
+					220,
+					310
+				]
+			},
+			"port": 8001
+		}
+	],
+	"edges": [
+		{
+			"type": "edge",
+			"source": 0,
+			"target": 2,
+			"source_slot": "get",
+			"target_slot": "backend"
+		},
+		{
+			"type": "edge",
+			"source": 1,
+			"target": 2,
+			"source_slot": "get",
+			"target_slot": "model"
+		}
+	]
+}

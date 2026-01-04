@@ -289,7 +289,7 @@ class BackendConfig(BaseConfig):
 
 
 DEFAULT_MODEL_SOURCE   : str  = "ollama"
-DEFAULT_MODEL_ID       : str  = "mistral"
+DEFAULT_MODEL_NAME     : str  = "mistral"
 DEFAULT_MODEL_VERSION  : str  = ""
 DEFAULT_MODEL_FALLBACK : bool = False
 
@@ -297,7 +297,7 @@ DEFAULT_MODEL_FALLBACK : bool = False
 class ModelConfig(BaseConfig):
 	type     : Annotated[Literal["model_config"], FieldRole.CONSTANT] = "model_config"
 	source   : Annotated[str                    , FieldRole.INPUT   ] = DEFAULT_MODEL_SOURCE
-	id       : Annotated[str                    , FieldRole.INPUT   ] = DEFAULT_MODEL_ID
+	name     : Annotated[str                    , FieldRole.INPUT   ] = DEFAULT_MODEL_NAME
 	version  : Annotated[str                    , FieldRole.INPUT   ] = DEFAULT_MODEL_VERSION
 	fallback : Annotated[bool                   , FieldRole.INPUT   ] = DEFAULT_MODEL_FALLBACK
 
@@ -307,7 +307,7 @@ class ModelConfig(BaseConfig):
 
 
 DEFAULT_EMBEDDING_SOURCE   : str  = "ollama"
-DEFAULT_EMBEDDING_ID       : str  = "mistral"
+DEFAULT_EMBEDDING_NAME     : str  = "mistral"
 DEFAULT_EMBEDDING_VERSION  : str  = ""
 DEFAULT_EMBEDDING_FALLBACK : bool = False
 
@@ -315,7 +315,7 @@ DEFAULT_EMBEDDING_FALLBACK : bool = False
 class EmbeddingConfig(BaseConfig):
 	type     : Annotated[Literal["embedding_config"], FieldRole.CONSTANT] = "embedding_config"
 	source   : Annotated[str                        , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_SOURCE
-	id       : Annotated[str                        , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_ID
+	name     : Annotated[str                        , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_NAME
 	version  : Annotated[str                        , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_VERSION
 	fallback : Annotated[bool                       , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_FALLBACK
 
