@@ -28,8 +28,11 @@ class AgentHandler {
 	_handleAGUIEvent(event) {
 		// addLog("ag-ui", event);
 		if (!event) return;
+
 		this.onEvent?.(event);
-		this.callbacks[event.type]?.(event);
+
+		const message = event.delta || event.error || event.tool_name || event.type || '<EMPTY>';
+		this.callbacks[event.type]?.(message);
 	}
 
 	connect(
