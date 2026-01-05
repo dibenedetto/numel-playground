@@ -168,78 +168,56 @@ class AgentChatManager {
 	}
 
 	async _ensureConnected(node) {
-		const nodeId = node.chatId;
-		let entry = this.handlers.get(nodeId);
+		const chatId = node.chatId;  // Stable ID
+		let entry = this.handlers.get(chatId);
 
-		if (!node.hasOwnProperty("_tmpcnt")) {
-			node._tmpcnt = 0;
-		}
-		node._tmpcnt++;
-		console.log(`PRE --- ${node.id} - ${node.chatId}: ${node._tmpcnt}`);
-		
-		// Get AgentConfig from connected input
 		const agentConfig = this._getConnectedAgentConfig(node);
-		
-		// Check if we need to sync and reconnect
 		const currentPort = agentConfig?.annotations?.port || agentConfig?.port;
-		const needsReconnect = !entry || 
-							entry.dirty || 
-							!entry.handler?.isConnected();
+		const needsReconnect = !entry || entry.dirty || !entry.handler?.isConnected();
 
 		if (!needsReconnect && entry.port === currentPort) {
-			console.log(`FND --- ${node.id} - ${node.chatId}: ${node._tmpcnt}`);
-			return; // Already connected to correct port
+			return;
 		}
 
-		// Set connecting state
 		this.app.api.chat.setState(node, ChatState.CONNECTING);
 
-		// Sync workflow to backend (this assigns ports)
 		await this.syncWorkflow();
-		console.log(`POS --- ${node.id} - ${node.chatId}: ${node._tmpcnt}`);
 
-		// Re-fetch config after sync (port may have been assigned)
-		const updatedConfig = this._getConnectedAgentConfig(node);
+		// Re-fetch node by chatId after sync (node reference is now stale)
+		const newNode = this._findNodeByChatId(chatId);
+		if (!newNode) {
+			throw new Error('Chat node not found after sync');
+		}
+
+		const updatedConfig = this._getConnectedAgentConfig(newNode);
 		const port = updatedConfig?.annotations?.port || updatedConfig?.port;
 
 		if (!port) {
 			throw new Error('No agent port assigned - check AgentConfig connection');
 		}
 
-		// Disconnect old handler
 		if (entry?.handler?.isConnected()) {
 			entry.handler.disconnect();
 		}
 
-		// Create and connect new handler
-		const handler   = new AgentHandler();
-		const baseUrl   = this.url.substr(0, this.url.lastIndexOf(":"));
-		const url       = `${baseUrl}:${port}`;
-		const name      = updatedConfig?.info?.name || null;
-		const callbacks = this._createCallbacks(node);
+		const handler = new AgentHandler();
+		const baseUrl = this.url.substr(0, this.url.lastIndexOf(":"));
+		const url = `${baseUrl}:${port}`;
+		const name = updatedConfig?.info?.name || null;
+		const callbacks = this._createCallbacks(newNode, chatId);  // Pass chatId
 
-		handler.connect(
-			url,
-			name,
-			callbacks.onEvent,
-			callbacks.onRunStarted,
-			callbacks.onRunFinished,
-			callbacks.onRunError,
-			callbacks.onToolCallStart,
-			callbacks.onToolCallResult,
-			callbacks.onTextMessageStart,
-			callbacks.onTextMessageEnd,
-			callbacks.onTextMessageContent
-		);
+		handler.connect(url, name, ...Object.values(callbacks));
 
-		// Store entry
-		this.handlers.set(nodeId, {
-			handler,
-			port,
-			dirty: false
-		});
+		this.handlers.set(chatId, { handler, port, dirty: false });
 
-		this.app.api.chat.setState(node, ChatState.READY);
+		this.app.api.chat.setState(newNode, ChatState.READY);
+	}
+
+	_findNodeByChatId(chatId) {
+		for (const node of this.app.graph.nodes) {
+			if (node.chatId === chatId) return node;
+		}
+		return null;
 	}
 
 	_getConnectedAgentConfig(chatNode) {
@@ -295,57 +273,55 @@ class AgentChatManager {
 		return data;
 	}
 
-	_createCallbacks(node) {
+	_createCallbacks(node, chatId) {
 		const api = this.app.api.chat;
+		
+		// Always get fresh node reference via chatId
+		const getNode = () => this._findNodeByChatId(chatId);
 
 		return {
 			onEvent: (event) => {
-				// Optional: log all events
-				console.debug(`[AgentChat:${node.id}]`, event);
+				console.debug(`[AgentChat:${chatId}]`, event);
 			},
-
-			onRunStarted: () => {
-				// api.setState(node, ChatState.STREAMING);
-			},
-
+			onRunStarted: () => {},
 			onRunFinished: () => {
-				// api.endStreaming(node);
-				this._updateResponseOutput(node);
+				const n = getNode();
+				if (n) this._updateResponseOutput(n);
 			},
-
 			onRunError: (error) => {
+				const n = getNode();
+				if (!n) return;
 				const msg = error?.message || String(error) || 'Agent error';
-				api.setState(node, ChatState.ERROR, msg);
-				api.addMessage(node, MessageRole.ERROR, msg);
+				api.setState(n, ChatState.ERROR, msg);
+				api.addMessage(n, MessageRole.ERROR, msg);
 			},
-
-			onToolCallStart: (toolName, args) => {
-				api.addMessage(node, MessageRole.SYSTEM, `🔧 ${toolName}...`);
+			onToolCallStart: (toolName) => {
+				const n = getNode();
+				if (n) api.addMessage(n, MessageRole.SYSTEM, `🔧 ${toolName}...`);
 			},
-
-			onToolCallResult: (toolName, result) => {
-				// Update last system message
-				const messages = node.chatMessages || [];
+			onToolCallResult: (toolName) => {
+				const n = getNode();
+				if (!n) return;
+				const messages = n.chatMessages || [];
 				const lastSystem = [...messages].reverse().find(m => 
 					m.role === MessageRole.SYSTEM && m.content.includes(toolName)
 				);
 				if (lastSystem) {
-					lastSystem.content = `🔧 ${toolName} ✓`;
-					api.updateLastMessage(node, lastSystem.content, false);
+					lastSystem.content = `🔧 ${toolName} ✔`;
+					api.updateLastMessage(n, lastSystem.content, false);
 				}
 			},
-
 			onTextMessageStart: () => {
-				api.startStreaming(node);
+				const n = getNode();
+				if (n) api.startStreaming(n);
 			},
-
 			onTextMessageEnd: () => {
-				api.endStreaming(node);
-				// Handled by onRunFinished
+				const n = getNode();
+				if (n) api.endStreaming(n);
 			},
-
 			onTextMessageContent: (chunk) => {
-				api.appendStream(node, chunk);
+				const n = getNode();
+				if (n) api.appendStream(n, chunk);
 			}
 		};
 	}

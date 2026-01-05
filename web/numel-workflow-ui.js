@@ -476,13 +476,14 @@ async function syncWorkflow(workflow = null, name = null, force = false) {
 }
 
 function saveChatState() {
-	const state = new Map(); // id or index -> { messages, inputValue }
+	const state = new Map();
 	
 	for (const node of schemaGraph.graph.nodes) {
 		if (!node?.isChat) continue;
 		
-		const key = node?.extra?.ref_id;
-		if (key === undefined) continue;
+		// Use chatId as the stable key
+		const key = node.chatId;
+		if (!key) continue;
 		
 		state.set(key, {
 			messages: [...(node.chatMessages || [])],
@@ -499,17 +500,18 @@ function restoreChatState(state) {
 	for (const node of schemaGraph.graph.nodes) {
 		if (!node?.isChat) continue;
 		
-		const key   = node?.extra?.ref_id;
+		// Use chatId as the stable key
+		const key = node.chatId;
 		const saved = state.get(key);
 		if (!saved) continue;
 		
 		node.chatMessages = saved.messages;
 		node._chatInputValue = saved.inputValue;
 		
-		// Update overlay
+		// Update overlay - it will use the current node reference
 		schemaGraph.chatManager?.overlayManager?.updateMessages(node);
 		
-		const overlay = schemaGraph.chatManager?.overlayManager?.overlays?.get(node.id);
+		const overlay = schemaGraph.chatManager?.overlayManager?.overlays?.get(key);
 		const input = overlay?.querySelector('.sg-chat-input');
 		if (input && saved.inputValue) {
 			input.value = saved.inputValue;

@@ -26,7 +26,9 @@ const MessageRole = Object.freeze({
 const ChatNodeMixin = {
 	initChat(config = {}) {
 		this.extra = this.extra || {};
-		this.extra.chat_id = this.id
+		if (!this.extra.chat_id) {
+			this.extra.chat_id = this.workflowId || `chat_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+		}
 
 		this.isChat = true;
 		this.chatId = this.extra.chat_id;
@@ -110,25 +112,34 @@ class ChatOverlayManager {
 	constructor(app, eventBus) {
 		this.app = app;
 		this.eventBus = eventBus;
-		this.overlays = new Map();
+		this.overlays = new Map();      // chatId -> overlay element
+		this.nodeRefs = new Map();       // chatId -> current node reference
 		this._sendCallbacks = new Map();
 	}
 
 	createOverlay(node) {
-		if (this.overlays.has(node.chatId)) {
-			return this.overlays.get(node.chatId);
+		const chatId = node.chatId;
+		
+		// Check if overlay already exists for this stable ID
+		if (this.overlays.has(chatId)) {
+			// Re-bind to new node reference
+			this.nodeRefs.set(chatId, node);
+			const overlay = this.overlays.get(chatId);
+			this._rebindOverlayEvents(node, overlay);
+			this._updateOverlayPosition(node, overlay);
+			return overlay;
 		}
 
 		const overlay = document.createElement('div');
 		overlay.className = 'sg-chat-overlay';
-		overlay.id = `sg-chat-${node.chatId}`;
+		overlay.id = `sg-chat-${chatId}`;
 		overlay.innerHTML = this._buildChatHTML(node);
 		
-		// Append to canvas container, not body
 		const container = this.app.canvas.parentElement;
 		container.appendChild(overlay);
 		
-		this.overlays.set(node.chatId, overlay);
+		this.overlays.set(chatId, overlay);
+		this.nodeRefs.set(chatId, node);
 		
 		this._bindOverlayEvents(node, overlay);
 		this._updateOverlayPosition(node, overlay);
@@ -136,6 +147,154 @@ class ChatOverlayManager {
 		return overlay;
 	}
 
+	_rebindOverlayEvents(node, overlay) {
+		const input = overlay.querySelector('.sg-chat-input');
+		const sendBtn = overlay.querySelector('.sg-chat-send-btn');
+		const clearBtn = overlay.querySelector('.sg-chat-clear-btn');
+
+		// Clone and replace to remove old event listeners
+		const newSendBtn = sendBtn?.cloneNode(true);
+		const newClearBtn = clearBtn?.cloneNode(true);
+		const newInput = input?.cloneNode(true);
+		
+		sendBtn?.parentNode?.replaceChild(newSendBtn, sendBtn);
+		clearBtn?.parentNode?.replaceChild(newClearBtn, clearBtn);
+		input?.parentNode?.replaceChild(newInput, input);
+
+		// Re-bind with new node reference
+		this._bindOverlayEvents(node, overlay);
+	}
+	
+	_bindOverlayEvents(node, overlay) {
+		const chatId = node.chatId;
+		const input = overlay.querySelector('.sg-chat-input');
+		const sendBtn = overlay.querySelector('.sg-chat-send-btn');
+		const clearBtn = overlay.querySelector('.sg-chat-clear-btn');
+
+		// Use chatId to get current node reference
+		const getNode = () => this.nodeRefs.get(chatId);
+
+		sendBtn?.addEventListener('click', () => {
+			const currentNode = getNode();
+			if (currentNode) this._handleSend(currentNode, input);
+		});
+
+		input?.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter' && !e.shiftKey) {
+				e.preventDefault();
+				const currentNode = getNode();
+				if (currentNode) this._handleSend(currentNode, input);
+			}
+		});
+
+		input?.addEventListener('input', () => {
+			input.style.height = 'auto';
+			input.style.height = Math.min(input.scrollHeight, 100) + 'px';
+			const currentNode = getNode();
+			if (currentNode) currentNode._chatInputValue = input.value;
+		});
+
+		clearBtn?.addEventListener('click', () => {
+			const currentNode = getNode();
+			if (currentNode) {
+				currentNode.clearMessages();
+				this.updateMessages(currentNode);
+				this.eventBus.emit('chat:cleared', { nodeId: currentNode.id, chatId });
+			}
+		});
+
+		overlay.addEventListener('mousedown', (e) => {
+			const currentNode = getNode();
+			if (currentNode) {
+				this.app.graph.selectedNode = currentNode;
+				currentNode.is_selected = true;
+			}
+			this.updateAllPositions();
+
+			const rect = overlay.getBoundingClientRect();
+			const x = e.clientX - rect.left;
+			const y = e.clientY - rect.top;
+			const edgeThreshold = 8;
+			if (x > edgeThreshold && x < rect.width - edgeThreshold &&
+				y > edgeThreshold && y < rect.height - edgeThreshold) {
+				e.stopPropagation();
+			}
+		});
+		
+		overlay.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
+	}
+	
+	// Get node by chatId (always current reference)
+	getNodeByChatId(chatId) {
+		return this.nodeRefs.get(chatId);
+	}
+	
+	updateOverlayPosition(node) {
+		const overlay = this.overlays.get(node.chatId);
+		if (overlay) {
+			this._updateOverlayPosition(node, overlay);
+		}
+	}
+	
+	updateMessages(node) {
+		const overlay = this.overlays.get(node.chatId);
+		if (!overlay) return;
+		
+		const container = overlay.querySelector('.sg-chat-messages');
+		if (!container) return;
+		
+		container.innerHTML = node.chatMessages.map(msg => this._renderMessage(msg, node)).join('');
+		container.scrollTop = container.scrollHeight;
+	}
+	
+	updateStatus(node) {
+		const overlay = this.overlays.get(node.chatId);
+		if (!overlay) return;
+		
+		const container = overlay.querySelector('.sg-chat-container');
+		const statusText = overlay.querySelector('.sg-chat-status-text');
+		const sendBtn = overlay.querySelector('.sg-chat-send-btn');
+		
+		if (container) {
+			container.className = `sg-chat-container sg-chat-state-${node.chatState}`;
+		}
+		if (statusText) {
+			statusText.textContent = this._getStatusText(node);
+		}
+		if (sendBtn) {
+			const isBusy = node.chatState === ChatState.SENDING || node.chatState === ChatState.STREAMING;
+			sendBtn.disabled = isBusy;
+		}
+	}
+
+	removeOverlay(chatId) {
+		const overlay = this.overlays.get(chatId);
+		if (overlay) {
+			overlay.remove();
+			this.overlays.delete(chatId);
+		}
+		this.nodeRefs.delete(chatId);
+		this._sendCallbacks.delete(chatId);
+	}
+
+	removeAllOverlays() {
+		for (const overlay of this.overlays.values()) {
+			overlay.remove();
+		}
+		this.overlays.clear();
+		this.nodeRefs.clear();
+		this._sendCallbacks.clear();
+	}
+
+	updateAllPositions() {
+		for (const [chatId, overlay] of this.overlays) {
+			const node = this.nodeRefs.get(chatId);
+			if (node) {
+				this._updateOverlayPosition(node, overlay);
+			}
+		}
+	}
+	
 	_buildChatHTML(node) {
 		const config = node.chatConfig || {};
 		const stateClass = `sg-chat-state-${node.chatState || 'idle'}`;
@@ -174,62 +333,6 @@ class ChatOverlayManager {
 			case ChatState.ERROR: return node.chatError || 'Error';
 			default: return '';
 		}
-	}
-
-	_bindOverlayEvents(node, overlay) {
-		const input = overlay.querySelector('.sg-chat-input');
-		const sendBtn = overlay.querySelector('.sg-chat-send-btn');
-		const clearBtn = overlay.querySelector('.sg-chat-clear-btn');
-
-		// Send on button click
-		sendBtn?.addEventListener('click', () => this._handleSend(node, input));
-
-		// Send on Enter (Shift+Enter for newline)
-		input?.addEventListener('keydown', (e) => {
-			if (e.key === 'Enter' && !e.shiftKey) {
-				e.preventDefault();
-				this._handleSend(node, input);
-			}
-		});
-
-		// Auto-resize textarea
-		input?.addEventListener('input', () => {
-			input.style.height = 'auto';
-			input.style.height = Math.min(input.scrollHeight, 100) + 'px';
-			node._chatInputValue = input.value;
-		});
-
-		// Clear messages
-		clearBtn?.addEventListener('click', () => {
-			node.clearMessages();
-			this.updateMessages(node);
-			this.eventBus.emit('chat:cleared', { nodeId: node.id });
-		});
-
-		// Prevent canvas drag when interacting with chat content
-		// But allow events on edges for node interaction
-		overlay.addEventListener('mousedown', (e) => {
-			// Select the node in the graph
-			this.app.graph.selectedNode = node;
-			node.is_selected = true;
-			
-			// Update all overlays z-index
-			this.updateAllPositions();
-
-			// Only stop propagation if clicking inside the chat area
-			const rect = overlay.getBoundingClientRect();
-			const x = e.clientX - rect.left;
-			const y = e.clientY - rect.top;
-			
-			// Allow clicks near edges to pass through for node dragging/resizing
-			const edgeThreshold = 8;
-			if (x > edgeThreshold && x < rect.width - edgeThreshold &&
-			    y > edgeThreshold && y < rect.height - edgeThreshold) {
-				e.stopPropagation();
-			}
-		});
-		
-		overlay.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
 	}
 
 	_handleSend(node, input) {
@@ -283,13 +386,6 @@ class ChatOverlayManager {
 
 	unregisterSendCallback(nodeId) {
 		this._sendCallbacks.delete(nodeId);
-	}
-
-	updateOverlayPosition(node) {
-		const overlay = this.overlays.get(node.chatId);
-		if (overlay) {
-			this._updateOverlayPosition(node, overlay);
-		}
 	}
 
 	_updateOverlayPosition(node, overlay) {
@@ -362,17 +458,6 @@ class ChatOverlayManager {
 		return false;
 	}
 
-	updateMessages(node) {
-		const overlay = this.overlays.get(node.chatId);
-		if (!overlay) return;
-		
-		const container = overlay.querySelector('.sg-chat-messages');
-		if (!container) return;
-		
-		container.innerHTML = node.chatMessages.map(msg => this._renderMessage(msg, node)).join('');
-		container.scrollTop = container.scrollHeight;
-	}
-
 	_renderMessage(msg, node) {
 		const roleClass = `sg-chat-msg-${msg.role}`;
 		const timestamp = node.chatConfig?.showTimestamps 
@@ -418,54 +503,6 @@ class ChatOverlayManager {
 		html = html.replace(/\n/g, '<br>');
 		
 		return html;
-	}
-
-	updateStatus(node) {
-		const overlay = this.overlays.get(node.chatId);
-		if (!overlay) return;
-		
-		const container = overlay.querySelector('.sg-chat-container');
-		const statusText = overlay.querySelector('.sg-chat-status-text');
-		const sendBtn = overlay.querySelector('.sg-chat-send-btn');
-		
-		if (container) {
-			container.className = `sg-chat-container sg-chat-state-${node.chatState}`;
-		}
-		
-		if (statusText) {
-			statusText.textContent = this._getStatusText(node);
-		}
-		
-		if (sendBtn) {
-			const isBusy = node.chatState === ChatState.SENDING || node.chatState === ChatState.STREAMING;
-			sendBtn.disabled = isBusy;
-		}
-	}
-
-	removeOverlay(nodeId) {
-		const overlay = this.overlays.get(nodeId);
-		if (overlay) {
-			overlay.remove();
-			this.overlays.delete(nodeId);
-		}
-		this._sendCallbacks.delete(nodeId);
-	}
-
-	removeAllOverlays() {
-		for (const [nodeId, overlay] of this.overlays) {
-			overlay.remove();
-		}
-		this.overlays.clear();
-		this._sendCallbacks.clear();
-	}
-
-	updateAllPositions() {
-		for (const [nodeId, overlay] of this.overlays) {
-			const node = this.app.graph.getNodeById(nodeId);
-			if (node) {
-				this._updateOverlayPosition(node, overlay);
-			}
-		}
 	}
 
 	bringToFront(nodeId) {
@@ -577,13 +614,14 @@ class ChatExtension extends SchemaGraphExtension {
 
 	_cleanupOrphanedOverlays() {
 		const toRemove = [];
-		for (const nodeId of this.overlayManager.overlays.keys()) {
-			if (!this.graph.getNodeById(nodeId)) {
-				toRemove.push(nodeId);
+		const chatIds  = new Set(this.graph.nodes.filter(n => n.isChat).map(n => n.chatId));
+		for (const chatId of this.overlayManager.overlays.keys()) {
+			if (!chatIds.has(chatId)) {
+				toRemove.push(chatId);
 			}
 		}
-		for (const nodeId of toRemove) {
-			this.overlayManager.removeOverlay(nodeId);
+		for (const chatId of toRemove) {
+			this.overlayManager.removeOverlay(chatId);
 		}
 	}
 
