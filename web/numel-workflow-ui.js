@@ -4,7 +4,6 @@
 
 // Constants
 const FORCE_PREVIEW_ON_SAME_DATA = true;
-const CHAT_STATE_USE_INDEX       = false; // Set true to force index-based mapping
 
 
 // Global State
@@ -482,7 +481,7 @@ function saveChatState() {
 	for (const node of schemaGraph.graph.nodes) {
 		if (!node?.isChat) continue;
 		
-		const key = CHAT_STATE_USE_INDEX ? node.workflowIndex : node.workflowId;
+		const key = node?.extra?.ref_id;
 		if (key === undefined) continue;
 		
 		state.set(key, {
@@ -500,7 +499,7 @@ function restoreChatState(state) {
 	for (const node of schemaGraph.graph.nodes) {
 		if (!node?.isChat) continue;
 		
-		const key = CHAT_STATE_USE_INDEX ? node.workflowIndex : node.workflowId;
+		const key   = node?.extra?.ref_id;
 		const saved = state.get(key);
 		if (!saved) continue;
 		

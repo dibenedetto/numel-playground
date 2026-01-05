@@ -146,7 +146,7 @@ class AgentChatManager {
 	}
 
 	async _handleSend({ node, message }) {
-		const nodeId = node.id;
+		const nodeId = node.chatId;
 
 		try {
 			// Ensure connected (lazy reconnect if dirty)
@@ -168,13 +168,15 @@ class AgentChatManager {
 	}
 
 	async _ensureConnected(node) {
-		const nodeId = node.id;
+		const nodeId = node.chatId;
 		let entry = this.handlers.get(nodeId);
-		if (!entry) {
-			node.extra = node.extra || {};
-			node.extra.ref_id = node.id;  // Preserve node ID across syncs
-		}
 
+		if (!node.hasOwnProperty("_tmpcnt")) {
+			node._tmpcnt = 0;
+		}
+		node._tmpcnt++;
+		console.log(`PRE --- ${node.id} - ${node.chatId}: ${node._tmpcnt}`);
+		
 		// Get AgentConfig from connected input
 		const agentConfig = this._getConnectedAgentConfig(node);
 		
@@ -185,6 +187,7 @@ class AgentChatManager {
 							!entry.handler?.isConnected();
 
 		if (!needsReconnect && entry.port === currentPort) {
+			console.log(`FND --- ${node.id} - ${node.chatId}: ${node._tmpcnt}`);
 			return; // Already connected to correct port
 		}
 
@@ -193,6 +196,7 @@ class AgentChatManager {
 
 		// Sync workflow to backend (this assigns ports)
 		await this.syncWorkflow();
+		console.log(`POS --- ${node.id} - ${node.chatId}: ${node._tmpcnt}`);
 
 		// Re-fetch config after sync (port may have been assigned)
 		const updatedConfig = this._getConnectedAgentConfig(node);
@@ -297,15 +301,15 @@ class AgentChatManager {
 		return {
 			onEvent: (event) => {
 				// Optional: log all events
-				// console.debug(`[AgentChat:${node.id}]`, event);
+				console.debug(`[AgentChat:${node.id}]`, event);
 			},
 
 			onRunStarted: () => {
-				api.setState(node, ChatState.STREAMING);
+				// api.setState(node, ChatState.STREAMING);
 			},
 
 			onRunFinished: () => {
-				api.endStreaming(node);
+				// api.endStreaming(node);
 				this._updateResponseOutput(node);
 			},
 
@@ -336,6 +340,7 @@ class AgentChatManager {
 			},
 
 			onTextMessageEnd: () => {
+				api.endStreaming(node);
 				// Handled by onRunFinished
 			},
 

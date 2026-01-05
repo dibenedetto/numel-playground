@@ -811,11 +811,6 @@ class WorkflowImporter {
 		const node = factory.createNode(modelName, nodeData);
 		if (!node) return null;
 
-		if (nodeData.extra?.ref_id) {
-			node.id = nodeData.extra.ref_id;
-			delete nodeData.extra.ref_id;
-		}
-
 		if (nodeData.id) {
 			node.workflowId = nodeData.id;
 		}

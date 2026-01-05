@@ -25,7 +25,11 @@ const MessageRole = Object.freeze({
 
 const ChatNodeMixin = {
 	initChat(config = {}) {
+		this.extra = this.extra || {};
+		this.extra.chat_id = this.id
+
 		this.isChat = true;
+		this.chatId = this.extra.chat_id;
 		this.chatConfig = {
 			title: config.title || 'Chat',
 			placeholder: config.placeholder || 'Type a message...',
@@ -111,17 +115,20 @@ class ChatOverlayManager {
 	}
 
 	createOverlay(node) {
-		if (this.overlays.has(node.id)) {
-			return this.overlays.get(node.id);
+		if (this.overlays.has(node.chatId)) {
+			return this.overlays.get(node.chatId);
 		}
 
 		const overlay = document.createElement('div');
 		overlay.className = 'sg-chat-overlay';
-		overlay.id = `sg-chat-${node.id}`;
+		overlay.id = `sg-chat-${node.chatId}`;
 		overlay.innerHTML = this._buildChatHTML(node);
 		
-		document.body.appendChild(overlay);
-		this.overlays.set(node.id, overlay);
+		// Append to canvas container, not body
+		const container = this.app.canvas.parentElement;
+		container.appendChild(overlay);
+		
+		this.overlays.set(node.chatId, overlay);
 		
 		this._bindOverlayEvents(node, overlay);
 		this._updateOverlayPosition(node, overlay);
@@ -202,6 +209,13 @@ class ChatOverlayManager {
 		// Prevent canvas drag when interacting with chat content
 		// But allow events on edges for node interaction
 		overlay.addEventListener('mousedown', (e) => {
+			// Select the node in the graph
+			this.app.graph.selectedNode = node;
+			node.is_selected = true;
+			
+			// Update all overlays z-index
+			this.updateAllPositions();
+
 			// Only stop propagation if clicking inside the chat area
 			const rect = overlay.getBoundingClientRect();
 			const x = e.clientX - rect.left;
@@ -223,7 +237,7 @@ class ChatOverlayManager {
 
 		const text = input?.value?.trim();
 		if (!text) return;
-		
+
 		if (node.chatState === ChatState.SENDING || node.chatState === ChatState.STREAMING) {
 			return;
 		}
@@ -244,7 +258,7 @@ class ChatOverlayManager {
 			node
 		});
 
-		const callback = this._sendCallbacks.get(node.id);
+		const callback = this._sendCallbacks.get(node.chatId);
 		if (callback) {
 			node.chatState = ChatState.SENDING;
 			this.updateStatus(node);
@@ -272,7 +286,7 @@ class ChatOverlayManager {
 	}
 
 	updateOverlayPosition(node) {
-		const overlay = this.overlays.get(node.id);
+		const overlay = this.overlays.get(node.chatId);
 		if (overlay) {
 			this._updateOverlayPosition(node, overlay);
 		}
@@ -280,64 +294,76 @@ class ChatOverlayManager {
 
 	_updateOverlayPosition(node, overlay) {
 		const canvas = this.app.canvas;
-		const rect = canvas.getBoundingClientRect();
 		const camera = this.app.camera;
-		const config = node.chatConfig || {};
 		
-		// Calculate node position in screen coordinates
-		const scaleX = rect.width / canvas.width;
-		const scaleY = rect.height / canvas.height;
+		// Calculate position relative to canvas container
+		const nodeScreenX = node.pos[0] * camera.scale + camera.x;
+		const nodeScreenY = node.pos[1] * camera.scale + camera.y;
+		const nodeScreenW = node.size[0] * camera.scale;
+		const nodeScreenH = node.size[1] * camera.scale;
 		
-		const nodeScreenX = (node.pos[0] * camera.scale + camera.x) * scaleX + rect.left;
-		const nodeScreenY = (node.pos[1] * camera.scale + camera.y) * scaleY + rect.top;
-		const nodeScreenW = node.size[0] * camera.scale * scaleX;
-		const nodeScreenH = node.size[1] * camera.scale * scaleY;
-		
-		// Calculate slot space needed
+		// Node layout constants
 		const numInputs = node.inputs?.length || 0;
 		const numOutputs = node.outputs?.length || 0;
 		const maxSlots = Math.max(numInputs, numOutputs);
 		
-		// Node layout constants (in world units, will be scaled)
 		const headerHeight = 30;
 		const slotStartY = 33;
 		const slotSpacing = 25;
-		const slotRadius = 8;
 		const footerHeight = 15;
-		const horizontalPadding = 12; // Space from edges for slots
+		const horizontalPadding = 12;
 		
-		// Calculate content area bounds
 		const slotsEndY = slotStartY + (maxSlots * slotSpacing);
 		const contentStartY = Math.max(headerHeight, slotsEndY + 5);
 		
-		// Apply scaling
 		const scale = camera.scale;
-		const overlayX = nodeScreenX + (horizontalPadding * scale * scaleX);
-		const overlayY = nodeScreenY + (contentStartY * scale * scaleY);
-		const overlayW = nodeScreenW - (horizontalPadding * 2 * scale * scaleX);
-		const overlayH = nodeScreenH - (contentStartY * scale * scaleY) - (footerHeight * scale * scaleY);
+		const overlayX = nodeScreenX + (horizontalPadding * scale);
+		const overlayY = nodeScreenY + (contentStartY * scale);
+		const overlayW = nodeScreenW - (horizontalPadding * 2 * scale);
+		const overlayH = nodeScreenH - (contentStartY * scale) - (footerHeight * scale);
 		
 		overlay.style.left = `${overlayX}px`;
 		overlay.style.top = `${overlayY}px`;
 		overlay.style.width = `${Math.max(overlayW, 80)}px`;
 		overlay.style.height = `${Math.max(overlayH, 60)}px`;
 		
-		// Hide if too small or off-screen
+		// Z-index: overlays must be above canvas (z-index: 1)
+		// Use high base to ensure all overlays are above canvas content
+		const isSelected = this._isNodeSelected(node);
+		const baseZ = 1000;  // Well above canvas
+		const selectedZ = 10000;  // Selected always on top
+		
+		overlay.style.zIndex = isSelected ? selectedZ : baseZ;
+		
+		// Hide if too small
 		const minVisibleSize = 50;
 		const visible = camera.scale > 0.25 && 
 			overlayW > minVisibleSize &&
-			overlayH > minVisibleSize &&
-			nodeScreenX + nodeScreenW > rect.left && 
-			nodeScreenX < rect.right &&
-			nodeScreenY + nodeScreenH > rect.top && 
-			nodeScreenY < rect.bottom;
+			overlayH > minVisibleSize;
 		
 		overlay.style.display = visible ? 'block' : 'none';
 		overlay.style.opacity = Math.min(1, (camera.scale - 0.25) * 3);
 	}
 
+	_isNodeSelected(node) {
+		const graph = this.app.graph;
+		
+		// Check all possible selection mechanisms
+		if (graph.selectedNodes?.has?.(node.id)) return true;
+		if (graph.selectedNodes?.has?.(node)) return true;
+		if (graph.selected_nodes?.includes?.(node)) return true;
+		if (Array.isArray(graph.selectedNodes) && graph.selectedNodes.includes(node)) return true;
+		if (this.app.selectedNode === node) return true;
+		if (graph.selectedNode === node) return true;
+		
+		// LiteGraph style
+		if (node.is_selected) return true;
+		
+		return false;
+	}
+
 	updateMessages(node) {
-		const overlay = this.overlays.get(node.id);
+		const overlay = this.overlays.get(node.chatId);
 		if (!overlay) return;
 		
 		const container = overlay.querySelector('.sg-chat-messages');
@@ -395,7 +421,7 @@ class ChatOverlayManager {
 	}
 
 	updateStatus(node) {
-		const overlay = this.overlays.get(node.id);
+		const overlay = this.overlays.get(node.chatId);
 		if (!overlay) return;
 		
 		const container = overlay.querySelector('.sg-chat-container');
@@ -439,6 +465,20 @@ class ChatOverlayManager {
 			if (node) {
 				this._updateOverlayPosition(node, overlay);
 			}
+		}
+	}
+
+	bringToFront(nodeId) {
+		const overlay = this.overlays.get(nodeId);
+		if (overlay) {
+			overlay.style.zIndex = 10000;
+		}
+	}
+
+	sendToBack(nodeId) {
+		const overlay = this.overlays.get(nodeId);
+		if (overlay) {
+			overlay.style.zIndex = 1000;
 		}
 	}
 }
@@ -519,6 +559,20 @@ class ChatExtension extends SchemaGraphExtension {
 				self.overlayManager.updateAllPositions();
 			};
 		}
+		
+		// Bring overlay to front when node is selected
+		this.on('node:selected', (e) => {
+			this.overlayManager.updateAllPositions();
+		});
+		
+		this.on('node:deselected', (e) => {
+			this.overlayManager.updateAllPositions();
+		});
+		
+		// Also handle mouse down on overlay to bring to front
+		this.on('node:clicked', (e) => {
+			this.overlayManager.updateAllPositions();
+		});
 	}
 
 	_cleanupOrphanedOverlays() {
@@ -539,11 +593,11 @@ class ChatExtension extends SchemaGraphExtension {
 		this.app.api = this.app.api || {};
 		this.app.api.chat = {
 			onSend: (nodeOrId, callback) => {
-				const nodeId = typeof nodeOrId === 'object' ? nodeOrId.id : nodeOrId;
+				const nodeId = typeof nodeOrId === 'object' ? nodeOrId.chatId : nodeOrId;
 				self.overlayManager.registerSendCallback(nodeId, callback);
 			},
 			offSend: (nodeOrId) => {
-				const nodeId = typeof nodeOrId === 'object' ? nodeOrId.id : nodeOrId;
+				const nodeId = typeof nodeOrId === 'object' ? nodeOrId.chatId : nodeOrId;
 				self.overlayManager.unregisterSendCallback(nodeId);
 			},
 			
@@ -583,7 +637,7 @@ class ChatExtension extends SchemaGraphExtension {
 				}
 				else {
 					const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
-					const overlay = self.overlayManager.overlays.get(node?.id);
+					const overlay = self.overlayManager.overlays.get(node?.chatId);
 					const sendBtn = overlay?.querySelector('.sg-chat-send-btn');
 					sendBtns = []
 					if (sendBtn) sendBtns.push(sendBtn);
@@ -644,8 +698,7 @@ class ChatExtension extends SchemaGraphExtension {
 		style.id = 'sg-chat-styles';
 		style.textContent = `
 			.sg-chat-overlay {
-				position: fixed;
-				z-index: 100;
+				position: absolute;  /* Changed from fixed */
 				pointer-events: auto;
 				font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 				font-size: 12px;
@@ -653,7 +706,7 @@ class ChatExtension extends SchemaGraphExtension {
 				overflow: hidden;
 				transition: opacity 0.15s ease;
 			}
-			
+
 			.sg-chat-container {
 				display: flex;
 				flex-direction: column;
