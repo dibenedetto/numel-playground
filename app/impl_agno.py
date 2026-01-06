@@ -338,6 +338,14 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 	def get_agent_app(agent: Any) -> FastAPI:
 		app = agent.__extra["app"]
 		return app
+	
+
+	async def add_content(knowledge: Any, files: List[Any]) -> Any:
+		if not isinstance(knowledge, Knowledge):
+			raise "Invalid Agno Knowledge instance"
+		contents = [file['content'] for file in files]
+		await knowledge.add_contents_async(*contents)
+		return True
 
 
 	backend = ImplementedBackend(
@@ -345,6 +353,7 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		run_tool      = run_tool,
 		run_agent     = run_agent,
 		get_agent_app = get_agent_app,
+		add_content   = add_content,
 	)
 
 	return backend

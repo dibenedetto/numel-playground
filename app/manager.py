@@ -12,7 +12,7 @@ from   typing    import Any, Callable, Dict, List, Optional
 
 from   event_bus import EventType, EventBus
 from   schema    import InfoConfig, Workflow, WorkflowOptionsConfig
-# from   utils     import log_print
+from   utils     import log_print, serialize_result
 
 
 from nodes     import ImplementedBackend
@@ -31,6 +31,13 @@ class WorkflowManager:
 
 		# self._storage_dir = Path(storage_dir)
 		# self._storage_dir.mkdir(exist_ok=True)
+
+
+	async def initialize(self):
+		await self.register_upload_handler(
+			"knowledge_manager_config",
+			_handle_knowledge_upload,
+		)
 
 
 	async def clear(self):
@@ -261,3 +268,27 @@ class WorkflowManager:
 	# 		filepath = self.storage_dir / filename
 	# 	with open(filepath, "w") as f:
 	# 		json.dump(workflow.model_dump(), f, indent=2)
+
+
+async def _handle_knowledge_upload(impl: Any, node_index: int, button_id: str, files: List[Any]) -> Any:
+	backend = impl["backend"]
+	handle  = backend.handles[node_index]
+	try:
+		res = await backend.add_content(handle, files)
+	except Exception as e:
+		msg    = f"Error uploading files to {impl['workflow'].nodes[node_index].type} by {button_id}: {str(e)}"
+		result = {
+			"status" : "error",
+			"message": msg,
+			"result" : None,
+		}
+		log_print(result)
+		return result
+	msg     = f"Processed {len(files)} files from {impl["workflow"].nodes[node_index].type} by {button_id}."
+	result  = {
+		"status" : "ok",
+		"message": msg,
+		"result" : serialize_result(res),
+	}
+	log_print(result)
+	return result

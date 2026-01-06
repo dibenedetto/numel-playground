@@ -1,5 +1,6 @@
 # utils
 
+import json
 import os
 
 
@@ -65,3 +66,13 @@ def add_middleware(app: FastAPI) -> None:
 		allow_methods     = ["*"],
 		allow_origins     = ["*"],
 	)
+
+
+def serialize_result(result):
+	if result is None:
+		return None
+	try:
+		json.dumps(result)
+		return result
+	except (TypeError, ValueError):
+		return str(result)

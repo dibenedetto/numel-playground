@@ -12,7 +12,7 @@ from   engine    import WorkflowEngine
 from   event_bus import EventType, EventBus
 from   manager   import WorkflowManager
 from   schema    import Workflow
-from   utils     import get_now_str, get_timestamp_str, log_print
+from   utils     import get_now_str, get_timestamp_str, log_print, serialize_result
 
 
 class WorkflowUploadRequest(BaseModel):
@@ -35,18 +35,6 @@ class ToolCallRequest(BaseModel):
 
 
 def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, manager: WorkflowManager, engine: WorkflowEngine):
-
-	def _serialize_result(result):
-		"""Safely serialize handler result for JSON response"""
-		if result is None:
-			return None
-		try:
-			import json
-			json.dumps(result)
-			return result
-		except (TypeError, ValueError):
-			return str(result)
-
 
 	@app.post("/shutdown")
 	async def shutdown_server():
@@ -341,9 +329,9 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 				
 				try:
 					if asyncio.iscoroutinefunction(handler):
-						handler_result = await handler(node, uploaded, button_id)
+						handler_result = await handler(impl, node_index, button_id, uploaded)
 					else:
-						handler_result = handler(node, uploaded, button_id)
+						handler_result = handler(impl, node_index, button_id, uploaded)
 					
 					await event_bus.emit(
 						EventType.PROCESSING_COMPLETED,
@@ -351,7 +339,7 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 						data    = {
 							"upload_id"  : upload_id,
 							"node_index" : node_index,
-							"result"     : _serialize_result(handler_result),
+							"result"     : serialize_result(handler_result),
 						}
 					)
 					
@@ -375,7 +363,7 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 				"node_type"      : node.type,
 				"files_count"    : len(uploaded),
 				"total_size"     : total_size,
-				"handler_result" : _serialize_result(handler_result),
+				"handler_result" : serialize_result(handler_result),
 				"files"          : [
 					{
 						"filename"     : f["filename"],

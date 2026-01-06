@@ -389,6 +389,7 @@ class ImplementedBackend(BaseModel):
 	run_tool      : Callable
 	run_agent     : Callable
 	get_agent_app : Callable
+	add_content   : Callable
 
 
 _NODE_TYPES = {
