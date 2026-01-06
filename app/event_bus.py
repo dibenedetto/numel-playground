@@ -12,46 +12,60 @@ from   typing   import Any, Callable, Dict, List, Optional, Set
 
 
 class EventType(str, Enum):
+	# System events
+	ERROR                    = "error"
+	WARNING                  = "warning"
+	INFO                     = "info"
+
 	# Manager events
-	MANAGER_CLEARED = "manager.cleared"
-	MANAGER_CREATED = "manager.created"
-	MANAGER_ADDED   = "manager.added"
-	MANAGER_REMOVED = "manager.removed"
-	MANAGER_GOT     = "manager.got"
-	MANAGER_IMPL    = "manager.impl"
-	MANAGER_LISTED  = "manager.listed"
+	MANAGER_CLEARED          = "manager.cleared"
+	MANAGER_WORKFLOW_CREATED = "manager.workflow_created"
+	MANAGER_WORKFLOW_ADDED   = "manager.workflow_added"
+	MANAGER_WORKFLOW_REMOVED = "manager.workflow_removed"
+	MANAGER_WORKFLOW_GOT     = "manager.workflow_got"
+	MANAGER_WORKFLOW_IMPL    = "manager.workflow_impl"
+	MANAGER_WORKFLOW_LISTED  = "manager.workflow_listed"
+	MANAGER_UPLOAD_ADDED     = "manager.upload_added"
+	MANAGER_UPLOAD_REMOVED   = "manager.upload_removed"
+	MANAGER_UPLOAD_GOT       = "manager.upload_got"
 
 	# Workflow events
-	WORKFLOW_STARTED = "workflow.started"
-	WORKFLOW_COMPLETED = "workflow.completed"
-	WORKFLOW_FAILED = "workflow.failed"
-	WORKFLOW_PAUSED = "workflow.paused"
-	WORKFLOW_RESUMED = "workflow.resumed"
-	WORKFLOW_CANCELLED = "workflow.cancelled"
+	WORKFLOW_STARTED         = "workflow.started"
+	WORKFLOW_COMPLETED       = "workflow.completed"
+	WORKFLOW_FAILED          = "workflow.failed"
+	WORKFLOW_PAUSED          = "workflow.paused"
+	WORKFLOW_RESUMED         = "workflow.resumed"
+	WORKFLOW_CANCELLED       = "workflow.cancelled"
 
 	# Node events
-	NODE_STARTED = "node.started"
-	NODE_COMPLETED = "node.completed"
-	NODE_FAILED = "node.failed"
-	NODE_SKIPPED = "node.skipped"
-	NODE_WAITING = "node.waiting"
+	NODE_STARTED             = "node.started"
+	NODE_COMPLETED           = "node.completed"
+	NODE_FAILED              = "node.failed"
+	NODE_SKIPPED             = "node.skipped"
+	NODE_WAITING             = "node.waiting"
 
 	# Edge events
-	EDGE_TRAVERSED = "edge.traversed"
+	EDGE_TRAVERSED           = "edge.traversed"
 	EDGE_CONDITION_EVALUATED = "edge.condition_evaluated"
 
 	# Data events
-	DATA_UPDATED = "data.updated"
-	VARIABLE_CHANGED = "variable.changed"
+	DATA_UPDATED             = "data.updated"
+	VARIABLE_CHANGED         = "variable.changed"
 
 	# User events
-	USER_INPUT_REQUESTED = "user_input.requested"
-	USER_INPUT_RECEIVED = "user_input.received"
+	USER_INPUT_REQUESTED     = "user_input.requested"
+	USER_INPUT_RECEIVED      = "user_input.received"
 
-	# System events
-	ERROR = "error"
-	WARNING = "warning"
-	INFO = "info"
+	# File upload events
+	UPLOAD_STARTED           = "upload.started"
+	UPLOAD_COMPLETED         = "upload.completed"
+	UPLOAD_FAILED            = "upload.failed"
+
+	# Processing events
+	PROCESSING_STARTED       = "processing.started"
+	PROCESSING_COMPLETED     = "processing.completed"
+	PROCESSING_FAILED        = "processing.failed"
+
 
 
 class WorkflowEvent(BaseModel):

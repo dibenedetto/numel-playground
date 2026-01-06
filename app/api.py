@@ -1,18 +1,18 @@
 # api
 
-import copy
+import asyncio
 
 
-from   fastapi   import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from   fastapi   import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, File, Form
 from   pydantic  import BaseModel
-from   typing    import Any, Dict, Optional
+from   typing    import Any, Dict, List, Optional
 
 
 from   engine    import WorkflowEngine
-from   event_bus import EventBus
+from   event_bus import EventType, EventBus
 from   manager   import WorkflowManager
 from   schema    import Workflow
-from   utils     import get_time_str, log_print
+from   utils     import get_now_str, get_timestamp_str, log_print
 
 
 class WorkflowUploadRequest(BaseModel):
@@ -35,6 +35,18 @@ class ToolCallRequest(BaseModel):
 
 
 def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, manager: WorkflowManager, engine: WorkflowEngine):
+
+	def _serialize_result(result):
+		"""Safely serialize handler result for JSON response"""
+		if result is None:
+			return None
+		try:
+			import json
+			json.dumps(result)
+			return result
+		except (TypeError, ValueError):
+			return str(result)
+
 
 	@app.post("/shutdown")
 	async def shutdown_server():
@@ -65,7 +77,7 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 	async def ping():
 		result = {
 			"message"   : "pong",
-			"timestamp" : get_time_str(),
+			"timestamp" : get_now_str(),
 		}
 		return result
 
@@ -245,6 +257,149 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 			return result
 		except Exception as e:
 			log_print(f"Error providing user input: {e}")
+			raise HTTPException(status_code=500, detail=str(e))
+
+
+	@app.post("/upload/{node_index}")
+	async def upload_files(
+		node_index : int,
+		files      : List[UploadFile] = File(...),
+		node_type  : str = Form(None),
+		button_id  : str = Form(None),
+	):
+		"""Handle file uploads from node drop zones or buttons"""
+		nonlocal event_bus, manager
+		
+		upload_id = f"upload_{node_index}_{get_timestamp_str()}"
+		
+		try:
+			# Get current workflow to find node info
+			impl = await manager.impl()
+			if not impl:
+				raise HTTPException(status_code=404, detail="No active workflow")
+			
+			workflow = impl["workflow"]
+			if node_index < 0 or node_index >= len(workflow.nodes):
+				raise HTTPException(status_code=404, detail=f"Node {node_index} not found")
+			
+			node = workflow.nodes[node_index]
+			
+			# === PHASE 1: UPLOAD ===
+			await event_bus.emit(
+				EventType.UPLOAD_STARTED,
+				node_id = str(node_index),
+				data    = {
+					"upload_id"  : upload_id,
+					"node_index" : node_index,
+					"node_type"  : node_type or node.type,
+					"file_count" : len(files),
+					"filenames"  : [f.filename for f in files],
+				}
+			)
+			
+			# Read file contents
+			uploaded   = []
+			total_size = 0
+			for file in files:
+				content   = await file.read()
+				file_info = {
+					"filename"     : file.filename,
+					"content_type" : file.content_type,
+					"size"         : len(content),
+					"content"      : content,
+				}
+				uploaded.append(file_info)
+				total_size += len(content)
+			
+			# Upload complete
+			await event_bus.emit(
+				EventType.UPLOAD_COMPLETED,
+				node_id = str(node_index),
+				data    = {
+					"upload_id"  : upload_id,
+					"node_index" : node_index,
+					"file_count" : len(uploaded),
+					"total_size" : total_size,
+				}
+			)
+			
+			# === PHASE 2: PROCESSING ===
+			handler_result = None
+			handler        = await manager.get_upload_handler(node.type)
+			
+			if handler:
+				await event_bus.emit(
+					EventType.PROCESSING_STARTED,
+					node_id = str(node_index),
+					data    = {
+						"upload_id"  : upload_id,
+						"node_index" : node_index,
+						"node_type"  : node.type,
+						"handler"    : handler.__name__ if hasattr(handler, '__name__') else str(handler),
+					}
+				)
+				
+				try:
+					if asyncio.iscoroutinefunction(handler):
+						handler_result = await handler(node, uploaded, button_id)
+					else:
+						handler_result = handler(node, uploaded, button_id)
+					
+					await event_bus.emit(
+						EventType.PROCESSING_COMPLETED,
+						node_id = str(node_index),
+						data    = {
+							"upload_id"  : upload_id,
+							"node_index" : node_index,
+							"result"     : _serialize_result(handler_result),
+						}
+					)
+					
+				except Exception as e:
+					log_print(f"Processing handler error: {e}")
+					await event_bus.emit(
+						EventType.PROCESSING_FAILED,
+						node_id = str(node_index),
+						error   = str(e),
+						data    = {
+							"upload_id"  : upload_id,
+							"node_index" : node_index,
+						}
+					)
+					raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+			
+			result = {
+				"status"         : "completed",
+				"upload_id"      : upload_id,
+				"node_index"     : node_index,
+				"node_type"      : node.type,
+				"files_count"    : len(uploaded),
+				"total_size"     : total_size,
+				"handler_result" : _serialize_result(handler_result),
+				"files"          : [
+					{
+						"filename"     : f["filename"],
+						"content_type" : f["content_type"],
+						"size"         : f["size"],
+					}
+					for f in uploaded
+				],
+			}
+			return result
+			
+		except HTTPException:
+			raise
+		except Exception as e:
+			log_print(f"Error in upload: {e}")
+			await event_bus.emit(
+				EventType.UPLOAD_FAILED,
+				node_id = str(node_index),
+				error   = str(e),
+				data    = {
+					"upload_id"  : upload_id,
+					"node_index" : node_index,
+				}
+			)
 			raise HTTPException(status_code=500, detail=str(e))
 
 

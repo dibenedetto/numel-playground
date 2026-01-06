@@ -77,16 +77,16 @@ class Edge(BaseType):
 # NATIVE VALUE NODES
 # ========================================================================
 
-class BaseNativeNode(BaseType):
-	type  : Annotated[Literal["base_native_node"], FieldRole.CONSTANT] = "base_native_node"
-	value : Annotated[Any                        , FieldRole.INPUT   ] = None
+class NativeNode(BaseType):
+	type  : Annotated[Literal["native_node"], FieldRole.CONSTANT] = "native_node"
+	value : Annotated[Any                   , FieldRole.INPUT   ] = None
 
 	@property
 	def output(self) -> Annotated[Any, FieldRole.OUTPUT]:
 		return self.value
 
 
-class StringNode(BaseNativeNode):
+class StringNode(NativeNode):
 	type  : Annotated[Literal["native_string"], FieldRole.CONSTANT] = "native_string"
 	value : Annotated[str                     , FieldRole.INPUT   ] = ""
 
@@ -95,7 +95,7 @@ class StringNode(BaseNativeNode):
 		return self.value
 
 
-class IntegerNode(BaseNativeNode):
+class IntegerNode(NativeNode):
 	type  : Annotated[Literal["native_integer"], FieldRole.CONSTANT] = "native_integer"
 	value : Annotated[int                      , FieldRole.INPUT   ] = 0
 
@@ -104,7 +104,7 @@ class IntegerNode(BaseNativeNode):
 		return self.value
 
 
-class FloatNode(BaseNativeNode):
+class FloatNode(NativeNode):
 	type  : Annotated[Literal["native_float"], FieldRole.CONSTANT] = "native_float"
 	value : Annotated[float                  , FieldRole.INPUT   ] = 0.0
 
@@ -113,7 +113,7 @@ class FloatNode(BaseNativeNode):
 		return self.value
 
 
-class BooleanNode(BaseNativeNode):
+class BooleanNode(NativeNode):
 	type  : Annotated[Literal["native_boolean"], FieldRole.CONSTANT] = "native_boolean"
 	value : Annotated[bool                     , FieldRole.INPUT   ] = False
 
@@ -122,7 +122,7 @@ class BooleanNode(BaseNativeNode):
 		return self.value
 
 
-class ListNode(BaseNativeNode):
+class ListNode(NativeNode):
 	type  : Annotated[Literal["native_list"], FieldRole.CONSTANT] = "native_list"
 	value : Annotated[List[Any]             , FieldRole.INPUT   ] = []
 
@@ -131,7 +131,7 @@ class ListNode(BaseNativeNode):
 		return self.value
 
 
-class DictNode(BaseNativeNode):
+class DictNode(NativeNode):
 	type  : Annotated[Literal["native_dict"], FieldRole.CONSTANT] = "native_dict"
 	value : Annotated[Dict[str, Any]        , FieldRole.INPUT   ] = {}
 
@@ -163,22 +163,14 @@ class SourceMeta(BaseModel):
 	language      : Optional[str]   = None
 
 
-class BaseDataNode(BaseType):
-	type        : Annotated[Literal["base_data_node"], FieldRole.CONSTANT] = "base_data_node"
+class DataNode(BaseType):
+	type        : Annotated[Literal["base_data_node"], FieldRole.CONSTANT] = "data_node"
 	source_type : Annotated[SourceType               , FieldRole.INPUT   ] = SourceType.NONE
 	source_url  : Annotated[Optional[str]            , FieldRole.INPUT   ] = None
 	source_path : Annotated[Optional[str]            , FieldRole.INPUT   ] = None
 	source_data : Annotated[Optional[str]            , FieldRole.INPUT   ] = None
 	source_meta : Annotated[Optional[SourceMeta]     , FieldRole.INPUT   ] = None
-
-	@property
-	def output(self) -> Annotated[BaseDataNode, FieldRole.OUTPUT]:
-		return self
-
-
-class DataNode(BaseDataNode):
-	type      : Annotated[Literal["data"], FieldRole.CONSTANT] = "data"
-	data_type : Annotated[Optional[str]  , FieldRole.INPUT   ] = None
+	data_type   : Annotated[Optional[str]            , FieldRole.INPUT   ] = None
 
 	@property
 	def output(self) -> Annotated[DataNode, FieldRole.OUTPUT]:
@@ -189,7 +181,7 @@ DEFAULT_TEXT_ENCODING : str = "utf-8"
 DEFAULT_TEXT_LANGUAGE : str = "plain"
 
 
-class TextDataNode(BaseDataNode):
+class TextDataNode(DataNode):
 	type     : Annotated[Literal["data_text"], FieldRole.CONSTANT] = "data_text"
 	encoding : Annotated[str                 , FieldRole.INPUT   ] = DEFAULT_TEXT_ENCODING
 	language : Annotated[str                 , FieldRole.INPUT   ] = DEFAULT_TEXT_LANGUAGE
@@ -199,7 +191,7 @@ class TextDataNode(BaseDataNode):
 		return self
 
 
-class DocumentDataNode(BaseDataNode):
+class DocumentDataNode(DataNode):
 	type : Annotated[Literal["data_document"], FieldRole.CONSTANT] = "data_document"
 
 	@property
@@ -207,7 +199,7 @@ class DocumentDataNode(BaseDataNode):
 		return self
 
 
-class ImageDataNode(BaseDataNode):
+class ImageDataNode(DataNode):
 	type : Annotated[Literal["data_image"], FieldRole.CONSTANT] = "data_image"
 
 	@property
@@ -215,7 +207,7 @@ class ImageDataNode(BaseDataNode):
 		return self
 
 
-class AudioDataNode(BaseDataNode):
+class AudioDataNode(DataNode):
 	type : Annotated[Literal["data_audio"], FieldRole.CONSTANT] = "data_audio"
 
 	@property
@@ -223,7 +215,7 @@ class AudioDataNode(BaseDataNode):
 		return self
 
 
-class VideoDataNode(BaseDataNode):
+class VideoDataNode(DataNode):
 	type : Annotated[Literal["data_video"], FieldRole.CONSTANT] = "data_video"
 
 	@property
@@ -231,7 +223,7 @@ class VideoDataNode(BaseDataNode):
 		return self
 
 
-class Model3DDataNode(BaseDataNode):
+class Model3DDataNode(DataNode):
 	type : Annotated[Literal["data_model3d"], FieldRole.CONSTANT] = "data_model3d"
 
 	@property
@@ -239,7 +231,7 @@ class Model3DDataNode(BaseDataNode):
 		return self
 
 
-class BinaryDataNode(BaseDataNode):
+class BinaryDataNode(DataNode):
 	type : Annotated[Literal["data_binary"], FieldRole.CONSTANT] = "data_binary"
 
 	@property
@@ -605,8 +597,8 @@ class AgentChat(BaseInteractive):
 	type          : Annotated[Literal["agent_chat"], FieldRole.CONSTANT] = "agent_chat"
 	config        : Annotated[AgentConfig          , FieldRole.INPUT   ] = None
 	system_prompt : Annotated[Optional[str]        , FieldRole.INPUT   ] = None
-	response      : Annotated[Any                  , FieldRole.OUTPUT  ] = None
-	chat          : Annotated[Any                  , FieldRole.OUTPUT  ] = None
+	# response      : Annotated[Any                  , FieldRole.OUTPUT  ] = None
+	# chat          : Annotated[Any                  , FieldRole.OUTPUT  ] = None
 
 
 # ========================================================================

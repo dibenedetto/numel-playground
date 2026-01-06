@@ -12,7 +12,7 @@ from   pydantic    import BaseModel
 from   typing      import Any, Dict, List, Optional, Set, Tuple
 
 
-from   event_bus   import EventBus, EventType
+from   event_bus   import EventType, EventBus
 from   nodes       import ImplementedBackend, NodeExecutionContext, NodeExecutionResult, create_node
 from   schema      import Edge, BaseType, BaseNode, Workflow
 

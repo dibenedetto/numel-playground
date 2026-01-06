@@ -7,14 +7,15 @@ const FORCE_PREVIEW_ON_SAME_DATA = true;
 
 
 // Global State
-let client = null;
-let visualizer = null;
-let agentChatManager = null;
-let schemaGraph = null;
+let client             = null;
+let visualizer         = null;
+let agentChatManager   = null;
+let schemaGraph        = null;
 let currentExecutionId = null;
-let pendingRemoveName = null;
-let singleMode = true;
-let workflowDirty = true;
+let pendingRemoveName  = null;
+let singleMode         = true;
+let workflowDirty      = true;
+let fileUploadManager  = null;
 
 // DOM Elements
 const $ = id => document.getElementById(id);
@@ -167,6 +168,18 @@ async function connect() {
 		agentChatManager = new AgentChatManager(serverUrl, schemaGraph, syncWorkflow);
 		addLog('info', '💬 Agent chat manager initialized');
 
+		// Initialize file upload manager
+		fileUploadManager = new FileUploadManager(serverUrl, schemaGraph, syncWorkflow, schemaGraph.eventBus);
+		addLog('info', '📁 File upload manager initialized');
+
+		// Update overlay positions on camera changes
+		schemaGraph.eventBus.on('camera:moved', () => {
+			fileUploadManager?.updateOverlayPositions();
+		});
+		schemaGraph.eventBus.on('camera:zoomed', () => {
+			fileUploadManager?.updateOverlayPositions();
+		});
+
 		// Connect WebSocket
 		client.connectWebSocket();
 		setupClientEvents();
@@ -207,6 +220,9 @@ async function disconnect() {
 	if (schemaGraph?.api?.lock?.isLocked()) {
 		schemaGraph.api.lock.unlock();
 	}
+
+	fileUploadManager?.destroy();
+	fileUploadManager = null;
 
 	agentChatManager?.disconnectAll();
 	agentChatManager = null;
@@ -331,6 +347,38 @@ function setupClientEvents() {
 	client.on('user_input.requested', (event) => {
 		addLog('warning', `👤 User input requested`);
 		showUserInputModal(event);
+	});
+
+	// Forward file upload events to local eventBus
+	client.on('upload.started', (event) => {
+		schemaGraph.eventBus.emit('upload.started', event);
+		const files = event.data?.filenames?.join(', ') || '';
+		addLog('info', `⬆️ [${event.node_id}] Uploading: ${files}`);
+	});
+
+	client.on('upload.completed', (event) => {
+		schemaGraph.eventBus.emit('upload.completed', event);
+		addLog('info', `📦 [${event.node_id}] Upload complete`);
+	});
+
+	client.on('upload.failed', (event) => {
+		schemaGraph.eventBus.emit('upload.failed', event);
+		addLog('error', `❌ [${event.node_id}] Upload failed: ${event.error}`);
+	});
+
+	client.on('processing.started', (event) => {
+		schemaGraph.eventBus.emit('processing.started', event);
+		addLog('info', `⚙️ [${event.node_id}] Processing files...`);
+	});
+
+	client.on('processing.completed', (event) => {
+		schemaGraph.eventBus.emit('processing.completed', event);
+		addLog('success', `✅ [${event.node_id}] Processing complete`);
+	});
+
+	client.on('processing.failed', (event) => {
+		schemaGraph.eventBus.emit('processing.failed', event);
+		addLog('error', `❌ [${event.node_id}] Processing failed: ${event.error}`);
 	});
 }
 

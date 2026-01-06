@@ -7,10 +7,10 @@ import uvicorn
 
 
 # from   pathlib   import Path
-from   typing    import Any, Dict, List, Optional
+from   typing    import Any, Callable, Dict, List, Optional
 
 
-from   event_bus import EventBus, EventType
+from   event_bus import EventType, EventBus
 from   schema    import InfoConfig, Workflow, WorkflowOptionsConfig
 # from   utils     import log_print
 
@@ -23,22 +23,64 @@ class WorkflowManager:
 
 	# def __init__(self, event_bus: EventBus, storage_dir: str = "workflows"):
 	def __init__(self, port: int, event_bus: EventBus):
-		self._port       : int            = port
-		self._event_bus  : EventBus       = event_bus
-		self._current_id : int            = 0
-		self._workflows  : Dict[str, Any] = {}
+		self._port            : int                 = port
+		self._event_bus       : EventBus            = event_bus
+		self._current_id      : int                 = 0
+		self._workflows       : Dict[str, Any     ] = {}
+		self._upload_handlers : Dict[str, Callable] = {}
+
 		# self._storage_dir = Path(storage_dir)
 		# self._storage_dir.mkdir(exist_ok=True)
 
 
 	async def clear(self):
-		self._current_id = 0
-		self._workflows  = {}
+		await self.remove()
+		await self.unregister_upload_handler()
+		self._current_id      = 0
+		self._workflows       = {}
+		self._upload_handlers = {}
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_CLEARED,
 		)
 
-	async def create(self, name: str, description: str = None) -> Workflow:
+
+	async def register_upload_handler(self, node_type: str, handler: Callable) -> bool:
+		self._upload_handlers[node_type] = handler
+		await self._event_bus.emit(
+			event_type = EventType.MANAGER_UPLOAD_ADDED,
+		)
+		return True
+
+
+	async def unregister_upload_handler(self, node_type: Optional[str] = None) -> bool:
+		if not node_type:
+			names = list(self._upload_handlers.keys())
+		elif node_type in self._upload_handlers:
+			names = [node_type]
+		else:
+			return False
+		for key in names:
+			del self._upload_handlers[key]
+		await self._event_bus.emit(
+			event_type = EventType.MANAGER_UPLOAD_REMOVED,
+		)
+		return True
+
+
+	async def get_upload_handler(self, node_type: Optional[str] = None) -> Any:
+		if not node_type:
+			result = copy.deepcopy(self._upload_handlers)
+		elif node_type in self._upload_handlers:
+			result = self._upload_handlers.get(node_type)
+		else:
+			return None
+		await self._event_bus.emit(
+			event_type = EventType.MANAGER_UPLOAD_GOT,
+		)
+		return result
+
+
+	async def create(self, name: str, description: Optional[str] = None) -> Workflow:
 		wf = Workflow(
 			info = InfoConfig(
 				name        = name,
@@ -50,7 +92,7 @@ class WorkflowManager:
 		)
 		self._workflows[name] = self._make_workflow(wf)
 		await self._event_bus.emit(
-			event_type = EventType.MANAGER_CREATED,
+			event_type = EventType.MANAGER_WORKFLOW_CREATED,
 		)
 		return wf
 
@@ -67,7 +109,7 @@ class WorkflowManager:
 		wf.link()
 		self._workflows[name] = self._make_workflow(wf)
 		await self._event_bus.emit(
-			event_type = EventType.MANAGER_ADDED,
+			event_type = EventType.MANAGER_WORKFLOW_ADDED,
 		)
 		return name
 
@@ -84,12 +126,12 @@ class WorkflowManager:
 			await self._kill_workflow(data)
 			del self._workflows[key]
 		await self._event_bus.emit(
-			event_type = EventType.MANAGER_REMOVED,
+			event_type = EventType.MANAGER_WORKFLOW_REMOVED,
 		)
 		return True
 
 
-	async def get(self, name: str) -> Optional[Workflow]:
+	async def get(self, name: Optional[str] = None) -> Any:
 		if not name:
 			result = {key:value["workflow"] for key, value in self._workflows.items()}
 		elif name in self._workflows:
@@ -99,12 +141,14 @@ class WorkflowManager:
 			return None
 		result = copy.deepcopy(result)
 		await self._event_bus.emit(
-			event_type = EventType.MANAGER_GOT,
+			event_type = EventType.MANAGER_WORKFLOW_GOT,
 		)
 		return result
 
 
-	async def impl(self, name: str) -> Any:
+	async def impl(self, name: Optional[str] = None) -> Any:
+		if not name:
+			name = list(self._workflows.keys())[-1] if self._workflows else None
 		data = self._workflows.get(name)
 		if not data:
 			return None
@@ -134,7 +178,7 @@ class WorkflowManager:
 		data["backend"] = backend
 		data["apps"   ] = apps
 		await self._event_bus.emit(
-			event_type = EventType.MANAGER_IMPL,
+			event_type = EventType.MANAGER_WORKFLOW_IMPL,
 		)
 		return data
 
@@ -142,7 +186,7 @@ class WorkflowManager:
 	async def list(self) -> List[str]:
 		result = list(self._workflows.keys())
 		await self._event_bus.emit(
-			event_type = EventType.MANAGER_LISTED,
+			event_type = EventType.MANAGER_WORKFLOW_LISTED,
 		)
 		return result
 
