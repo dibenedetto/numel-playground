@@ -32,7 +32,7 @@ from   agno.vectordb.search            import SearchType
 
 from   schema                          import *
 from   nodes                           import ImplementedBackend
-from   utils                           import add_middleware
+from   utils                           import add_middleware, get_timestamp_str
 
 
 def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
@@ -385,7 +385,8 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 				content = await file.read()
 			filename  = info["filename"]
 			extension = os.path.splitext(filename)[1]
-			id        = hashlib.sha256(content).hexdigest()
+			rnd       = bytearray().extend(get_timestamp_str().encode())
+			id        = hashlib.sha256(content + rnd).hexdigest()
 			metadata  = {"id": id}
 			with tempfile.NamedTemporaryFile(suffix=extension, delete=True, delete_on_close=False) as temp_file:
 				temp_file.write(content)

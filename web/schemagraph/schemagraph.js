@@ -1427,16 +1427,18 @@ class SchemaGraphApp {
 		this.loadTextScalingMode();
 
 		// Add lock mode state
-		this.isLocked = false;
-		this.lockReason = null;
+		this.isLocked     = false;
+		this.lockReason   = null;
+		this.lockPending  = null;
+		this.lockInterval = null;
 	}
 
 	/**
 	 * Lock the graph to prevent modifications (only node movement allowed)
 	 * @param {string} reason - Reason for locking (shown in UI)
 	 */
-	lock(reason = 'Graph locked') {
-		this.lockReason = reason;
+	lock(reason = 'Graph locked', pending = true) {
+		this.lockReason  = reason;
 
 		if (!this.isLocked) {
 			this.isLocked = true;
@@ -1457,7 +1459,16 @@ class SchemaGraphApp {
 			// Update cursor
 			this.canvas.classList.add('sg-locked');
 		}
-		
+
+		if (pending) {
+			const self = this;
+			this.lockPending  = 0;
+			this.lockInterval = setInterval(() => {
+				self.lockPending = (self.lockPending + 1) % 3;
+				self.draw();
+			}, 500);
+		}
+
 		this.eventBus.emit('graph:locked', { reason });
 		this.draw();
 	}
@@ -1467,9 +1478,15 @@ class SchemaGraphApp {
 	 */
 	unlock() {
 		if (!this.isLocked) return;
-		
-		this.isLocked = false;
+
+		this.isLocked   = false;
 		this.lockReason = null;
+		
+		if (this.lockInterval) {
+			clearInterval(this.lockInterval);
+			this.lockInterval = null;
+			this.lockPending  = null;
+		}
 		
 		this.canvas.classList.remove('sg-locked');
 		
@@ -4701,8 +4718,13 @@ class SchemaGraphApp {
 			// Draw lock indicator in corner
 			this.ctx.save();
 			
+			let pending = '';
+			if (this.lockInterval) {
+				pending = '.'.repeat(this.lockPending + 1);
+			}
+			console.log(pending);
 			const padding = 10;
-			const text = `🔒 ${this.lockReason || 'Locked'}`;
+			const text = `🔒 ${(this.lockReason || 'Locked') + pending}`;
 			const textScale = 1;
 			
 			this.ctx.font = `bold ${12 * textScale}px Arial, sans-serif`;
@@ -5380,8 +5402,8 @@ class SchemaGraphApp {
 				 * Lock the graph
 				 * @param {string} reason - Lock reason
 				 */
-				lock: (reason) => {
-					this.lock(reason);
+				lock: (reason, pending = true) => {
+					this.lock(reason, pending);
 				},
 				
 				/**

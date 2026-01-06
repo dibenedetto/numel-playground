@@ -481,7 +481,7 @@ async function handleFileUpload(event) {
 async function syncWorkflow(workflow = null, name = null, force = false) {
 	if (!force && !workflowDirty) return;
 
-	schemaGraph.api.lock.lock('Syncing...');
+	schemaGraph.api.lock.lock('Syncing workflow');
 
 	try {
 		// Save chat state before reload
@@ -572,7 +572,7 @@ async function handleSingleImport(event) {
 	if (!file) return;
 
 	try {
-		schemaGraph.api.lock.lock('Importing...');
+		schemaGraph.api.lock.lock('Importing content');
 
 		const text = await file.text();
 		const workflow = JSON.parse(text);

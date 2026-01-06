@@ -123,6 +123,8 @@ class FileUploadManager {
 	}
 
 	_onBackendProcessingStarted(event) {
+		this.app.api.lock.lock('Processing uploaded files');
+
 		const { node_index, upload_id, handler } = event.data || {};
 		const node = this._getNodeByWorkflowIndex(node_index);
 		
@@ -315,7 +317,7 @@ class FileUploadManager {
 		}
 
 		// Lock graph
-		this._lockGraph('Uploading files...');
+		this._lockGraph('Uploading files');
 
 		// Set initial visual state
 		this._setNodePhase(node, UploadPhase.UPLOADING, {
