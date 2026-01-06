@@ -319,6 +319,7 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 				default_embedding_index = len(workflow.nodes)
 				default_embedding       = EmbeddingConfig()
 				workflow.nodes.append(default_embedding)
+				indices["embedding_config"].append(default_embedding_index)
 			edge = Edge(
 				source      = default_embedding_index,
 				target      = i,
