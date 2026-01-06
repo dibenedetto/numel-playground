@@ -4722,7 +4722,7 @@ class SchemaGraphApp {
 			if (this.lockInterval) {
 				pending = '.'.repeat(this.lockPending + 1);
 			}
-			console.log(pending);
+
 			const padding = 10;
 			const text = `🔒 ${(this.lockReason || 'Locked') + pending}`;
 			const textScale = 1;

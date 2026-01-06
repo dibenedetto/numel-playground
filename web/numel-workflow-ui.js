@@ -582,9 +582,11 @@ async function handleSingleImport(event) {
 		schemaGraph.api.view.reset();
 
 		// Validate
-		const validated = visualizer.validateWorkflow(workflow);
+		// const validated = visualizer.validateWorkflow(workflow);
+		const name      = workflow?.info?.name || file.name.replace('.json', '');
+		const validated = visualizer.loadWorkflow(workflow, name);
 		if (validated) {
-			await syncWorkflow(workflow, workflow?.info?.name || file.name.replace('.json', ''), true);
+			await syncWorkflow(workflow, name, true);
 			enableStart(true);
 			addLog('success', `📂 Imported "${visualizer.currentWorkflowName}" (local)`);
 		}

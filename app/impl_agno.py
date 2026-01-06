@@ -1,7 +1,6 @@
 # impl_agno
 
 import copy
-import hashlib
 import os
 import tempfile
 
@@ -114,19 +113,20 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "index_db_config", "Invalid Agno index db"
 		search_type = _get_search_type(item_config.search_type)
+		full_path   = f"{item_config.url}_{item_config.table_name}"
 		supported_db_classes = {
 			"chroma"   : (ChromaDb, lambda: {
-				"path"        : item_config.url,
-				# "database"    : item_config.table_name,
+				"path"        : f"{full_path}",
+				"search_type" : search_type,
 				"collection"  : "vectors",
 			}),
 			"lancedb"  : (LanceDb , lambda: {
-				"uri"         : item_config.url,
+				"uri"         : f"{full_path}",
 				"table_name"  : item_config.table_name,
 				"search_type" : search_type,
 			}),
 			"pgvector" : (PgVector, lambda: {
-				"uri"         : item_config.url,
+				"uri"         : f"{full_path}",
 				"table_name"  : item_config.table_name,
 				"search_type" : search_type,
 			}),
@@ -375,7 +375,7 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 	async def add_contents(knowledge: Any, files: List[Any]) -> List[str]:
 		if not isinstance(knowledge, Knowledge):
 			raise "Invalid Agno Knowledge instance"
-		result = [None] * len(files)
+		p_res = []
 		for i, info in enumerate(files):
 			content = info["content"]
 			if not content:
@@ -385,9 +385,7 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 				content = await file.read()
 			filename  = info["filename"]
 			extension = os.path.splitext(filename)[1]
-			rnd       = bytearray().extend(get_timestamp_str().encode())
-			id        = hashlib.sha256(content + rnd).hexdigest()
-			metadata  = {"id": id}
+			metadata  = {"source": filename}
 			with tempfile.NamedTemporaryFile(suffix=extension, delete=True, delete_on_close=False) as temp_file:
 				temp_file.write(content)
 				temp_file.flush()
@@ -398,7 +396,13 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 					path           = temp_file.name,
 					metadata       = metadata,
 				)
-			result[i] = id
+			p_res.append(i)
+		contents, _ = knowledge.get_content()
+		# contents.sort(key=lambda x: x.created_at)
+		contents = contents[-len(p_res):]
+		result   = [None] * len(files)
+		for i, content in zip(p_res, contents):
+			result[i] = content.id
 		return result
 
 
@@ -409,9 +413,8 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		for i, id in enumerate(ids):
 			if not id:
 				continue
-			metadata  = {"id": id},
-			res       = knowledge.remove_vectors_by_metadata(metadata)
-			result[i] = res
+			knowledge.remove_content_by_id(id)
+			result[i] = True
 		return result
 
 
