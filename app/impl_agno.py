@@ -1,6 +1,9 @@
 # impl_agno
 
 import copy
+import hashlib
+import os
+import tempfile
 
 
 from   fastapi                         import FastAPI
@@ -110,20 +113,30 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 	def _build_index_db(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "index_db_config", "Invalid Agno index db"
+		search_type = _get_search_type(item_config.search_type)
 		supported_db_classes = {
-			"chroma"   : (ChromaDb, lambda: {"collection": "vectors"}),
-			"lancedb"  : (LanceDb , lambda: {}),
-			"pgvector" : (PgVector, lambda: {}),
+			"chroma"   : (ChromaDb, lambda: {
+				"path"        : item_config.url,
+				# "database"    : item_config.table_name,
+				"collection"  : "vectors",
+			}),
+			"lancedb"  : (LanceDb , lambda: {
+				"uri"         : item_config.url,
+				"table_name"  : item_config.table_name,
+				"search_type" : search_type,
+			}),
+			"pgvector" : (PgVector, lambda: {
+				"uri"         : item_config.url,
+				"table_name"  : item_config.table_name,
+				"search_type" : search_type,
+			}),
 		}
 		mkdb = supported_db_classes.get(item_config.engine)
 		if not mkdb:
 			raise ValueError(f"Unsupported Agno index db")
-		search_type = _get_search_type(item_config.search_type)
-		item = mkdb[0](
-			embedder    = impl[links[index]["embedding"]] if item_config.embedding is not None else None,
-			uri         = item_config.url,
-			table_name  = item_config.table_name,
-			search_type = search_type,
+		embedder = impl[links[index]["embedding"]] if item_config.embedding is not None else None
+		item     = mkdb[0](
+			embedder = embedder,
 			**(mkdb[1]()),
 		)
 		impl[index] = item
@@ -297,6 +310,24 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 	for i, node in enumerate(workflow.nodes):
 		indices.get(node.type, unused_nodes).append(i)
 
+	default_embedding_index = None
+	default_embedding       = None
+	for i in indices["index_db_config"]:
+		item_config = workflow.nodes[i]
+		if item_config.embedding is None:
+			if default_embedding_index is None:
+				default_embedding_index = len(workflow.nodes)
+				default_embedding       = EmbeddingConfig()
+				workflow.nodes.append(default_embedding)
+			edge = Edge(
+				source      = default_embedding_index,
+				target      = i,
+				source_slot = "get",
+				target_slot = "embedding",
+			)
+			workflow.edges.append(edge)
+			item_config.embedding = default_embedding
+
 	links = [dict() for _ in range(len(workflow.nodes))]
 	for edge in workflow.edges:
 		links[edge.target][edge.target_slot] = edge.source
@@ -338,22 +369,57 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 	def get_agent_app(agent: Any) -> FastAPI:
 		app = agent.__extra["app"]
 		return app
-	
 
-	async def add_content(knowledge: Any, files: List[Any]) -> Any:
+
+	async def add_contents(knowledge: Any, files: List[Any]) -> List[str]:
 		if not isinstance(knowledge, Knowledge):
 			raise "Invalid Agno Knowledge instance"
-		contents = [file['content'] for file in files]
-		await knowledge.add_contents_async(*contents)
-		return True
+		result = [None] * len(files)
+		for i, info in enumerate(files):
+			content = info["content"]
+			if not content:
+				file = info["file"]
+				if not file:
+					continue
+				content = await file.read()
+			filename  = info["filename"]
+			extension = os.path.splitext(filename)[1]
+			id        = hashlib.sha256(content).hexdigest()
+			metadata  = {"id": id}
+			with tempfile.NamedTemporaryFile(suffix=extension, delete=True, delete_on_close=False) as temp_file:
+				temp_file.write(content)
+				temp_file.flush()
+				temp_file.close()
+				await knowledge.add_content_async(
+					upsert         = False,
+					skip_if_exists = False,
+					path           = temp_file.name,
+					metadata       = metadata,
+				)
+			result[i] = id
+		return result
+
+
+	async def remove_contents(knowledge: Any, ids: List[str]) -> List[bool]:
+		if not isinstance(knowledge, Knowledge):
+			raise "Invalid Agno Knowledge instance"
+		result = [False] * len(ids)
+		for i, id in enumerate(ids):
+			if not id:
+				continue
+			metadata  = {"id": id},
+			res       = knowledge.remove_vectors_by_metadata(metadata)
+			result[i] = res
+		return result
 
 
 	backend = ImplementedBackend(
-		handles       = impl,
-		run_tool      = run_tool,
-		run_agent     = run_agent,
-		get_agent_app = get_agent_app,
-		add_content   = add_content,
+		handles         = impl,
+		run_tool        = run_tool,
+		run_agent       = run_agent,
+		get_agent_app   = get_agent_app,
+		add_contents    = add_contents,
+		remove_contents = remove_contents,
 	)
 
 	return backend

@@ -89,8 +89,11 @@ class WorkflowEngine:
 	async def _execute_workflow(self, workflow: Workflow, backend: ImplementedBackend, state: WorkflowExecutionState, initial_data: Dict[str, Any]):
 		"""Main execution loop - frontier-based"""
 		try:
-			exec_delay_sec = (workflow.extra or {}).get("exec_delay_sec", DEFAULT_ENGINE_EXEC_DELAY_SEC)
-			node_delay_sec = (workflow.extra or {}).get("node_delay_sec", DEFAULT_ENGINE_NODE_DELAY_SEC)
+			if not initial_data:
+				initial_data = {}
+
+			exec_delay_sec = initial_data.get("exec_delay_sec", DEFAULT_ENGINE_EXEC_DELAY_SEC)
+			node_delay_sec = initial_data.get("node_delay_sec", DEFAULT_ENGINE_NODE_DELAY_SEC)
 
 			nodes     = workflow.nodes or []
 			pending   = set()

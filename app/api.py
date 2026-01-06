@@ -290,14 +290,16 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 			total_size = 0
 			for file in files:
 				content   = await file.read()
+				file_size = len(content) if content else 0
 				file_info = {
 					"filename"     : file.filename,
 					"content_type" : file.content_type,
-					"size"         : len(content),
+					"size"         : file_size,
 					"content"      : content,
+					"file"         : file,
 				}
 				uploaded.append(file_info)
-				total_size += len(content)
+				total_size += file_size
 			
 			# Upload complete
 			await event_bus.emit(
