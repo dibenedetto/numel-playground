@@ -4697,6 +4697,7 @@ class SchemaGraphApp {
 		this.drawGrid(colors);
 		this.drawLinks(colors);
 		this.drawNodes(colors);
+		// this.drawLinksAndNodes(colors);
 		
 		if (this.connecting) {
 			this.drawConnecting(colors);
@@ -4859,10 +4860,140 @@ class SchemaGraphApp {
 	}
 
 	drawNodes(colors) {
+		// for (const node of this.graph.nodes) {
+		// 	this.drawNode(node, colors);
+		// }
+		const unselectedNodes = [];
+		const selectedNodes   = [];
 		for (const node of this.graph.nodes) {
+			if (this.isNodeSelected(node)) {
+				selectedNodes.push(node);
+			} else {
+				unselectedNodes.push(node);
+			}
+		}
+		for (const node of unselectedNodes) {
+			this.drawNode(node, colors);
+		}
+		for (const node of selectedNodes) {
 			this.drawNode(node, colors);
 		}
 	}
+
+	// drawLinksAndNodes(colors) {
+	// 	const style = this.drawingStyleManager.getStyle();
+		
+	// 	// Separate nodes by selection
+	// 	const unselectedNodes = [];
+	// 	const selectedNodes = [];
+	// 	const selectedNodeIds = new Set();
+		
+	// 	for (const node of this.graph.nodes) {
+	// 		if (this.isNodeSelected(node)) {
+	// 			selectedNodes.push(node);
+	// 			selectedNodeIds.add(node.id);
+	// 		} else {
+	// 			unselectedNodes.push(node);
+	// 		}
+	// 	}
+		
+	// 	// Separate links by whether they connect to selected nodes
+	// 	const unselectedLinks = [];
+	// 	const selectedLinks = [];
+		
+	// 	for (const linkId in this.graph.links) {
+	// 		const link = this.graph.links[linkId];
+	// 		if (selectedNodeIds.has(link.origin_id) || selectedNodeIds.has(link.target_id)) {
+	// 			selectedLinks.push(link);
+	// 		} else {
+	// 			unselectedLinks.push(link);
+	// 		}
+	// 	}
+		
+	// 	// Layer 1: Unselected links
+	// 	for (const link of unselectedLinks) {
+	// 		this._drawLink(link, colors, style);
+	// 	}
+		
+	// 	// Layer 2: Unselected nodes
+	// 	for (const node of unselectedNodes) {
+	// 		this.drawNode(node, colors);
+	// 	}
+		
+	// 	// Layer 3: Selected links (on top of unselected nodes)
+	// 	for (const link of selectedLinks) {
+	// 		this._drawLink(link, colors, style);
+	// 	}
+		
+	// 	// Layer 4: Selected nodes (on top)
+	// 	for (const node of selectedNodes) {
+	// 		this.drawNode(node, colors);
+	// 	}
+	// }
+
+	// _drawLink(link, colors, style) {
+	// 	const orig = this.graph.getNodeById(link.origin_id);
+	// 	const targ = this.graph.getNodeById(link.target_id);
+	// 	if (!orig || !targ) return;
+		
+	// 	const x1 = orig.pos[0] + orig.size[0];
+	// 	const y1 = orig.pos[1] + 33 + link.origin_slot * 25;
+	// 	const x2 = targ.pos[0];
+	// 	const y2 = targ.pos[1] + 33 + link.target_slot * 25;
+		
+	// 	const distance = Math.abs(x2 - x1);
+	// 	const maxControlDistance = 400;
+	// 	const controlOffset = Math.min(distance * style.linkCurve, maxControlDistance);
+	// 	const cx1 = x1 + controlOffset;
+	// 	const cx2 = x2 - controlOffset;
+		
+	// 	if (style.linkShadowBlur > 0) {
+	// 		this.ctx.strokeStyle = colors.linkColor;
+	// 		this.ctx.lineWidth = (style.linkWidth + 3) / this.camera.scale;
+	// 		this.ctx.globalAlpha = 0.15;
+			
+	// 		if (style.useGlow) {
+	// 			this.ctx.shadowColor = colors.linkColor;
+	// 			this.ctx.shadowBlur = style.linkShadowBlur / this.camera.scale;
+	// 		}
+			
+	// 		this.ctx.beginPath();
+	// 		if (style.linkCurve > 0) {
+	// 			this.ctx.moveTo(x1, y1);
+	// 			this.ctx.bezierCurveTo(cx1, y1, cx2, y2, x2, y2);
+	// 		} else {
+	// 			this.ctx.moveTo(x1, y1);
+	// 			this.ctx.lineTo(x2, y2);
+	// 		}
+	// 		this.ctx.stroke();
+	// 	}
+		
+	// 	this.ctx.strokeStyle = colors.linkColor;
+	// 	this.ctx.lineWidth = style.linkWidth / this.camera.scale;
+	// 	this.ctx.globalAlpha = 1.0;
+	// 	this.ctx.shadowBlur = 0;
+		
+	// 	if (style.useDashed) {
+	// 		this.ctx.setLineDash([8 / this.camera.scale, 4 / this.camera.scale]);
+	// 	}
+		
+	// 	this.ctx.beginPath();
+	// 	if (style.linkCurve > 0) {
+	// 		this.ctx.moveTo(x1, y1);
+	// 		this.ctx.bezierCurveTo(cx1, y1, cx2, y2, x2, y2);
+	// 	} else {
+	// 		this.ctx.moveTo(x1, y1);
+	// 		this.ctx.lineTo(x2, y2);
+	// 	}
+	// 	this.ctx.stroke();
+		
+	// 	if (style.useDashed) {
+	// 		this.ctx.setLineDash([]);
+	// 	}
+		
+	// 	this.ctx.globalAlpha = 1.0;
+	// 	this.ctx.shadowBlur = 0;
+	// }
 
 	drawNode(node, colors) {
 		const style = this.drawingStyleManager.getStyle();
