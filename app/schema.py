@@ -25,7 +25,7 @@ class FieldRole(str, Enum):
 # DECORATORS
 # ========================================================================
 
-def node_button(id: str, label: str = "", icon: str = "", position: str = "footer", **kwargs):
+def node_button(id: str, label: str = "", icon: str = "", position: str = "bottom", **kwargs):
 	def decorator(cls):
 		return cls
 	return decorator
@@ -324,7 +324,7 @@ DEFAULT_CONTENT_DB_KNOWLEDGE_TABLE_NAME : str  = "knowledge"
 DEFAULT_CONTENT_DB_FALLBACK             : bool = False
 
 
-# @node_button(id="import", label="Import", icon="📥", position="header-right")
+# @node_button(id="import", label="Import", icon="📥", position="bottom")
 # @node_dropzone(accept=".json,.txt", area="content", label="Drop file")
 class ContentDBConfig(BaseConfig):
 	type                 : Annotated[Literal["content_db_config"], FieldRole.CONSTANT  ] = "content_db_config"
@@ -348,7 +348,7 @@ DEFAULT_INDEX_DB_TABLE_NAME  : str  = "documents"
 DEFAULT_INDEX_DB_FALLBACK    : bool = False
 
 
-# @node_button(id="import", label="Import", icon="📥", position="header-right")
+# @node_button(id="import", label="Import", icon="📥", position="bottom")
 # @node_dropzone(accept=".json,.txt", area="content", label="Drop file")
 class IndexDBConfig(BaseConfig):
 	type        : Annotated[Literal["index_db_config"], FieldRole.CONSTANT] = "index_db_config"
@@ -375,7 +375,8 @@ class MemoryManagerConfig(BaseConfig):
 	query   : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_QUERY
 	update  : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_UPDATE
 	managed : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_MANAGED
-	model   : Annotated[Optional[ModelConfig]           , FieldRole.INPUT   ] = None
+	zune    : Annotated[str, FieldRole.INPUT] = Field(default="oubi")
+	model   : Annotated[Optional[ModelConfig]           , FieldRole.INPUT   ] = Field(default=None, title="Embedding Source", description="Source of embedding model (e.g., 'ollama', 'openai')")
 	prompt  : Annotated[Optional[str]                   , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_PROMPT
 
 	@property
@@ -407,13 +408,14 @@ DEFAULT_KNOWLEDGE_MANAGER_QUERY       : bool = True
 DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS : int  = 10
 
 
-@node_button(id="import", label="Import", icon="📥", position="footer-right")
+@node_button(id="import", label="Import", icon="📥", position="bottom")
 @node_dropzone(accept=".csv,.doc,.docx,.json,.md,.pdf,.pptx,.txt,.xls,.xlsx", area="content", label="Drop file")
 class KnowledgeManagerConfig(BaseConfig):
 	type        : Annotated[Literal["knowledge_manager_config"], FieldRole.CONSTANT] = "knowledge_manager_config"
 	query       : Annotated[bool                               , FieldRole.INPUT   ] = DEFAULT_KNOWLEDGE_MANAGER_QUERY
 	description : Annotated[Optional[str]                      , FieldRole.INPUT   ] = None
-	content_db  : Annotated[Optional[ContentDBConfig]          , FieldRole.INPUT   ] = None
+	# content_db  : Annotated[Optional[ContentDBConfig]          , FieldRole.INPUT   ] = None
+	content_db  : Annotated[ContentDBConfig                    , FieldRole.INPUT   ] = None
 	index_db    : Annotated[IndexDBConfig                      , FieldRole.INPUT   ] = None
 	max_results : Annotated[int                                , FieldRole.INPUT   ] = DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS
 	urls        : Annotated[Optional[List[str]]                , FieldRole.INPUT   ] = None

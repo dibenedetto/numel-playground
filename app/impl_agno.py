@@ -375,6 +375,8 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 	async def add_contents(knowledge: Any, files: List[Any]) -> List[str]:
 		if not isinstance(knowledge, Knowledge):
 			raise "Invalid Agno Knowledge instance"
+		if not knowledge.contents_db or not knowledge.vector_db:
+			raise "No content or index db present in Agno Knowledge instance"
 		p_res = []
 		for i, info in enumerate(files):
 			content = info["content"]

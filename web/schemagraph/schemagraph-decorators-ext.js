@@ -414,22 +414,32 @@ class NodeDecoratorsExtension extends SchemaGraphExtension {
 		for (const btnConfig of decorators.buttons || []) {
 			const callbackId = btnConfig.callback || btnConfig.action || btnConfig.id;
 			
-			interactive.addButton(node, {
-				id: btnConfig.id,
-				label: btnConfig.label || '',
-				icon: btnConfig.icon || '',
-				position: this._mapPosition(btnConfig.position),
-				width: btnConfig.width,
-				height: btnConfig.height,
-				x: btnConfig.x,
-				y: btnConfig.y,
-				bg: btnConfig.bg,
-				bgHover: btnConfig.bg_hover,
-				text: btnConfig.text_color,
-				border: btnConfig.border,
-				enabled: btnConfig.enabled !== false,
-				callback: this._resolveCallback(callbackId, btnConfig.action)
-			});
+			// interactive.addButton(node, {
+			// 	id: btnConfig.id,
+			// 	label: btnConfig.label || '',
+			// 	icon: btnConfig.icon || '',
+			// 	position: this._mapPosition(btnConfig.position),
+			// 	width: btnConfig.width,
+			// 	height: btnConfig.height,
+			// 	x: btnConfig.x,
+			// 	y: btnConfig.y,
+			// 	bg: btnConfig.bg,
+			// 	bgHover: btnConfig.bg_hover,
+			// 	text: btnConfig.text_color,
+			// 	border: btnConfig.border,
+			// 	enabled: btnConfig.enabled !== false,
+			// 	callback: this._resolveCallback(callbackId, btnConfig.action)
+			// });
+
+			const buttonStacks = this.app.buttonStackManager;
+			if (buttonStacks) {
+				for (const btnConfig of decorators.buttons || []) {
+					buttonStacks.addButton(node, 
+						btnConfig.position?.includes('top') ? 'top' : 'bottom',
+						{ ...btnConfig, callback: this._resolveCallback(btnConfig.callback) }
+					);
+				}
+			}
 		}
 		
 		// Apply dropzone
@@ -451,23 +461,23 @@ class NodeDecoratorsExtension extends SchemaGraphExtension {
 		}
 	}
 
-	_mapPosition(pos) {
-		if (!pos) return ButtonPosition.FOOTER;
+	// _mapPosition(pos) {
+	// 	if (!pos) return ButtonPosition.FOOTER;
 		
-		const map = {
-			'header_right': ButtonPosition.HEADER_RIGHT,
-			'header-right': ButtonPosition.HEADER_RIGHT,
-			'footer': ButtonPosition.FOOTER,
-			'footer_left': ButtonPosition.FOOTER_LEFT,
-			'footer-left': ButtonPosition.FOOTER_LEFT,
-			'footer_right': ButtonPosition.FOOTER_RIGHT,
-			'footer-right': ButtonPosition.FOOTER_RIGHT,
-			'content': ButtonPosition.CONTENT,
-			'custom': ButtonPosition.CUSTOM
-		};
+	// 	const map = {
+	// 		'header_right': ButtonPosition.HEADER_RIGHT,
+	// 		'header-right': ButtonPosition.HEADER_RIGHT,
+	// 		'footer': ButtonPosition.FOOTER,
+	// 		'footer_left': ButtonPosition.FOOTER_LEFT,
+	// 		'footer-left': ButtonPosition.FOOTER_LEFT,
+	// 		'footer_right': ButtonPosition.FOOTER_RIGHT,
+	// 		'footer-right': ButtonPosition.FOOTER_RIGHT,
+	// 		'content': ButtonPosition.CONTENT,
+	// 		'custom': ButtonPosition.CUSTOM
+	// 	};
 		
-		return map[pos.toLowerCase()] || ButtonPosition.FOOTER;
-	}
+	// 	return map[pos.toLowerCase()] || ButtonPosition.FOOTER;
+	// }
 
 	_mapDropArea(area) {
 		if (!area) return DropZoneArea.CONTENT;

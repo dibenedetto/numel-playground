@@ -579,9 +579,94 @@
 
 /* Locking */
 .sg-locked {
-	cursor: not-allowed !important;
+  cursor: not-allowed !important;
 }
 
 .sg-locked.dragging {
-	cursor: grabbing !important;
+  cursor: grabbing !important;
+}
+
+
+/* Tooltip */
+.sg-tooltip {
+  position: fixed;
+  background: #1e1e2e;
+  color: #ffffff;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  max-width: 300px;
+  min-width: 150px;
+  pointer-events: none;
+  z-index: 100000;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  border: 1px solid #404060;
+  display: none;
+  line-height: 1.4;
+}
+
+.sg-tooltip-field {
+  margin-bottom: 6px;
+}
+
+.sg-tooltip-field code {
+  background: rgba(100, 149, 237, 0.2);
+  color: #6495ed;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.sg-tooltip-title {
+  font-weight: bold;
+  font-size: 13px;
+  color: #f5a623;
+  margin-bottom: 6px;
+}
+
+.sg-tooltip-desc {
+  color: #c0c0d0;
+  margin-bottom: 8px;
+  font-size: 11px;
+}
+
+.sg-tooltip-type {
+  font-family: 'Courier New', monospace;
+  font-size: 10px;
+  color: #50c878;
+  background: rgba(80, 200, 120, 0.1);
+  padding: 3px 8px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.sg-tooltip-badge {
+  font-size: 9px;
+  color: #9370db;
+  background: rgba(147, 112, 219, 0.15);
+  padding: 2px 6px;
+  border-radius: 3px;
+  display: inline-block;
+  margin-left: 6px;
+}
+
+[data-theme="light"] .sg-tooltip {
+  background: #ffffff;
+  color: #333333;
+  border-color: #d0d0d0;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+}
+
+[data-theme="light"] .sg-tooltip-field code {
+  background: rgba(100, 149, 237, 0.15);
+}
+
+[data-theme="light"] .sg-tooltip-title {
+  color: #d48806;
+}
+
+[data-theme="light"] .sg-tooltip-desc {
+  color: #555555;
 }
