@@ -100,6 +100,7 @@ const DATA_CHANGE_EVENTS = new Set([
 ]);
 
 const DecoratorType = Object.freeze({
+	INFO: 'node_info',
 	BUTTON: 'node_button',
 	DROPZONE: 'node_dropzone',
 	CHAT: 'node_chat'
@@ -402,9 +403,12 @@ class NodeDecoratorParser {
 				continue;
 			}
 			
-			for (const [prefix, type] of [['@node_button', DecoratorType.BUTTON], 
-										['@node_dropzone', DecoratorType.DROPZONE],
-										['@node_chat', DecoratorType.CHAT]]) {
+			for (const [prefix, type] of [
+				['@node_button', DecoratorType.BUTTON], 
+				['@node_dropzone', DecoratorType.DROPZONE],
+				['@node_chat', DecoratorType.CHAT],
+				['@node_info', DecoratorType.INFO]  // <-- Add
+			]) {
 				if (trimmed.startsWith(prefix)) {
 					depth = 0;
 					for (const c of trimmed) { if (c === '(') depth++; else if (c === ')') depth--; }
@@ -431,8 +435,11 @@ class NodeDecoratorParser {
 	}
 
 	_parseDecorator(str, type) {
-		const match = str.match(new RegExp(`^@${type}\\s*\\((.+)\\)\\s*$`));
+		const match = str.match(new RegExp(`^@${type}\\s*\\((.*)\\)\\s*$`));
 		if (!match) return null;
+		
+		// Handle empty decorator like @node_info()
+		if (!match[1].trim()) return {};
 		
 		const config = {};
 		const regex = /(\w+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^,\)]+))/g;
@@ -446,17 +453,18 @@ class NodeDecoratorParser {
 			else if (/^-?\d+\.\d+$/.test(val)) val = parseFloat(val);
 			config[m[1]] = val;
 		}
-		return Object.keys(config).length ? config : null;
+		return config;
 	}
 
 	_apply(modelName, decorators) {
 		if (!this.decorators[modelName]) {
-			this.decorators[modelName] = { buttons: [], dropzone: null, chat: null };
+			this.decorators[modelName] = { buttons: [], dropzone: null, chat: null, info: null };
 		}
 		for (const d of decorators) {
 			if (d.type === DecoratorType.BUTTON) this.decorators[modelName].buttons.push(d.config);
 			else if (d.type === DecoratorType.DROPZONE) this.decorators[modelName].dropzone = d.config;
 			else if (d.type === DecoratorType.CHAT) this.decorators[modelName].chat = d.config;
+			else if (d.type === DecoratorType.INFO) this.decorators[modelName].info = d.config;
 		}
 	}
 }
@@ -2280,6 +2288,10 @@ class SchemaGraphApp {
 		this._decoratorParser = new NodeDecoratorParser();
 		this._schemaDecorators = {};
 
+		this._nodeTooltipsEnabled = true;
+		this._fieldTooltipsEnabled = true;
+		this._nodeHeaderTooltipEl = null;
+
 		this.themes = ['dark', 'light', 'ocean'];
 		this.currentThemeIndex = 0;
 		this.loadTheme();
@@ -2792,6 +2804,312 @@ class SchemaGraphApp {
 		style.id = 'sg-interactive-styles';
 		style.textContent = `
 			.sg-file-drag-over { outline: 3px dashed #92d050 !important; outline-offset: -3px; }
+			
+			/* Field Tooltip */
+			.sg-tooltip {
+				position: fixed;
+				z-index: 10000;
+				background: var(--sg-node-bg, #252540);
+				border: 1px solid var(--sg-border-color, #404060);
+				border-radius: 6px;
+				padding: 8px 12px;
+				max-width: 280px;
+				box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+				pointer-events: none;
+				font-size: 12px;
+				color: var(--sg-text-primary, #fff);
+			}
+			
+			.sg-tooltip-title {
+				font-weight: 600;
+				color: var(--sg-text-primary, #fff);
+				margin-bottom: 4px;
+			}
+			
+			.sg-tooltip-desc {
+				color: var(--sg-text-secondary, #b0b0c0);
+				margin-bottom: 6px;
+				line-height: 1.4;
+			}
+			
+			.sg-tooltip-field {
+				font-family: 'Monaco', 'Menlo', monospace;
+				font-size: 11px;
+				color: var(--sg-text-tertiary, #808090);
+				margin-bottom: 4px;
+			}
+			
+			.sg-tooltip-type {
+				font-family: 'Monaco', 'Menlo', monospace;
+				font-size: 10px;
+				color: var(--sg-accent-purple, #9370db);
+				background: rgba(147, 112, 219, 0.15);
+				padding: 2px 6px;
+				border-radius: 3px;
+				display: inline-block;
+				margin-right: 4px;
+			}
+			
+			.sg-tooltip-badge {
+				font-size: 10px;
+				padding: 2px 6px;
+				border-radius: 3px;
+				display: inline-block;
+				margin-right: 4px;
+			}
+			
+			.sg-tooltip-badge.multi {
+				background: rgba(147, 112, 219, 0.2);
+				color: var(--sg-accent-purple, #9370db);
+			}
+			
+			.sg-tooltip-badge.required {
+				background: rgba(220, 96, 104, 0.2);
+				color: var(--sg-accent-red, #dc6068);
+			}
+			
+			.sg-tooltip-badge.optional {
+				background: rgba(80, 200, 120, 0.2);
+				color: var(--sg-accent-green, #50c878);
+			}
+			
+			/* Node Header Tooltip */
+			.sg-node-tooltip {
+				position: fixed;
+				z-index: 10000;
+				background: var(--sg-node-bg, #252540);
+				border: 1px solid var(--sg-border-color, #404060);
+				border-radius: 8px;
+				padding: 10px 14px;
+				max-width: 320px;
+				box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+				pointer-events: none;
+				font-size: 12px;
+				color: var(--sg-text-primary, #fff);
+			}
+			
+			.sg-node-tooltip-header {
+				display: flex;
+				align-items: center;
+				gap: 8px;
+				margin-bottom: 6px;
+			}
+			
+			.sg-node-tooltip-icon {
+				font-size: 18px;
+			}
+			
+			.sg-node-tooltip-title {
+				font-weight: 600;
+				font-size: 14px;
+				color: var(--sg-text-primary, #fff);
+			}
+			
+			.sg-node-tooltip-desc {
+				color: var(--sg-text-secondary, #b0b0c0);
+				line-height: 1.5;
+			}
+			
+			.sg-node-tooltip-section {
+				margin-top: 6px;
+				font-size: 10px;
+				color: var(--sg-text-tertiary, #808090);
+				text-transform: uppercase;
+				letter-spacing: 0.5px;
+			}
+			
+			.sg-node-tooltip-meta {
+				margin-top: 8px;
+				padding-top: 8px;
+				border-top: 1px solid var(--sg-border-color, #404060);
+				font-size: 11px;
+			}
+
+			.sg-node-tooltip-meta-item {
+				display: flex;
+				gap: 6px;
+				margin-bottom: 3px;
+				color: var(--sg-text-secondary, #b0b0c0);
+			}
+
+			.sg-node-tooltip-meta-label {
+				color: var(--sg-text-tertiary, #808090);
+				min-width: 50px;
+			}
+
+			.sg-node-tooltip-incomplete {
+				color: var(--sg-accent-red, #dc6068) !important;
+			}
+
+			.sg-node-tooltip-complete {
+				color: var(--sg-accent-green, #50c878) !important;
+			}
+
+			.sg-node-tooltip-badge-row {
+				margin-top: 6px;
+			}
+
+			.sg-node-tooltip-type-badge {
+				font-size: 9px;
+				padding: 2px 6px;
+				border-radius: 3px;
+				text-transform: uppercase;
+				letter-spacing: 0.5px;
+			}
+
+			.sg-node-tooltip-type-badge.native {
+				background: rgba(147, 112, 219, 0.2);
+				color: var(--sg-accent-purple, #9370db);
+			}
+
+			.sg-node-tooltip-type-badge.root {
+				background: rgba(245, 166, 35, 0.2);
+				color: var(--sg-accent-orange, #f5a623);
+			}
+			
+			/* Context Menu with Submenus */
+			.sg-context-menu {
+				position: fixed;
+				background: var(--sg-node-bg, #252540);
+				border: 1px solid var(--sg-border-color, #404060);
+				border-radius: 6px;
+				min-width: 160px;
+				max-height: 70vh;
+				overflow-y: auto;
+				box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+				z-index: 10000;
+				display: none;
+				padding: 4px 0;
+				font-size: 12px;
+			}
+
+			.sg-context-menu.show {
+				display: block;
+			}
+
+			.sg-context-menu-category {
+				padding: 6px 12px 4px;
+				font-size: 10px;
+				color: var(--sg-text-tertiary, #808090);
+				text-transform: uppercase;
+				letter-spacing: 0.5px;
+			}
+
+			.sg-context-menu-item {
+				padding: 6px 12px;
+				cursor: pointer;
+				color: var(--sg-text-secondary, #b0b0c0);
+				white-space: nowrap;
+				display: flex;
+				align-items: center;
+			}
+
+			.sg-context-menu-item:hover {
+				background: rgba(255,255,255,0.1);
+				color: var(--sg-text-primary, #fff);
+			}
+
+			.sg-context-menu-item.sg-context-menu-delete:hover {
+				background: rgba(220, 96, 104, 0.2);
+				color: var(--sg-accent-red, #dc6068);
+			}
+
+			.sg-context-menu-item-root {
+				font-weight: bold;
+				color: var(--sg-accent-orange, #f5a623) !important;
+			}
+
+			.sg-context-menu-item-icon {
+				margin-right: 6px;
+			}
+
+			.sg-context-menu-divider {
+				height: 1px;
+				background: var(--sg-border-color, #404060);
+				margin: 4px 0;
+			}
+
+			/* Submenu container */
+			.sg-context-submenu-container {
+				position: relative;
+			}
+
+			.sg-context-submenu-trigger {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				padding: 6px 12px;
+				cursor: pointer;
+				color: var(--sg-text-secondary, #b0b0c0);
+				white-space: nowrap;
+			}
+
+			.sg-context-submenu-trigger:hover {
+				background: rgba(255,255,255,0.1);
+				color: var(--sg-text-primary, #fff);
+			}
+
+			.sg-context-submenu-trigger::after {
+				content: '▶';
+				font-size: 8px;
+				margin-left: 12px;
+				color: var(--sg-text-tertiary, #808090);
+			}
+
+			.sg-context-submenu-trigger:hover::after {
+				color: var(--sg-text-primary, #fff);
+			}
+
+			/* Submenu panel */
+			.sg-context-submenu {
+				position: absolute;
+				left: 100%;
+				top: 0;
+				background: var(--sg-node-bg, #252540);
+				border: 1px solid var(--sg-border-color, #404060);
+				border-radius: 6px;
+				min-width: 150px;
+				max-height: 50vh;
+				overflow-y: auto;
+				box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+				display: none !important;
+				padding: 4px 0;
+				margin-left: 2px;
+				z-index: 10001;
+			}
+
+			.sg-context-submenu-container:hover > .sg-context-submenu {
+				display: block !important;
+			}
+
+			/* Flip submenu left if near edge */
+			.sg-context-submenu.flip-left {
+				left: auto;
+				right: 100%;
+				margin-left: 0;
+				margin-right: 2px;
+			}
+
+			/* Section header inside submenu */
+			.sg-context-submenu-section {
+				font-size: 9px;
+				color: var(--sg-text-tertiary, #808090);
+				text-transform: uppercase;
+				letter-spacing: 0.5px;
+				padding: 6px 10px 3px;
+				border-top: 1px solid var(--sg-border-color, #404060);
+				margin-top: 2px;
+			}
+
+			.sg-context-submenu-section:first-child {
+				border-top: none;
+				margin-top: 0;
+			}
+
+			.sg-context-submenu .sg-context-menu-item {
+				padding: 5px 10px;
+				font-size: 11px;
+			}
 		`;
 		document.head.appendChild(style);
 	}
@@ -3204,11 +3522,17 @@ class SchemaGraphApp {
 
 		// --- Tooltip hover detection for slots ---
 		let foundSlot = false;
-		
+		let foundNodeHeader = null;
+
 		for (const node of this.graph.nodes) {
 			const x = node.pos[0];
 			const y = node.pos[1];
 			const w = node.size[0];
+			
+			// Check node header hover (for node tooltip)
+			if (wx >= x && wx <= x + w && wy >= y && wy <= y + 26) {
+				foundNodeHeader = node;
+			}
 			
 			// Check input slots
 			for (let j = 0; j < node.inputs.length; j++) {
@@ -3224,7 +3548,8 @@ class SchemaGraphApp {
 				if (wx >= hitLeft && wx <= hitRight && wy >= hitTop && wy <= hitBottom) {
 					const meta = node.inputMeta?.[j];
 					if (meta) {
-						this._showTooltip(data.coords.clientX, data.coords.clientY, meta);
+						const isRequired = this._isFieldRequired(node, j);
+						this._showTooltip(data.coords.clientX, data.coords.clientY, meta, isRequired);
 						foundSlot = true;
 						break;
 					}
@@ -3245,7 +3570,7 @@ class SchemaGraphApp {
 				if (wx >= hitLeft && wx <= hitRight && wy >= hitTop && wy <= hitBottom) {
 					const meta = node.outputMeta?.[j];
 					if (meta) {
-						this._showTooltip(data.coords.clientX, data.coords.clientY, meta);
+						this._showTooltip(data.coords.clientX, data.coords.clientY, meta, false);
 						foundSlot = true;
 						break;
 					}
@@ -3254,11 +3579,18 @@ class SchemaGraphApp {
 			
 			if (foundSlot) break;
 		}
-		
+
 		if (!foundSlot) {
 			this._hideTooltip();
 		}
-		
+
+		// Node header tooltip
+		if (foundNodeHeader && !foundSlot) {
+			this._showNodeHeaderTooltip(data.coords.clientX, data.coords.clientY, foundNodeHeader);
+		} else {
+			this._hideNodeHeaderTooltip();
+		}
+
 		// Reset cursor if not on any interactive element
 		this.canvas.style.cursor = 'default';
 		
@@ -3421,49 +3753,272 @@ class SchemaGraphApp {
 		let html = '';
 
 		if (node) {
+			// Node actions
 			html += '<div class="sg-context-menu-category">Node Actions</div>';
-			html += this.selectedNodes.size > 1 ? `<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete-all">✖ Delete ${this.selectedNodes.size} Nodes</div>` : '<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete">✖ Delete Node</div>';
+			html += this.selectedNodes.size > 1 
+				? `<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete-all">✖ Delete ${this.selectedNodes.size} Nodes</div>` 
+				: '<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete">✖ Delete Node</div>';
 		} else {
-			html += '<div class="sg-context-menu-category">Native Types</div>';
+			// Native types submenu
+			html += '<div class="sg-context-submenu-container">';
+			html += '<div class="sg-context-submenu-trigger">Native Types</div>';
+			html += '<div class="sg-context-submenu">';
 			for (const type of ['Native.String', 'Native.Integer', 'Native.Boolean', 'Native.Float', 'Native.List', 'Native.Dict']) {
 				html += `<div class="sg-context-menu-item" data-type="${type}">${type.split('.')[1]}</div>`;
 			}
+			html += '</div></div>';
 
+			// Schema nodes - each schema gets a submenu with sections as nested submenus
 			for (const schemaName of Object.keys(this.graph.schemas)) {
-				if (!this.graph.isSchemaEnabled(schemaName)) continue;
-				const schemaTypes = [];
+				if (!this.graph.isSchemaEnabled?.(schemaName) && !this.graph.schemas[schemaName]?.enabled) continue;
+				
 				const schemaInfo = this.graph.schemas[schemaName];
-				for (const type in this.graph.nodeTypes) if (type.indexOf(schemaName + '.') === 0) schemaTypes.push(type);
-				if (schemaTypes.length > 0) {
-					html += `<div class="sg-context-menu-category">${schemaName}</div>`;
-					if (schemaInfo.rootType) {
-						const rootType = `${schemaName}.${schemaInfo.rootType}`;
-						html += `<div class="sg-context-menu-item" data-type="${rootType}" style="font-weight:bold;color:var(--sg-accent-orange);">★ ${schemaInfo.rootType}</div>`;
+				const decorators = this._schemaDecorators[schemaName] || {};
+				
+				// Collect nodes by section
+				const sections = {};
+				const defaultSection = 'General';
+				
+				for (const type in this.graph.nodeTypes) {
+					if (!type.startsWith(schemaName + '.')) continue;
+					
+					const modelName = type.split('.')[1];
+					const info = decorators[modelName]?.info;
+					
+					// Skip if visible is explicitly false
+					if (info?.visible === false) continue;
+					
+					const section = info?.section || defaultSection;
+					if (!sections[section]) sections[section] = [];
+					
+					sections[section].push({
+						type,
+						modelName,
+						info,
+						isRoot: schemaInfo.rootType === modelName
+					});
+				}
+				
+				// Sort section names: General first, then alphabetically
+				const sectionNames = Object.keys(sections).sort((a, b) => {
+					if (a === defaultSection) return -1;
+					if (b === defaultSection) return 1;
+					return a.localeCompare(b);
+				});
+				
+				// Skip empty schemas
+				if (sectionNames.length === 0) continue;
+				
+				// Build schema submenu
+				html += '<div class="sg-context-submenu-container">';
+				html += `<div class="sg-context-submenu-trigger">${schemaName}</div>`;
+				html += '<div class="sg-context-submenu">';
+				
+				// If only one section, show nodes directly (no nested submenu)
+				if (sectionNames.length === 1) {
+					const sectionNodes = sections[sectionNames[0]];
+					
+					// Sort: root first, then alphabetically
+					sectionNodes.sort((a, b) => {
+						if (a.isRoot) return -1;
+						if (b.isRoot) return 1;
+						return (a.info?.title || a.modelName).localeCompare(b.info?.title || b.modelName);
+					});
+					
+					for (const item of sectionNodes) {
+						const icon = item.info?.icon ? `<span class="sg-context-menu-item-icon">${item.info.icon}</span>` : '';
+						const title = item.info?.title || item.modelName;
+						const rootMark = item.isRoot ? '☆ ' : '';
+						const rootClass = item.isRoot ? ' sg-context-menu-item-root' : '';
+						
+						html += `<div class="sg-context-menu-item${rootClass}" data-type="${item.type}">${icon}${rootMark}${title}</div>`;
 					}
-					for (const type of schemaTypes) {
-						if (type !== `${schemaName}.${schemaInfo.rootType}`) {
-							html += `<div class="sg-context-menu-item" data-type="${type}">${type.split('.')[1]}</div>`;
+				} else {
+					// Multiple sections: create nested submenus for each section
+					for (const sectionName of sectionNames) {
+						const sectionNodes = sections[sectionName];
+						if (sectionNodes.length === 0) continue;
+						
+						// Create nested submenu for this section
+						html += '<div class="sg-context-submenu-container">';
+						html += `<div class="sg-context-submenu-trigger">${sectionName}</div>`;
+						html += '<div class="sg-context-submenu">';
+						
+						// Sort: root first, then alphabetically
+						sectionNodes.sort((a, b) => {
+							if (a.isRoot) return -1;
+							if (b.isRoot) return 1;
+							return (a.info?.title || a.modelName).localeCompare(b.info?.title || b.modelName);
+						});
+						
+						for (const item of sectionNodes) {
+							const icon = item.info?.icon ? `<span class="sg-context-menu-item-icon">${item.info.icon}</span>` : '';
+							const title = item.info?.title || item.modelName;
+							const rootMark = item.isRoot ? '☆ ' : '';
+							const rootClass = item.isRoot ? ' sg-context-menu-item-root' : '';
+							
+							html += `<div class="sg-context-menu-item${rootClass}" data-type="${item.type}">${icon}${rootMark}${title}</div>`;
 						}
+						
+						html += '</div></div>'; // Close section submenu
 					}
 				}
+				
+				html += '</div></div>'; // Close schema submenu
 			}
 		}
 
+		// console.log('Generated HTML length:', html.length);
+		// console.log('Number of submenu containers:', (html.match(/sg-context-submenu-container/g) || []).length);
+		// console.log('Number of section triggers:', (html.match(/sg-context-submenu-trigger/g) || []).length);
+
 		contextMenu.innerHTML = html;
-		contextMenu.style.left = coords.clientX + 'px';
-		contextMenu.style.top = coords.clientY + 'px';
+
+		// ========================================
+		// MANUAL SUBMENU HOVER HANDLING - FIXED
+		// ========================================
+		const setupSubmenuHover = (container, level = 0) => {
+			const trigger = container.querySelector(':scope > .sg-context-submenu-trigger');
+			const submenu = container.querySelector(':scope > .sg-context-submenu');
+			
+			if (!trigger || !submenu) return;
+			
+			let hideTimeout = null;
+			let isSubmenuHovered = false;
+			let isTriggerHovered = false;
+			
+			// const showSubmenu = () => {
+			// 	if (hideTimeout) {
+			// 		clearTimeout(hideTimeout);
+			// 		hideTimeout = null;
+			// 	}
+			// 	submenu.style.display = 'block';
+			// 	submenu.style.visibility = 'visible';
+			// 	console.log(`SHOW submenu at level ${level}`);
+			// };
+			
+const showSubmenu = () => {
+    if (hideTimeout) {
+        clearTimeout(hideTimeout);
+        hideTimeout = null;
+    }
+    submenu.style.display = 'block';
+    submenu.style.visibility = 'visible';
+    
+    // Force override any CSS
+    submenu.style.setProperty('display', 'block', 'important');
+    
+    console.log(`SHOW submenu at level ${level}`, {
+        display: submenu.style.display,
+        computedDisplay: getComputedStyle(submenu).display,
+        visibility: getComputedStyle(submenu).visibility,
+        opacity: getComputedStyle(submenu).opacity,
+        zIndex: getComputedStyle(submenu).zIndex,
+        position: getComputedStyle(submenu).position,
+        rect: submenu.getBoundingClientRect(),
+        hasContent: submenu.children.length,
+        innerHTML: submenu.innerHTML.substring(0, 100)
+    });
+};
+			const scheduleHide = () => {
+				hideTimeout = setTimeout(() => {
+					if (!isSubmenuHovered && !isTriggerHovered) {
+						submenu.style.display = 'none';
+						console.log(`HIDE submenu at level ${level}`);
+					}
+				}, 300);
+			};
+			
+			// Trigger events
+			trigger.addEventListener('mouseenter', () => {
+				isTriggerHovered = true;
+				showSubmenu();
+			});
+			
+			trigger.addEventListener('mouseleave', () => {
+				isTriggerHovered = false;
+				scheduleHide();
+			});
+			
+			// Submenu events
+			submenu.addEventListener('mouseenter', () => {
+				isSubmenuHovered = true;
+				showSubmenu();
+			});
+			
+			submenu.addEventListener('mouseleave', () => {
+				isSubmenuHovered = false;
+				scheduleHide();
+			});
+			
+			// Setup nested submenus recursively
+			const nestedContainers = submenu.querySelectorAll(':scope > .sg-context-submenu-container');
+			nestedContainers.forEach(nested => setupSubmenuHover(nested, level + 1));
+		};
+
+		// Apply to all top-level submenu containers
+		const topLevelContainers = contextMenu.querySelectorAll(':scope > .sg-context-submenu-container');
+		console.log('Submenu hover handlers attached:', topLevelContainers.length);
+		topLevelContainers.forEach(container => setupSubmenuHover(container, 0));
+		// ========================================
+
+		// Position at mouse cursor (use clientX/clientY directly since menu is position:fixed)
+		let menuX = coords.clientX;
+		let menuY = coords.clientY;
+		
+		// Ensure menu stays within viewport
+		contextMenu.style.left = '0px';
+		contextMenu.style.top = '0px';
 		contextMenu.classList.add('show');
+		
+		const menuRect = contextMenu.getBoundingClientRect();
+		const viewportWidth = window.innerWidth;
+		const viewportHeight = window.innerHeight;
+		
+		// Adjust X if menu would overflow right edge
+		if (menuX + menuRect.width > viewportWidth) {
+			menuX = viewportWidth - menuRect.width - 5;
+		}
+		
+		// Adjust Y if menu would overflow bottom edge
+		if (menuY + menuRect.height > viewportHeight) {
+			menuY = viewportHeight - menuRect.height - 5;
+		}
+		
+		// Ensure not negative
+		menuX = Math.max(5, menuX);
+		menuY = Math.max(5, menuY);
+		
+		contextMenu.style.left = menuX + 'px';
+		contextMenu.style.top = menuY + 'px';
+		
 		contextMenu.dataset.worldX = wx;
 		contextMenu.dataset.worldY = wy;
 
+		// Flip submenus if near right edge
+		requestAnimationFrame(() => {
+			const rect = contextMenu.getBoundingClientRect();
+			const shouldFlip = rect.right + 160 > viewportWidth;
+			
+			contextMenu.querySelectorAll('.sg-context-submenu').forEach(sub => {
+				if (shouldFlip) {
+					sub.classList.add('flip-left');
+				} else {
+					sub.classList.remove('flip-left');
+				}
+			});
+		});
+
+		// Event handlers
 		if (node) {
 			contextMenu.querySelector('.sg-context-menu-delete')?.addEventListener('click', () => {
 				this.selectedNodes.size > 1 ? this.deleteSelectedNodes() : this.removeNode(node);
 				contextMenu.classList.remove('show');
 			});
 		} else {
-			for (const item of contextMenu.querySelectorAll('.sg-context-menu-item')) {
-				item.addEventListener('click', () => {
+			for (const item of contextMenu.querySelectorAll('.sg-context-menu-item[data-type]')) {
+				item.addEventListener('click', (e) => {
+					e.stopPropagation();
 					const type = item.getAttribute('data-type');
 					const n = this.graph.createNode(type);
 					n.pos = [parseFloat(contextMenu.dataset.worldX) - 90, parseFloat(contextMenu.dataset.worldY) - 40];
@@ -3531,6 +4086,9 @@ class SchemaGraphApp {
 				value: val
 			});
 			
+			// Refresh interactivity based on completeness
+			this._refreshNodeInteractivity(this.editingNode);
+		
 			this.draw();
 		}
 		document.getElementById('sg-nodeInput')?.classList.remove('show');
@@ -3602,7 +4160,9 @@ class SchemaGraphApp {
 		this.eventBus.emit('error', { message: text });
 	}
 
-	_showTooltip(clientX, clientY, meta) {
+	_showTooltip(clientX, clientY, meta, isRequired) {
+		if (!this._fieldTooltipsEnabled) return;
+		
 		if (!this.tooltipEl) {
 			this.tooltipEl = document.createElement('div');
 			this.tooltipEl.className = 'sg-tooltip';
@@ -3611,32 +4171,38 @@ class SchemaGraphApp {
 		
 		let html = '';
 		
-		// Show title if exists
 		if (meta.title) {
 			html += `<div class="sg-tooltip-title">${meta.title}</div>`;
 		}
 		
-		// Description
 		if (meta.description) {
 			html += `<div class="sg-tooltip-desc">${meta.description}</div>`;
 		}
 		
-		// Always show original field name first
 		html += `<div class="sg-tooltip-field"><code>${meta.name}</code></div>`;
 		
-		// Type
+		// Type and badges row
+		html += '<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">';
+		
 		if (meta.type) {
-			html += `<div class="sg-tooltip-type">${meta.type}</div>`;
+			html += `<span class="sg-tooltip-type">${meta.type}</span>`;
 		}
 		
-		// Multi indicator
 		if (meta.isMulti) {
-			html += `<div class="sg-tooltip-badge">Multi-Slot</div>`;
+			html += `<span class="sg-tooltip-badge multi">Multi-Slot</span>`;
 		}
+		
+		// Required/Optional badge
+		if (isRequired) {
+			html += `<span class="sg-tooltip-badge required">Required</span>`;
+		} else {
+			html += `<span class="sg-tooltip-badge optional">Optional</span>`;
+		}
+		
+		html += '</div>';
 		
 		this.tooltipEl.innerHTML = html;
 		
-		// Position tooltip, keeping it on screen
 		let x = clientX + 15;
 		let y = clientY + 15;
 		
@@ -3651,6 +4217,97 @@ class SchemaGraphApp {
 	_hideTooltip() {
 		if (this.tooltipEl) {
 			this.tooltipEl.style.display = 'none';
+		}
+	}
+
+	_showNodeHeaderTooltip(clientX, clientY, node) {
+		if (!this._nodeTooltipsEnabled) return;
+		
+		const info = this._schemaDecorators[node.schemaName]?.[node.modelName]?.info || {};
+		
+		if (!this._nodeHeaderTooltipEl) {
+			this._nodeHeaderTooltipEl = document.createElement('div');
+			this._nodeHeaderTooltipEl.className = 'sg-node-tooltip';
+			document.body.appendChild(this._nodeHeaderTooltipEl);
+		}
+		
+		// Build tooltip content - always show basic info
+		let html = '<div class="sg-node-tooltip-header">';
+		
+		if (info.icon) {
+			html += `<span class="sg-node-tooltip-icon">${info.icon}</span>`;
+		}
+		
+		// Use info.title, fallback to modelName
+		const displayTitle = info.title || node.modelName || node.title;
+		html += `<span class="sg-node-tooltip-title">${displayTitle}</span>`;
+		html += '</div>';
+		
+		// Description if available
+		if (info.description) {
+			html += `<div class="sg-node-tooltip-desc">${info.description}</div>`;
+		}
+		
+		// Always show schema/model info
+		html += '<div class="sg-node-tooltip-meta">';
+		
+		if (node.schemaName) {
+			html += `<div class="sg-node-tooltip-meta-item"><span class="sg-node-tooltip-meta-label">Schema:</span> ${node.schemaName}</div>`;
+		}
+		
+		if (node.modelName) {
+			html += `<div class="sg-node-tooltip-meta-item"><span class="sg-node-tooltip-meta-label">Model:</span> ${node.modelName}</div>`;
+		}
+		
+		if (node.workflowType) {
+			html += `<div class="sg-node-tooltip-meta-item"><span class="sg-node-tooltip-meta-label">Type:</span> ${node.workflowType}</div>`;
+		}
+		
+		// Section if available
+		if (info.section) {
+			html += `<div class="sg-node-tooltip-meta-item"><span class="sg-node-tooltip-meta-label">Section:</span> ${info.section}</div>`;
+		}
+		
+		// Completeness status
+		const completeness = this._getNodeCompleteness(node);
+		if (completeness.missingFields.length > 0) {
+			html += `<div class="sg-node-tooltip-meta-item sg-node-tooltip-incomplete">`;
+			html += `<span class="sg-node-tooltip-meta-label">Missing:</span> ${completeness.missingFields.join(', ')}`;
+			html += `</div>`;
+		} else {
+			html += `<div class="sg-node-tooltip-meta-item sg-node-tooltip-complete">✓ All required fields filled</div>`;
+		}
+		
+		html += '</div>';
+		
+		// Native node indicator
+		if (node.isNative) {
+			html += '<div class="sg-node-tooltip-badge-row"><span class="sg-node-tooltip-type-badge native">Native</span></div>';
+		}
+		
+		// Root node indicator
+		if (node.isRootType) {
+			html += '<div class="sg-node-tooltip-badge-row"><span class="sg-node-tooltip-type-badge root">★ Root</span></div>';
+		}
+		
+		this._nodeHeaderTooltipEl.innerHTML = html;
+		
+		// Position tooltip
+		let x = clientX + 15;
+		let y = clientY + 15;
+		
+		const tooltipRect = this._nodeHeaderTooltipEl.getBoundingClientRect();
+		if (x + 320 > window.innerWidth) x = clientX - 330;
+		if (y + 200 > window.innerHeight) y = clientY - 210;
+		
+		this._nodeHeaderTooltipEl.style.left = x + 'px';
+		this._nodeHeaderTooltipEl.style.top = y + 'px';
+		this._nodeHeaderTooltipEl.style.display = 'block';
+	}
+
+	_hideNodeHeaderTooltip() {
+		if (this._nodeHeaderTooltipEl) {
+			this._nodeHeaderTooltipEl.style.display = 'none';
 		}
 	}
 
@@ -4649,7 +5306,17 @@ class SchemaGraphApp {
 		const isMulti = node.multiInputs?.[j];
 		const hasConnections = isMulti ? node.multiInputs[j].links.length > 0 : inp.link;
 		const compat = this.isSlotCompatible(node, j, false);
+		
+		const isRequired = this._isFieldRequired(node, j);
+		const isFilled = this._isFieldFilled(node, j);
+		const showRequiredHighlight = isRequired && !isFilled;
+		
 		let color = hasConnections ? colors.slotConnected : colors.slotInput;
+		
+		// Highlight required unfilled slots
+		if (showRequiredHighlight) {
+			color = colors.accentRed;
+		}
 
 		if (this.connecting && (compat || (
 			this.connecting.node === node
@@ -4669,6 +5336,16 @@ class SchemaGraphApp {
 		this.ctx.beginPath();
 		this.ctx.arc(x - 1, sy, style.slotRadius || 4, 0, Math.PI * 2);
 		this.ctx.fill();
+		
+		// Required unfilled indicator ring
+		if (showRequiredHighlight) {
+			this.ctx.strokeStyle = colors.accentRed;
+			this.ctx.lineWidth = 2 / this.camera.scale;
+			this.ctx.beginPath();
+			this.ctx.arc(x - 1, sy, 7, 0, Math.PI * 2);
+			this.ctx.stroke();
+		}
+		
 		if (isMulti) {
 			this.ctx.strokeStyle = colors.accentPurple;
 			this.ctx.lineWidth = 1.5 / this.camera.scale;
@@ -4677,7 +5354,8 @@ class SchemaGraphApp {
 			this.ctx.stroke();
 		}
 
-		this.ctx.fillStyle = colors.textSecondary;
+		// Slot label - highlight required unfilled
+		this.ctx.fillStyle = showRequiredHighlight ? colors.accentRed : colors.textSecondary;
 		this.ctx.font = (10 * textScale) + 'px Arial';
 		this.ctx.textAlign = 'left';
 		this.ctx.textBaseline = 'middle';
@@ -4686,20 +5364,24 @@ class SchemaGraphApp {
 		const hasEditBox = !isMulti && !inp.link && node.nativeInputs?.[j] !== undefined;
 		if (hasEditBox) {
 			const boxX = x + 10, boxY = sy + 6, boxW = 70, boxH = 12;
+			
+			// Highlight box border if required and empty
 			this.ctx.fillStyle = 'rgba(0,0,0,0.4)';
 			this.ctx.beginPath();
 			this.ctx.roundRect(boxX, boxY, boxW, boxH, 2);
 			this.ctx.fill();
-			this.ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-			this.ctx.lineWidth = 1 / this.camera.scale;
+			
+			this.ctx.strokeStyle = showRequiredHighlight ? colors.accentRed : 'rgba(255,255,255,0.15)';
+			this.ctx.lineWidth = (showRequiredHighlight ? 1.5 : 1) / this.camera.scale;
 			this.ctx.stroke();
+			
 			const val = node.nativeInputs[j].value;
 			const isEmpty = val === '' || val === null || val === undefined;
-			this.ctx.fillStyle = isEmpty ? colors.textTertiary : colors.textPrimary;
+			this.ctx.fillStyle = isEmpty ? (showRequiredHighlight ? colors.accentRed : colors.textTertiary) : colors.textPrimary;
 			this.ctx.font = (8 * textScale) + 'px Courier New';
 			this.ctx.textAlign = 'left';
 			this.ctx.textBaseline = 'middle';
-			this.ctx.fillText(isEmpty ? (node.nativeInputs[j].optional ? 'null' : 'empty') : String(val).substring(0, 10), boxX + 4, boxY + boxH / 2);
+			this.ctx.fillText(isEmpty ? (node.nativeInputs[j].optional ? 'null' : 'required') : String(val).substring(0, 10), boxX + 4, boxY + boxH / 2);
 		}
 	}
 
@@ -5182,11 +5864,36 @@ class SchemaGraphApp {
 	}
 
 	_drawDropZoneHighlight(node) {
-		if (!node._dropZone?.enabled || this._activeDropNode !== node) return;
+		if (!node._dropZone) return;
 		
 		const ctx = this.ctx;
 		const bounds = this._getDropZoneBounds(node);
 		const textScale = this.getTextScale();
+		const isActive = this._activeDropNode === node;
+		const isEnabled = node._dropZone.enabled;
+		
+		// Always show a subtle indicator for disabled dropzones
+		if (!isEnabled) {
+			ctx.fillStyle = 'rgba(220, 96, 104, 0.08)';
+			ctx.beginPath();
+			ctx.roundRect(bounds.x, bounds.y, bounds.w, bounds.h, 4);
+			ctx.fill();
+			
+			ctx.strokeStyle = 'rgba(220, 96, 104, 0.3)';
+			ctx.lineWidth = 1 / this.camera.scale;
+			ctx.setLineDash([4 / this.camera.scale, 4 / this.camera.scale]);
+			ctx.stroke();
+			ctx.setLineDash([]);
+			
+			ctx.fillStyle = 'rgba(220, 96, 104, 0.6)';
+			ctx.font = `${9 * textScale}px sans-serif`;
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillText(node._dropZone.label, bounds.x + bounds.w / 2, bounds.y + bounds.h / 2);
+			return;
+		}
+		
+		if (!isActive) return;
 		
 		ctx.fillStyle = 'rgba(146, 208, 80, 0.15)';
 		ctx.beginPath();
@@ -5212,6 +5919,19 @@ class SchemaGraphApp {
 		const decorators = this._schemaDecorators[node.schemaName]?.[node.modelName];
 		if (!decorators) return;
 		
+		// Apply node info
+		if (decorators.info) {
+			node.nodeInfo = decorators.info;
+			// Use custom title if provided
+			if (decorators.info.title) {
+				node.displayTitle = decorators.info.title;
+			}
+		}
+		
+		// Check completeness before applying interactive elements
+		const completeness = this._getNodeCompleteness(node);
+		const isComplete = completeness.complete;
+		
 		// Apply buttons
 		for (const cfg of decorators.buttons || []) {
 			const stack = (cfg.position === 'top' || cfg.position === 'header') ? 'top' : 'bottom';
@@ -5219,17 +5939,18 @@ class SchemaGraphApp {
 				id: cfg.id,
 				label: cfg.label || '',
 				icon: cfg.icon || '',
-				enabled: cfg.enabled !== false,
+				enabled: cfg.enabled !== false && isComplete,  // Disable if incomplete
 				callback: this._resolveCallback(cfg.callback || cfg.id)
 			});
 		}
 		
-		// Apply dropzone
+		// Apply dropzone - disable if incomplete
 		if (decorators.dropzone) {
 			this.setNodeDropZone(node, {
 				accept: decorators.dropzone.accept || '*',
 				area: decorators.dropzone.area || 'content',
-				label: decorators.dropzone.label || 'Drop file here',
+				label: isComplete ? (decorators.dropzone.label || 'Drop file here') : 'Complete required fields first',
+				enabled: isComplete,
 				callback: this._resolveDropCallback(decorators.dropzone.callback || 'emit_event')
 			});
 		}
@@ -5239,6 +5960,117 @@ class SchemaGraphApp {
 			node.isChat = true;
 			node.chatConfig = decorators.chat;
 		}
+	}
+
+	// ================================================================
+	// NODE COMPLETENESS
+	// ================================================================
+
+	_isFieldRequired(node, slotIdx) {
+		const meta = node.inputMeta?.[slotIdx];
+		if (!meta) return false;
+		
+		// Check if type contains Optional
+		const typeStr = meta.type || '';
+		if (typeStr.includes('Optional[')) return false;
+		
+		// Check nativeInputs for optional flag
+		if (node.nativeInputs?.[slotIdx]?.optional) return false;
+		
+		return true;
+	}
+
+	_isFieldFilled(node, slotIdx) {
+		const input = node.inputs[slotIdx];
+		if (!input) return true;
+		
+		// Connected = filled
+		if (input.link) return true;
+		
+		// Multi-input with connections = filled
+		if (node.multiInputs?.[slotIdx]?.links?.length > 0) return true;
+		
+		// Check native value
+		if (node.nativeInputs?.[slotIdx] !== undefined) {
+			const val = node.nativeInputs[slotIdx].value;
+			if (val === null || val === undefined || val === '') return false;
+			return true;
+		}
+		
+		// Not a native input, no connection = not filled
+		return false;
+	}
+
+	_getNodeCompleteness(node) {
+		const result = {
+			complete: true,
+			missingFields: [],
+			filledFields: [],
+			optionalEmpty: []
+		};
+		
+		for (let i = 0; i < node.inputs.length; i++) {
+			const fieldName = node.inputMeta?.[i]?.name || node.inputs[i]?.name || `input_${i}`;
+			const required = this._isFieldRequired(node, i);
+			const filled = this._isFieldFilled(node, i);
+			
+			if (filled) {
+				result.filledFields.push(fieldName);
+			} else if (required) {
+				result.complete = false;
+				result.missingFields.push(fieldName);
+			} else {
+				result.optionalEmpty.push(fieldName);
+			}
+		}
+		
+		return result;
+	}
+
+	_checkAllNodesCompleteness() {
+		const results = {};
+		for (const node of this.graph.nodes) {
+			results[node.id] = this._getNodeCompleteness(node);
+		}
+		return results;
+	}
+
+	_emitCompletenessChanged(node) {
+		const completeness = this._getNodeCompleteness(node);
+		this.eventBus.emit('node:completenessChanged', {
+			nodeId: node.id,
+			...completeness
+		});
+	}
+
+	_refreshNodeInteractivity(node) {
+		const decorators = this._schemaDecorators[node.schemaName]?.[node.modelName];
+		if (!decorators) return;
+		
+		const completeness = this._getNodeCompleteness(node);
+		const isComplete = completeness.complete;
+		
+		// Update button enabled states
+		if (node._buttonStacks) {
+			for (const stack of ['top', 'bottom']) {
+				for (const btn of node._buttonStacks[stack] || []) {
+					// Find original config to check if it should be enabled
+					const originalConfig = decorators.buttons?.find(b => b.id === btn.id);
+					btn.enabled = (originalConfig?.enabled !== false) && isComplete;
+				}
+			}
+		}
+		
+		// Update dropzone
+		if (node._dropZone && decorators.dropzone) {
+			node._dropZone.enabled = isComplete;
+			node._dropZone.label = isComplete 
+				? (decorators.dropzone.label || 'Drop file here') 
+				: 'Complete required fields first';
+		}
+		
+		this._emitCompletenessChanged(node);
+		this.draw();
 	}
 
 	// === API ===
@@ -5430,6 +6262,45 @@ class SchemaGraphApp {
 				applyToNode: (node) => self._applyDecoratorsToNode(node)
 			},
 
+			tooltips: {
+				enableNodeTooltips: () => { self._nodeTooltipsEnabled = true; },
+				disableNodeTooltips: () => { self._nodeTooltipsEnabled = false; self._hideNodeHeaderTooltip(); },
+				isNodeTooltipsEnabled: () => self._nodeTooltipsEnabled,
+				
+				enableFieldTooltips: () => { self._fieldTooltipsEnabled = true; },
+				disableFieldTooltips: () => { self._fieldTooltipsEnabled = false; self._hideTooltip(); },
+				isFieldTooltipsEnabled: () => self._fieldTooltipsEnabled,
+				
+				enableAll: () => { self._nodeTooltipsEnabled = true; self._fieldTooltipsEnabled = true; },
+				disableAll: () => { 
+					self._nodeTooltipsEnabled = false; 
+					self._fieldTooltipsEnabled = false; 
+					self._hideTooltip(); 
+					self._hideNodeHeaderTooltip(); 
+				}
+			},
+			
+			completeness: {
+				check: (nodeOrId) => {
+					const node = typeof nodeOrId === 'string' ? self.graph.getNodeById(nodeOrId) : nodeOrId;
+					return node ? self._getNodeCompleteness(node) : null;
+				},
+				checkAll: () => self._checkAllNodesCompleteness(),
+				isComplete: (nodeOrId) => {
+					const node = typeof nodeOrId === 'string' ? self.graph.getNodeById(nodeOrId) : nodeOrId;
+					return node ? self._getNodeCompleteness(node).complete : false;
+				},
+				refresh: (nodeOrId) => {
+					const node = typeof nodeOrId === 'string' ? self.graph.getNodeById(nodeOrId) : nodeOrId;
+					if (node) self._refreshNodeInteractivity(node);
+				},
+				refreshAll: () => {
+					for (const node of self.graph.nodes) {
+						self._refreshNodeInteractivity(node);
+					}
+				}
+			},
+		
 			extensions: {
 				get: (name) => self.extensions.get(name),
 				list: () => self.extensions.list(),

@@ -25,6 +25,12 @@ class FieldRole(str, Enum):
 # DECORATORS
 # ========================================================================
 
+def node_info(title: str = None, description: str = None, icon: str = None, section: str = "Miscellanea", visible: bool = True, **kwargs):
+	def decorator(cls):
+		return cls
+	return decorator
+
+
 def node_button(id: str, label: str = "", icon: str = "", position: str = "bottom", **kwargs):
 	def decorator(cls):
 		return cls
@@ -38,7 +44,8 @@ def node_dropzone(accept: str = "*", area: str = "content", label: str = "Drop f
 
 
 def node_chat(**kwargs):
-	def decorator(cls): return cls
+	def decorator(cls):
+		return cls
 	return decorator
 
 
@@ -104,6 +111,12 @@ class IntegerNode(NativeNode):
 		return self.value
 
 
+@node_info(
+	title       = "A Float Node",
+	description = "This is a float node",
+	icon        = "🌊",
+	section     = "Native Types"
+)
 class FloatNode(NativeNode):
 	type  : Annotated[Literal["native_float"], FieldRole.CONSTANT] = "native_float"
 	value : Annotated[float                  , FieldRole.INPUT   ] = 0.0
@@ -122,6 +135,12 @@ class BooleanNode(NativeNode):
 		return self.value
 
 
+@node_info(
+	title       = "A List Node",
+	description = "This is a list node.",
+	icon        = "☰",
+	section     = "Native Types"
+)
 class ListNode(NativeNode):
 	type  : Annotated[Literal["native_list"], FieldRole.CONSTANT] = "native_list"
 	value : Annotated[List[Any]             , FieldRole.INPUT   ] = []
@@ -163,6 +182,7 @@ class SourceMeta(BaseModel):
 	language      : Optional[str]   = None
 
 
+@node_info(visible=False)
 class DataNode(BaseType):
 	type        : Annotated[Literal["base_data_node"], FieldRole.CONSTANT] = "data_node"
 	source_type : Annotated[SourceType               , FieldRole.INPUT   ] = SourceType.NONE
@@ -181,6 +201,12 @@ DEFAULT_TEXT_ENCODING : str = "utf-8"
 DEFAULT_TEXT_LANGUAGE : str = "plain"
 
 
+@node_info(
+	title       = "A Text Data Node",
+	description = "This is a sfasdf node.",
+	icon        = "📃",
+	section     = "Data Sources"
+)
 class TextDataNode(DataNode):
 	type     : Annotated[Literal["data_text"], FieldRole.CONSTANT] = "data_text"
 	encoding : Annotated[str                 , FieldRole.INPUT   ] = DEFAULT_TEXT_ENCODING
@@ -199,6 +225,12 @@ class DocumentDataNode(DataNode):
 		return self
 
 
+@node_info(
+	title       = "A Image Data Node",
+	description = "This is a zxzxzx node.",
+	icon        = "🖼️",
+	section     = "Data Sources"
+)
 class ImageDataNode(DataNode):
 	type : Annotated[Literal["data_image"], FieldRole.CONSTANT] = "data_image"
 
@@ -215,6 +247,7 @@ class AudioDataNode(DataNode):
 		return self
 
 
+@node_info(visible=False)
 class VideoDataNode(DataNode):
 	type : Annotated[Literal["data_video"], FieldRole.CONSTANT] = "data_video"
 
@@ -286,6 +319,7 @@ DEFAULT_MODEL_VERSION  : str  = ""
 DEFAULT_MODEL_FALLBACK : bool = False
 
 
+@node_info(visible=False)
 class ModelConfig(BaseConfig):
 	type     : Annotated[Literal["model_config"], FieldRole.CONSTANT] = "model_config"
 	source   : Annotated[str                    , FieldRole.INPUT   ] = DEFAULT_MODEL_SOURCE
@@ -304,6 +338,12 @@ DEFAULT_EMBEDDING_VERSION  : str  = ""
 DEFAULT_EMBEDDING_FALLBACK : bool = False
 
 
+@node_info(
+	title       = "A Text Data Node",
+	description = "This is a sfasdf node.",
+	icon        = "📃",
+	section     = "Configurations"
+)
 class EmbeddingConfig(BaseConfig):
 	type     : Annotated[Literal["embedding_config"], FieldRole.CONSTANT] = "embedding_config"
 	source   : Annotated[str                        , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_SOURCE
