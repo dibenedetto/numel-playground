@@ -165,12 +165,12 @@ async function connect() {
 
 		// visualizer.schemaGraph.api.workflow.debug();
 
-		agentChatManager = new AgentChatManager(serverUrl, schemaGraph, syncWorkflow);
-		addLog('info', '💬 Agent chat manager initialized');
+		// agentChatManager = new AgentChatManager(serverUrl, schemaGraph, syncWorkflow);
+		// addLog('info', '💬 Agent chat manager initialized');
 
-		// Initialize file upload manager
-		fileUploadManager = new FileUploadManager(serverUrl, schemaGraph, syncWorkflow, schemaGraph.eventBus);
-		addLog('info', '📁 File upload manager initialized');
+		// // Initialize file upload manager
+		// fileUploadManager = new FileUploadManager(serverUrl, schemaGraph, syncWorkflow, schemaGraph.eventBus);
+		// addLog('info', '📁 File upload manager initialized');
 
 		// Update overlay positions on camera changes
 		schemaGraph.eventBus.on('camera:moved', () => {

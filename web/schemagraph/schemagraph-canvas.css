@@ -94,6 +94,66 @@
   border-left-color: var(--sg-accent-red, #dc6464);
 }
 
+/* Add to schemagraph-canvas.css after existing .sg-context-menu styles */
+
+.sg-context-submenu-container {
+    position: relative;
+}
+
+.sg-context-submenu-container::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: -10px;
+    width: 15px;
+    height: 100%;
+}
+
+.sg-context-submenu-trigger {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 12px;
+    cursor: pointer;
+    color: var(--sg-text-secondary, #aaaaaa);
+}
+
+.sg-context-submenu-trigger:hover {
+    background: var(--sg-bg-tertiary, #353535);
+    color: var(--sg-text-primary, #ffffff);
+}
+
+.sg-context-submenu-trigger::after {
+    content: '▶';
+    font-size: 8px;
+    margin-left: 12px;
+}
+
+.sg-context-submenu {
+    position: absolute;
+    left: calc(100% - 5px);
+    top: -4px;
+    background: var(--sg-bg-secondary, #2a2a2a);
+    border: 1px solid var(--sg-border-color, #1a1a1a);
+    border-radius: 6px;
+    min-width: 150px;
+    max-height: 50vh;
+    overflow-y: auto;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    padding: 4px 0;
+    z-index: 10001;
+    display: none;
+}
+
+.sg-context-submenu-container:hover > .sg-context-submenu {
+    display: block;
+}
+
+.sg-context-submenu .sg-context-menu-item {
+    padding: 5px 10px;
+    font-size: 11px;
+}
+
 /* Node Input Overlay */
 .sg-node-input-overlay {
   position: fixed;
@@ -669,4 +729,91 @@
 
 [data-theme="light"] .sg-tooltip-desc {
   color: #555555;
+}
+
+
+
+
+
+
+
+
+
+
+/* Add this to schemagraph-canvas.css */
+
+/* Override context menu overflow to allow submenus to show */
+.sg-context-menu {
+    overflow: visible !important;
+}
+
+/* Submenu System */
+.sg-submenu-wrap {
+    position: relative;
+}
+
+.sg-submenu-trigger {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 12px;
+    cursor: pointer;
+    color: var(--sg-text-secondary, #aaaaaa);
+    white-space: nowrap;
+}
+
+.sg-submenu-trigger:hover {
+    background: var(--sg-bg-tertiary, #353535);
+    color: var(--sg-text-primary, #ffffff);
+}
+
+.sg-submenu-trigger::after {
+    content: '▶';
+    font-size: 8px;
+    margin-left: 12px;
+    color: var(--sg-text-tertiary, #707070);
+}
+
+.sg-submenu-panel {
+    position: absolute;
+    left: 100%;
+    top: 0;
+    background: var(--sg-bg-secondary, #2a2a2a);
+    border: 1px solid var(--sg-border-color, #1a1a1a);
+    border-radius: 6px;
+    min-width: 150px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+    padding: 4px 0;
+    z-index: 10001;
+    display: none;
+}
+
+/* Branch panels contain nested submenus - must not clip them */
+.sg-submenu-panel.sg-submenu-branch {
+    overflow: visible;
+}
+
+/* Leaf panels are innermost - can scroll */
+.sg-submenu-panel.sg-submenu-leaf {
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.sg-submenu-panel .sg-context-menu-item {
+    padding: 5px 12px;
+    font-size: 11px;
+}
+
+.sg-menu-icon {
+    margin-right: 6px;
+}
+
+.sg-menu-root {
+    font-weight: bold;
+    color: var(--sg-accent-orange, #d89614) !important;
+}
+
+/* Nested submenus */
+.sg-submenu-panel .sg-submenu-panel {
+    z-index: 10002;
 }

@@ -2245,7 +2245,6 @@ class SchemaGraphApp {
 		this.draw();
 
 		this.eventBus.emit('app:ready', {});
-		console.log('=== SCHEMAGRAPH UNIFIED READY ===');
 	}
 
 	initializeState() {
@@ -2966,150 +2965,6 @@ class SchemaGraphApp {
 				background: rgba(245, 166, 35, 0.2);
 				color: var(--sg-accent-orange, #f5a623);
 			}
-			
-			/* Context Menu with Submenus */
-			.sg-context-menu {
-				position: fixed;
-				background: var(--sg-node-bg, #252540);
-				border: 1px solid var(--sg-border-color, #404060);
-				border-radius: 6px;
-				min-width: 160px;
-				max-height: 70vh;
-				overflow-y: auto;
-				box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-				z-index: 10000;
-				display: none;
-				padding: 4px 0;
-				font-size: 12px;
-			}
-
-			.sg-context-menu.show {
-				display: block;
-			}
-
-			.sg-context-menu-category {
-				padding: 6px 12px 4px;
-				font-size: 10px;
-				color: var(--sg-text-tertiary, #808090);
-				text-transform: uppercase;
-				letter-spacing: 0.5px;
-			}
-
-			.sg-context-menu-item {
-				padding: 6px 12px;
-				cursor: pointer;
-				color: var(--sg-text-secondary, #b0b0c0);
-				white-space: nowrap;
-				display: flex;
-				align-items: center;
-			}
-
-			.sg-context-menu-item:hover {
-				background: rgba(255,255,255,0.1);
-				color: var(--sg-text-primary, #fff);
-			}
-
-			.sg-context-menu-item.sg-context-menu-delete:hover {
-				background: rgba(220, 96, 104, 0.2);
-				color: var(--sg-accent-red, #dc6068);
-			}
-
-			.sg-context-menu-item-root {
-				font-weight: bold;
-				color: var(--sg-accent-orange, #f5a623) !important;
-			}
-
-			.sg-context-menu-item-icon {
-				margin-right: 6px;
-			}
-
-			.sg-context-menu-divider {
-				height: 1px;
-				background: var(--sg-border-color, #404060);
-				margin: 4px 0;
-			}
-
-			/* Submenu container */
-			.sg-context-submenu-container {
-				position: relative;
-			}
-
-			.sg-context-submenu-trigger {
-				display: flex;
-				justify-content: space-between;
-				align-items: center;
-				padding: 6px 12px;
-				cursor: pointer;
-				color: var(--sg-text-secondary, #b0b0c0);
-				white-space: nowrap;
-			}
-
-			.sg-context-submenu-trigger:hover {
-				background: rgba(255,255,255,0.1);
-				color: var(--sg-text-primary, #fff);
-			}
-
-			.sg-context-submenu-trigger::after {
-				content: '▶';
-				font-size: 8px;
-				margin-left: 12px;
-				color: var(--sg-text-tertiary, #808090);
-			}
-
-			.sg-context-submenu-trigger:hover::after {
-				color: var(--sg-text-primary, #fff);
-			}
-
-			/* Submenu panel */
-			.sg-context-submenu {
-				position: absolute;
-				left: 100%;
-				top: 0;
-				background: var(--sg-node-bg, #252540);
-				border: 1px solid var(--sg-border-color, #404060);
-				border-radius: 6px;
-				min-width: 150px;
-				max-height: 50vh;
-				overflow-y: auto;
-				box-shadow: 0 4px 16px rgba(0,0,0,0.4);
-				display: none !important;
-				padding: 4px 0;
-				margin-left: 2px;
-				z-index: 10001;
-			}
-
-			.sg-context-submenu-container:hover > .sg-context-submenu {
-				display: block !important;
-			}
-
-			/* Flip submenu left if near edge */
-			.sg-context-submenu.flip-left {
-				left: auto;
-				right: 100%;
-				margin-left: 0;
-				margin-right: 2px;
-			}
-
-			/* Section header inside submenu */
-			.sg-context-submenu-section {
-				font-size: 9px;
-				color: var(--sg-text-tertiary, #808090);
-				text-transform: uppercase;
-				letter-spacing: 0.5px;
-				padding: 6px 10px 3px;
-				border-top: 1px solid var(--sg-border-color, #404060);
-				margin-top: 2px;
-			}
-
-			.sg-context-submenu-section:first-child {
-				border-top: none;
-				margin-top: 0;
-			}
-
-			.sg-context-submenu .sg-context-menu-item {
-				padding: 5px 10px;
-				font-size: 11px;
-			}
 		`;
 		document.head.appendChild(style);
 	}
@@ -3753,72 +3608,56 @@ class SchemaGraphApp {
 		let html = '';
 
 		if (node) {
-			// Node actions
 			html += '<div class="sg-context-menu-category">Node Actions</div>';
 			html += this.selectedNodes.size > 1 
 				? `<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete-all">✖ Delete ${this.selectedNodes.size} Nodes</div>` 
 				: '<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete">✖ Delete Node</div>';
 		} else {
-			// Native types submenu
-			html += '<div class="sg-context-submenu-container">';
-			html += '<div class="sg-context-submenu-trigger">Native Types</div>';
-			html += '<div class="sg-context-submenu">';
+			// Native types submenu (leaf - scrollable)
+			html += `<div class="sg-submenu-wrap">`;
+			html += `<div class="sg-submenu-trigger">Native Types</div>`;
+			html += `<div class="sg-submenu-panel sg-submenu-leaf">`;
 			for (const type of ['Native.String', 'Native.Integer', 'Native.Boolean', 'Native.Float', 'Native.List', 'Native.Dict']) {
 				html += `<div class="sg-context-menu-item" data-type="${type}">${type.split('.')[1]}</div>`;
 			}
 			html += '</div></div>';
 
-			// Schema nodes - each schema gets a submenu with sections as nested submenus
+			// Schema nodes
 			for (const schemaName of Object.keys(this.graph.schemas)) {
 				if (!this.graph.isSchemaEnabled?.(schemaName) && !this.graph.schemas[schemaName]?.enabled) continue;
 				
 				const schemaInfo = this.graph.schemas[schemaName];
 				const decorators = this._schemaDecorators[schemaName] || {};
 				
-				// Collect nodes by section
 				const sections = {};
 				const defaultSection = 'General';
 				
 				for (const type in this.graph.nodeTypes) {
 					if (!type.startsWith(schemaName + '.')) continue;
-					
 					const modelName = type.split('.')[1];
 					const info = decorators[modelName]?.info;
-					
-					// Skip if visible is explicitly false
 					if (info?.visible === false) continue;
-					
 					const section = info?.section || defaultSection;
 					if (!sections[section]) sections[section] = [];
-					
-					sections[section].push({
-						type,
-						modelName,
-						info,
-						isRoot: schemaInfo.rootType === modelName
-					});
+					sections[section].push({ type, modelName, info, isRoot: schemaInfo.rootType === modelName });
 				}
 				
-				// Sort section names: General first, then alphabetically
 				const sectionNames = Object.keys(sections).sort((a, b) => {
 					if (a === defaultSection) return -1;
 					if (b === defaultSection) return 1;
 					return a.localeCompare(b);
 				});
 				
-				// Skip empty schemas
 				if (sectionNames.length === 0) continue;
 				
-				// Build schema submenu
-				html += '<div class="sg-context-submenu-container">';
-				html += `<div class="sg-context-submenu-trigger">${schemaName}</div>`;
-				html += '<div class="sg-context-submenu">';
+				html += `<div class="sg-submenu-wrap">`;
+				html += `<div class="sg-submenu-trigger">${schemaName}</div>`;
 				
-				// If only one section, show nodes directly (no nested submenu)
+				// If only one section, it's a leaf (scrollable)
+				// If multiple sections, it's a branch (visible overflow)
 				if (sectionNames.length === 1) {
+					html += `<div class="sg-submenu-panel sg-submenu-leaf">`;
 					const sectionNodes = sections[sectionNames[0]];
-					
-					// Sort: root first, then alphabetically
 					sectionNodes.sort((a, b) => {
 						if (a.isRoot) return -1;
 						if (b.isRoot) return 1;
@@ -3826,25 +3665,25 @@ class SchemaGraphApp {
 					});
 					
 					for (const item of sectionNodes) {
-						const icon = item.info?.icon ? `<span class="sg-context-menu-item-icon">${item.info.icon}</span>` : '';
+						const icon = item.info?.icon ? `<span class="sg-menu-icon">${item.info.icon}</span>` : '';
 						const title = item.info?.title || item.modelName;
 						const rootMark = item.isRoot ? '☆ ' : '';
-						const rootClass = item.isRoot ? ' sg-context-menu-item-root' : '';
-						
+						const rootClass = item.isRoot ? ' sg-menu-root' : '';
 						html += `<div class="sg-context-menu-item${rootClass}" data-type="${item.type}">${icon}${rootMark}${title}</div>`;
 					}
+					html += '</div></div>';
 				} else {
-					// Multiple sections: create nested submenus for each section
+					// Multiple sections - branch with nested submenus
+					html += `<div class="sg-submenu-panel sg-submenu-branch">`;
+					
 					for (const sectionName of sectionNames) {
 						const sectionNodes = sections[sectionName];
 						if (sectionNodes.length === 0) continue;
 						
-						// Create nested submenu for this section
-						html += '<div class="sg-context-submenu-container">';
-						html += `<div class="sg-context-submenu-trigger">${sectionName}</div>`;
-						html += '<div class="sg-context-submenu">';
+						html += `<div class="sg-submenu-wrap">`;
+						html += `<div class="sg-submenu-trigger">${sectionName}</div>`;
+						html += `<div class="sg-submenu-panel sg-submenu-leaf">`; // Innermost - scrollable
 						
-						// Sort: root first, then alphabetically
 						sectionNodes.sort((a, b) => {
 							if (a.isRoot) return -1;
 							if (b.isRoot) return 1;
@@ -3852,181 +3691,82 @@ class SchemaGraphApp {
 						});
 						
 						for (const item of sectionNodes) {
-							const icon = item.info?.icon ? `<span class="sg-context-menu-item-icon">${item.info.icon}</span>` : '';
+							const icon = item.info?.icon ? `<span class="sg-menu-icon">${item.info.icon}</span>` : '';
 							const title = item.info?.title || item.modelName;
 							const rootMark = item.isRoot ? '☆ ' : '';
-							const rootClass = item.isRoot ? ' sg-context-menu-item-root' : '';
-							
+							const rootClass = item.isRoot ? ' sg-menu-root' : '';
 							html += `<div class="sg-context-menu-item${rootClass}" data-type="${item.type}">${icon}${rootMark}${title}</div>`;
 						}
 						
-						html += '</div></div>'; // Close section submenu
+						html += '</div></div>';
 					}
+					
+					html += '</div></div>';
 				}
-				
-				html += '</div></div>'; // Close schema submenu
 			}
 		}
 
-		// console.log('Generated HTML length:', html.length);
-		// console.log('Number of submenu containers:', (html.match(/sg-context-submenu-container/g) || []).length);
-		// console.log('Number of section triggers:', (html.match(/sg-context-submenu-trigger/g) || []).length);
-
 		contextMenu.innerHTML = html;
 
-		// ========================================
-		// MANUAL SUBMENU HOVER HANDLING - FIXED
-		// ========================================
-		const setupSubmenuHover = (container, level = 0) => {
-			const trigger = container.querySelector(':scope > .sg-context-submenu-trigger');
-			const submenu = container.querySelector(':scope > .sg-context-submenu');
-			
-			if (!trigger || !submenu) return;
-			
-			let hideTimeout = null;
-			let isSubmenuHovered = false;
-			let isTriggerHovered = false;
-			
-			// const showSubmenu = () => {
-			// 	if (hideTimeout) {
-			// 		clearTimeout(hideTimeout);
-			// 		hideTimeout = null;
-			// 	}
-			// 	submenu.style.display = 'block';
-			// 	submenu.style.visibility = 'visible';
-			// 	console.log(`SHOW submenu at level ${level}`);
-			// };
-			
-const showSubmenu = () => {
-    if (hideTimeout) {
-        clearTimeout(hideTimeout);
-        hideTimeout = null;
-    }
-    submenu.style.display = 'block';
-    submenu.style.visibility = 'visible';
-    
-    // Force override any CSS
-    submenu.style.setProperty('display', 'block', 'important');
-    
-    console.log(`SHOW submenu at level ${level}`, {
-        display: submenu.style.display,
-        computedDisplay: getComputedStyle(submenu).display,
-        visibility: getComputedStyle(submenu).visibility,
-        opacity: getComputedStyle(submenu).opacity,
-        zIndex: getComputedStyle(submenu).zIndex,
-        position: getComputedStyle(submenu).position,
-        rect: submenu.getBoundingClientRect(),
-        hasContent: submenu.children.length,
-        innerHTML: submenu.innerHTML.substring(0, 100)
-    });
-};
-			const scheduleHide = () => {
-				hideTimeout = setTimeout(() => {
-					if (!isSubmenuHovered && !isTriggerHovered) {
-						submenu.style.display = 'none';
-						console.log(`HIDE submenu at level ${level}`);
-					}
-				}, 300);
-			};
-			
-			// Trigger events
-			trigger.addEventListener('mouseenter', () => {
-				isTriggerHovered = true;
-				showSubmenu();
-			});
-			
-			trigger.addEventListener('mouseleave', () => {
-				isTriggerHovered = false;
-				scheduleHide();
-			});
-			
-			// Submenu events
-			submenu.addEventListener('mouseenter', () => {
-				isSubmenuHovered = true;
-				showSubmenu();
-			});
-			
-			submenu.addEventListener('mouseleave', () => {
-				isSubmenuHovered = false;
-				scheduleHide();
-			});
-			
-			// Setup nested submenus recursively
-			const nestedContainers = submenu.querySelectorAll(':scope > .sg-context-submenu-container');
-			nestedContainers.forEach(nested => setupSubmenuHover(nested, level + 1));
-		};
-
-		// Apply to all top-level submenu containers
-		const topLevelContainers = contextMenu.querySelectorAll(':scope > .sg-context-submenu-container');
-		console.log('Submenu hover handlers attached:', topLevelContainers.length);
-		topLevelContainers.forEach(container => setupSubmenuHover(container, 0));
-		// ========================================
-
-		// Position at mouse cursor (use clientX/clientY directly since menu is position:fixed)
+		// Position
 		let menuX = coords.clientX;
 		let menuY = coords.clientY;
-		
-		// Ensure menu stays within viewport
 		contextMenu.style.left = '0px';
 		contextMenu.style.top = '0px';
 		contextMenu.classList.add('show');
 		
 		const menuRect = contextMenu.getBoundingClientRect();
-		const viewportWidth = window.innerWidth;
-		const viewportHeight = window.innerHeight;
-		
-		// Adjust X if menu would overflow right edge
-		if (menuX + menuRect.width > viewportWidth) {
-			menuX = viewportWidth - menuRect.width - 5;
-		}
-		
-		// Adjust Y if menu would overflow bottom edge
-		if (menuY + menuRect.height > viewportHeight) {
-			menuY = viewportHeight - menuRect.height - 5;
-		}
-		
-		// Ensure not negative
+		if (menuX + menuRect.width > window.innerWidth) menuX = window.innerWidth - menuRect.width - 5;
+		if (menuY + menuRect.height > window.innerHeight) menuY = window.innerHeight - menuRect.height - 5;
 		menuX = Math.max(5, menuX);
 		menuY = Math.max(5, menuY);
 		
 		contextMenu.style.left = menuX + 'px';
 		contextMenu.style.top = menuY + 'px';
-		
 		contextMenu.dataset.worldX = wx;
 		contextMenu.dataset.worldY = wy;
 
-		// Flip submenus if near right edge
-		requestAnimationFrame(() => {
-			const rect = contextMenu.getBoundingClientRect();
-			const shouldFlip = rect.right + 160 > viewportWidth;
+		// HOVER LOGIC
+		contextMenu.querySelectorAll('.sg-submenu-wrap').forEach(wrap => {
+			const trigger = wrap.querySelector(':scope > .sg-submenu-trigger');
+			const panel = wrap.querySelector(':scope > .sg-submenu-panel');
 			
-			contextMenu.querySelectorAll('.sg-context-submenu').forEach(sub => {
-				if (shouldFlip) {
-					sub.classList.add('flip-left');
-				} else {
-					sub.classList.remove('flip-left');
+			if (!trigger || !panel) return;
+
+			wrap.addEventListener('mouseenter', () => {
+				panel.style.display = 'block';
+				
+				// Flip if needed
+				const rect = panel.getBoundingClientRect();
+				if (rect.right > window.innerWidth) {
+					panel.style.left = 'auto';
+					panel.style.right = '100%';
 				}
+			});
+			
+			wrap.addEventListener('mouseleave', () => {
+				panel.style.display = 'none';
 			});
 		});
 
-		// Event handlers
+		// Click handlers
 		if (node) {
 			contextMenu.querySelector('.sg-context-menu-delete')?.addEventListener('click', () => {
 				this.selectedNodes.size > 1 ? this.deleteSelectedNodes() : this.removeNode(node);
 				contextMenu.classList.remove('show');
 			});
-		} else {
-			for (const item of contextMenu.querySelectorAll('.sg-context-menu-item[data-type]')) {
-				item.addEventListener('click', (e) => {
-					e.stopPropagation();
-					const type = item.getAttribute('data-type');
-					const n = this.graph.createNode(type);
-					n.pos = [parseFloat(contextMenu.dataset.worldX) - 90, parseFloat(contextMenu.dataset.worldY) - 40];
-					contextMenu.classList.remove('show');
-					this.draw();
-				});
-			}
 		}
+		
+		contextMenu.querySelectorAll('.sg-context-menu-item[data-type]').forEach(item => {
+			item.addEventListener('click', (e) => {
+				e.stopPropagation();
+				const type = item.getAttribute('data-type');
+				const n = this.graph.createNode(type);
+				n.pos = [parseFloat(contextMenu.dataset.worldX) - 90, parseFloat(contextMenu.dataset.worldY) - 40];
+				contextMenu.classList.remove('show');
+				this.draw();
+			});
+		});
 	}
 
 	// === KEYBOARD HANDLERS ===
