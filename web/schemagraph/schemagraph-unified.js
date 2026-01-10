@@ -3611,8 +3611,8 @@ class SchemaGraphApp {
 		if (node) {
 			html += '<div class="sg-context-menu-category">Node Actions</div>';
 			html += this.selectedNodes.size > 1 
-				? `<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete-all">✖ Delete ${this.selectedNodes.size} Nodes</div>` 
-				: '<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete">✖ Delete Node</div>';
+				? `<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete-all">❌ Delete ${this.selectedNodes.size} Nodes</div>` 
+				: '<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete">❌ Delete Node</div>';
 		} else {
 			// Native types submenu
 			html += `<div class="sg-submenu-wrap">`;
@@ -3814,18 +3814,19 @@ class SchemaGraphApp {
 				else this.editingNode.properties.value = val;
 			}
 			
-			// Emit field changed event
+			// Store reference before clearing
+			const changedNode = this.editingNode;
+			
+			// Emit field changed - this triggers _propagateCompletenessDownstream via listener
 			this.eventBus.emit(GraphEvents.FIELD_CHANGED, {
-				nodeId: this.editingNode.id,
+				nodeId: changedNode.id,
 				fieldName: fieldName,
 				value: val
 			});
 			
-			// Refresh interactivity based on completeness
-			this._refreshNodeInteractivity(this.editingNode);
-		
-			this.draw();
+			// Note: draw() is called by _propagateCompletenessDownstream, don't call it here
 		}
+		
 		document.getElementById('sg-nodeInput')?.classList.remove('show');
 		this.editingNode = null;
 	}
@@ -3846,7 +3847,15 @@ class SchemaGraphApp {
 			}
 			delete this.graph.links[linkId];
 			targetNode.inputs[targetSlot].link = null;
-			this.eventBus.emit('link:deleted', { linkId });
+			
+			// Emit with targetNodeId so listener can refresh properly
+			this.eventBus.emit(GraphEvents.LINK_REMOVED, { 
+				linkId,
+				targetNodeId: targetNode.id,
+				targetSlot,
+				sourceNodeId: link.origin_id,
+				sourceSlot: link.origin_slot
+			});
 		}
 	}
 
@@ -3995,10 +4004,15 @@ class SchemaGraphApp {
 		html += '</div>';
 		
 		// Self completeness
-		if (selfCompleteness.missingFields.length > 0) {
-			html += `<div class="sg-node-tooltip-meta-item sg-node-tooltip-incomplete">`;
-			html += `<span class="sg-node-tooltip-meta-label">Missing:</span> ${selfCompleteness.missingFields.join(', ')}`;
-			html += `</div>`;
+		const missingLen = selfCompleteness.missingFields.length;
+		if (missingLen > 0) {
+			// html += `<div class="sg-node-tooltip-meta-item sg-node-tooltip-incomplete">`;
+			// html += `<span class="sg-node-tooltip-meta-label">Missing:</span> ${selfCompleteness.missingFields.join(', ')}`;
+			// html += `</div>`;
+			html += '<div class="sg-node-tooltip-chain-missing">';
+			html += `⛔ ${missingLen} missing required field${missingLen > 1 ? 's' : ''}`;
+			html += `<br><small style="opacity:0.8">${selfCompleteness.missingFields.join(', ')}${missingLen > 3 ? '...' : ''}</small>`;
+			html += '</div>';
 		} else {
 			html += `<div class="sg-node-tooltip-meta-item sg-node-tooltip-complete">✓ All required fields filled</div>`;
 		}
@@ -5821,14 +5835,19 @@ class SchemaGraphApp {
 	}
 
 	_getChainCompleteness(node, visited = new Set()) {
-		if (!node) return { complete: true, nodeComplete: true, missingFields: [], incompleteNodes: [], incompleteLinks: [] };
+		if (!node) {
+			return { complete: true, nodeComplete: true, missingFields: [], incompleteNodes: [], incompleteLinks: [] };
+		}
 		
+		// Cycle detection
 		if (visited.has(node.id)) {
 			return { complete: true, nodeComplete: true, missingFields: [], incompleteNodes: [], incompleteLinks: [] };
 		}
 		visited.add(node.id);
 		
+		// Always compute node completeness fresh
 		const nodeCompleteness = this._getNodeCompleteness(node);
+		
 		const result = {
 			complete: nodeCompleteness.complete,
 			nodeComplete: nodeCompleteness.complete,
@@ -5858,11 +5877,16 @@ class SchemaGraphApp {
 				const sourceNode = this.graph.getNodeById(link.origin_id);
 				if (!sourceNode) continue;
 				
-				const sourceCompleteness = this._getChainCompleteness(sourceNode, visited);
+				// Recursive call - creates new visited set branch
+				const sourceCompleteness = this._getChainCompleteness(sourceNode, new Set(visited));
 				
 				if (!sourceCompleteness.complete) {
 					result.complete = false;
-					result.incompleteLinks.push(linkId);
+					
+					// Add this link as incomplete if source is incomplete
+					if (!result.incompleteLinks.includes(linkId)) {
+						result.incompleteLinks.push(linkId);
+					}
 					
 					// Merge upstream incomplete nodes
 					for (const id of sourceCompleteness.incompleteNodes) {
@@ -5885,23 +5909,39 @@ class SchemaGraphApp {
 	}
 
 	_refreshAllCompleteness() {
-		// Update state for ALL nodes
+		// Clear all cached state first to avoid stale data
+		for (const node of this.graph.nodes) {
+			node._nodeComplete = undefined;
+			node._chainComplete = undefined;
+			node._incompleteChainNodes = undefined;
+			node._incompleteChainLinks = undefined;
+		}
+		
+		// Now recompute for all nodes
 		for (const node of this.graph.nodes) {
 			this._updateNodeCompletenessState(node);
 		}
+		
 		this.draw();
 	}
 
 	_updateNodeCompletenessState(node) {
+		// Clear this node's cached state before recomputing
+		node._nodeComplete = undefined;
+		node._chainComplete = undefined;
+		node._incompleteChainNodes = undefined;
+		node._incompleteChainLinks = undefined;
+		
+		// Compute fresh
 		const chainCompleteness = this._getChainCompleteness(node);
 		
-		// Store state on node for drawing
+		// Store on node
 		node._nodeComplete = chainCompleteness.nodeComplete;
 		node._chainComplete = chainCompleteness.complete;
 		node._incompleteChainNodes = chainCompleteness.incompleteNodes;
 		node._incompleteChainLinks = chainCompleteness.incompleteLinks;
 		
-		// Update decorators (buttons, dropzones)
+		// Update interactive elements (buttons, dropzones)
 		this._updateNodeInteractiveElements(node, chainCompleteness);
 		
 		return chainCompleteness;
@@ -5980,61 +6020,97 @@ class SchemaGraphApp {
 	// ========================================================================
 
 	_setupCompletenessListeners() {
-		// Debounce helper to avoid excessive refreshes
-		let refreshTimeout = null;
-		const debouncedRefresh = () => {
-			if (refreshTimeout) clearTimeout(refreshTimeout);
-			refreshTimeout = setTimeout(() => {
+		// Field changed - refresh immediately, not debounced
+		this.eventBus.on(GraphEvents.FIELD_CHANGED, (data) => {
+			const node = data?.nodeId ? this.graph.getNodeById(data.nodeId) : null;
+			if (node) {
+				this._propagateCompletenessDownstream(node);
+			} else {
 				this._refreshAllCompleteness();
-			}, 10);
-		};
-		
-		// Field changed
-		this.eventBus.on(GraphEvents.FIELD_CHANGED, () => {
-			debouncedRefresh();
+			}
 		});
 		
-		// Link created
-		this.eventBus.on(GraphEvents.LINK_CREATED, () => {
-			debouncedRefresh();
+		// Link created - refresh both endpoints and downstream
+		this.eventBus.on(GraphEvents.LINK_CREATED, (data) => {
+			const link = this.graph.links[data.linkId];
+			if (link) {
+				const targetNode = this.graph.getNodeById(link.target_id);
+				if (targetNode) {
+					this._propagateCompletenessDownstream(targetNode);
+				}
+			}
 		});
 		
-		// Link removed
-		this.eventBus.on(GraphEvents.LINK_REMOVED, () => {
-			debouncedRefresh();
+		// Link removed - refresh affected nodes
+		this.eventBus.on(GraphEvents.LINK_REMOVED, (data) => {
+			const targetNode = data.targetNodeId ? this.graph.getNodeById(data.targetNodeId) : null;
+			if (targetNode) {
+				this._propagateCompletenessDownstream(targetNode);
+			} else {
+				this._refreshAllCompleteness();
+			}
 		});
 		
-		// Node created
-		this.eventBus.on(GraphEvents.NODE_CREATED, () => {
-			debouncedRefresh();
+		// Node created - just update that node
+		this.eventBus.on(GraphEvents.NODE_CREATED, (data) => {
+			const node = data?.node || (data?.nodeId ? this.graph.getNodeById(data.nodeId) : null);
+			if (node) {
+				this._updateNodeCompletenessState(node);
+			}
 		});
 		
-		// Node removed
+		// Node removed - refresh all (connections may have changed)
 		this.eventBus.on(GraphEvents.NODE_REMOVED, () => {
-			debouncedRefresh();
+			this._refreshAllCompleteness();
 		});
 		
-		// Workflow imported
+		// Workflow imported - delayed to ensure nodes are ready
 		this.eventBus.on(GraphEvents.WORKFLOW_IMPORTED, () => {
-			// Delay to ensure all nodes are ready
-			setTimeout(() => {
-				this._refreshAllCompleteness();
-			}, 50);
+			setTimeout(() => this._refreshAllCompleteness(), 50);
 		});
 		
 		// Graph loaded/deserialized
 		this.eventBus.on(GraphEvents.GRAPH_LOADED, () => {
-			setTimeout(() => {
-				this._refreshAllCompleteness();
-			}, 50);
+			setTimeout(() => this._refreshAllCompleteness(), 50);
 		});
 		
 		// Data loaded
 		this.eventBus.on(GraphEvents.DATA_LOADED, () => {
-			setTimeout(() => {
-				this._refreshAllCompleteness();
-			}, 50);
+			setTimeout(() => this._refreshAllCompleteness(), 50);
 		});
+	}
+
+	_propagateCompletenessDownstream(startNode) {
+		if (!startNode) return;
+		
+		// First update the changed node
+		this._updateNodeCompletenessState(startNode);
+		
+		// BFS to find all downstream nodes
+		const visited = new Set([startNode.id]);
+		const queue = [startNode];
+		
+		while (queue.length > 0) {
+			const node = queue.shift();
+			
+			// Find all nodes that receive input from this node
+			for (const output of node.outputs || []) {
+				for (const linkId of output.links || []) {
+					const link = this.graph.links[linkId];
+					if (!link) continue;
+					
+					const targetNode = this.graph.getNodeById(link.target_id);
+					if (targetNode && !visited.has(targetNode.id)) {
+						visited.add(targetNode.id);
+						this._updateNodeCompletenessState(targetNode);
+						queue.push(targetNode);
+					}
+				}
+			}
+		}
+		
+		// Draw once at the end
+		this.draw();
 	}
 
 	// ========================================================================

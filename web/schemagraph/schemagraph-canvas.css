@@ -834,6 +834,17 @@
 }
 
 /* Tooltip additions for chain info */
+.sg-node-tooltip-chain-missing {
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: rgba(220, 96, 104, 0.2);
+  border: 1px solid rgba(249, 80, 114, 0.3);
+  border-radius: 4px;
+  font-size: 10px;
+  color: var(--sg-accent-red, #dc6068);
+}
+
+/* Tooltip additions for chain info */
 .sg-node-tooltip-chain-warning {
   margin-top: 8px;
   padding: 6px 8px;
