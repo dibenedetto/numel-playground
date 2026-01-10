@@ -2992,6 +2992,7 @@ class SchemaGraphApp {
 		nodeInput?.addEventListener('keydown', (e) => this.handleInputKeyDown(e));
 
 		this._setupFileDrop();
+		this._setupCompletenessListeners();
 
 		this.extensions.initAll(this);
 	}
@@ -3613,7 +3614,7 @@ class SchemaGraphApp {
 				? `<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete-all">✖ Delete ${this.selectedNodes.size} Nodes</div>` 
 				: '<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete">✖ Delete Node</div>';
 		} else {
-			// Native types submenu (leaf - scrollable)
+			// Native types submenu
 			html += `<div class="sg-submenu-wrap">`;
 			html += `<div class="sg-submenu-trigger">Native Types</div>`;
 			html += `<div class="sg-submenu-panel sg-submenu-leaf">`;
@@ -3653,8 +3654,6 @@ class SchemaGraphApp {
 				html += `<div class="sg-submenu-wrap">`;
 				html += `<div class="sg-submenu-trigger">${schemaName}</div>`;
 				
-				// If only one section, it's a leaf (scrollable)
-				// If multiple sections, it's a branch (visible overflow)
 				if (sectionNames.length === 1) {
 					html += `<div class="sg-submenu-panel sg-submenu-leaf">`;
 					const sectionNodes = sections[sectionNames[0]];
@@ -3673,7 +3672,6 @@ class SchemaGraphApp {
 					}
 					html += '</div></div>';
 				} else {
-					// Multiple sections - branch with nested submenus
 					html += `<div class="sg-submenu-panel sg-submenu-branch">`;
 					
 					for (const sectionName of sectionNames) {
@@ -3682,7 +3680,7 @@ class SchemaGraphApp {
 						
 						html += `<div class="sg-submenu-wrap">`;
 						html += `<div class="sg-submenu-trigger">${sectionName}</div>`;
-						html += `<div class="sg-submenu-panel sg-submenu-leaf">`; // Innermost - scrollable
+						html += `<div class="sg-submenu-panel sg-submenu-leaf">`;
 						
 						sectionNodes.sort((a, b) => {
 							if (a.isRoot) return -1;
@@ -3708,7 +3706,6 @@ class SchemaGraphApp {
 
 		contextMenu.innerHTML = html;
 
-		// Position
 		let menuX = coords.clientX;
 		let menuY = coords.clientY;
 		contextMenu.style.left = '0px';
@@ -3726,7 +3723,7 @@ class SchemaGraphApp {
 		contextMenu.dataset.worldX = wx;
 		contextMenu.dataset.worldY = wy;
 
-		// HOVER LOGIC
+		// Hover logic
 		contextMenu.querySelectorAll('.sg-submenu-wrap').forEach(wrap => {
 			const trigger = wrap.querySelector(':scope > .sg-submenu-trigger');
 			const panel = wrap.querySelector(':scope > .sg-submenu-panel');
@@ -3735,8 +3732,6 @@ class SchemaGraphApp {
 
 			wrap.addEventListener('mouseenter', () => {
 				panel.style.display = 'block';
-				
-				// Flip if needed
 				const rect = panel.getBoundingClientRect();
 				if (rect.right > window.innerWidth) {
 					panel.style.left = 'auto';
@@ -3971,74 +3966,70 @@ class SchemaGraphApp {
 			document.body.appendChild(this._nodeHeaderTooltipEl);
 		}
 		
-		// Build tooltip content - always show basic info
-		let html = '<div class="sg-node-tooltip-header">';
+		const selfCompleteness = this._getNodeCompleteness(node);
+		const chainCompleteness = this._getChainCompleteness(node);
 		
+		let html = '<div class="sg-node-tooltip-header">';
 		if (info.icon) {
 			html += `<span class="sg-node-tooltip-icon">${info.icon}</span>`;
 		}
-		
-		// Use info.title, fallback to modelName
 		const displayTitle = info.title || node.modelName || node.title;
 		html += `<span class="sg-node-tooltip-title">${displayTitle}</span>`;
 		html += '</div>';
 		
-		// Description if available
 		if (info.description) {
 			html += `<div class="sg-node-tooltip-desc">${info.description}</div>`;
 		}
 		
-		// Always show schema/model info
 		html += '<div class="sg-node-tooltip-meta">';
-		
 		if (node.schemaName) {
 			html += `<div class="sg-node-tooltip-meta-item"><span class="sg-node-tooltip-meta-label">Schema:</span> ${node.schemaName}</div>`;
 		}
-		
 		if (node.modelName) {
 			html += `<div class="sg-node-tooltip-meta-item"><span class="sg-node-tooltip-meta-label">Model:</span> ${node.modelName}</div>`;
 		}
-		
-		if (node.workflowType) {
-			html += `<div class="sg-node-tooltip-meta-item"><span class="sg-node-tooltip-meta-label">Type:</span> ${node.workflowType}</div>`;
-		}
-		
-		// Section if available
 		if (info.section) {
 			html += `<div class="sg-node-tooltip-meta-item"><span class="sg-node-tooltip-meta-label">Section:</span> ${info.section}</div>`;
 		}
+		html += '</div>';
 		
-		// Completeness status
-		const completeness = this._getNodeCompleteness(node);
-		if (completeness.missingFields.length > 0) {
+		if (selfCompleteness.missingFields.length > 0) {
 			html += `<div class="sg-node-tooltip-meta-item sg-node-tooltip-incomplete">`;
-			html += `<span class="sg-node-tooltip-meta-label">Missing:</span> ${completeness.missingFields.join(', ')}`;
+			html += `<span class="sg-node-tooltip-meta-label">Missing:</span> ${selfCompleteness.missingFields.join(', ')}`;
 			html += `</div>`;
 		} else {
 			html += `<div class="sg-node-tooltip-meta-item sg-node-tooltip-complete">✓ All required fields filled</div>`;
 		}
 		
-		html += '</div>';
+		if (!chainCompleteness.complete) {
+			const upstreamIncomplete = chainCompleteness.incompleteNodes.filter(id => id !== node.id);
+			html += '<div class="sg-node-tooltip-chain-warning">';
+			if (upstreamIncomplete.length > 0) {
+				html += `⚠ ${upstreamIncomplete.length} upstream node${upstreamIncomplete.length > 1 ? 's' : ''} incomplete`;
+				const incompleteNames = upstreamIncomplete.slice(0, 3).map(id => {
+					const n = this.graph.getNodeById(id);
+					return n ? (n.modelName || n.title) : id;
+				});
+				html += `<br><small style="opacity:0.8">${incompleteNames.join(', ')}${upstreamIncomplete.length > 3 ? '...' : ''}</small>`;
+			}
+			html += '</div>';
+		} else if (selfCompleteness.complete) {
+			html += '<div class="sg-node-tooltip-chain-ok">✓ Chain complete - ready</div>';
+		}
 		
-		// Native node indicator
 		if (node.isNative) {
 			html += '<div class="sg-node-tooltip-badge-row"><span class="sg-node-tooltip-type-badge native">Native</span></div>';
 		}
-		
-		// Root node indicator
 		if (node.isRootType) {
 			html += '<div class="sg-node-tooltip-badge-row"><span class="sg-node-tooltip-type-badge root">★ Root</span></div>';
 		}
 		
 		this._nodeHeaderTooltipEl.innerHTML = html;
 		
-		// Position tooltip
 		let x = clientX + 15;
 		let y = clientY + 15;
-		
-		const tooltipRect = this._nodeHeaderTooltipEl.getBoundingClientRect();
 		if (x + 320 > window.innerWidth) x = clientX - 330;
-		if (y + 200 > window.innerHeight) y = clientY - 210;
+		if (y + 250 > window.innerHeight) y = clientY - 260;
 		
 		this._nodeHeaderTooltipEl.style.left = x + 'px';
 		this._nodeHeaderTooltipEl.style.top = y + 'px';
@@ -4855,19 +4846,31 @@ class SchemaGraphApp {
 
 	drawLinks(colors) {
 		const style = this.drawingStyleManager.getStyle();
+		
 		for (const linkId in this.graph.links) {
 			const link = this.graph.links[linkId];
 			const orig = this.graph.getNodeById(link.origin_id);
 			const targ = this.graph.getNodeById(link.target_id);
 			if (!orig || !targ) continue;
 
-			const x1 = orig.pos[0] + orig.size[0], y1 = orig.pos[1] + 33 + link.origin_slot * 25;
-			const x2 = targ.pos[0], y2 = targ.pos[1] + 33 + link.target_slot * 25;
+			const x1 = orig.pos[0] + orig.size[0];
+			const y1 = orig.pos[1] + 33 + link.origin_slot * 25;
+			const x2 = targ.pos[0];
+			const y2 = targ.pos[1] + 33 + link.target_slot * 25;
 			const controlOffset = Math.min(Math.abs(x2 - x1) * style.linkCurve, 400);
 
-			this.ctx.strokeStyle = colors.linkColor;
-			this.ctx.lineWidth = style.linkWidth / this.camera.scale;
-			if (style.useDashed) this.ctx.setLineDash([8 / this.camera.scale, 4 / this.camera.scale]);
+			// Check if this link is in an incomplete chain
+			const isIncompleteLink = targ._incompleteChainLinks?.includes(link.id);
+			
+			this.ctx.strokeStyle = isIncompleteLink ? colors.accentOrange : colors.linkColor;
+			this.ctx.lineWidth = (isIncompleteLink ? style.linkWidth + 1 : style.linkWidth) / this.camera.scale;
+			
+			if (isIncompleteLink) {
+				this.ctx.setLineDash([8 / this.camera.scale, 4 / this.camera.scale]);
+			} else if (style.useDashed) {
+				this.ctx.setLineDash([8 / this.camera.scale, 4 / this.camera.scale]);
+			}
+			
 			this.ctx.beginPath();
 			if (style.linkCurve > 0) {
 				this.ctx.moveTo(x1, y1);
@@ -4877,7 +4880,24 @@ class SchemaGraphApp {
 				this.ctx.lineTo(x2, y2);
 			}
 			this.ctx.stroke();
-			if (style.useDashed) this.ctx.setLineDash([]);
+			this.ctx.setLineDash([]);
+			
+			// Warning icon on incomplete links
+			if (isIncompleteLink) {
+				const midX = (x1 + x2) / 2;
+				const midY = (y1 + y2) / 2;
+				
+				this.ctx.fillStyle = colors.accentOrange;
+				this.ctx.beginPath();
+				this.ctx.arc(midX, midY, 6 / this.camera.scale, 0, Math.PI * 2);
+				this.ctx.fill();
+				
+				this.ctx.fillStyle = '#fff';
+				this.ctx.font = `bold ${8 / this.camera.scale}px sans-serif`;
+				this.ctx.textAlign = 'center';
+				this.ctx.textBaseline = 'middle';
+				this.ctx.fillText('!', midX, midY);
+			}
 		}
 	}
 
@@ -4967,6 +4987,9 @@ class SchemaGraphApp {
 		}
 		this.ctx.fillText(displayTitle, x + 8, y + 13);
 		this.ctx.restore();
+
+		// Completeness indicator
+		this._drawCompletenessIndicator(node, colors);
 
 		const worldMouse = this.screenToWorld(this.mousePos[0], this.mousePos[1]);
 		for (let j = 0; j < node.inputs.length; j++) this.drawInputSlot(node, j, x, y, w, worldMouse, colors, textScale, style);
@@ -5783,34 +5806,184 @@ class SchemaGraphApp {
 		});
 	}
 
-	_refreshNodeInteractivity(node) {
-		const decorators = this._schemaDecorators[node.schemaName]?.[node.modelName];
-		if (!decorators) return;
+	// Get chain completeness (recursive backwards through inputs)
+	_getChainCompleteness(node, visited = new Set()) {
+		if (visited.has(node.id)) {
+			return { complete: true, chain: [], incompleteNodes: [] };
+		}
+		visited.add(node.id);
 		
-		const completeness = this._getNodeCompleteness(node);
-		const isComplete = completeness.complete;
+		const nodeCompleteness = this._getNodeCompleteness(node);
+		const result = {
+			complete: nodeCompleteness.complete,
+			nodeComplete: nodeCompleteness.complete,
+			missingFields: nodeCompleteness.missingFields,
+			chain: [{ nodeId: node.id, title: node.title, complete: nodeCompleteness.complete }],
+			incompleteNodes: nodeCompleteness.complete ? [] : [node.id],
+			incompleteLinks: []
+		};
 		
-		// Update button enabled states
-		if (node._buttonStacks) {
-			for (const stack of ['top', 'bottom']) {
-				for (const btn of node._buttonStacks[stack] || []) {
-					// Find original config to check if it should be enabled
-					const originalConfig = decorators.buttons?.find(b => b.id === btn.id);
-					btn.enabled = (originalConfig?.enabled !== false) && isComplete;
+		for (let i = 0; i < node.inputs.length; i++) {
+			const input = node.inputs[i];
+			const linkIds = node.multiInputs?.[i]?.links || (input.link ? [input.link] : []);
+			
+			for (const linkId of linkIds) {
+				const link = this.graph.links[linkId];
+				if (!link) continue;
+				
+				const sourceNode = this.graph.getNodeById(link.origin_id);
+				if (!sourceNode) continue;
+				
+				const sourceCompleteness = this._getChainCompleteness(sourceNode, visited);
+				
+				result.chain.push(...sourceCompleteness.chain);
+				result.incompleteNodes.push(...sourceCompleteness.incompleteNodes);
+				
+				if (!sourceCompleteness.complete) {
+					result.complete = false;
+					result.incompleteLinks.push(linkId);
 				}
 			}
 		}
 		
-		// Update dropzone
-		if (node._dropZone && decorators.dropzone) {
-			node._dropZone.enabled = isComplete;
-			node._dropZone.label = isComplete 
-				? (decorators.dropzone.label || 'Drop file here') 
-				: 'Complete required fields first';
+		result.incompleteNodes = [...new Set(result.incompleteNodes)];
+		result.incompleteLinks = [...new Set(result.incompleteLinks)];
+		
+		return result;
+	}
+
+	_getIncompleteChainMessage(chainCompleteness) {
+		if (chainCompleteness.nodeComplete === false) {
+			return `Fill required fields: ${chainCompleteness.missingFields.slice(0, 2).join(', ')}`;
+		}
+		const incompleteCount = chainCompleteness.incompleteNodes.length;
+		if (incompleteCount === 1) {
+			return 'Complete upstream node first';
+		}
+		return `${incompleteCount} upstream nodes incomplete`;
+	}
+
+	_propagateCompletenessChange(changedNode) {
+		const visited = new Set();
+		const toRefresh = [changedNode];
+		
+		const findDownstream = (node) => {
+			if (visited.has(node.id)) return;
+			visited.add(node.id);
+			
+			for (const output of node.outputs) {
+				for (const linkId of output.links) {
+					const link = this.graph.links[linkId];
+					if (!link) continue;
+					
+					const targetNode = this.graph.getNodeById(link.target_id);
+					if (targetNode && !visited.has(targetNode.id)) {
+						toRefresh.push(targetNode);
+						findDownstream(targetNode);
+					}
+				}
+			}
+		};
+		
+		findDownstream(changedNode);
+		
+		for (const node of toRefresh) {
+			this._refreshNodeInteractivity(node);
 		}
 		
-		this._emitCompletenessChanged(node);
 		this.draw();
+	}
+
+	_setupCompletenessListeners() {
+		this.eventBus.on(GraphEvents.FIELD_CHANGED, (data) => {
+			const node = this.graph.getNodeById(data.nodeId);
+			if (node) this._propagateCompletenessChange(node);
+		});
+		
+		this.eventBus.on(GraphEvents.LINK_CREATED, (data) => {
+			const link = this.graph.links[data.linkId];
+			if (link) {
+				const targetNode = this.graph.getNodeById(link.target_id);
+				if (targetNode) this._propagateCompletenessChange(targetNode);
+			}
+		});
+		
+		this.eventBus.on(GraphEvents.LINK_REMOVED, (data) => {
+			const targetNode = this.graph.getNodeById(data.targetNodeId);
+			if (targetNode) this._propagateCompletenessChange(targetNode);
+		});
+		
+		this.eventBus.on(GraphEvents.NODE_REMOVED, () => {
+			for (const node of this.graph.nodes) {
+				this._refreshNodeInteractivity(node);
+			}
+			this.draw();
+		});
+	}
+
+	_drawCompletenessIndicator(node, colors) {
+		const ctx = this.ctx;
+		const x = node.pos[0];
+		const y = node.pos[1];
+		const w = node.size[0];
+		const textScale = this.getTextScale();
+		
+		const selfComplete = this._getNodeCompleteness(node).complete;
+		const chainComplete = node._chainComplete !== false;
+		
+		if (!selfComplete || !chainComplete) {
+			const badgeX = x + w - 18;
+			const badgeY = y + 6;
+			const badgeR = 7;
+			
+			ctx.fillStyle = !selfComplete ? colors.accentRed : colors.accentOrange;
+			ctx.beginPath();
+			ctx.arc(badgeX, badgeY + 7, badgeR, 0, Math.PI * 2);
+			ctx.fill();
+			
+			ctx.fillStyle = '#fff';
+			ctx.font = `bold ${9 * textScale}px sans-serif`;
+			ctx.textAlign = 'center';
+			ctx.textBaseline = 'middle';
+			ctx.fillText(!selfComplete ? '!' : '⋯', badgeX, badgeY + 7);
+		}
+	}
+
+	_refreshNodeInteractivity(node) {
+		const decorators = this._schemaDecorators[node.schemaName]?.[node.modelName];
+		if (!decorators) return;
+		
+		const chainCompleteness = this._getChainCompleteness(node);
+		const isChainComplete = chainCompleteness.complete;
+		
+		node._chainComplete = isChainComplete;
+		node._incompleteChainNodes = chainCompleteness.incompleteNodes;
+		node._incompleteChainLinks = chainCompleteness.incompleteLinks;
+		
+		if (node._buttonStacks) {
+			for (const stack of ['top', 'bottom']) {
+				for (const btn of node._buttonStacks[stack] || []) {
+					const originalConfig = decorators.buttons?.find(b => b.id === btn.id);
+					btn.enabled = (originalConfig?.enabled !== false) && isChainComplete;
+				}
+			}
+		}
+		
+		if (node._dropZone && decorators.dropzone) {
+			node._dropZone.enabled = isChainComplete;
+			node._dropZone.label = isChainComplete 
+				? (decorators.dropzone.label || 'Drop file here') 
+				: this._getIncompleteChainMessage(chainCompleteness);
+		}
+		
+		this.eventBus.emit('node:completenessChanged', {
+			nodeId: node.id,
+			nodeComplete: chainCompleteness.nodeComplete,
+			chainComplete: chainCompleteness.complete,
+			missingFields: chainCompleteness.missingFields,
+			incompleteNodes: chainCompleteness.incompleteNodes,
+			incompleteLinks: chainCompleteness.incompleteLinks
+		});
 	}
 
 	// === API ===
@@ -5823,6 +5996,7 @@ class SchemaGraphApp {
 				isLocked: () => self.isLocked,
 				getReason: () => self.lockReason
 			},
+
 			schema: {
 				// register: (name, code, indexType = 'int', rootType = null) => {
 				// 	self.graph.removeSchema(name);
@@ -5844,6 +6018,7 @@ class SchemaGraphApp {
 				isEnabled: (name) => self.graph.isSchemaEnabled(name),
 				getEnabled: () => self.graph.getEnabledSchemas()
 			},
+
 			node: {
 				create: (type, x = 0, y = 0) => { try { const node = self.graph.createNode(type); node.pos = [x, y]; self.draw(); return node; } catch (e) { self.showError('Failed to create node: ' + e.message); return null; } },
 				delete: (nodeOrId) => { const node = typeof nodeOrId === 'string' ? self.graph.getNodeById(nodeOrId) : nodeOrId; if (!node) return false; self.removeNode(node); return true; },
@@ -5853,6 +6028,7 @@ class SchemaGraphApp {
 				getSelected: () => Array.from(self.selectedNodes),
 				clearSelection: () => self.clearSelection()
 			},
+
 			link: {
 				create: (sourceOrId, sourceSlot, targetOrId, targetSlot) => {
 					const sourceNode = typeof sourceOrId === 'string' ? self.graph.getNodeById(sourceOrId) : sourceOrId;
@@ -5865,12 +6041,14 @@ class SchemaGraphApp {
 				delete: (linkId) => { const link = self.graph.links[linkId]; if (!link) return false; const targetNode = self.graph.getNodeById(link.target_id); if (targetNode) self.removeLink(linkId, targetNode, link.target_slot); return true; },
 				list: () => ({ ...self.graph.links })
 			},
+
 			graph: {
 				export: (includeCamera = true) => self.graph.serialize(includeCamera, self.camera),
 				import: (data, restoreCamera = true) => { try { self.graph.deserialize(data, restoreCamera, self.camera); self.ui?.update?.schemaList?.(); self.ui?.update?.nodeTypesList?.(); if (restoreCamera) self.eventBus.emit('ui:update', { id: 'zoomLevel', content: Math.round(self.camera.scale * 100) + '%' }); self.draw(); self.eventBus.emit('graph:imported', {}); return true; } catch (e) { self.showError('Import failed: ' + e.message); return false; } },
 				download: () => self.exportGraph(),
 				clear: () => { self.graph.nodes = []; self.graph.links = {}; self.graph._nodes_by_id = {}; self.graph.last_link_id = 0; self.clearSelection(); self.draw(); }
 			},
+
 			workflow: {
 				registerSchema: (name, code) => {
 					// Parse workflow schema
@@ -5951,6 +6129,7 @@ class SchemaGraphApp {
 				renameMultiInputSlot: (node, fieldName, oldKey, newKey) => self._renameMultiInputSlot(node, fieldName, oldKey, newKey),
 				renameMultiOutputSlot: (node, fieldName, oldKey, newKey) => self._renameMultiOutputSlot(node, fieldName, oldKey, newKey),
 			},
+
 			view: {
 				center: () => self.centerView(),
 				resetZoom: () => self.resetZoom(),
@@ -5962,6 +6141,7 @@ class SchemaGraphApp {
 				reset: () => { self.api.view.setPosition(0, 0); self.resetZoom(); }
 
 			},
+
 			layout: { apply: (type) => self.applyLayout(type) },
 			theme: { cycle: () => self.cycleTheme(), get: () => self.themes[self.currentThemeIndex], set: (t) => { const idx = self.themes.indexOf(t); if (idx !== -1) { self.currentThemeIndex = idx; self.applyTheme(t); localStorage.setItem('schemagraph-theme', t); self.draw(); } } },
 			style: { set: (s) => { self.drawingStyleManager.setStyle(s); self.draw(); }, get: () => self.drawingStyleManager.getCurrentStyleName(), list: () => Object.keys(self.drawingStyleManager.styles) },
@@ -6019,28 +6199,37 @@ class SchemaGraphApp {
 					self._hideNodeHeaderTooltip(); 
 				}
 			},
-			
+
 			completeness: {
 				check: (nodeOrId) => {
 					const node = typeof nodeOrId === 'string' ? self.graph.getNodeById(nodeOrId) : nodeOrId;
 					return node ? self._getNodeCompleteness(node) : null;
+				},
+				checkChain: (nodeOrId) => {
+					const node = typeof nodeOrId === 'string' ? self.graph.getNodeById(nodeOrId) : nodeOrId;
+					return node ? self._getChainCompleteness(node) : null;
 				},
 				checkAll: () => self._checkAllNodesCompleteness(),
 				isComplete: (nodeOrId) => {
 					const node = typeof nodeOrId === 'string' ? self.graph.getNodeById(nodeOrId) : nodeOrId;
 					return node ? self._getNodeCompleteness(node).complete : false;
 				},
+				isChainComplete: (nodeOrId) => {
+					const node = typeof nodeOrId === 'string' ? self.graph.getNodeById(nodeOrId) : nodeOrId;
+					return node ? self._getChainCompleteness(node).complete : false;
+				},
 				refresh: (nodeOrId) => {
 					const node = typeof nodeOrId === 'string' ? self.graph.getNodeById(nodeOrId) : nodeOrId;
-					if (node) self._refreshNodeInteractivity(node);
+					if (node) self._propagateCompletenessChange(node);
 				},
 				refreshAll: () => {
 					for (const node of self.graph.nodes) {
 						self._refreshNodeInteractivity(node);
 					}
+					self.draw();
 				}
 			},
-		
+
 			extensions: {
 				get: (name) => self.extensions.get(name),
 				list: () => self.extensions.list(),
