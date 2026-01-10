@@ -8,18 +8,6 @@ from pydantic   import BaseModel, Field
 from typing     import Annotated, Any, Dict, List, Literal, Optional, Union
 from uuid       import uuid4
 
-# ========================================================================
-# FIELD ROLES
-# ========================================================================
-
-class FieldRole(str, Enum):
-	ANNOTATION   = "annotation"
-	CONSTANT     = "constant"
-	INPUT        = "input"
-	OUTPUT       = "output"
-	MULTI_INPUT  = "multi_input"
-	MULTI_OUTPUT = "multi_output"
-
 
 # ========================================================================
 # DECORATORS
@@ -50,6 +38,20 @@ def node_chat(**kwargs):
 
 
 # ========================================================================
+# FIELD ROLES
+# ========================================================================
+
+@node_info(visible=False)
+class FieldRole(str, Enum):
+	ANNOTATION   = "annotation"
+	CONSTANT     = "constant"
+	INPUT        = "input"
+	OUTPUT       = "output"
+	MULTI_INPUT  = "multi_input"
+	MULTI_OUTPUT = "multi_output"
+
+
+# ========================================================================
 # BASE TYPE
 # ========================================================================
 
@@ -57,6 +59,7 @@ def generate_id():
 	return str(uuid4())
 
 
+@node_info(visible=False)
 class BaseType(BaseModel):
 	type  : Annotated[Literal["base_type"]    , FieldRole.CONSTANT  ] = "base_type"
 	id    : Annotated[str                     , FieldRole.ANNOTATION] = Field(default_factory=generate_id)
@@ -71,6 +74,7 @@ class BaseType(BaseModel):
 DEFAULT_EDGE_PREVIEW : bool = False
 
 
+@node_info(visible=False)
 class Edge(BaseType):
 	type        : Annotated[Literal["edge"], FieldRole.CONSTANT  ] = "edge"
 	preview     : Annotated[bool           , FieldRole.ANNOTATION] = DEFAULT_EDGE_PREVIEW
@@ -84,6 +88,7 @@ class Edge(BaseType):
 # NATIVE VALUE NODES
 # ========================================================================
 
+@node_info(visible=False)
 class NativeNode(BaseType):
 	type  : Annotated[Literal["native_node"], FieldRole.CONSTANT] = "native_node"
 	value : Annotated[Any                   , FieldRole.INPUT   ] = None
@@ -93,6 +98,13 @@ class NativeNode(BaseType):
 		return self.value
 
 
+@node_info(
+	title       = "Character String",
+	description = "Holds a string",
+	icon        = "➰",
+	section     = "Native Types",
+	visible     = True
+)
 class StringNode(NativeNode):
 	type  : Annotated[Literal["native_string"], FieldRole.CONSTANT] = "native_string"
 	value : Annotated[str                     , FieldRole.INPUT   ] = ""
@@ -102,6 +114,13 @@ class StringNode(NativeNode):
 		return self.value
 
 
+@node_info(
+	title       = "Integer Number",
+	description = "Holds an integer number",
+	icon        = "🔢",
+	section     = "Native Types",
+	visible     = True
+)
 class IntegerNode(NativeNode):
 	type  : Annotated[Literal["native_integer"], FieldRole.CONSTANT] = "native_integer"
 	value : Annotated[int                      , FieldRole.INPUT   ] = 0
@@ -112,10 +131,11 @@ class IntegerNode(NativeNode):
 
 
 @node_info(
-	title       = "A Float Node",
-	description = "This is a float node",
-	icon        = "🌊",
-	section     = "Native Types"
+	title       = "Real Number",
+	description = "Holds a real number",
+	icon        = "ℛ",
+	section     = "Native Types",
+	visible     = True
 )
 class FloatNode(NativeNode):
 	type  : Annotated[Literal["native_float"], FieldRole.CONSTANT] = "native_float"
@@ -126,6 +146,13 @@ class FloatNode(NativeNode):
 		return self.value
 
 
+@node_info(
+	title       = "Boolean Constant",
+	description = "Holds a boolean constant",
+	icon        = "⏻",
+	section     = "Native Types",
+	visible     = True
+)
 class BooleanNode(NativeNode):
 	type  : Annotated[Literal["native_boolean"], FieldRole.CONSTANT] = "native_boolean"
 	value : Annotated[bool                     , FieldRole.INPUT   ] = False
@@ -136,10 +163,11 @@ class BooleanNode(NativeNode):
 
 
 @node_info(
-	title       = "A List Node",
-	description = "This is a list node.",
+	title       = "List",
+	description = "Holds a list of values",
 	icon        = "☰",
-	section     = "Native Types"
+	section     = "Native Types",
+	visible     = True
 )
 class ListNode(NativeNode):
 	type  : Annotated[Literal["native_list"], FieldRole.CONSTANT] = "native_list"
@@ -150,6 +178,13 @@ class ListNode(NativeNode):
 		return self.value
 
 
+@node_info(
+	title       = "Dictionary",
+	description = "Holds a key-value dictionary",
+	icon        = "📔",
+	section     = "Native Types",
+	visible     = True
+)
 class DictNode(NativeNode):
 	type  : Annotated[Literal["native_dict"], FieldRole.CONSTANT] = "native_dict"
 	value : Annotated[Dict[str, Any]        , FieldRole.INPUT   ] = {}
@@ -163,6 +198,7 @@ class DictNode(NativeNode):
 # DATA SOURCE NODES
 # ========================================================================
 
+@node_info(visible=False)
 class SourceType(str, Enum):
 	NONE   = "none"
 	URL    = "url"
@@ -170,6 +206,7 @@ class SourceType(str, Enum):
 	INLINE = "inline"
 
 
+@node_info(visible=False)
 class SourceMeta(BaseModel):
 	filename      : Optional[str]   = None
 	mime_type     : Optional[str]   = None
@@ -202,10 +239,11 @@ DEFAULT_TEXT_LANGUAGE : str = "plain"
 
 
 @node_info(
-	title       = "A Text Data Node",
-	description = "This is a sfasdf node.",
-	icon        = "📃",
-	section     = "Data Sources"
+	title       = "Text",
+	description = "Holds text content",
+	icon        = "📄",
+	section     = "Data Sources",
+	visible     = True
 )
 class TextDataNode(DataNode):
 	type     : Annotated[Literal["data_text"], FieldRole.CONSTANT] = "data_text"
@@ -217,6 +255,13 @@ class TextDataNode(DataNode):
 		return self
 
 
+@node_info(
+	title       = "Document",
+	description = "Holds document media",
+	icon        = "📝",
+	section     = "Data Sources",
+	visible     = True
+)
 class DocumentDataNode(DataNode):
 	type : Annotated[Literal["data_document"], FieldRole.CONSTANT] = "data_document"
 
@@ -226,10 +271,11 @@ class DocumentDataNode(DataNode):
 
 
 @node_info(
-	title       = "A Image Data Node",
-	description = "This is a zxzxzx node.",
+	title       = "Image",
+	description = "Holds an image",
 	icon        = "🖼️",
-	section     = "Data Sources"
+	section     = "Data Sources",
+	visible     = True
 )
 class ImageDataNode(DataNode):
 	type : Annotated[Literal["data_image"], FieldRole.CONSTANT] = "data_image"
@@ -239,6 +285,13 @@ class ImageDataNode(DataNode):
 		return self
 
 
+@node_info(
+	title       = "Audio",
+	description = "Holds audio data",
+	icon        = "🔊",
+	section     = "Data Sources",
+	visible     = True
+)
 class AudioDataNode(DataNode):
 	type : Annotated[Literal["data_audio"], FieldRole.CONSTANT] = "data_audio"
 
@@ -247,7 +300,13 @@ class AudioDataNode(DataNode):
 		return self
 
 
-@node_info(visible=False)
+@node_info(
+	title       = "Video",
+	description = "Holds video data",
+	icon        = "🎞️",
+	section     = "Data Sources",
+	visible     = True
+)
 class VideoDataNode(DataNode):
 	type : Annotated[Literal["data_video"], FieldRole.CONSTANT] = "data_video"
 
@@ -256,6 +315,13 @@ class VideoDataNode(DataNode):
 		return self
 
 
+@node_info(
+	title       = "Model 3D",
+	description = "Holds a 3D model",
+	icon        = "🧊",
+	section     = "Data Sources",
+	visible     = True
+)
 class Model3DDataNode(DataNode):
 	type : Annotated[Literal["data_model3d"], FieldRole.CONSTANT] = "data_model3d"
 
@@ -264,6 +330,13 @@ class Model3DDataNode(DataNode):
 		return self
 
 
+@node_info(
+	title       = "Binary Data",
+	description = "Holds binary data",
+	icon        = "🔟",
+	section     = "Data Sources",
+	visible     = True
+)
 class BinaryDataNode(DataNode):
 	type : Annotated[Literal["data_binary"], FieldRole.CONSTANT] = "data_binary"
 
@@ -276,6 +349,7 @@ class BinaryDataNode(DataNode):
 # CONFIG NODES
 # ========================================================================
 
+@node_info(visible=False)
 class BaseConfig(BaseType):
 	type : Annotated[Literal["base_config"], FieldRole.CONSTANT] = "base_config"
 
@@ -284,6 +358,13 @@ class BaseConfig(BaseType):
 		return self
 
 
+@node_info(
+	title       = "Info",
+	description = "Holds general information",
+	icon        = "ⓘ",
+	section     = "Configurations",
+	visible     = True
+)
 class InfoConfig(BaseConfig):
 	type         : Annotated[Literal["info_config"], FieldRole.CONSTANT] = "info_config"
 	version      : Annotated[Optional[str]         , FieldRole.INPUT   ] = None
@@ -302,10 +383,17 @@ DEFAULT_BACKEND_VERSION  : str  = ""
 DEFAULT_BACKEND_FALLBACK : bool = False
 
 
+@node_info(
+	title       = "Backend",
+	description = "Holds backend framework reference",
+	icon        = "⚙️",
+	section     = "Configurations",
+	visible     = True
+)
 class BackendConfig(BaseConfig):
 	type     : Annotated[Literal["backend_config"], FieldRole.CONSTANT] = "backend_config"
 	name     : Annotated[str                      , FieldRole.INPUT   ] = DEFAULT_BACKEND_NAME
-	version  : Annotated[str                      , FieldRole.INPUT   ] = DEFAULT_BACKEND_VERSION
+	version  : Annotated[Optional[str]            , FieldRole.INPUT   ] = DEFAULT_BACKEND_VERSION
 	fallback : Annotated[bool                     , FieldRole.INPUT   ] = DEFAULT_BACKEND_FALLBACK
 
 	@property
@@ -319,12 +407,18 @@ DEFAULT_MODEL_VERSION  : str  = ""
 DEFAULT_MODEL_FALLBACK : bool = False
 
 
-@node_info(visible=False)
+@node_info(
+	title       = "Language Model",
+	description = "Holds language model reference",
+	icon        = "🗣️",
+	section     = "Configurations",
+	visible     = True
+)
 class ModelConfig(BaseConfig):
 	type     : Annotated[Literal["model_config"], FieldRole.CONSTANT] = "model_config"
 	source   : Annotated[str                    , FieldRole.INPUT   ] = DEFAULT_MODEL_SOURCE
 	name     : Annotated[str                    , FieldRole.INPUT   ] = DEFAULT_MODEL_NAME
-	version  : Annotated[str                    , FieldRole.INPUT   ] = DEFAULT_MODEL_VERSION
+	version  : Annotated[Optional[str]          , FieldRole.INPUT   ] = DEFAULT_MODEL_VERSION
 	fallback : Annotated[bool                   , FieldRole.INPUT   ] = DEFAULT_MODEL_FALLBACK
 
 	@property
@@ -339,16 +433,17 @@ DEFAULT_EMBEDDING_FALLBACK : bool = False
 
 
 @node_info(
-	title       = "A Text Data Node",
-	description = "This is a sfasdf node.",
-	icon        = "📃",
-	section     = "Configurations"
+	title       = "Embedding Model",
+	description = "Holds embedding model reference",
+	icon        = "📦",
+	section     = "Configurations",
+	visible     = True
 )
 class EmbeddingConfig(BaseConfig):
 	type     : Annotated[Literal["embedding_config"], FieldRole.CONSTANT] = "embedding_config"
 	source   : Annotated[str                        , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_SOURCE
 	name     : Annotated[str                        , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_NAME
-	version  : Annotated[str                        , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_VERSION
+	version  : Annotated[Optional[str]              , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_VERSION
 	fallback : Annotated[bool                       , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_FALLBACK
 
 	@property
@@ -364,8 +459,14 @@ DEFAULT_CONTENT_DB_KNOWLEDGE_TABLE_NAME : str  = "knowledge"
 DEFAULT_CONTENT_DB_FALLBACK             : bool = False
 
 
-# @node_button(id="import", label="Import", icon="📥", position="bottom")
-# @node_dropzone(accept=".json,.txt", area="content", label="Drop file")
+# @node_button(id="export", label="Export", icon="📤", position="bottom")
+@node_info(
+	title       = "Content Database",
+	description = "Holds raw contents",
+	icon        = "🛢",
+	section     = "Configurations",
+	visible     = True
+)
 class ContentDBConfig(BaseConfig):
 	type                 : Annotated[Literal["content_db_config"], FieldRole.CONSTANT  ] = "content_db_config"
 	interactable         : Annotated[bool                        , FieldRole.ANNOTATION] = DEFAULT_EDGE_PREVIEW
@@ -388,8 +489,13 @@ DEFAULT_INDEX_DB_TABLE_NAME  : str  = "documents"
 DEFAULT_INDEX_DB_FALLBACK    : bool = False
 
 
-# @node_button(id="import", label="Import", icon="📥", position="bottom")
-# @node_dropzone(accept=".json,.txt", area="content", label="Drop file")
+@node_info(
+	title       = "Vector Database",
+	description = "Holds vector contents",
+	icon        = "↗",
+	section     = "Configurations",
+	visible     = True
+)
 class IndexDBConfig(BaseConfig):
 	type        : Annotated[Literal["index_db_config"], FieldRole.CONSTANT] = "index_db_config"
 	engine      : Annotated[str                       , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_ENGINE
@@ -410,6 +516,13 @@ DEFAULT_MEMORY_MANAGER_MANAGED : bool = False
 DEFAULT_MEMORY_MANAGER_PROMPT  : str  = None
 
 
+@node_info(
+	title       = "Memory Manager",
+	description = "Manages memory information",
+	icon        = "💭",
+	section     = "Configurations",
+	visible     = True
+)
 class MemoryManagerConfig(BaseConfig):
 	type    : Annotated[Literal["memory_manager_config"], FieldRole.CONSTANT] = "memory_manager_config"
 	query   : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_QUERY
@@ -431,6 +544,13 @@ DEFAULT_SESSION_MANAGER_SUMMARIZE    : bool = False
 DEFAULT_SESSION_MANAGER_PROMPT       : str  = None
 
 
+@node_info(
+	title       = "Session Manager",
+	description = "Manages session information",
+	icon        = "🗓️",
+	section     = "Configurations",
+	visible     = True
+)
 class SessionManagerConfig(BaseConfig):
 	type         : Annotated[Literal["session_manager_config"], FieldRole.CONSTANT] = "session_manager_config"
 	query        : Annotated[bool                             , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_QUERY
@@ -450,6 +570,13 @@ DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS : int  = 10
 
 @node_button(id="import", label="Import", icon="📥", position="bottom")
 @node_dropzone(accept=".csv,.doc,.docx,.json,.md,.pdf,.pptx,.txt,.xls,.xlsx", area="content", label="Drop file")
+@node_info(
+	title       = "Knowledge Manager",
+	description = "Manages knowledge information (RAG)",
+	icon        = "📚",
+	section     = "Configurations",
+	visible     = True
+)
 class KnowledgeManagerConfig(BaseConfig):
 	type        : Annotated[Literal["knowledge_manager_config"], FieldRole.CONSTANT] = "knowledge_manager_config"
 	query       : Annotated[bool                               , FieldRole.INPUT   ] = DEFAULT_KNOWLEDGE_MANAGER_QUERY
@@ -469,6 +596,13 @@ DEFAULT_TOOL_MAX_WEB_SEARCH_RESULTS : int  = 5
 DEFAULT_TOOL_FALLBACK               : bool = False
 
 
+@node_info(
+	title       = "Tool Provider",
+	description = "Handles tool usage",
+	icon        = "🔧",
+	section     = "Configurations",
+	visible     = True
+)
 class ToolConfig(BaseConfig):
 	type     : Annotated[Literal["tool_config"]  , FieldRole.CONSTANT] = "tool_config"
 	name     : Annotated[str                     , FieldRole.INPUT   ] = ""
@@ -488,6 +622,13 @@ DEFAULT_AGENT_OPTIONS_PROMPT_OVERRIDE : str  = None
 DEFAULT_AGENT_OPTIONS_MARKDOWN        : bool = True
 
 
+@node_info(
+	title       = "Agent Options",
+	description = "Stores agent configuration options",
+	icon        = "🛠️",
+	section     = "Configurations",
+	visible     = True
+)
 class AgentOptionsConfig(BaseConfig):
 	type            : Annotated[Literal["agent_options_config"], FieldRole.CONSTANT] = "agent_options_config"
 	description     : Annotated[Optional[str]                  , FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_DESCRIPTION
@@ -500,6 +641,13 @@ class AgentOptionsConfig(BaseConfig):
 		return self
 
 
+@node_info(
+	title       = "Agent Reference",
+	description = "Stores agent reference",
+	icon        = "🤖",
+	section     = "Configurations",
+	visible     = True
+)
 class AgentConfig(BaseConfig):
 	type          : Annotated[Literal["agent_config"]                            , FieldRole.CONSTANT   ] = "agent_config"
 	port          : Annotated[Optional[int]                                      , FieldRole.ANNOTATION ] = None
@@ -522,31 +670,67 @@ class AgentConfig(BaseConfig):
 # WORKFLOW NODES
 # ========================================================================
 
+@node_info(visible=False)
 class BaseNode(BaseType):
 	type : Annotated[Literal["base_node"], FieldRole.CONSTANT] = "base_node"
 
 
+@node_info(
+	title       = "Start",
+	description = "Represents the start of a workflow",
+	icon        = "▶",
+	section     = "Workflow",
+	visible     = True
+)
 class StartNode(BaseNode):
 	type : Annotated[Literal["start_node"], FieldRole.CONSTANT] = "start_node"
 	pin  : Annotated[Any                  , FieldRole.OUTPUT  ] = None
 
 
+@node_info(
+	title       = "End",
+	description = "Represents the end of a workflow",
+	icon        = "🏁",
+	section     = "Workflow",
+	visible     = True
+)
 class EndNode(BaseNode):
 	type : Annotated[Literal["end_node"], FieldRole.CONSTANT] = "end_node"
 	pin  : Annotated[Any                , FieldRole.INPUT   ] = None
 
 
+@node_info(
+	title       = "Sink",
+	description = "Workflow dead end",
+	icon        = "🚧",
+	section     = "Workflow",
+	visible     = True
+)
 class SinkNode(BaseNode):
 	type : Annotated[Literal["sink_node"], FieldRole.CONSTANT] = "sink_node"
 	pin  : Annotated[Any                 , FieldRole.INPUT   ] = None
 
 
+@node_info(
+	title       = "Pass Through",
+	description = "Identity value pass through",
+	icon        = "➠",
+	section     = "Workflow",
+	visible     = True
+)
 class PassThroughNode(BaseNode):
 	type   : Annotated[Literal["pass_through_node"], FieldRole.CONSTANT] = "pass_through_node"
 	input  : Annotated[Any                         , FieldRole.INPUT   ] = None
 	output : Annotated[Any                         , FieldRole.OUTPUT  ] = None
 
 
+@node_info(
+	title       = "Route",
+	description = "Routes data through pathways",
+	icon        = "🔁",
+	section     = "Workflow",
+	visible     = True
+)
 class RouteNode(BaseNode):
 	type    : Annotated[Literal["route_node"]           , FieldRole.CONSTANT    ] = "route_node"
 	target  : Annotated[Union[int, str]                 , FieldRole.INPUT       ] = None
@@ -555,6 +739,13 @@ class RouteNode(BaseNode):
 	default : Annotated[Any                             , FieldRole.OUTPUT      ] = None
 
 
+@node_info(
+	title       = "Combine",
+	description = "Combines data through pathways",
+	icon        = "🔀",
+	section     = "Workflow",
+	visible     = True
+)
 class CombineNode(BaseNode):
 	type    : Annotated[Literal["combine_node"]         , FieldRole.CONSTANT    ] = "combine_node"
 	mapping : Annotated[Dict[Union[int, str], str]      , FieldRole.INPUT       ] = None
@@ -565,6 +756,13 @@ class CombineNode(BaseNode):
 DEFAULT_MERGE_NODE_STRATEGY : str = "first"
 
 
+@node_info(
+	title       = "Merge",
+	description = "Merges multiple data into one",
+	icon        = "🪢",
+	section     = "Workflow",
+	visible     = True
+)
 class MergeNode(BaseNode):
 	type     : Annotated[Literal["merge_node"]                  , FieldRole.CONSTANT   ] = "merge_node"
 	strategy : Annotated[str                                    , FieldRole.INPUT      ] = DEFAULT_MERGE_NODE_STRATEGY
@@ -577,6 +775,13 @@ DEFAULT_TRANSFORM_NODE_SCRIPT  : str            = "output = input"
 DEFAULT_TRANSFORM_NODE_CONTEXT : Dict[str, Any] = {}
 
 
+@node_info(
+	title       = "Transform",
+	description = "Transforms data according to script",
+	icon        = "🏗️",
+	section     = "Workflow",
+	visible     = True
+)
 class TransformNode(BaseNode):
 	type    : Annotated[Literal["transform_node"], FieldRole.CONSTANT] = "transform_node"
 	lang    : Annotated[str                      , FieldRole.INPUT   ] = DEFAULT_TRANSFORM_NODE_LANG
@@ -586,6 +791,13 @@ class TransformNode(BaseNode):
 	output  : Annotated[Any                      , FieldRole.OUTPUT  ] = None
 
 
+@node_info(
+	title       = "User Input",
+	description = "Asks user for input during workflow execution",
+	icon        = "👤",
+	section     = "Workflow",
+	visible     = True
+)
 class UserInputNode(BaseNode):
 	type    : Annotated[Literal["user_input_node"], FieldRole.CONSTANT] = "user_input_node"
 	query   : Annotated[Any                       , FieldRole.INPUT   ] = None
@@ -595,6 +807,13 @@ class UserInputNode(BaseNode):
 DEFAULT_TOOL_NODE_ARGS : Dict[str, Any] = {}
 
 
+@node_info(
+	title       = "Tool Proxy",
+	description = "Proxy for tool invocation",
+	icon        = "👨🏻‍🔧",
+	section     = "Workflow",
+	visible     = True
+)
 class ToolNode(BaseNode):
 	type   : Annotated[Literal["tool_node"], FieldRole.CONSTANT] = "tool_node"
 	config : Annotated[ToolConfig          , FieldRole.INPUT   ] = None
@@ -603,6 +822,13 @@ class ToolNode(BaseNode):
 	output : Annotated[Any                 , FieldRole.OUTPUT  ] = None
 
 
+@node_info(
+	title       = "Agent Proxy",
+	description = "Proxy for agent invocation",
+	icon        = "🕵️‍♂️",
+	section     = "Workflow",
+	visible     = True
+)
 class AgentNode(BaseNode):
 	type   : Annotated[Literal["agent_node"], FieldRole.CONSTANT] = "agent_node"
 	config : Annotated[AgentConfig          , FieldRole.INPUT   ] = None
@@ -614,10 +840,18 @@ class AgentNode(BaseNode):
 # INTERACTIVE NODES
 # ========================================================================
 
+@node_info(visible=False)
 class BaseInteractive(BaseType):
 	type : Annotated[Literal["base_interactive"], FieldRole.CONSTANT] = "base_interactive"
 
 
+@node_info(
+	title       = "Interactive Tool",
+	description = "Calls tool interactively",
+	icon        = "☎️",
+	section     = "Workflow",
+	visible     = True
+)
 class ToolCall(BaseInteractive):
 	type   : Annotated[Literal["tool_call"]    , FieldRole.CONSTANT] = "tool_call"
 	config : Annotated[ToolConfig              , FieldRole.INPUT   ] = None
@@ -634,6 +868,13 @@ class ToolCall(BaseInteractive):
 	min_height          = 450,
 	show_timestamps     = True,
 	stream_response     = True
+)
+@node_info(
+	title       = "Interactive Agent Chat",
+	description = "Allows to chat with agent interactively",
+	icon        = "🗪",
+	section     = "Workflow",
+	visible     = True
 )
 class AgentChat(BaseInteractive):
 	type          : Annotated[Literal["agent_chat"], FieldRole.CONSTANT] = "agent_chat"
@@ -706,6 +947,7 @@ WorkflowNodeUnion = Union[
 DEFAULT_WORKFLOW_OPTIONS_SEED : int = 777
 
 
+@node_info(visible=False)
 class WorkflowOptionsConfig(BaseConfig):
 	type : Annotated[Literal["workflow_options_config"], FieldRole.CONSTANT] = "workflow_options_config"
 	seed : Annotated[int                               , FieldRole.INPUT   ] = DEFAULT_WORKFLOW_OPTIONS_SEED
@@ -715,6 +957,7 @@ class WorkflowOptionsConfig(BaseConfig):
 		return self
 
 
+@node_info(visible=False)
 class Workflow(BaseConfig):
 	type    : Annotated[Literal["workflow"]            , FieldRole.CONSTANT] = "workflow"
 	info    : Annotated[Optional[InfoConfig]           , FieldRole.INPUT   ] = None
