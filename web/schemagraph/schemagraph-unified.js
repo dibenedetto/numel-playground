@@ -3966,6 +3966,7 @@ class SchemaGraphApp {
 			document.body.appendChild(this._nodeHeaderTooltipEl);
 		}
 		
+		// Always compute fresh
 		const selfCompleteness = this._getNodeCompleteness(node);
 		const chainCompleteness = this._getChainCompleteness(node);
 		
@@ -3993,6 +3994,7 @@ class SchemaGraphApp {
 		}
 		html += '</div>';
 		
+		// Self completeness
 		if (selfCompleteness.missingFields.length > 0) {
 			html += `<div class="sg-node-tooltip-meta-item sg-node-tooltip-incomplete">`;
 			html += `<span class="sg-node-tooltip-meta-label">Missing:</span> ${selfCompleteness.missingFields.join(', ')}`;
@@ -4001,19 +4003,18 @@ class SchemaGraphApp {
 			html += `<div class="sg-node-tooltip-meta-item sg-node-tooltip-complete">✓ All required fields filled</div>`;
 		}
 		
-		if (!chainCompleteness.complete) {
-			const upstreamIncomplete = chainCompleteness.incompleteNodes.filter(id => id !== node.id);
+		// Chain completeness - only show if upstream nodes are incomplete
+		const upstreamIncomplete = chainCompleteness.incompleteNodes.filter(id => id !== node.id);
+		if (upstreamIncomplete.length > 0) {
 			html += '<div class="sg-node-tooltip-chain-warning">';
-			if (upstreamIncomplete.length > 0) {
-				html += `⚠ ${upstreamIncomplete.length} upstream node${upstreamIncomplete.length > 1 ? 's' : ''} incomplete`;
-				const incompleteNames = upstreamIncomplete.slice(0, 3).map(id => {
-					const n = this.graph.getNodeById(id);
-					return n ? (n.modelName || n.title) : id;
-				});
-				html += `<br><small style="opacity:0.8">${incompleteNames.join(', ')}${upstreamIncomplete.length > 3 ? '...' : ''}</small>`;
-			}
+			html += `⚠ ${upstreamIncomplete.length} upstream node${upstreamIncomplete.length > 1 ? 's' : ''} incomplete`;
+			const incompleteNames = upstreamIncomplete.slice(0, 3).map(id => {
+				const n = this.graph.getNodeById(id);
+				return n ? (n.modelName || n.title) : id;
+			});
+			html += `<br><small style="opacity:0.8">${incompleteNames.join(', ')}${upstreamIncomplete.length > 3 ? '...' : ''}</small>`;
 			html += '</div>';
-		} else if (selfCompleteness.complete) {
+		} else if (selfCompleteness.complete && chainCompleteness.complete) {
 			html += '<div class="sg-node-tooltip-chain-ok">✓ Chain complete - ready</div>';
 		}
 		
@@ -4859,8 +4860,11 @@ class SchemaGraphApp {
 			const y2 = targ.pos[1] + 33 + link.target_slot * 25;
 			const controlOffset = Math.min(Math.abs(x2 - x1) * style.linkCurve, 400);
 
-			// Check if this link is in an incomplete chain
-			const isIncompleteLink = targ._incompleteChainLinks?.includes(link.id);
+			// Check incomplete - compare as same type
+			const incompleteLinks = targ._incompleteChainLinks || [];
+			const isIncompleteLink = incompleteLinks.some(lid => 
+				String(lid) === String(link.id) || lid === link.id
+			);
 			
 			this.ctx.strokeStyle = isIncompleteLink ? colors.accentOrange : colors.linkColor;
 			this.ctx.lineWidth = (isIncompleteLink ? style.linkWidth + 1 : style.linkWidth) / this.camera.scale;
@@ -4882,7 +4886,6 @@ class SchemaGraphApp {
 			this.ctx.stroke();
 			this.ctx.setLineDash([]);
 			
-			// Warning icon on incomplete links
 			if (isIncompleteLink) {
 				const midX = (x1 + x2) / 2;
 				const midY = (y1 + y2) / 2;
@@ -5733,11 +5736,8 @@ class SchemaGraphApp {
 		const meta = node.inputMeta?.[slotIdx];
 		if (!meta) return false;
 		
-		// Check if type contains Optional
 		const typeStr = meta.type || '';
 		if (typeStr.includes('Optional[')) return false;
-		
-		// Check nativeInputs for optional flag
 		if (node.nativeInputs?.[slotIdx]?.optional) return false;
 		
 		return true;
@@ -5747,20 +5747,20 @@ class SchemaGraphApp {
 		const input = node.inputs[slotIdx];
 		if (!input) return true;
 		
-		// Connected = filled
+		// Connected via link
 		if (input.link) return true;
 		
-		// Multi-input with connections = filled
+		// Multi-input with connections
 		if (node.multiInputs?.[slotIdx]?.links?.length > 0) return true;
 		
-		// Check native value
+		// Native input with value
 		if (node.nativeInputs?.[slotIdx] !== undefined) {
 			const val = node.nativeInputs[slotIdx].value;
 			if (val === null || val === undefined || val === '') return false;
 			return true;
 		}
 		
-		// Not a native input, no connection = not filled
+		// No native input and no connection = not filled (but might not be required)
 		return false;
 	}
 
@@ -5771,6 +5771,8 @@ class SchemaGraphApp {
 			filledFields: [],
 			optionalEmpty: []
 		};
+		
+		if (!node.inputs) return result;
 		
 		for (let i = 0; i < node.inputs.length; i++) {
 			const fieldName = node.inputMeta?.[i]?.name || node.inputs[i]?.name || `input_${i}`;
@@ -5806,10 +5808,23 @@ class SchemaGraphApp {
 		});
 	}
 
-	// Get chain completeness (recursive backwards through inputs)
+	_updateNodeChainState(node) {
+		const chainCompleteness = this._getChainCompleteness(node);
+		
+		// Always set these properties on the node (not just decorated nodes)
+		node._chainComplete = chainCompleteness.complete;
+		node._nodeComplete = chainCompleteness.nodeComplete;
+		node._incompleteChainNodes = chainCompleteness.incompleteNodes;
+		node._incompleteChainLinks = chainCompleteness.incompleteLinks;
+		
+		return chainCompleteness;
+	}
+
 	_getChainCompleteness(node, visited = new Set()) {
+		if (!node) return { complete: true, nodeComplete: true, missingFields: [], incompleteNodes: [], incompleteLinks: [] };
+		
 		if (visited.has(node.id)) {
-			return { complete: true, chain: [], incompleteNodes: [] };
+			return { complete: true, nodeComplete: true, missingFields: [], incompleteNodes: [], incompleteLinks: [] };
 		}
 		visited.add(node.id);
 		
@@ -5817,15 +5832,24 @@ class SchemaGraphApp {
 		const result = {
 			complete: nodeCompleteness.complete,
 			nodeComplete: nodeCompleteness.complete,
-			missingFields: nodeCompleteness.missingFields,
-			chain: [{ nodeId: node.id, title: node.title, complete: nodeCompleteness.complete }],
+			missingFields: [...nodeCompleteness.missingFields],
 			incompleteNodes: nodeCompleteness.complete ? [] : [node.id],
 			incompleteLinks: []
 		};
 		
+		if (!node.inputs) return result;
+		
+		// Check all input connections recursively
 		for (let i = 0; i < node.inputs.length; i++) {
 			const input = node.inputs[i];
-			const linkIds = node.multiInputs?.[i]?.links || (input.link ? [input.link] : []);
+			
+			// Collect all link IDs for this input
+			let linkIds = [];
+			if (node.multiInputs?.[i]?.links) {
+				linkIds = [...node.multiInputs[i].links];
+			} else if (input.link) {
+				linkIds = [input.link];
+			}
 			
 			for (const linkId of linkIds) {
 				const link = this.graph.links[linkId];
@@ -5836,41 +5860,96 @@ class SchemaGraphApp {
 				
 				const sourceCompleteness = this._getChainCompleteness(sourceNode, visited);
 				
-				result.chain.push(...sourceCompleteness.chain);
-				result.incompleteNodes.push(...sourceCompleteness.incompleteNodes);
-				
 				if (!sourceCompleteness.complete) {
 					result.complete = false;
 					result.incompleteLinks.push(linkId);
+					
+					// Merge upstream incomplete nodes
+					for (const id of sourceCompleteness.incompleteNodes) {
+						if (!result.incompleteNodes.includes(id)) {
+							result.incompleteNodes.push(id);
+						}
+					}
+					
+					// Merge upstream incomplete links
+					for (const lid of sourceCompleteness.incompleteLinks) {
+						if (!result.incompleteLinks.includes(lid)) {
+							result.incompleteLinks.push(lid);
+						}
+					}
 				}
 			}
 		}
 		
-		result.incompleteNodes = [...new Set(result.incompleteNodes)];
-		result.incompleteLinks = [...new Set(result.incompleteLinks)];
-		
 		return result;
 	}
 
+	_refreshAllCompleteness() {
+		// Update state for ALL nodes
+		for (const node of this.graph.nodes) {
+			this._updateNodeCompletenessState(node);
+		}
+		this.draw();
+	}
+
+	_updateNodeCompletenessState(node) {
+		const chainCompleteness = this._getChainCompleteness(node);
+		
+		// Store state on node for drawing
+		node._nodeComplete = chainCompleteness.nodeComplete;
+		node._chainComplete = chainCompleteness.complete;
+		node._incompleteChainNodes = chainCompleteness.incompleteNodes;
+		node._incompleteChainLinks = chainCompleteness.incompleteLinks;
+		
+		// Update decorators (buttons, dropzones)
+		this._updateNodeInteractiveElements(node, chainCompleteness);
+		
+		return chainCompleteness;
+	}
+
+	_updateNodeInteractiveElements(node, chainCompleteness) {
+		const decorators = this._schemaDecorators[node.schemaName]?.[node.modelName];
+		if (!decorators) return;
+		
+		const isChainComplete = chainCompleteness.complete;
+		
+		// Update buttons
+		if (node._buttonStacks) {
+			for (const stack of ['top', 'bottom']) {
+				for (const btn of node._buttonStacks[stack] || []) {
+					const originalConfig = decorators.buttons?.find(b => b.id === btn.id);
+					btn.enabled = (originalConfig?.enabled !== false) && isChainComplete;
+				}
+			}
+		}
+		
+		// Update dropzone
+		if (node._dropZone && decorators.dropzone) {
+			node._dropZone.enabled = isChainComplete;
+			node._dropZone.label = isChainComplete 
+				? (decorators.dropzone.label || 'Drop file here') 
+				: this._getIncompleteChainMessage(chainCompleteness);
+		}
+	}
+
 	_getIncompleteChainMessage(chainCompleteness) {
-		if (chainCompleteness.nodeComplete === false) {
-			return `Fill required fields: ${chainCompleteness.missingFields.slice(0, 2).join(', ')}`;
+		if (!chainCompleteness.nodeComplete) {
+			const fields = chainCompleteness.missingFields.slice(0, 2).join(', ');
+			return `Fill required: ${fields}${chainCompleteness.missingFields.length > 2 ? '...' : ''}`;
 		}
-		const incompleteCount = chainCompleteness.incompleteNodes.length;
-		if (incompleteCount === 1) {
-			return 'Complete upstream node first';
-		}
-		return `${incompleteCount} upstream nodes incomplete`;
+		const count = chainCompleteness.incompleteNodes.length;
+		return count === 1 ? 'Complete upstream node' : `${count} upstream nodes incomplete`;
 	}
 
 	_propagateCompletenessChange(changedNode) {
-		const visited = new Set();
-		const toRefresh = [changedNode];
+		// First, update the changed node itself
+		this._refreshNodeInteractivity(changedNode);
 		
+		const visited = new Set([changedNode.id]);
+		const toRefresh = [];
+		
+		// Find all downstream nodes (nodes that receive input from this node)
 		const findDownstream = (node) => {
-			if (visited.has(node.id)) return;
-			visited.add(node.id);
-			
 			for (const output of node.outputs) {
 				for (const linkId of output.links) {
 					const link = this.graph.links[linkId];
@@ -5878,6 +5957,7 @@ class SchemaGraphApp {
 					
 					const targetNode = this.graph.getNodeById(link.target_id);
 					if (targetNode && !visited.has(targetNode.id)) {
+						visited.add(targetNode.id);
 						toRefresh.push(targetNode);
 						findDownstream(targetNode);
 					}
@@ -5887,6 +5967,7 @@ class SchemaGraphApp {
 		
 		findDownstream(changedNode);
 		
+		// Refresh all downstream nodes
 		for (const node of toRefresh) {
 			this._refreshNodeInteractivity(node);
 		}
@@ -5894,32 +5975,71 @@ class SchemaGraphApp {
 		this.draw();
 	}
 
+	// ========================================================================
+	// EVENT SETUP: Single setup function
+	// ========================================================================
+
 	_setupCompletenessListeners() {
-		this.eventBus.on(GraphEvents.FIELD_CHANGED, (data) => {
-			const node = this.graph.getNodeById(data.nodeId);
-			if (node) this._propagateCompletenessChange(node);
+		// Debounce helper to avoid excessive refreshes
+		let refreshTimeout = null;
+		const debouncedRefresh = () => {
+			if (refreshTimeout) clearTimeout(refreshTimeout);
+			refreshTimeout = setTimeout(() => {
+				this._refreshAllCompleteness();
+			}, 10);
+		};
+		
+		// Field changed
+		this.eventBus.on(GraphEvents.FIELD_CHANGED, () => {
+			debouncedRefresh();
 		});
 		
-		this.eventBus.on(GraphEvents.LINK_CREATED, (data) => {
-			const link = this.graph.links[data.linkId];
-			if (link) {
-				const targetNode = this.graph.getNodeById(link.target_id);
-				if (targetNode) this._propagateCompletenessChange(targetNode);
-			}
+		// Link created
+		this.eventBus.on(GraphEvents.LINK_CREATED, () => {
+			debouncedRefresh();
 		});
 		
-		this.eventBus.on(GraphEvents.LINK_REMOVED, (data) => {
-			const targetNode = this.graph.getNodeById(data.targetNodeId);
-			if (targetNode) this._propagateCompletenessChange(targetNode);
+		// Link removed
+		this.eventBus.on(GraphEvents.LINK_REMOVED, () => {
+			debouncedRefresh();
 		});
 		
+		// Node created
+		this.eventBus.on(GraphEvents.NODE_CREATED, () => {
+			debouncedRefresh();
+		});
+		
+		// Node removed
 		this.eventBus.on(GraphEvents.NODE_REMOVED, () => {
-			for (const node of this.graph.nodes) {
-				this._refreshNodeInteractivity(node);
-			}
-			this.draw();
+			debouncedRefresh();
+		});
+		
+		// Workflow imported
+		this.eventBus.on(GraphEvents.WORKFLOW_IMPORTED, () => {
+			// Delay to ensure all nodes are ready
+			setTimeout(() => {
+				this._refreshAllCompleteness();
+			}, 50);
+		});
+		
+		// Graph loaded/deserialized
+		this.eventBus.on(GraphEvents.GRAPH_LOADED, () => {
+			setTimeout(() => {
+				this._refreshAllCompleteness();
+			}, 50);
+		});
+		
+		// Data loaded
+		this.eventBus.on(GraphEvents.DATA_LOADED, () => {
+			setTimeout(() => {
+				this._refreshAllCompleteness();
+			}, 50);
 		});
 	}
+
+	// ========================================================================
+	// DRAWING: Use fresh computation, not cache
+	// ========================================================================
 
 	_drawCompletenessIndicator(node, colors) {
 		const ctx = this.ctx;
@@ -5928,8 +6048,9 @@ class SchemaGraphApp {
 		const w = node.size[0];
 		const textScale = this.getTextScale();
 		
-		const selfComplete = this._getNodeCompleteness(node).complete;
-		const chainComplete = node._chainComplete !== false;
+		// Use stored state (updated by _refreshAllCompleteness)
+		const selfComplete = node._nodeComplete !== undefined ? node._nodeComplete : true;
+		const chainComplete = node._chainComplete !== undefined ? node._chainComplete : true;
 		
 		if (!selfComplete || !chainComplete) {
 			const badgeX = x + w - 18;
@@ -5950,32 +6071,33 @@ class SchemaGraphApp {
 	}
 
 	_refreshNodeInteractivity(node) {
-		const decorators = this._schemaDecorators[node.schemaName]?.[node.modelName];
-		if (!decorators) return;
-		
-		const chainCompleteness = this._getChainCompleteness(node);
+		// Always update chain state first
+		const chainCompleteness = this._updateNodeChainState(node);
 		const isChainComplete = chainCompleteness.complete;
 		
-		node._chainComplete = isChainComplete;
-		node._incompleteChainNodes = chainCompleteness.incompleteNodes;
-		node._incompleteChainLinks = chainCompleteness.incompleteLinks;
-		
-		if (node._buttonStacks) {
-			for (const stack of ['top', 'bottom']) {
-				for (const btn of node._buttonStacks[stack] || []) {
-					const originalConfig = decorators.buttons?.find(b => b.id === btn.id);
-					btn.enabled = (originalConfig?.enabled !== false) && isChainComplete;
+		// Only process decorators if they exist
+		const decorators = this._schemaDecorators[node.schemaName]?.[node.modelName];
+		if (decorators) {
+			// Update button enabled states
+			if (node._buttonStacks) {
+				for (const stack of ['top', 'bottom']) {
+					for (const btn of node._buttonStacks[stack] || []) {
+						const originalConfig = decorators.buttons?.find(b => b.id === btn.id);
+						btn.enabled = (originalConfig?.enabled !== false) && isChainComplete;
+					}
 				}
+			}
+			
+			// Update dropzone
+			if (node._dropZone && decorators.dropzone) {
+				node._dropZone.enabled = isChainComplete;
+				node._dropZone.label = isChainComplete 
+					? (decorators.dropzone.label || 'Drop file here') 
+					: this._getIncompleteChainMessage(chainCompleteness);
 			}
 		}
 		
-		if (node._dropZone && decorators.dropzone) {
-			node._dropZone.enabled = isChainComplete;
-			node._dropZone.label = isChainComplete 
-				? (decorators.dropzone.label || 'Drop file here') 
-				: this._getIncompleteChainMessage(chainCompleteness);
-		}
-		
+		// Emit event for all nodes (not just decorated)
 		this.eventBus.emit('node:completenessChanged', {
 			nodeId: node.id,
 			nodeComplete: chainCompleteness.nodeComplete,
@@ -6209,7 +6331,16 @@ class SchemaGraphApp {
 					const node = typeof nodeOrId === 'string' ? self.graph.getNodeById(nodeOrId) : nodeOrId;
 					return node ? self._getChainCompleteness(node) : null;
 				},
-				checkAll: () => self._checkAllNodesCompleteness(),
+				checkAll: () => {
+					const results = {};
+					for (const node of self.graph.nodes) {
+						results[node.id] = {
+							self: self._getNodeCompleteness(node),
+							chain: self._getChainCompleteness(node)
+						};
+					}
+					return results;
+				},
 				isComplete: (nodeOrId) => {
 					const node = typeof nodeOrId === 'string' ? self.graph.getNodeById(nodeOrId) : nodeOrId;
 					return node ? self._getNodeCompleteness(node).complete : false;
@@ -6219,14 +6350,14 @@ class SchemaGraphApp {
 					return node ? self._getChainCompleteness(node).complete : false;
 				},
 				refresh: (nodeOrId) => {
-					const node = typeof nodeOrId === 'string' ? self.graph.getNodeById(nodeOrId) : nodeOrId;
-					if (node) self._propagateCompletenessChange(node);
-				},
-				refreshAll: () => {
-					for (const node of self.graph.nodes) {
-						self._refreshNodeInteractivity(node);
+					if (nodeOrId) {
+						const node = typeof nodeOrId === 'string' ? self.graph.getNodeById(nodeOrId) : nodeOrId;
+						if (node) self._updateNodeCompletenessState(node);
 					}
 					self.draw();
+				},
+				refreshAll: () => {
+					self._refreshAllCompleteness();
 				}
 			},
 
