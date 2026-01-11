@@ -1091,6 +1091,7 @@ class WorkflowSchemaParser {
 
 class WorkflowNodeFactory {
 	constructor(graph, parsed, schemaName) {
+		this.app = graph?.app
 		this.graph = graph;
 		this.parsed = parsed;
 		this.schemaName = schemaName;
@@ -1255,9 +1256,7 @@ class WorkflowNodeFactory {
 		const maxSlots = Math.max(node.inputs.length, node.outputs.length, 1);
 		node.size = [220, Math.max(80, 35 + maxSlots * 25)];
 
-		if (this.app?._applyDecoratorsToNode) {
-			this.app._applyDecoratorsToNode(node);
-		}
+		this.app?._applyDecoratorsToNode?.call(this.app, node);
 
 		return node;
 	}
@@ -1692,8 +1691,9 @@ class Graph {
 // ========================================================================
 
 class SchemaGraph extends Graph {
-	constructor(eventBus) {
+	constructor(app, eventBus) {
 		super();
+		this.app = app;
 		this.eventBus = eventBus;
 		this.schemas = {};
 		this.nodeTypes = {};
@@ -2248,7 +2248,9 @@ class SchemaGraphApp {
 	}
 
 	initializeState() {
-		this.graph = new SchemaGraph(this.eventBus);
+		const self = this;
+
+		this.graph = new SchemaGraph(self, this.eventBus);
 		this.extensions = extensionRegistry;
 		this._drawUtils = DrawUtils;
 		this.camera = { x: 0, y: 0, scale: 1.0 };
@@ -4990,9 +4992,12 @@ class SchemaGraphApp {
 		this.ctx.font = (11 * textScale) + 'px ' + style.textFont;
 		this.ctx.textBaseline = 'middle';
 		this.ctx.textAlign = 'left';
-		let titleText = node.isRootType ? '★ ' + node.title : node.title;
+
+		const infoTitle    = node.nodeInfo?.title || node.displayTitle || node.title;
+		const icon         = node.nodeInfo?.icon || '';
+		const displayTitle = (node.isRootType ? '☆ ' : '') + (icon ? `${icon} ${infoTitle}` : infoTitle);
+
 		const maxWidth = w - 16;
-		let displayTitle = titleText;
 		if (this.ctx.measureText(displayTitle).width > maxWidth) {
 			let left = 0, right = displayTitle.length;
 			while (left < right) {
@@ -5428,6 +5433,7 @@ class SchemaGraphApp {
 			area: config.area || DropZoneArea.CONTENT,
 			callback: config.callback || (() => {}),
 			label: config.label || 'Drop file here',
+			reject: config.reject || 'File type not accepted',
 			enabled: config.enabled !== false
 		};
 		this._recalculateNodeSize(node);
@@ -5460,7 +5466,9 @@ class SchemaGraphApp {
 		for (const node of this.graph.nodes) {
 			if (!node._dropZone?.enabled) continue;
 			const b = this._getDropZoneBounds(node);
-			if (wx >= b.x && wx <= b.x + b.w && wy >= b.y && wy <= b.y + b.h) return node;
+			if (wx >= b.x && wx <= b.x + b.w && wy >= b.y && wy <= b.y + b.h) {
+				return node;
+			}
 		}
 		return null;
 	}
@@ -5547,7 +5555,7 @@ class SchemaGraphApp {
 				canvas.classList.remove('sg-file-drag-over');
 				
 				if (this._activeDropNode !== node) {
-					this._activeDropNode = node;
+					this._activeDropNode  = node;
 					this.draw();
 				}
 			} else if (this._activeDropNode) {
@@ -5674,7 +5682,7 @@ class SchemaGraphApp {
 		}
 		
 		if (!isActive) return;
-		
+
 		ctx.fillStyle = 'rgba(146, 208, 80, 0.15)';
 		ctx.beginPath();
 		ctx.roundRect(bounds.x, bounds.y, bounds.w, bounds.h, 4);
@@ -5730,6 +5738,7 @@ class SchemaGraphApp {
 				accept: decorators.dropzone.accept || '*',
 				area: decorators.dropzone.area || 'content',
 				label: isComplete ? (decorators.dropzone.label || 'Drop file here') : 'Complete required fields first',
+				reject: decorators.dropzone.reject || 'File type not accepted',
 				enabled: isComplete,
 				callback: this._resolveDropCallback(decorators.dropzone.callback || 'emit_event')
 			});

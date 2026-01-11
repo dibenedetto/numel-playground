@@ -25,7 +25,7 @@ def node_button(id: str, label: str = "", icon: str = "", position: str = "botto
 	return decorator
 
 
-def node_dropzone(accept: str = "*", area: str = "content", label: str = "Drop file here", **kwargs):
+def node_dropzone(accept: str = "*", area: str = "content", label: str = "Drop file here", reject: str = "File type not accepted", **kwargs):
 	def decorator(cls):
 		return cls
 	return decorator
@@ -568,8 +568,18 @@ DEFAULT_KNOWLEDGE_MANAGER_QUERY       : bool = True
 DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS : int  = 10
 
 
-@node_button(id="import", label="Import", icon="📥", position="bottom")
-@node_dropzone(accept=".csv,.doc,.docx,.json,.md,.pdf,.pptx,.txt,.xls,.xlsx", area="content", label="Drop file")
+@node_button(
+	id          = "import",
+	label       = "Import",
+	icon        = "📥",
+	position    = "bottom"
+)
+@node_dropzone(
+	accept      = ".csv,.doc,.docx,.json,.md,.pdf,.pptx,.txt,.xls,.xlsx",
+	area        = "content",
+	label       = "Drop file here",
+	reject      = "File type not accepted"
+)
 @node_info(
 	title       = "Knowledge Manager",
 	description = "Manages knowledge information (RAG)",
