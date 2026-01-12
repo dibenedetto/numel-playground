@@ -4941,7 +4941,15 @@ class SchemaGraphApp {
 			this.ctx.shadowOffsetY = style.nodeShadowOffset / this.camera.scale;
 		}
 
-		this.ctx.fillStyle = style.currentStyle === 'wireframe' ? 'transparent' : bodyColor;
+		if (style.useGradient && style.currentStyle !== 'wireframe') {
+			const gradient = this.ctx.createLinearGradient(x, y, x, y + h);
+			gradient.addColorStop(0, bodyColor);
+			gradient.addColorStop(1, this.adjustColorBrightness(bodyColor, -20));
+			this.ctx.fillStyle = gradient;
+		} else {
+			this.ctx.fillStyle = style.currentStyle === 'wireframe' ? 'transparent' : bodyColor;
+		}
+
 		this.ctx.beginPath();
 		if (radius > 0) {
 			this.ctx.moveTo(x + radius, y);
@@ -4968,7 +4976,16 @@ class SchemaGraphApp {
 		if (isPreviewSelected && !isSelected) this.ctx.setLineDash([]);
 
 		const headerColor = node.color || (node.isNative ? colors.accentPurple : (node.isRootType ? colors.accentOrange : colors.nodeHeader));
-		this.ctx.fillStyle = style.currentStyle === 'wireframe' ? 'transparent' : headerColor;
+
+		if (style.useGradient && style.currentStyle !== 'wireframe') {
+			const headerGradient = this.ctx.createLinearGradient(x, y, x, y + 26);
+			headerGradient.addColorStop(0, headerColor);
+			headerGradient.addColorStop(1, this.adjustColorBrightness(headerColor, -30));
+			this.ctx.fillStyle = headerGradient;
+		} else {
+			this.ctx.fillStyle = style.currentStyle === 'wireframe' ? 'transparent' : headerColor;
+		}
+
 		this.ctx.beginPath();
 		if (radius > 0) {
 			this.ctx.moveTo(x + radius, y);
