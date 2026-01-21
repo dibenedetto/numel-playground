@@ -49,6 +49,96 @@ document.addEventListener('DOMContentLoaded', () => {
 		console.log('Files dropped on node:', data.nodeId, data.files);
 	});
 
+	if (true) {
+		const sourceMetaTypeName  = `${WORKFLOW_SCHEMA_NAME}.SourceMeta` ;
+		const dataTensorTypeName  = `${WORKFLOW_SCHEMA_NAME}.DataTensor` ;
+		const previewFlowTypeName = `${WORKFLOW_SCHEMA_NAME}.PreviewFlow`;
+		const startFlowTypeName   = `${WORKFLOW_SCHEMA_NAME}.StartFlow`  ;
+		const endFlowTypeName     = `${WORKFLOW_SCHEMA_NAME}.EndFlow`    ;
+
+		schemaGraph.api.schemaTypes.setTypes({
+			sourceMeta    : sourceMetaTypeName,
+			dataTensor    : dataTensorTypeName,
+			preview       : previewFlowTypeName,
+			startNode     : startFlowTypeName,
+			endNode       : endFlowTypeName,
+			metaInputSlot : "meta",
+		});
+
+		schemaGraph.api.canvasDrop.setAccept("image/*,audio/*,video/*,text/*,application/json");
+
+		// schemaGraph.api.canvasDrop.setCreationCallback(async (file, x, y, app) => {
+		// 	const metaNode = app.api.node.create(sourceMetaTypeName, x, y);
+
+		// 	const setNativeInput = (node, slotName, value) => {
+		// 		const idx = app._findInputSlotByName(node, slotName);
+		// 		if (idx >= 0 && node.nativeInputs?.[idx]) {
+		// 			node.nativeInputs[idx].value = value;
+		// 		}
+		// 	};
+
+		// 	setNativeInput(metaNode, "name"     , file.name);
+		// 	setNativeInput(metaNode, "mime_type", file.type);
+		// 	setNativeInput(metaNode, "size"     , file.size);
+		// 	setNativeInput(metaNode, "format"   , file.name.split(".").pop());
+		// 	setNativeInput(metaNode, "source"   , "file://" + file.name);
+
+		// 	const link = async (sourceNode, outputSlotName, targetNode, inputSlotName) => {
+		// 		const srcIdx = app._findOutputSlotByName (sourceNode, outputSlotName);
+		// 		const dstIdx = app._findInputSlotByName  (targetNode, inputSlotName );
+		// 		await app.api.link.create(sourceNode, srcIdx, targetNode, dstIdx);
+		// 	};
+
+		// 	const dataNode = app.api.node.create(dataTensorTypeName, x + 1 * 240, y);
+		// 	await link(metaNode, "get", dataNode, "meta");
+			
+		// 	const previewNode = app.api.node.create(previewFlowTypeName, x + 2 * 240, y);
+		// 	await link(dataNode, "get", previewNode, "input");
+
+		// 	await app._loadFileIntoDataNode(file, dataNode);
+
+		// 	app.eventBus.emit("canvasDrop:nodeCreated", {
+		// 		file          : {
+		// 			name: file.name,
+		// 			type: file.type,
+		// 			size: file.size,
+		// 		},
+		// 		metaNodeId    : metaNode    .id,
+		// 		dataNodeId    : dataNode    .id,
+		// 		previewNodeId : previewNode .id,
+		// 	});
+
+		// 	return {
+		// 		metaNode,
+		// 		dataNode    : tensorNode,
+		// 		totalHeight : Math.max(metaNode.size[1], dataNode.size[1], previewNode.size[1])
+		// 	};
+		// });
+
+		schemaGraph.api.events.on("canvasDrop:nodeCreated", (data) => {
+			console.log("Created nodes from file:", data.file.name);
+			console.log("  Meta node ID:", data.metaNodeId);
+			console.log("  Data node ID:", data.dataNodeId);
+		});
+
+		// When all files are processed
+		schemaGraph.api.events.on("canvasDrop:complete", (data) => {
+			console.log(`Processed ${data.fileCount} file(s)`);
+		});
+
+		// When file data is loaded into a node
+		schemaGraph.api.events.on("node:dataLoaded", (data) => {
+			console.log("Data loaded into node:", data.nodeId);
+		});
+
+		// When PreviewFlow mode is toggled
+		schemaGraph.api.events.on("preview:modeToggled", (data) => {
+			console.log("Preview mode:", data.expanded ? "expanded" : "collapsed");
+		});
+
+		schemaGraph.api.canvasDrop.setEnabled(true);
+	}
+
 	// Create visualizer
 	visualizer = new WorkflowVisualizer(schemaGraph);
 
@@ -165,12 +255,9 @@ async function connect() {
 
 		// visualizer.schemaGraph.api.workflow.debug();
 
-		// agentChatManager = new AgentChatManager(serverUrl, schemaGraph, syncWorkflow);
-		// addLog('info', '💬 Agent chat manager initialized');
-
-		// // Initialize file upload manager
-		// fileUploadManager = new FileUploadManager(serverUrl, schemaGraph, syncWorkflow, schemaGraph.eventBus);
-		// addLog('info', '📁 File upload manager initialized');
+		// Initialize file upload manager
+		fileUploadManager = new FileUploadManager(serverUrl, schemaGraph, syncWorkflow, schemaGraph.eventBus);
+		addLog('info', '📁 File upload manager initialized');
 
 		// Update overlay positions on camera changes
 		schemaGraph.eventBus.on('camera:moved', () => {
@@ -179,6 +266,10 @@ async function connect() {
 		schemaGraph.eventBus.on('camera:zoomed', () => {
 			fileUploadManager?.updateOverlayPositions();
 		});
+
+		// Initialize chat manager
+		agentChatManager = new AgentChatManager(serverUrl, schemaGraph, syncWorkflow);
+		addLog('info', '💬 Agent chat manager initialized');
 
 		// Connect WebSocket
 		client.connectWebSocket();
@@ -725,6 +816,21 @@ async function startExecution() {
 
 	try {
 		enableStart(false);
+
+		// Validate workflow before starting
+		const validation = schemaGraph.api.workflow.validate();
+		if (!validation.valid) {
+			for (const error of validation.errors) {
+				addLog('error', `⚠️ ${error}`);
+			}
+			enableStart(true);
+			return;
+		}
+
+		// Show warnings but don't block
+		for (const warning of validation.warnings || []) {
+			addLog('warning', `⚠️ ${warning}`);
+		}
 
 		// In single mode, sync to backend if dirty
 		if (singleMode) {

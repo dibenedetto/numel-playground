@@ -11,7 +11,7 @@ from   typing    import Any, Callable, Dict, List, Optional
 
 
 from   event_bus import EventType, EventBus
-from   schema    import InfoConfig, Workflow, WorkflowOptionsConfig
+from   schema    import InfoConfig, Workflow, WorkflowOptions
 from   utils     import serialize_result
 
 
@@ -93,7 +93,7 @@ class WorkflowManager:
 				name        = name,
 				description = description
 			),
-			options = WorkflowOptionsConfig(),
+			options = WorkflowOptions(),
 			nodes   = [],
 			edges   = [],
 		)

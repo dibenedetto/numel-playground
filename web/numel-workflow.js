@@ -312,7 +312,7 @@ class WorkflowVisualizer {
 			this.schemaGraph.api.node.select(graphNode, false);
 		}
 
-		this.schemaGraph.api.util.redraw();
+		this.schemaGraph.draw();
 	}
 
 	clearNodeStates() {

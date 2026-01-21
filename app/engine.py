@@ -14,7 +14,7 @@ from   typing      import Any, Dict, List, Optional, Set, Tuple
 
 from   event_bus   import EventType, EventBus
 from   nodes       import ImplementedBackend, NodeExecutionContext, NodeExecutionResult, create_node
-from   schema      import Edge, BaseType, BaseNode, Workflow
+from   schema      import Edge, BaseType, FlowType, Workflow
 
 
 DEFAULT_ENGINE_NODE_DELAY_SEC         : float = 0.0
@@ -59,8 +59,101 @@ class WorkflowEngine:
 		self.pending_user_inputs : Dict[str, asyncio.Future]         = {}
 
 
+	def validate_workflow(self, workflow: Workflow) -> Dict[str, Any]:
+		"""
+		Validate workflow structure before execution.
+		Checks:
+		- Exactly one Start node exists
+		- Exactly one End node exists
+		- A path exists from Start to End
+
+		Returns dict with 'valid', 'errors', and 'warnings' keys.
+		"""
+		errors   : List[str] = []
+		warnings : List[str] = []
+
+		nodes = workflow.nodes or []
+		edges = workflow.edges or []
+
+		# Find Start and End nodes
+		start_indices = []
+		end_indices   = []
+
+		for i, node in enumerate(nodes):
+			node_type = getattr(node, 'type', None)
+			if node_type == 'start_flow':
+				start_indices.append(i)
+			elif node_type == 'end_flow':
+				end_indices.append(i)
+
+		# Validate Start node count
+		if len(start_indices) == 0:
+			errors.append("Workflow requires a Start node")
+		elif len(start_indices) > 1:
+			errors.append(f"Workflow can only have one Start node (found {len(start_indices)})")
+
+		# Validate End node count
+		if len(end_indices) == 0:
+			errors.append("Workflow requires an End node")
+		elif len(end_indices) > 1:
+			errors.append(f"Workflow can only have one End node (found {len(end_indices)})")
+
+		# Validate path from Start to End (only if both exist and are unique)
+		if len(start_indices) == 1 and len(end_indices) == 1:
+			start_idx = start_indices[0]
+			end_idx   = end_indices[0]
+
+			# Build adjacency list
+			adjacency: Dict[int, Set[int]] = defaultdict(set)
+			for edge in edges:
+				adjacency[edge.source].add(edge.target)
+
+			# BFS from Start to End
+			visited = set()
+			queue   = [start_idx]
+			visited.add(start_idx)
+			found_path = False
+
+			while queue:
+				current = queue.pop(0)
+				if current == end_idx:
+					found_path = True
+					break
+				for neighbor in adjacency[current]:
+					if neighbor not in visited:
+						visited.add(neighbor)
+						queue.append(neighbor)
+
+			if not found_path:
+				errors.append("No path exists from Start to End node")
+
+		# Check for disconnected flow nodes (warning)
+		connected_nodes: Set[int] = set()
+		for edge in edges:
+			connected_nodes.add(edge.source)
+			connected_nodes.add(edge.target)
+
+		flow_nodes = [i for i, n in enumerate(nodes) if isinstance(n, FlowType)]
+		disconnected = [i for i in flow_nodes if i not in connected_nodes]
+		if disconnected:
+			warnings.append(f"{len(disconnected)} workflow node(s) are not connected")
+
+		return {
+			"valid"    : len(errors) == 0,
+			"errors"   : errors,
+			"warnings" : warnings
+		}
+
+
 	async def start_workflow(self, workflow: Workflow, backend: ImplementedBackend, initial_data: Optional[Dict[str, Any]] = None) -> str:
 		"""Start a new workflow execution"""
+
+		# Validate workflow before starting
+		validation = self.validate_workflow(workflow)
+		if not validation["valid"]:
+			error_msg = "; ".join(validation["errors"])
+			raise ValueError(f"Invalid workflow: {error_msg}")
+
 		execution_id = str(uuid.uuid4())
 		workflow_id  = workflow.info.name if workflow.info else "workflow"
 
@@ -99,13 +192,13 @@ class WorkflowEngine:
 			pending   = set()
 			completed = set()
 			for i, n in enumerate(nodes):
-				if isinstance(n, BaseNode):
+				if isinstance(n, FlowType):
 					pending.add(i)
 				else:
 					completed.add(i)
 
 			edges = workflow.edges or []
-			active_edges = [e for e in edges if isinstance(nodes[e.source], BaseNode) and isinstance(nodes[e.target], BaseNode)]
+			active_edges = [e for e in edges if isinstance(nodes[e.source], FlowType) and isinstance(nodes[e.target], FlowType)]
 
 			# Instantiate node executors
 			node_instances = self._instantiate_nodes(nodes, edges, backend)
@@ -275,7 +368,7 @@ class WorkflowEngine:
 			data         = {"node_type": node_type, "node_label": node_label}
 		)
 
-		if delay_sec >= 0:
+		if delay_sec > 0:
 			await asyncio.sleep(delay_sec)
 
 		try:

@@ -34,156 +34,163 @@ class WFBaseType:
 		return result
 
 
-class WFBaseNativeNode(WFBaseType):
+class WFComponentType(WFBaseType):
 	pass
 
 
-class WFStringNode(WFBaseNativeNode):
+class WFEdge(WFComponentType):
 	pass
 
 
-class WFIntegerNode(WFBaseNativeNode):
+class WFNativeType(WFBaseType):
 	pass
 
 
-class WFFloatNode(WFBaseNativeNode):
+class WFNativeBoolean(WFNativeType):
 	pass
 
 
-class WFBooleanNode(WFBaseNativeNode):
+class WFNativeInteger(WFNativeType):
 	pass
 
 
-class WFListNode(WFBaseNativeNode):
+class WFNativeReal(WFNativeType):
 	pass
 
 
-class WFDictNode(WFBaseNativeNode):
+class WFNativeString(WFNativeType):
 	pass
 
 
-class WFBaseDataNode(WFBaseType):
+class WFNativeList(WFNativeType):
 	pass
 
 
-class WFDataNode(WFBaseDataNode):
+class WFNativeDictionary(WFNativeType):
 	pass
 
 
-class WFTextDataNode(WFBaseDataNode):
+class WFContentType(WFBaseType):
 	pass
 
 
-class WFDocumentDataNode(WFBaseDataNode):
+class WFBinaryContent(WFContentType):
 	pass
 
 
-class WFImageDataNode(WFBaseDataNode):
+class WFTextContent(WFContentType):
 	pass
 
 
-class WFAudioDataNode(WFBaseDataNode):
+class WFDocumentContent(WFContentType):
 	pass
 
 
-class WFVideoDataNode(WFBaseDataNode):
+class WFImageContent(WFContentType):
 	pass
 
 
-class WFModel3DDataNode(WFBaseDataNode):
+class WFAudioContent(WFContentType):
 	pass
 
 
-class WFBinaryDataNode(WFBaseDataNode):
+class WFVideoContent(WFContentType):
 	pass
 
 
-class WFBaseConfig(WFBaseType):
+# class WFModel3DContent(WFContentType):
+# 	pass
+
+
+class WFConfigType(WFBaseType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
 		result.outputs["get"] = self.config
 		return result
 
 
-class WFInfoConfig(WFBaseConfig):
+class WFInfoConfig(WFConfigType):
 	pass
 
 
-class WFBackendConfig(WFBaseConfig):
+class WFBackendConfig(WFConfigType):
 	pass
 
 
-class WFModelConfig(WFBaseConfig):
+class WFModelConfig(WFConfigType):
 	pass
 
 
-class WFEmbeddingConfig(WFBaseConfig):
+class WFEmbeddingConfig(WFConfigType):
 	pass
 
 
-class WFContentDBConfig(WFBaseConfig):
+class WFContentDBConfig(WFConfigType):
 	pass
 
 
-class WFIndexDBConfig(WFBaseConfig):
+class WFIndexDBConfig(WFConfigType):
 	pass
 
 
-class WFMemoryManagerConfig(WFBaseConfig):
+class WFMemoryManagerConfig(WFConfigType):
 	pass
 
 
-class WFSessionManagerConfig(WFBaseConfig):
+class WFSessionManagerConfig(WFConfigType):
 	pass
 
 
-class WFKnowledgeManagerConfig(WFBaseConfig):
+class WFKnowledgeManagerConfig(WFConfigType):
 	pass
 
 
-class WFToolConfig(WFBaseConfig):
+class WFToolConfig(WFConfigType):
 	pass
 
 
-class WFAgentOptionsConfig(WFBaseConfig):
+class WFAgentOptionsConfig(WFConfigType):
 	pass
 
 
-class WFAgentConfig(WFBaseConfig):
+class WFAgentConfig(WFConfigType):
 	pass
 
 
-class WFWorkflowOptionsConfig(WFBaseConfig):
+class WFFlowType(WFBaseType):
 	pass
 
 
-class WFBaseNode(WFBaseType):
-	pass
-
-
-class WFStartNode(WFBaseNode):
+class WFStartFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
 		result.outputs["pin"] = context.variables.copy()
 		return result
 
 
-class WFEndNode(WFBaseNode):
+class WFEndFlow(WFFlowType):
 	pass
 
 
-class WFSinkNode(WFBaseNode):
+class WFSinkFlow(WFFlowType):
 	pass
 
 
-class WFPassThroughNode(WFBaseNode):
+# class WFPassthroughFlow(WFFlowType):
+# 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+# 		result = NodeExecutionResult()
+# 		result.outputs["output"] = context.inputs.get("input")
+# 		return result
+
+
+class WFPreviewFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
 		result.outputs["output"] = context.inputs.get("input")
 		return result
 
 
-class WFRouteNode(WFBaseNode):
+class WFRouteFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
 		
@@ -204,7 +211,7 @@ class WFRouteNode(WFBaseNode):
 		return result
 
 
-class WFCombineNode(WFBaseNode):
+class WFCombineFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
 		
@@ -228,7 +235,7 @@ class WFCombineNode(WFBaseNode):
 		return result
 
 
-class WFMergeNode(WFBaseNode):
+class WFMergeFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
 
@@ -265,7 +272,7 @@ class WFMergeNode(WFBaseNode):
 		return result
 
 
-class WFTransformNode(WFBaseNode):
+class WFTransformFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
 		
@@ -299,7 +306,7 @@ class WFTransformNode(WFBaseNode):
 		return result
 
 
-class WFUserInputNode(WFBaseNode):
+class WFUserInputFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
 		result.outputs["content"] = {
@@ -308,7 +315,7 @@ class WFUserInputNode(WFBaseNode):
 		return result
 
 
-class WFToolNode(WFBaseNode):
+class WFToolFlow(WFFlowType):
 	def __init__(self, config: Dict[str, Any], impl: Any = None, **kwargs):
 		assert "ref" in kwargs, "WFToolNode requires 'ref' argument"
 		super().__init__(config, impl, **kwargs)
@@ -338,7 +345,7 @@ class WFToolNode(WFBaseNode):
 		return result
 
 
-class WFAgentNode(WFBaseNode):
+class WFAgentFlow(WFFlowType):
 	def __init__(self, config: Dict[str, Any], impl: Any = None, **kwargs):
 		assert "ref" in kwargs, "WFAgentNode requires 'ref' argument"
 		super().__init__(config, impl, **kwargs)
@@ -372,15 +379,23 @@ class WFAgentNode(WFBaseNode):
 		return result
 
 
-class WFBaseInteractive(WFBaseType):
+class WFInteractiveType(WFBaseType):
 	pass
 
 
-class WFToolCall(WFBaseInteractive):
+class WFToolCall(WFInteractiveType):
 	pass
 
 
-class WFAgentChat(WFBaseInteractive):
+class WFAgentChat(WFInteractiveType):
+	pass
+
+
+class WFWorkflowOptions(WFComponentType):
+	pass
+
+
+class WFWorkflow(WFComponentType):
 	pass
 
 
@@ -393,48 +408,54 @@ class ImplementedBackend(BaseModel):
 	remove_contents : Callable
 
 
-_NODE_TYPES = {
-	"native_string"            : WFStringNode,
-	"native_integer"           : WFIntegerNode,
-	"native_float"             : WFFloatNode,
-	"native_boolean"           : WFBooleanNode,
-	"native_list"              : WFListNode,
-	"native_dict"              : WFDictNode,
+# _NODE_CLASSES = [
+# 	WFNativeBoolean, WFNativeInteger, WFNativeReal, WFNativeString, WFNativeList, WFNativeDictionary,
+# 	WFTextContent, WFDocumentContent, WFImageContent, WFAudioContent, WFVideoContent, # WFModel3DContent,
+# 	WFInfoConfig, WFBackendConfig, WFModelConfig, WFEmbeddingConfig, WFContentDBConfig, WFIndexDBConfig, WFMemoryManagerConfig, WFSessionManagerConfig, WFKnowledgeManagerConfig, WFToolConfig, WFAgentOptionsConfig, WFAgentConfig,
+# 	WFStartFlow, WFEndFlow, WFSinkFlow, WFPassthroughFlow, WFRouteFlow, WFCombineFlow, WFMergeFlow, WFTransformFlow, WFUserInputFlow, WFToolFlow, WFAgentFlow,
+# ]
 
-	"data"                     : WFDataNode,
-	"data_text"                : WFTextDataNode,
-	"data_document"            : WFDocumentDataNode,
-	"data_image"               : WFImageDataNode,
-	"data_audio"               : WFAudioDataNode,
-	"data_video"               : WFVideoDataNode,
-	"data_model3d"             : WFModel3DDataNode,
-	"data_binary"              : WFBinaryDataNode,
+
+_NODE_TYPES = {
+	"native_boolean"           : WFNativeBoolean,
+	"native_integer"           : WFNativeInteger,
+	"native_real"              : WFNativeReal,
+	"native_string"            : WFNativeString,
+	"native_list"              : WFNativeList,
+	"native_dictionary"        : WFNativeDictionary,
+
+	"text_content"             : WFTextContent,
+	"document_content"         : WFDocumentContent,
+	"image_content"            : WFImageContent,
+	"audio_content"            : WFAudioContent,
+	"video_content"            : WFVideoContent,
+	# "model3d_content"          : WFModel3DContent,
 
 	"info_config"              : WFInfoConfig,
 	"backend_config"           : WFBackendConfig,
 	"model_config"             : WFModelConfig,
 	"embedding_config"         : WFEmbeddingConfig,
 	"content_db_config"        : WFContentDBConfig,
-	"index_db_config"          : WFIndexDBConfig,
+	"vector_db_config"         : WFIndexDBConfig,
 	"memory_manager_config"    : WFMemoryManagerConfig,
 	"session_manager_config"   : WFSessionManagerConfig,
 	"knowledge_manager_config" : WFKnowledgeManagerConfig,
 	"tool_config"              : WFToolConfig,
 	"agent_options_config"     : WFAgentOptionsConfig,
 	"agent_config"             : WFAgentConfig,
-	"workflow_options_config"  : WFWorkflowOptionsConfig,
 
-	"start_node"               : WFStartNode,
-	"end_node"                 : WFEndNode,
-	"sink_node"                : WFSinkNode,
-	"pass_through_node"        : WFPassThroughNode,
-	"route_node"               : WFRouteNode,
-	"combine_node"             : WFCombineNode,
-	"merge_node"               : WFMergeNode,
-	"transform_node"           : WFTransformNode,
-	"user_input_node"          : WFUserInputNode,
-	"tool_node"                : WFToolNode,
-	"agent_node"               : WFAgentNode,
+	"start_flow"               : WFStartFlow,
+	"end_flow"                 : WFEndFlow,
+	"sink_flow"                : WFSinkFlow,
+	# "passthrough_flow"         : WFPassthroughFlow,
+	"preview_flow"             : WFPreviewFlow,
+	"route_flow"               : WFRouteFlow,
+	"combine_flow"             : WFCombineFlow,
+	"merge_flow"               : WFMergeFlow,
+	"transform_flow"           : WFTransformFlow,
+	"user_input_flow"          : WFUserInputFlow,
+	"tool_flow"                : WFToolFlow,
+	"agent_flow"               : WFAgentFlow,
 
 	"tool_call"                : WFToolCall,
 	"agent_chat"               : WFAgentChat,

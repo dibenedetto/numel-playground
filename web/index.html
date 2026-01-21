@@ -5,9 +5,7 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 		<title>Numel Workflow</title>
 
-		<link rel="stylesheet" href="schemagraph/schemagraph-themes.css">
-		<link rel="stylesheet" href="schemagraph/schemagraph-canvas.css">
-		<link rel="stylesheet" href="schemagraph/schemagraph-ui.css">
+		<link rel="stylesheet" href="schemagraph/schemagraph.css">
 		<link rel="stylesheet" href="numel-workflow.css">
 	</head>
 	<body>
@@ -175,31 +173,25 @@
 		<!-- Scripts -->
 		<script src="dist/agui-client.bundle.js"></script>
 
+		<!-- Load scripts in correct order -->
+		<script src="schemagraph/schemagraph-core.js"></script>
+		<script src="schemagraph/schemagraph-workflow.js"></script>
+		<script src="schemagraph/schemagraph-graph.js"></script>
+		<script src="schemagraph/schemagraph-extensions.js"></script>
+		<script src="schemagraph/schemagraph-controllers.js"></script>
+		<script src="schemagraph/schemagraph-drawing.js"></script>
+		<script src="schemagraph/schemagraph-app.js"></script>
+		<script src="schemagraph/schemagraph-bundle.js"></script>
+
 		<!--
-		<script src="schemagraph/schemagraph.js"></script>
-		<script src="schemagraph/schemagraph-extensions-core.js"></script>
-		<script src="schemagraph/schemagraph-workflow-ext.js"></script>
-		<script src="schemagraph/schemagraph-enhanced-fields-ext.js"></script>
-		<script src="schemagraph/schemagraph-events-ext.js"></script>
-		<script src="schemagraph/schemagraph-interactive-ext.js"></script>
-		<script src="schemagraph/schemagraph-decorators-ext.js"></script>
-		<script src="schemagraph/schemagraph-chat-ext.js"></script>
-		<script src="schemagraph/schemagraph-media-preview-ext.js"></script>
-		<script src="schemagraph/schemagraph-data-ext.js"></script>
-		<script src="schemagraph/schemagraph-preview-ext.js"></script>
-		<script src="schemagraph/schemagraph-multislot-ui-ext.js"></script>
+		<script src="lib/schemagraph-media-preview-ext.js"></script>
+		<script src="lib/schemagraph-data-ext.js"></script>
+		<script src="lib/schemagraph-preview-ext.js"></script>
+		<script src="lib/schemagraph-chat-ext.js"></script>
 		-->
 
-		<script src="schemagraph/schemagraph-unified.js"></script>
-		<script src="schemagraph/schemagraph-media-preview-ext-v2.js"></script>
-		<script src="schemagraph/schemagraph-data-ext-v2.js"></script>
-		<script src="schemagraph/schemagraph-preview-ext-v2.js"></script>
-
-		<!--
-		<script src="numel-agent-chat.js"></script>
 		<script src="numel-file-upload.js"></script>
-		-->
-
+		<script src="numel-agent-chat.js"></script>
 		<script src="numel-workflow.js"></script>
 		<script src="numel-workflow-ui.js"></script>
 	</body>
