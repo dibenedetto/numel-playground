@@ -2369,6 +2369,81 @@ class SchemaGraphApp {
 			this.ctx.fillText(text, 18, 24);
 			this.ctx.restore();
 		}
+
+		// Canvas drop highlight overlay
+		if (this._canvasDropHighlight) {
+			this._drawCanvasDropHighlight(colors);
+		}
+	}
+
+	/**
+	 * Draw canvas drop highlight overlay when dragging files over canvas
+	 * @param {Object} colors - Theme colors
+	 */
+	_drawCanvasDropHighlight(colors) {
+		const w = this.canvas.width;
+		const h = this.canvas.height;
+		const borderWidth = 4;
+		const cornerRadius = 0;
+
+		this.ctx.save();
+
+		// Semi-transparent overlay
+		this.ctx.fillStyle = 'rgba(74, 158, 255, 0.08)';
+		this.ctx.fillRect(0, 0, w, h);
+
+		// Animated dashed border
+		const time = performance.now() / 1000;
+		const dashOffset = (time * 30) % 20;
+
+		this.ctx.strokeStyle = colors.accentBlue || '#4a9eff';
+		this.ctx.lineWidth = borderWidth;
+		this.ctx.setLineDash([10, 10]);
+		this.ctx.lineDashOffset = -dashOffset;
+
+		// Draw border inset by half the border width
+		const inset = borderWidth / 2;
+		if (cornerRadius > 0) {
+			this.ctx.beginPath();
+			this.ctx.roundRect(inset, inset, w - borderWidth, h - borderWidth, cornerRadius);
+			this.ctx.stroke();
+		} else {
+			this.ctx.strokeRect(inset, inset, w - borderWidth, h - borderWidth);
+		}
+
+		this.ctx.setLineDash([]);
+
+		// Drop hint text
+		const text = '📁 Drop files to create nodes';
+		this.ctx.font = 'bold 16px Arial, sans-serif';
+		const textWidth = this.ctx.measureText(text).width;
+
+		// Background pill for text
+		const pillPadding = 16;
+		const pillHeight = 36;
+		const pillWidth = textWidth + pillPadding * 2;
+		const pillX = (w - pillWidth) / 2;
+		const pillY = h - 60;
+
+		this.ctx.fillStyle = 'rgba(74, 158, 255, 0.9)';
+		this.ctx.beginPath();
+		this.ctx.roundRect(pillX, pillY, pillWidth, pillHeight, 18);
+		this.ctx.fill();
+
+		// Text
+		this.ctx.fillStyle = '#ffffff';
+		this.ctx.textAlign = 'center';
+		this.ctx.textBaseline = 'middle';
+		this.ctx.fillText(text, w / 2, pillY + pillHeight / 2);
+
+		this.ctx.restore();
+
+		// Request animation frame for continuous border animation
+		if (this._canvasDropHighlight) {
+			requestAnimationFrame(() => {
+				if (this._canvasDropHighlight) this.draw();
+			});
+		}
 	}
 
 	drawGrid(colors) {
@@ -2987,6 +3062,11 @@ class SchemaGraphApp {
 		if (!node._dropZone) return;
 		const ctx = this.ctx, bounds = this._getDropZoneBounds(node), textScale = this.getTextScale();
 		const isActive = this._activeDropNode === node, isEnabled = node._dropZone.enabled;
+
+		// Animated dash offset
+		const time = performance.now() / 1000;
+		const dashOffset = (time * 30) % 20;
+
 		if (!isEnabled) {
 			ctx.fillStyle = 'rgba(220, 96, 104, 0.08)';
 			ctx.beginPath(); ctx.roundRect(bounds.x, bounds.y, bounds.w, bounds.h, 4); ctx.fill();
@@ -2998,13 +3078,31 @@ class SchemaGraphApp {
 			return;
 		}
 		if (!isActive) return;
+
+		// Semi-transparent fill
 		ctx.fillStyle = 'rgba(146, 208, 80, 0.15)';
 		ctx.beginPath(); ctx.roundRect(bounds.x, bounds.y, bounds.w, bounds.h, 4); ctx.fill();
+
+		// Animated dashed border
 		ctx.strokeStyle = '#92d050'; ctx.lineWidth = 2 / this.camera.scale;
-		ctx.setLineDash([6 / this.camera.scale, 4 / this.camera.scale]); ctx.stroke(); ctx.setLineDash([]);
+		ctx.setLineDash([6 / this.camera.scale, 4 / this.camera.scale]);
+		ctx.lineDashOffset = -dashOffset / this.camera.scale;
+		ctx.stroke(); ctx.setLineDash([]);
+		ctx.lineDashOffset = 0;
+
+		// Label text
 		ctx.fillStyle = '#92d050'; ctx.font = `bold ${11 * textScale}px sans-serif`;
 		ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
 		ctx.fillText(node._dropZone.label, bounds.x + bounds.w / 2, bounds.y + bounds.h / 2);
+
+		// Request animation frame for continuous border animation
+		if (!this._dropZoneAnimating) {
+			this._dropZoneAnimating = true;
+			requestAnimationFrame(() => {
+				this._dropZoneAnimating = false;
+				if (this._activeDropNode) this.draw();
+			});
+		}
 	}
 
 	// === CALLBACK REGISTRY ===
@@ -5307,6 +5405,65 @@ class SchemaGraphApp {
 				removeMultiOutputSlot: (node, fieldName, key) => self._removeMultiOutputSlot(node, fieldName, key),
 				renameMultiInputSlot: (node, fieldName, oldKey, newKey) => self._renameMultiInputSlot(node, fieldName, oldKey, newKey),
 				renameMultiOutputSlot: (node, fieldName, oldKey, newKey) => self._renameMultiOutputSlot(node, fieldName, oldKey, newKey),
+
+				/**
+				 * Workflow Validation API - Validate workflow structure
+				 */
+
+				/**
+				 * Validate the current workflow
+				 * @returns {{valid: boolean, errors: string[], warnings: string[]}}
+				 */
+				validate: () => self.validateWorkflow(),
+
+				/**
+				 * Check if a path exists from Start to End
+				 * @returns {{valid: boolean, reason: string|null, path: number[]|null}}
+				 */
+				validatePath: () => self._validateStartToEndPath(),
+
+				/**
+				 * Check if a node type can be created (validates Start/End constraints)
+				 * @param {string} nodeType - The node type to check
+				 * @returns {{allowed: boolean, reason: string|null}}
+				 */
+				canCreateNodeType: (nodeType) => self._canCreateNodeType(nodeType),
+
+				/**
+				 * Get Start node(s) in the graph
+				 * @returns {Array} Array of Start nodes
+				 */
+				getStartNodes: () => self._getStartNodes(),
+
+				/**
+				 * Get End node(s) in the graph
+				 * @returns {Array} Array of End nodes
+				 */
+				getEndNodes: () => self._getEndNodes(),
+
+				/**
+				 * Count Start nodes
+				 * @returns {number}
+				 */
+				countStartNodes: () => self._countStartNodes(),
+
+				/**
+				 * Count End nodes
+				 * @returns {number}
+				 */
+				countEndNodes: () => self._countEndNodes(),
+
+				/**
+				 * Check if workflow is ready to run (has Start, End, and path)
+				 * @returns {{ready: boolean, reason: string|null}}
+				 */
+				isReady: () => {
+					const validation = self.validateWorkflow();
+					if (!validation.valid) {
+						return { ready: false, reason: validation.errors[0] || 'Validation failed' };
+					}
+					return { ready: true, reason: null };
+				}
 			},
 
 			view: {
@@ -5729,66 +5886,6 @@ class SchemaGraphApp {
 
 					console.log(`[SchemaGraph] Schema types auto-detect: meta=${metaNodes.join(',') || 'none'}, data=${dataNodes.join(',') || 'none'}, preview=${previewNodes.join(',') || 'none'}, start=${startNodes.join(',') || 'none'}, end=${endNodes.join(',') || 'none'}`);
 					return metaNodes.length > 0 || dataNodes.length > 0 || previewNodes.length > 0 || startNodes.length > 0 || endNodes.length > 0;
-				}
-			},
-
-			/**
-			 * Workflow Validation API - Validate workflow structure
-			 */
-			workflow: {
-				/**
-				 * Validate the current workflow
-				 * @returns {{valid: boolean, errors: string[], warnings: string[]}}
-				 */
-				validate: () => self.validateWorkflow(),
-
-				/**
-				 * Check if a path exists from Start to End
-				 * @returns {{valid: boolean, reason: string|null, path: number[]|null}}
-				 */
-				validatePath: () => self._validateStartToEndPath(),
-
-				/**
-				 * Check if a node type can be created (validates Start/End constraints)
-				 * @param {string} nodeType - The node type to check
-				 * @returns {{allowed: boolean, reason: string|null}}
-				 */
-				canCreateNodeType: (nodeType) => self._canCreateNodeType(nodeType),
-
-				/**
-				 * Get Start node(s) in the graph
-				 * @returns {Array} Array of Start nodes
-				 */
-				getStartNodes: () => self._getStartNodes(),
-
-				/**
-				 * Get End node(s) in the graph
-				 * @returns {Array} Array of End nodes
-				 */
-				getEndNodes: () => self._getEndNodes(),
-
-				/**
-				 * Count Start nodes
-				 * @returns {number}
-				 */
-				countStartNodes: () => self._countStartNodes(),
-
-				/**
-				 * Count End nodes
-				 * @returns {number}
-				 */
-				countEndNodes: () => self._countEndNodes(),
-
-				/**
-				 * Check if workflow is ready to run (has Start, End, and path)
-				 * @returns {{ready: boolean, reason: string|null}}
-				 */
-				isReady: () => {
-					const validation = self.validateWorkflow();
-					if (!validation.valid) {
-						return { ready: false, reason: validation.errors[0] || 'Validation failed' };
-					}
-					return { ready: true, reason: null };
 				}
 			},
 
