@@ -223,7 +223,7 @@ class WorkflowVisualizer {
 		}
 
 		this.currentWorkflow = JSON.parse(JSON.stringify(workflow));
-		this.currentWorkflowName = name || workflow.info?.name || 'Untitled';
+		this.currentWorkflowName = name || workflow.options?.name || 'Untitled';
 
 		this.schemaGraph.api.graph.clear();
 

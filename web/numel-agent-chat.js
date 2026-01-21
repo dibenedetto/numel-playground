@@ -203,7 +203,7 @@ class AgentChatManager {
 		const handler = new AgentHandler();
 		const baseUrl = this.url.substr(0, this.url.lastIndexOf(":"));
 		const url = `${baseUrl}:${port}`;
-		const name = updatedConfig?.info?.name || null;
+		const name = updatedConfig?.options?.name || null;
 		const callbacks = this._createCallbacks(newNode, chatId);  // Pass chatId
 
 		handler.connect(url, name, ...Object.values(callbacks));

@@ -584,7 +584,7 @@ async function syncWorkflow(workflow = null, name = null, force = false) {
 		}
 		
 		if (!name) {
-			name = workflow?.info?.name || visualizer.currentWorkflowName || 'custom_workflow';
+			name = workflow?.options?.name || visualizer.currentWorkflowName || 'custom_workflow';
 		}
 
 		await client.removeWorkflow();
@@ -674,7 +674,7 @@ async function handleSingleImport(event) {
 
 		// Validate
 		// const validated = visualizer.validateWorkflow(workflow);
-		const name      = workflow?.info?.name || file.name.replace('.json', '');
+		const name      = workflow?.options?.name || file.name.replace('.json', '');
 		const validated = visualizer.loadWorkflow(workflow, name);
 		if (validated) {
 			await syncWorkflow(workflow, name, true);

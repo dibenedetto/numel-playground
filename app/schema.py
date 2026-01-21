@@ -244,90 +244,6 @@ class DataTensor(TensorType):
 	type : Annotated[Literal["data_tensor"], FieldRole.CONSTANT] = "data_tensor"
 
 
-# @node_info(
-# 	title       = "Binary Tensor",
-# 	description = "Holds binary data",
-# 	icon        = "🔟",
-# 	section     = "Data Sources",
-# 	visible     = True
-# )
-# class BinaryTensor(TensorType):
-# 	type : Annotated[Literal["binary_tensor"], FieldRole.CONSTANT] = "binary_tensor"
-
-
-# DEFAULT_TEXT_CONTENT_ENCODING : str = "utf-8"
-
-
-# @node_info(
-# 	title       = "Text",
-# 	description = "Holds text content",
-# 	icon        = "📄",
-# 	section     = "Data Sources",
-# 	visible     = True
-# )
-# class TextTensor(TensorType):
-# 	type     : Annotated[Literal["text_tensor"], FieldRole.CONSTANT] = "text_tensor"
-# 	encoding : Annotated[str                   , FieldRole.INPUT   ] = DEFAULT_TEXT_CONTENT_ENCODING
-
-
-# @node_info(
-# 	title       = "Document",
-# 	description = "Holds document content",
-# 	icon        = "📝",
-# 	section     = "Data Sources",
-# 	visible     = True
-# )
-# class DocumentTensor(TensorType):
-# 	type : Annotated[Literal["document_tensor"], FieldRole.CONSTANT] = "document_tensor"
-
-
-# @node_info(
-# 	title       = "Image",
-# 	description = "Holds an image",
-# 	icon        = "🖼️",
-# 	section     = "Data Sources",
-# 	visible     = True
-# )
-# class ImageTensor(TensorType):
-# 	type : Annotated[Literal["image_tensor"], FieldRole.CONSTANT] = "image_tensor"
-
-
-# @node_info(
-# 	title       = "Audio",
-# 	description = "Holds audio data",
-# 	icon        = "🔊",
-# 	section     = "Data Sources",
-# 	visible     = True
-# )
-# class AudioTensor(TensorType):
-# 	type     : Annotated[Literal["audio_tensor"], FieldRole.CONSTANT] = "audio_tensor"
-# 	sampling : Annotated[float                  , FieldRole.INPUT   ] = 0.0
-
-
-# @node_info(
-# 	title       = "Video",
-# 	description = "Holds video data",
-# 	icon        = "🎞️",
-# 	section     = "Data Sources",
-# 	visible     = True
-# )
-# class VideoTensor(TensorType):
-# 	type   : Annotated[Literal["video_tensor"], FieldRole.CONSTANT] = "video_tensor"
-# 	frames : Annotated[int                    , FieldRole.INPUT   ] = 0
-# 	rate   : Annotated[float                  , FieldRole.INPUT   ] = 0.0
-
-
-# @node_info(
-# 	title       = "Model 3D",
-# 	description = "Holds a 3D model",
-# 	icon        = "🧊",
-# 	section     = "Data Sources",
-# 	visible     = True
-# )
-# class Model3DTensor(TensorType):
-# 	type : Annotated[Literal["model3d_tensor"], FieldRole.CONSTANT] = "model3d_tensor"
-
-
 @node_info(visible=False)
 class ConfigType(BaseType):
 	type : Annotated[Literal["config_type"], FieldRole.CONSTANT] = "config_type"
@@ -337,23 +253,18 @@ class ConfigType(BaseType):
 		return self
 
 
-@node_info(
-	title       = "Info",
-	description = "Holds general information",
-	icon        = "ⓘ",
-	section     = "Configurations",
-	visible     = True
-)
-class InfoConfig(ConfigType):
-	type         : Annotated[Literal["info_config"], FieldRole.CONSTANT] = "info_config"
-	version      : Annotated[Optional[str]         , FieldRole.INPUT   ] = None
-	name         : Annotated[Optional[str]         , FieldRole.INPUT   ] = None
-	author       : Annotated[Optional[str]         , FieldRole.INPUT   ] = None
-	description  : Annotated[Optional[str]         , FieldRole.INPUT   ] = None
-	instructions : Annotated[Optional[List[str]]   , FieldRole.INPUT   ] = None
+DEFAULT_OPTIONS_NAME        : str  = "Zoe"
+DEFAULT_OPTIONS_DESCRIPTION : str  = None
+
+
+@node_info(visible=False)
+class OptionsType(BaseType):
+	type        : Annotated[Literal["options_type"], FieldRole.CONSTANT] = "options_type"
+	name        : Annotated[Optional[str]          , FieldRole.INPUT   ] = DEFAULT_OPTIONS_NAME
+	description : Annotated[Optional[str]          , FieldRole.INPUT   ] = DEFAULT_OPTIONS_DESCRIPTION
 
 	@property
-	def get(self) -> Annotated[InfoConfig, FieldRole.OUTPUT]:
+	def get(self) -> Annotated[OptionsType, FieldRole.OUTPUT]:
 		return self
 
 
@@ -605,7 +516,6 @@ class ToolConfig(ConfigType):
 		return self
 
 
-DEFAULT_AGENT_OPTIONS_DESCRIPTION     : str  = None
 DEFAULT_AGENT_OPTIONS_INSTRUCTIONS    : str  = None
 DEFAULT_AGENT_OPTIONS_PROMPT_OVERRIDE : str  = None
 DEFAULT_AGENT_OPTIONS_MARKDOWN        : bool = True
@@ -618,9 +528,8 @@ DEFAULT_AGENT_OPTIONS_MARKDOWN        : bool = True
 	section     = "Configurations",
 	visible     = True
 )
-class AgentOptionsConfig(ConfigType):
+class AgentOptionsConfig(OptionsType):
 	type            : Annotated[Literal["agent_options_config"], FieldRole.CONSTANT] = "agent_options_config"
-	description     : Annotated[Optional[str]                  , FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_DESCRIPTION
 	instructions    : Annotated[Optional[List[str]]            , FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_INSTRUCTIONS
 	prompt_override : Annotated[Optional[str]                  , FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_PROMPT_OVERRIDE
 	markdown        : Annotated[bool                           , FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_MARKDOWN
@@ -640,7 +549,6 @@ class AgentOptionsConfig(ConfigType):
 class AgentConfig(ConfigType):
 	type          : Annotated[Literal["agent_config"]                            , FieldRole.CONSTANT   ] = "agent_config"
 	port          : Annotated[Optional[int]                                      , FieldRole.ANNOTATION ] = None
-	info          : Annotated[Optional[InfoConfig]                               , FieldRole.INPUT      ] = None
 	options       : Annotated[Optional[AgentOptionsConfig]                       , FieldRole.INPUT      ] = None
 	backend       : Annotated[BackendConfig                                      , FieldRole.INPUT      ] = None
 	model         : Annotated[ModelConfig                                        , FieldRole.INPUT      ] = None
@@ -898,7 +806,6 @@ WorkflowNodeUnion = Union[
 	# Model3DTensor,
 
 	# Config nodes
-	InfoConfig,
 	BackendConfig,
 	ModelConfig,
 	EmbeddingConfig,
@@ -935,7 +842,7 @@ DEFAULT_WORKFLOW_OPTIONS_SEED : int = 777
 
 
 @node_info(visible=False)
-class WorkflowOptions(ComponentType):
+class WorkflowOptions(OptionsType):
 	type : Annotated[Literal["workflow_options"], FieldRole.CONSTANT] = "workflow_options"
 	seed : Annotated[int                        , FieldRole.INPUT   ] = DEFAULT_WORKFLOW_OPTIONS_SEED
 
@@ -947,7 +854,6 @@ class WorkflowOptions(ComponentType):
 @node_info(visible=False)
 class Workflow(ComponentType):
 	type    : Annotated[Literal["workflow"]      , FieldRole.CONSTANT] = "workflow"
-	info    : Annotated[Optional[InfoConfig]     , FieldRole.INPUT   ] = None
 	options : Annotated[Optional[WorkflowOptions], FieldRole.INPUT   ] = None
 	nodes   : Annotated[Optional[List[Annotated[WorkflowNodeUnion, Field(discriminator="type")]]], FieldRole.INPUT] = None
 	edges   : Annotated[Optional[List[Edge]]     , FieldRole.INPUT   ] = None

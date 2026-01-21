@@ -46,13 +46,6 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		raise ValueError(f"Invalid Agno db search type: {value}")
 
 
-	def _build_info(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
-		item_config = workflow.nodes[index]
-		assert item_config is not None and item_config.type == "info_config", "Invalid Agno info"
-		item = copy.deepcopy(item_config)
-		impl[index] = item
-
-
 	def _build_backend(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "backend_config", "Invalid Agno backend"
@@ -201,19 +194,12 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		assert item_config is not None and item_config.type == "agent_config", "Invalid Agno agent"
 
 		if True:
-			name = f"Numel Agno Agent {index}"
-			if item_config.info is not None:
-				info = impl[links[index]["info"]]
-				if info.name:
-					name = info.name
-
-		if True:
-			model  = impl[links[index]["model"]] if item_config.model is not None else None
+			model = impl[links[index]["model"]] if item_config.model is not None else None
 			if model is None:
 				raise ValueError(f"Agno agent model is required")
 
 		if True:
-			options = impl[links[index]["options"]] if item_config.info is not None else AgentOptionsConfig()
+			options = impl[links[index]["options"]] if item_config.options is not None else AgentOptionsConfig()
 
 		if True:
 			content_db = impl[links[index]["content_db"]] if item_config.content_db is not None else None
@@ -254,7 +240,7 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 
 		if True:
 			item = Agent(
-				name                    = name,
+				name                    = options.name or "Agent",
 
 				model                   = model,
 
@@ -292,7 +278,6 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 
 
 	indices = {
-		"info_config"              : [],
 		"backend_config"           : [],
 		"model_config"             : [],
 		"embedding_config"         : [],
@@ -335,7 +320,6 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 
 	impl = [None] * len(workflow.nodes)
 
-	for i in indices["info_config"             ]: _build_info              (workflow, links, impl, i)
 	for i in indices["backend_config"          ]: _build_backend           (workflow, links, impl, i)
 	for i in indices["model_config"            ]: _build_model             (workflow, links, impl, i)
 	for i in indices["embedding_config"        ]: _build_embedding         (workflow, links, impl, i)

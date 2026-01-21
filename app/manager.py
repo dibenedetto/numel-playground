@@ -11,7 +11,7 @@ from   typing    import Any, Callable, Dict, List, Optional
 
 
 from   event_bus import EventType, EventBus
-from   schema    import InfoConfig, Workflow, WorkflowOptions
+from   schema    import Workflow, WorkflowOptions
 from   utils     import serialize_result
 
 
@@ -89,11 +89,10 @@ class WorkflowManager:
 
 	async def create(self, name: str, description: Optional[str] = None) -> Workflow:
 		wf = Workflow(
-			info = InfoConfig(
+			options = WorkflowOptions(
 				name        = name,
 				description = description
 			),
-			options = WorkflowOptions(),
 			nodes   = [],
 			edges   = [],
 		)
@@ -107,8 +106,8 @@ class WorkflowManager:
 	async def add(self, workflow: Workflow, name: Optional[str] = None) -> str:
 		wf = copy.deepcopy(workflow)
 		if not name:
-			if wf.info and wf.info.name:
-				name = wf.info.name
+			if wf.options and wf.options.name:
+				name = wf.options.name
 			else:
 				self._current_id += 1
 				name = f"workflow_{self._current_id}"
@@ -232,13 +231,13 @@ class WorkflowManager:
 	# 	except Exception as e:
 	# 		log_print(f"Error reading workflow file: {e}")
 	# 		return None
-	# 	if not workflow.info:
-	# 		workflow.info = InfoConfig(name=filepath)
+	# 	if not workflow.options:
+	# 		workflow.options = WorkflowOptions(name=filepath)
 	# 	if name:
-	# 		workflow.info.name = name
-	# 	elif not workflow.info.name:
-	# 		workflow.info.name = filepath
-	# 	self._workflows[workflow.info.name] = workflow
+	# 		workflow.options.name = name
+	# 	elif not workflow.options.name:
+	# 		workflow.options.name = filepath
+	# 	self._workflows[workflow.options.name] = workflow
 	# 	return workflow
 
 
@@ -256,7 +255,7 @@ class WorkflowManager:
 
 	# def save(self, name: str, filepath: Optional[str] = None) -> bool:
 	# 	if filepath is None:
-	# 		filename = f"{workflow.info.name.lower().replace(' ', '_')}.json"
+	# 		filename = f"{workflow.options.name.lower().replace(' ', '_')}.json"
 	# 		filepath = self.storage_dir / filename
 	# 	with open(filepath, "w") as f:
 	# 		json.dump(workflow.model_dump(), f, indent=2)
@@ -264,7 +263,7 @@ class WorkflowManager:
 
 	# def save_all(self, workflow: Workflow, filepath: Optional[str] = None):
 	# 	if filepath is None:
-	# 		filename = f"{workflow.info.name.lower().replace(' ', '_')}.json"
+	# 		filename = f"{workflow.options.name.lower().replace(' ', '_')}.json"
 	# 		filepath = self.storage_dir / filename
 	# 	with open(filepath, "w") as f:
 	# 		json.dump(workflow.model_dump(), f, indent=2)
