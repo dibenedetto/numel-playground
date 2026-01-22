@@ -838,6 +838,23 @@ WorkflowNodeUnion = Union[
 ]
 
 
+DEFAULT_WORKFLOW_NODE_DELAY         : float = 0.0
+DEFAULT_WORKFLOW_EXEC_DELAY         : float = 0.1
+DEFAULT_WORKFLOW_USER_INPUT_TIMEOUT : float = 300.0
+
+
+@node_info(visible=False)
+class WorkflowExecutionOptions(OptionsType):
+	type               : Annotated[Literal["workflow_execution_options"], FieldRole.CONSTANT] = "workflow_execution_options"
+	exec_delay         : Annotated[Optional[float]                      , FieldRole.INPUT   ] = DEFAULT_WORKFLOW_EXEC_DELAY
+	node_delay         : Annotated[Optional[float]                      , FieldRole.INPUT   ] = DEFAULT_WORKFLOW_NODE_DELAY
+	user_input_timeout : Annotated[Optional[float]                      , FieldRole.INPUT   ] = DEFAULT_WORKFLOW_USER_INPUT_TIMEOUT
+
+	@property
+	def get(self) -> Annotated[WorkflowExecutionOptions, FieldRole.OUTPUT]:
+		return self
+
+
 DEFAULT_WORKFLOW_OPTIONS_SEED : int = 777
 
 

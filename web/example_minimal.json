@@ -1,15 +1,11 @@
 {
 	"type"  : "workflow",
-	"extra" : {
-		"exec_delay_sec" : 0,
-		"node_delay_sec" : 1
-	},
 	"nodes" : [
 		{
-			"type" : "start_node"
+			"type" : "start_flow"
 		},
 		{
-			"type" : "end_node"
+			"type" : "end_flow"
 		}
 	],
 	"edges" : [

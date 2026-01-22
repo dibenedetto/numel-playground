@@ -99,7 +99,9 @@ class SchemaGraphApp {
 			preview: [],       // Node types that display previews (e.g., ['schema.PreviewFlow'])
 			startNode: [],     // Node types that represent workflow start (e.g., ['schema.StartFlow'])
 			endNode: [],       // Node types that represent workflow end (e.g., ['schema.EndFlow'])
-			metaInputSlot: 'meta'  // Default slot name for meta connection on data nodes
+			metaInputSlot: 'meta',  // Default slot name for meta connection on data nodes
+			workflowOptions: null,          // Model name for workflow options (e.g., 'WorkflowOptions')
+			workflowExecutionOptions: null  // Model name for workflow execution options (e.g., 'WorkflowExecutionOptions')
 		};
 
 		// Canvas drop configuration (node types come from _schemaTypeRoles)
@@ -5804,6 +5806,12 @@ class SchemaGraphApp {
 					if (config.metaInputSlot) {
 						self._schemaTypeRoles.metaInputSlot = config.metaInputSlot;
 					}
+					if (config.workflowOptions) {
+						self._schemaTypeRoles.workflowOptions = config.workflowOptions;
+					}
+					if (config.workflowExecutionOptions) {
+						self._schemaTypeRoles.workflowExecutionOptions = config.workflowExecutionOptions;
+					}
 				},
 
 				/**
@@ -5878,14 +5886,65 @@ class SchemaGraphApp {
 						m === 'EndFlow' || (m.includes('End') && !m.includes('Backend'))
 					).map(m => `${schemaName}.${m}`);
 
+					// Look for workflow options
+					const workflowOptionsModel = models.find(m => m === 'WorkflowOptions');
+
+					// Look for workflow execution options
+					const workflowExecOptionsModel = models.find(m => m === 'WorkflowExecutionOptions');
+
 					if (metaNodes.length > 0) self._schemaTypeRoles.sourceMeta = metaNodes;
 					if (dataNodes.length > 0) self._schemaTypeRoles.dataTensor = dataNodes;
 					if (previewNodes.length > 0) self._schemaTypeRoles.preview = previewNodes;
 					if (startNodes.length > 0) self._schemaTypeRoles.startNode = startNodes;
 					if (endNodes.length > 0) self._schemaTypeRoles.endNode = endNodes;
+					if (workflowOptionsModel) self._schemaTypeRoles.workflowOptions = workflowOptionsModel;
+					if (workflowExecOptionsModel) self._schemaTypeRoles.workflowExecutionOptions = workflowExecOptionsModel;
 
-					console.log(`[SchemaGraph] Schema types auto-detect: meta=${metaNodes.join(',') || 'none'}, data=${dataNodes.join(',') || 'none'}, preview=${previewNodes.join(',') || 'none'}, start=${startNodes.join(',') || 'none'}, end=${endNodes.join(',') || 'none'}`);
+					console.log(`[SchemaGraph] Schema types auto-detect: meta=${metaNodes.join(',') || 'none'}, data=${dataNodes.join(',') || 'none'}, preview=${previewNodes.join(',') || 'none'}, start=${startNodes.join(',') || 'none'}, end=${endNodes.join(',') || 'none'}, workflowOptions=${workflowOptionsModel || 'none'}, workflowExecOptions=${workflowExecOptionsModel || 'none'}`);
 					return metaNodes.length > 0 || dataNodes.length > 0 || previewNodes.length > 0 || startNodes.length > 0 || endNodes.length > 0;
+				},
+
+				/**
+				 * Get model information from a registered schema
+				 * @param {string} schemaName - Name of the registered schema
+				 * @param {string} modelName - Name of the model to retrieve
+				 * @returns {Object|null} Model info with fields, fieldRoles, and defaults
+				 */
+				getModelInfo: (schemaName, modelName) => {
+					const schema = self.graph.schemas?.[schemaName];
+					if (!schema?.parsed) return null;
+
+					const fields = schema.parsed[modelName];
+					if (!fields) return null;
+
+					return {
+						name: modelName,
+						fields: fields,
+						fieldRoles: schema.fieldRoles?.[modelName] || {},
+						defaults: schema.defaults?.[modelName] || {}
+					};
+				},
+
+				/**
+				 * Get workflow options model info
+				 * @param {string} schemaName - Name of the registered schema
+				 * @returns {Object|null} WorkflowOptions model info
+				 */
+				getWorkflowOptionsInfo: (schemaName) => {
+					const modelName = self._schemaTypeRoles.workflowOptions;
+					if (!modelName) return null;
+					return self.api.schemaTypes.getModelInfo(schemaName, modelName);
+				},
+
+				/**
+				 * Get workflow execution options model info
+				 * @param {string} schemaName - Name of the registered schema
+				 * @returns {Object|null} WorkflowExecutionOptions model info
+				 */
+				getWorkflowExecutionOptionsInfo: (schemaName) => {
+					const modelName = self._schemaTypeRoles.workflowExecutionOptions;
+					if (!modelName) return null;
+					return self.api.schemaTypes.getModelInfo(schemaName, modelName);
 				}
 			},
 

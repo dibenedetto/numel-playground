@@ -49,6 +49,17 @@ document.addEventListener('DOMContentLoaded', () => {
 		console.log('Files dropped on node:', data.nodeId, data.files);
 	});
 
+	// Listen for workflow options changes to trigger sync
+	schemaGraph.eventBus.on('workflow:optionsChanged', (data) => {
+		workflowDirty = true;
+		console.log('Workflow options changed:', data.options);
+	});
+
+	// Refresh workflow options panel when a workflow is imported/loaded
+	schemaGraph.eventBus.on(GraphEvents.WORKFLOW_IMPORTED, () => {
+		populateWorkflowOptionsPanel();
+	});
+
 	if (true) {
 		const sourceMetaTypeName  = `${WORKFLOW_SCHEMA_NAME}.SourceMeta` ;
 		const dataTensorTypeName  = `${WORKFLOW_SCHEMA_NAME}.DataTensor` ;
@@ -57,12 +68,14 @@ document.addEventListener('DOMContentLoaded', () => {
 		const endFlowTypeName     = `${WORKFLOW_SCHEMA_NAME}.EndFlow`    ;
 
 		schemaGraph.api.schemaTypes.setTypes({
-			sourceMeta    : sourceMetaTypeName,
-			dataTensor    : dataTensorTypeName,
-			preview       : previewFlowTypeName,
-			startNode     : startFlowTypeName,
-			endNode       : endFlowTypeName,
-			metaInputSlot : "meta",
+			sourceMeta               : sourceMetaTypeName,
+			dataTensor               : dataTensorTypeName,
+			preview                  : previewFlowTypeName,
+			startNode                : startFlowTypeName,
+			endNode                  : endFlowTypeName,
+			metaInputSlot            : "meta",
+			workflowOptions          : "WorkflowOptions",
+			workflowExecutionOptions : "WorkflowExecutionOptions",
 		});
 
 		schemaGraph.api.canvasDrop.setAccept("image/*,audio/*,video/*,text/*,application/json");
@@ -197,6 +210,23 @@ function setupEventListeners() {
 	$('submitInputBtn').addEventListener('click', submitUserInput);
 	$('cancelInputBtn').addEventListener('click', closeModal);
 	$('closeModalBtn').addEventListener('click', closeModal);
+
+	// Collapsible sections
+	document.querySelectorAll('.nw-collapsible-header').forEach(header => {
+		header.addEventListener('click', () => {
+			const section = header.closest('.nw-collapsible');
+			const targetId = header.getAttribute('data-target');
+			const content = document.getElementById(targetId);
+
+			if (section.classList.contains('expanded')) {
+				section.classList.remove('expanded');
+				content.style.display = 'none';
+			} else {
+				section.classList.add('expanded');
+				content.style.display = 'block';
+			}
+		});
+	});
 }
 
 function enableStart(enable) {
@@ -252,6 +282,10 @@ async function connect() {
 			throw new Error('Failed to register workflow schema');
 		}
 		addLog('success', '✅ Schema registered');
+
+		// Populate options panels now that schema is available
+		populateWorkflowOptionsPanel();
+		populateExecOptionsPanel();
 
 		// visualizer.schemaGraph.api.workflow.debug();
 
@@ -814,23 +848,22 @@ async function startExecution() {
 		return;
 	}
 
+	// Validate workflow before starting
+	const validation = schemaGraph.api.workflow.validate();
+	if (!validation.valid) {
+		for (const error of validation.errors) {
+			addLog('error', `⚠️ ${error}`);
+		}
+		return;
+	}
+
+	// Show warnings but don't block
+	for (const warning of validation.warnings || []) {
+		addLog('warning', `⚠️ ${warning}`);
+	}
+
 	try {
 		enableStart(false);
-
-		// Validate workflow before starting
-		const validation = schemaGraph.api.workflow.validate();
-		if (!validation.valid) {
-			for (const error of validation.errors) {
-				addLog('error', `⚠️ ${error}`);
-			}
-			enableStart(true);
-			return;
-		}
-
-		// Show warnings but don't block
-		for (const warning of validation.warnings || []) {
-			addLog('warning', `⚠️ ${warning}`);
-		}
 
 		// In single mode, sync to backend if dirty
 		if (singleMode) {
@@ -840,7 +873,8 @@ async function startExecution() {
 		const workflowName = visualizer.currentWorkflowName;
 		addLog('info', `⏳ Starting "${workflowName}"...`);
 
-		const initialData = null;
+		// Collect execution options from panel
+		const initialData = collectExecOptions();
 		const response = await client.startWorkflow(workflowName, initialData);
 
 		if (response.status !== 'started') {
@@ -851,6 +885,217 @@ async function startExecution() {
 		enableStart(true);
 		addLog('error', `❌ Start failed: ${error.message}`);
 	}
+}
+
+// ========================================================================
+// Options Panel Population
+// ========================================================================
+
+function populateWorkflowOptionsPanel() {
+	const form = $('workflowOptionsForm');
+	if (!form) return;
+	form.innerHTML = '';
+
+	// Get workflow options schema info
+	const optionsInfo = schemaGraph.api.schemaTypes.getWorkflowOptionsInfo(WORKFLOW_SCHEMA_NAME);
+
+	if (!optionsInfo || !optionsInfo.fields) {
+		form.innerHTML = '<p class="nw-options-empty">No workflow options available.</p>';
+		return;
+	}
+
+	// Get current workflow options values
+	const currentOptions = visualizer?.getWorkflowOptions() || {};
+
+	for (const field of optionsInfo.fields) {
+		const role = optionsInfo.fieldRoles[field.name];
+		// Skip constant and annotation fields
+		if (role === 'constant' || role === 'annotation') continue;
+
+		// Use current value if set, otherwise use default
+		const currentVal = currentOptions[field.name];
+		const defaultVal = optionsInfo.defaults[field.name];
+		const value = currentVal !== undefined ? currentVal : defaultVal;
+
+		const fieldDiv = document.createElement('div');
+		fieldDiv.className = 'nw-field';
+
+		const label = document.createElement('label');
+		label.textContent = field.title || field.name;
+		label.setAttribute('for', `wfOpt_${field.name}`);
+		fieldDiv.appendChild(label);
+
+		const input = createInputForField(field, value);
+		input.id = `wfOpt_${field.name}`;
+		input.name = field.name;
+		input.dataset.optionType = 'workflow';
+
+		// Add change listener to update workflow options
+		input.addEventListener('change', () => {
+			const options = collectWorkflowOptions();
+			visualizer?.setWorkflowOptions(options);
+		});
+
+		fieldDiv.appendChild(input);
+
+		if (field.description) {
+			const hint = document.createElement('small');
+			hint.className = 'nw-field-hint';
+			hint.textContent = field.description;
+			fieldDiv.appendChild(hint);
+		}
+
+		form.appendChild(fieldDiv);
+	}
+
+	if (form.children.length === 0) {
+		form.innerHTML = '<p class="nw-options-empty">No workflow options available.</p>';
+	}
+}
+
+function populateExecOptionsPanel() {
+	const form = $('execOptionsForm');
+	if (!form) return;
+	form.innerHTML = '';
+
+	// Get execution options schema info
+	const execOptionsInfo = schemaGraph.api.schemaTypes.getWorkflowExecutionOptionsInfo(WORKFLOW_SCHEMA_NAME);
+
+	if (!execOptionsInfo || !execOptionsInfo.fields) {
+		form.innerHTML = '<p class="nw-options-empty">No execution options available.</p>';
+		return;
+	}
+
+	for (const field of execOptionsInfo.fields) {
+		const role = execOptionsInfo.fieldRoles[field.name];
+		// Skip constant and annotation fields
+		if (role === 'constant' || role === 'annotation') continue;
+
+		const defaultVal = execOptionsInfo.defaults[field.name];
+		const fieldDiv = document.createElement('div');
+		fieldDiv.className = 'nw-field';
+
+		const label = document.createElement('label');
+		label.textContent = field.title || field.name;
+		label.setAttribute('for', `execOpt_${field.name}`);
+		fieldDiv.appendChild(label);
+
+		const input = createInputForField(field, defaultVal);
+		input.id = `execOpt_${field.name}`;
+		input.name = field.name;
+		fieldDiv.appendChild(input);
+
+		if (field.description) {
+			const hint = document.createElement('small');
+			hint.className = 'nw-field-hint';
+			hint.textContent = field.description;
+			fieldDiv.appendChild(hint);
+		}
+
+		form.appendChild(fieldDiv);
+	}
+
+	if (form.children.length === 0) {
+		form.innerHTML = '<p class="nw-options-empty">No execution options available.</p>';
+	}
+}
+
+function createInputForField(field, defaultVal) {
+	const rawType = field.rawType || '';
+	const baseType = rawType.replace(/Optional\[|\]/g, '').trim();
+
+	let input;
+
+	if (baseType === 'bool' || baseType === 'boolean') {
+		input = document.createElement('select');
+		input.className = 'nw-select';
+		const optTrue = document.createElement('option');
+		optTrue.value = 'true';
+		optTrue.textContent = 'True';
+		const optFalse = document.createElement('option');
+		optFalse.value = 'false';
+		optFalse.textContent = 'False';
+		input.appendChild(optFalse);
+		input.appendChild(optTrue);
+		input.value = defaultVal === true ? 'true' : 'false';
+	} else if (baseType === 'int' || baseType === 'integer') {
+		input = document.createElement('input');
+		input.type = 'number';
+		input.step = '1';
+		input.className = 'nw-input';
+		input.value = defaultVal !== null && defaultVal !== undefined ? defaultVal : '';
+	} else if (baseType === 'float' || baseType === 'number') {
+		input = document.createElement('input');
+		input.type = 'number';
+		input.step = '0.01';
+		input.className = 'nw-input';
+		input.value = defaultVal !== null && defaultVal !== undefined ? defaultVal : '';
+	} else {
+		input = document.createElement('input');
+		input.type = 'text';
+		input.className = 'nw-input';
+		input.value = defaultVal !== null && defaultVal !== undefined ? defaultVal : '';
+	}
+
+	return input;
+}
+
+function collectWorkflowOptions() {
+	const form = $('workflowOptionsForm');
+	if (!form) return {};
+
+	const options = {};
+	const inputs = form.querySelectorAll('input, select');
+
+	for (const input of inputs) {
+		const name = input.name;
+		if (!name) continue;
+
+		let value = input.value;
+
+		// Convert types based on input type
+		if (input.type === 'number') {
+			value = input.step === '1' ? parseInt(value) : parseFloat(value);
+			if (isNaN(value)) value = null;
+		} else if (input.tagName === 'SELECT' && (value === 'true' || value === 'false')) {
+			value = value === 'true';
+		}
+
+		if (value !== null && value !== undefined && value !== '') {
+			options[name] = value;
+		}
+	}
+
+	return options;
+}
+
+function collectExecOptions() {
+	const form = $('execOptionsForm');
+	if (!form) return { type: 'workflow_execution_options' };
+
+	const options = { type: 'workflow_execution_options' };
+	const inputs = form.querySelectorAll('input, select');
+
+	for (const input of inputs) {
+		const name = input.name;
+		if (!name) continue;
+
+		let value = input.value;
+
+		// Convert types based on input type
+		if (input.type === 'number') {
+			value = input.step === '1' ? parseInt(value) : parseFloat(value);
+			if (isNaN(value)) value = null;
+		} else if (input.tagName === 'SELECT' && (value === 'true' || value === 'false')) {
+			value = value === 'true';
+		}
+
+		if (value !== null && value !== undefined && value !== '') {
+			options[name] = value;
+		}
+	}
+
+	return options;
 }
 
 async function cancelExecution() {

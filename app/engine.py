@@ -14,12 +14,7 @@ from   typing      import Any, Dict, List, Optional, Set, Tuple
 
 from   event_bus   import EventType, EventBus
 from   nodes       import ImplementedBackend, NodeExecutionContext, NodeExecutionResult, create_node
-from   schema      import Edge, BaseType, FlowType, Workflow
-
-
-DEFAULT_ENGINE_NODE_DELAY_SEC         : float = 0.0
-DEFAULT_ENGINE_EXEC_DELAY_SEC         : float = 0.1
-DEFAULT_ENGINE_USER_INPUT_TIMEOUT_SEC : float = 300.0
+from   schema      import DEFAULT_WORKFLOW_NODE_DELAY, DEFAULT_WORKFLOW_EXEC_DELAY, DEFAULT_WORKFLOW_USER_INPUT_TIMEOUT, Edge, BaseType, FlowType, Workflow
 
 
 class WorkflowNodeStatus(str, Enum):
@@ -173,7 +168,7 @@ class WorkflowEngine:
 			data         = {"initial_data": initial_data}
 		)
 
-		task = asyncio.create_task(self._execute_workflow(workflow, backend, state, initial_data or {}))
+		task = asyncio.create_task(self._execute_workflow(workflow, backend, state, initial_data))
 		self.execution_tasks[execution_id] = task
 
 		return execution_id
@@ -185,9 +180,9 @@ class WorkflowEngine:
 			if not initial_data:
 				initial_data = {}
 
-			exec_delay_sec    = initial_data.get("exec_delay_sec"        , DEFAULT_ENGINE_EXEC_DELAY_SEC        )
-			node_delay_sec    = initial_data.get("node_delay_sec"        , DEFAULT_ENGINE_NODE_DELAY_SEC        )
-			input_timeout_sec = initial_data.get("user_input_timeout_sec", DEFAULT_ENGINE_USER_INPUT_TIMEOUT_SEC)
+			exec_delay    = initial_data.get("exec_delay"        , DEFAULT_WORKFLOW_EXEC_DELAY        )
+			node_delay    = initial_data.get("node_delay"        , DEFAULT_WORKFLOW_NODE_DELAY        )
+			input_timeout = initial_data.get("user_input_timeout", DEFAULT_WORKFLOW_USER_INPUT_TIMEOUT)
 
 			nodes     = workflow.nodes or []
 			pending   = set()
@@ -244,7 +239,7 @@ class WorkflowEngine:
 						task = asyncio.create_task(self._execute_node(
 							nodes, edges, node_idx, node_instances[node_idx],
 							node_outputs, dependencies, variables, state,
-							node_delay_sec, input_timeout_sec,
+							node_delay, input_timeout,
 						))
 						tasks.add(task)
 
@@ -276,7 +271,7 @@ class WorkflowEngine:
 								)
 								raise Exception(f"Node {node_idx} failed: {result.error}")
 				else:
-					await asyncio.sleep(exec_delay_sec)
+					await asyncio.sleep(exec_delay)
 
 			state.status   = WorkflowNodeStatus.COMPLETED
 			state.end_time = datetime.now().isoformat()
@@ -346,16 +341,16 @@ class WorkflowEngine:
 
 
 	async def _execute_node(self,
-		nodes             : List[BaseType],
-		edges             : List[Edge],
-		node_idx          : int,
-		node              : Any,
-		node_outputs      : Dict[int, Dict[str, Any]],
-		dependencies      : Dict[int, Set[int]],
-		variables         : Dict[str, Any],
-		state             : WorkflowExecutionState,
-		delay_sec         : int = DEFAULT_ENGINE_NODE_DELAY_SEC,
-		input_timeout_sec : int = DEFAULT_ENGINE_USER_INPUT_TIMEOUT_SEC,
+		nodes         : List[BaseType],
+		edges         : List[Edge],
+		node_idx      : int,
+		node          : Any,
+		node_outputs  : Dict[int, Dict[str, Any]],
+		dependencies  : Dict[int, Set[int]],
+		variables     : Dict[str, Any],
+		state         : WorkflowExecutionState,
+		delay         : int = DEFAULT_WORKFLOW_NODE_DELAY,
+		input_timeout : int = DEFAULT_WORKFLOW_USER_INPUT_TIMEOUT,
 	) -> Tuple[int, NodeExecutionResult]:
 		"""Execute a single node"""
 		node_config = nodes[node_idx]
@@ -370,8 +365,8 @@ class WorkflowEngine:
 			data         = {"node_type": node_type, "node_label": node_label}
 		)
 
-		if delay_sec > 0:
-			await asyncio.sleep(delay_sec)
+		if delay > 0:
+			await asyncio.sleep(delay)
 
 		try:
 			context = NodeExecutionContext()
@@ -381,7 +376,7 @@ class WorkflowEngine:
 			context.node_config = node_config
 
 			if node_type == "user_input_node":
-				result = await self._handle_user_input(node_idx, node, context, state, input_timeout_sec)
+				result = await self._handle_user_input(node_idx, node, context, state, input_timeout)
 			else:
 				result = await node.execute(context)
 
@@ -429,7 +424,7 @@ class WorkflowEngine:
 		return inputs
 
 
-	async def _handle_user_input(self, node_idx: int, node: Any, context: NodeExecutionContext, state: WorkflowExecutionState, timeout_sec: int = DEFAULT_ENGINE_USER_INPUT_TIMEOUT_SEC) -> NodeExecutionResult:
+	async def _handle_user_input(self, node_idx: int, node: Any, context: NodeExecutionContext, state: WorkflowExecutionState, timeout: int = DEFAULT_WORKFLOW_USER_INPUT_TIMEOUT) -> NodeExecutionResult:
 		"""Handle user input node"""
 		extra  = context.node_config.extra or {}
 		prompt = extra.get("message") or extra.get("title") or "Please provide input:"
@@ -449,12 +444,12 @@ class WorkflowEngine:
 		result = NodeExecutionResult()
 
 		try:
-			user_input     = await asyncio.wait_for(future, timeout=timeout_sec)
+			user_input     = await asyncio.wait_for(future, timeout=timeout)
 			result.outputs = {"message": user_input}
 
 		except asyncio.TimeoutError:
 			result.success = False
-			result.error   = f"User input timeout after {timeout_sec}s"
+			result.error   = f"User input timeout after {timeout}s"
 
 		return result
 

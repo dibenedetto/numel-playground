@@ -163,6 +163,110 @@ body {
 	border-color: var(--sg-accent-blue);
 }
 
+.nw-input {
+	width: 100%;
+	padding: 8px 10px;
+	background: var(--sg-bg-quaternary);
+	border: 1px solid var(--sg-border-color);
+	border-radius: 4px;
+	color: var(--sg-text-primary);
+	font-size: 13px;
+	font-family: 'Courier New', monospace;
+}
+
+.nw-input:focus {
+	outline: none;
+	border-color: var(--sg-accent-blue);
+	box-shadow: 0 0 0 2px rgba(70, 162, 218, 0.2);
+}
+
+.nw-form {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
+
+.nw-field-hint {
+	display: block;
+	font-size: 10px;
+	color: var(--sg-text-secondary);
+	margin-top: 4px;
+	font-style: italic;
+}
+
+/* ========================================================================
+   COLLAPSIBLE SECTIONS
+   ======================================================================== */
+
+.nw-collapsible .nw-collapsible-header {
+	cursor: pointer;
+	user-select: none;
+	margin: -8px -10px;
+	padding: 8px 10px;
+	border-radius: 4px;
+	transition: background 0.15s ease;
+}
+
+.nw-collapsible .nw-collapsible-header:hover {
+	background: var(--sg-bg-tertiary);
+}
+
+.nw-collapse-icon {
+	display: inline-block;
+	width: 12px;
+	margin-right: 6px;
+	font-size: 10px;
+	transition: transform 0.2s ease;
+}
+
+.nw-collapsible.expanded .nw-collapse-icon {
+	transform: rotate(90deg);
+}
+
+.nw-collapsible-content {
+	padding-top: 10px;
+}
+
+.nw-collapsible-content .nw-form {
+	gap: 8px;
+}
+
+.nw-collapsible-content .nw-field {
+	margin-bottom: 0;
+}
+
+.nw-options-empty {
+	color: var(--sg-text-secondary);
+	font-size: 11px;
+	font-style: italic;
+}
+
+/* Subsection (nested collapsible inside a section) */
+.nw-subsection {
+	margin-top: 12px;
+	margin-bottom: 12px;
+	padding: 10px 0;
+	border-top: 1px solid var(--sg-border-color);
+	border-bottom: 1px solid var(--sg-border-color);
+}
+
+.nw-subsection .nw-collapsible-header {
+	margin: 0;
+	padding: 6px 8px;
+}
+
+.nw-subsection-title {
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--sg-text-secondary);
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+}
+
+.nw-subsection .nw-collapsible-content {
+	padding-top: 8px;
+}
+
 /* ========================================================================
    BUTTONS
    ======================================================================== */

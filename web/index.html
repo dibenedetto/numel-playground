@@ -76,6 +76,17 @@
 					Clear Graph
 				</button>
 
+				<!-- Workflow Options (Collapsible, inside Workflows section) -->
+				<div class="nw-collapsible nw-subsection">
+					<div class="nw-collapsible-header" data-target="workflowOptionsContent">
+						<span class="nw-collapse-icon">▶</span>
+						<span class="nw-subsection-title">Options</span>
+					</div>
+					<div id="workflowOptionsContent" class="nw-collapsible-content" style="display: none;">
+						<div id="workflowOptionsForm" class="nw-form"></div>
+					</div>
+				</div>
+
 				<input type="file" id="workflowFileInput" accept=".json" style="display:none;">
 				<input type="file" id="singleWorkflowFileInput" accept=".json" style="display:none;">
 			</section>
@@ -89,6 +100,18 @@
 					<button id="startBtn" class="nw-btn nw-btn-success" disabled>▶ Start</button>
 					<button id="cancelBtn" class="nw-btn nw-btn-danger" disabled>■ Cancel</button>
 				</div>
+
+				<!-- Execution Options (Collapsible, inside Execution section) -->
+				<div class="nw-collapsible nw-subsection">
+					<div class="nw-collapsible-header" data-target="execOptionsContent">
+						<span class="nw-collapse-icon">▶</span>
+						<span class="nw-subsection-title">Options</span>
+					</div>
+					<div id="execOptionsContent" class="nw-collapsible-content" style="display: none;">
+						<div id="execOptionsForm" class="nw-form"></div>
+					</div>
+				</div>
+
 				<div class="nw-field">
 					<label>Status</label>
 					<div id="execStatus" class="nw-status idle">Not running</div>
@@ -152,6 +175,7 @@
 				</div>
 			</div>
 		</div>
+
 
 		<!-- Footer -->
 		<div class="nw-footer">

@@ -291,6 +291,56 @@ class WorkflowVisualizer {
 		return JSON.parse(JSON.stringify(this.currentWorkflow));
 	}
 
+	// --- Workflow Options ---
+
+	/**
+	 * Get the current workflow options
+	 * @returns {Object|null} Workflow options or null if no workflow loaded
+	 */
+	getWorkflowOptions() {
+		if (!this.currentWorkflow) return null;
+		return this.currentWorkflow.options || null;
+	}
+
+	/**
+	 * Set/update workflow options
+	 * @param {Object} options - Options to set (merged with existing)
+	 * @returns {boolean} True if options were changed
+	 */
+	setWorkflowOptions(options) {
+		if (!this.currentWorkflow) return false;
+		this.currentWorkflow.options = {
+			type: 'workflow_options',
+			...(this.currentWorkflow.options || {}),
+			...options
+		};
+		// Update name if changed
+		if (options.name) {
+			this.currentWorkflowName = options.name;
+		}
+		// Emit event to notify UI that options changed (triggers sync)
+		this.schemaGraph.eventBus.emit('workflow:optionsChanged', {
+			options: this.currentWorkflow.options
+		});
+		return true;
+	}
+
+	/**
+	 * Get workflow options schema info for building UI forms
+	 * @returns {Object|null} Schema info with fields, fieldRoles, and defaults
+	 */
+	getWorkflowOptionsInfo() {
+		return this.schemaGraph.api?.schemaTypes?.getWorkflowOptionsInfo(WORKFLOW_SCHEMA_NAME) || null;
+	}
+
+	/**
+	 * Get workflow execution options schema info for building UI forms
+	 * @returns {Object|null} Schema info with fields, fieldRoles, and defaults
+	 */
+	getWorkflowExecutionOptionsInfo() {
+		return this.schemaGraph.api?.schemaTypes?.getWorkflowExecutionOptionsInfo(WORKFLOW_SCHEMA_NAME) || null;
+	}
+
 	// --- Node State Updates ---
 
 	updateNodeState(nodeIndex, status, data = {}) {

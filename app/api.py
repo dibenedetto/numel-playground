@@ -11,7 +11,7 @@ from   typing    import Any, Dict, List, Optional
 from   engine    import WorkflowEngine
 from   event_bus import EventType, EventBus
 from   manager   import WorkflowManager
-from   schema    import Workflow
+from   schema    import Workflow, WorkflowExecutionOptions
 from   utils     import get_now_str, get_timestamp_str, log_print, serialize_result
 
 
@@ -22,7 +22,7 @@ class WorkflowUploadRequest(BaseModel):
 
 class WorkflowStartRequest(BaseModel):
 	name         : str
-	initial_data : Optional[Dict[str, Any]] = None
+	initial_data : WorkflowExecutionOptions = None
 
 
 class UserInputRequest(BaseModel):
@@ -169,10 +169,12 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 			impl = await manager.impl(request.name)
 			if not impl:
 				raise HTTPException(status_code=404, detail=f"Workflow 'request.name' not found")
+			options      = request.initial_data or WorkflowExecutionOptions()
+			initial_data = options.model_dump()
 			execution_id = await engine.start_workflow(
 				workflow     = impl["workflow"],
-				backend      = impl["backend"],
-				initial_data = request.initial_data,
+				backend      = impl["backend" ],
+				initial_data = initial_data,
 			)
 			result = {
 				"execution_id" : execution_id,
