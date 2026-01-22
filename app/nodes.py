@@ -406,6 +406,7 @@ class ImplementedBackend(BaseModel):
 	get_agent_app   : Callable
 	add_contents    : Callable
 	remove_contents : Callable
+	list_contents   : Callable
 
 
 # _NODE_CLASSES = [

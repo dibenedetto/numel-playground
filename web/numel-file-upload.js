@@ -55,13 +55,16 @@ class FileUploadManager {
 	_setupBackendEventListeners() {
 		// These events come through the WorkflowClient WebSocket
 		// They're forwarded by the client to the eventBus
-		
+
 		this.eventBus.on('upload.started', (e) => this._onBackendUploadStarted(e));
 		this.eventBus.on('upload.completed', (e) => this._onBackendUploadCompleted(e));
 		this.eventBus.on('upload.failed', (e) => this._onBackendUploadFailed(e));
 		this.eventBus.on('processing.started', (e) => this._onBackendProcessingStarted(e));
 		this.eventBus.on('processing.completed', (e) => this._onBackendProcessingCompleted(e));
 		this.eventBus.on('processing.failed', (e) => this._onBackendProcessingFailed(e));
+		this.eventBus.on('content.remove_started', (e) => this._onBackendContentRemoveStarted(e));
+		this.eventBus.on('content.remove_completed', (e) => this._onBackendContentRemoveCompleted(e));
+		this.eventBus.on('content.remove_failed', (e) => this._onBackendContentRemoveFailed(e));
 	}
 
 	// ================================================================
@@ -165,19 +168,73 @@ class FileUploadManager {
 		const { node_index, upload_id } = event.data || {};
 		const error = event.error;
 		const node = this._getNodeByWorkflowIndex(node_index);
-		
+
 		if (node) {
 			this._setNodePhase(node, UploadPhase.ERROR, { error });
 			this._flashNode(node, 'error');
 			this._schedulePhaseReset(node, 3000);
 		}
-		
+
 		this._unlockGraph();
-		
+
 		this.eventBus.emit('fileUpload:failed', {
 			phase: UploadPhase.PROCESSING,
 			nodeIndex: node_index,
 			uploadId: upload_id,
+			error,
+		});
+	}
+
+	_onBackendContentRemoveStarted(event) {
+		const { node_index, ids } = event.data || {};
+		const node = this._getNodeByWorkflowIndex(node_index);
+
+		if (node) {
+			this._setNodePhase(node, UploadPhase.PROCESSING, {
+				operation: 'remove',
+				count: ids?.length || 0,
+			});
+		}
+
+		this.eventBus.emit('content:removeStarted', {
+			nodeIndex: node_index,
+			ids,
+		});
+	}
+
+	_onBackendContentRemoveCompleted(event) {
+		const { node_index, removed } = event.data || {};
+		const node = this._getNodeByWorkflowIndex(node_index);
+
+		if (node) {
+			this._setNodePhase(node, UploadPhase.COMPLETED);
+			this._flashNode(node, 'success');
+			this._schedulePhaseReset(node, 2000);
+		}
+
+		this._unlockGraph();
+
+		this.eventBus.emit('content:removeCompleted', {
+			nodeIndex: node_index,
+			removed,
+		});
+	}
+
+	_onBackendContentRemoveFailed(event) {
+		const { node_index } = event.data || {};
+		const error = event.error;
+		const node = this._getNodeByWorkflowIndex(node_index);
+
+		if (node) {
+			this._setNodePhase(node, UploadPhase.ERROR, { error });
+			this._flashNode(node, 'error');
+			this._schedulePhaseReset(node, 3000);
+		}
+
+		this._unlockGraph();
+
+		this.eventBus.emit('content:removeFailed', {
+			nodeIndex: node_index,
 			error,
 		});
 	}
@@ -205,20 +262,34 @@ class FileUploadManager {
 
 	_handleButtonClick(event) {
 		const { nodeId, buttonId, buttonConfig } = event;
-		
-		if (!this._isFileButton(buttonId, buttonConfig)) return;
-		
+
 		const node = this.app.graph.getNodeById(nodeId);
 		if (!node) return;
-		
+
 		// Don't allow if graph is locked
 		if (this.app.isLocked) {
 			console.log('[FileUpload] Graph is locked, ignoring button click');
 			return;
 		}
-		
+
+		// Handle content management buttons
+		if (buttonId === 'list') {
+			console.log(`[FileUpload] List contents on node ${nodeId}`);
+			this._handleListContents(node);
+			return;
+		}
+
+		if (buttonId === 'remove') {
+			console.log(`[FileUpload] Remove contents on node ${nodeId}`);
+			this._handleRemoveContents(node);
+			return;
+		}
+
+		// Handle file buttons
+		if (!this._isFileButton(buttonId, buttonConfig)) return;
+
 		console.log(`[FileUpload] Button ${buttonId} on node ${nodeId}`);
-		
+
 		this._openFilePicker(node, buttonId, buttonConfig);
 	}
 
@@ -251,7 +322,7 @@ class FileUploadManager {
 	_getNodeAcceptFilter(node) {
 		const dropzoneConfig = node._dropzoneConfig || node.dropzoneConfig;
 		if (dropzoneConfig?.accept) return dropzoneConfig.accept;
-		
+
 		const typeFilters = {
 			'knowledge_manager_config': '.csv,.doc,.docx,.json,.md,.pdf,.pptx,.txt,.xls,.xlsx',
 			'content_db_config': '.json,.txt',
@@ -262,8 +333,237 @@ class FileUploadManager {
 			'data_audio': '.mp3,.wav,.ogg,.m4a',
 			'data_video': '.mp4,.webm,.mov,.avi',
 		};
-		
+
 		return typeFilters[node.workflowType] || '*';
+	}
+
+	// ================================================================
+	// Content Management Handlers
+	// ================================================================
+
+	async _handleListContents(node) {
+		const stableId = this._ensureStableId(node);
+
+		// Sync workflow first
+		await this.syncCallback();
+
+		// Re-find node after sync
+		node = this._findNodeByStableId(stableId);
+		if (!node) {
+			console.error('[FileUpload] Node not found after sync');
+			return;
+		}
+
+		const nodeIndex = node.workflowIndex;
+		if (nodeIndex === undefined || nodeIndex === null) {
+			console.error('[FileUpload] Node has no workflow index');
+			return;
+		}
+
+		try {
+			const response = await fetch(`${this.baseUrl}/contents/list/${nodeIndex}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+			});
+
+			if (!response.ok) {
+				const error = await response.text();
+				throw new Error(error || `List failed: ${response.status}`);
+			}
+
+			const result = await response.json();
+			console.log('[FileUpload] Contents list:', result);
+
+			this._showContentsModal(node, result.contents || []);
+
+		} catch (error) {
+			console.error('[FileUpload] List contents error:', error);
+			this.eventBus.emit('content:listFailed', {
+				nodeId: node.id,
+				error: error.message,
+			});
+		}
+	}
+
+	async _handleRemoveContents(node) {
+		// First list contents, then show removal dialog
+		const stableId = this._ensureStableId(node);
+
+		await this.syncCallback();
+
+		node = this._findNodeByStableId(stableId);
+		if (!node) {
+			console.error('[FileUpload] Node not found after sync');
+			return;
+		}
+
+		const nodeIndex = node.workflowIndex;
+		if (nodeIndex === undefined || nodeIndex === null) {
+			console.error('[FileUpload] Node has no workflow index');
+			return;
+		}
+
+		try {
+			const response = await fetch(`${this.baseUrl}/contents/list/${nodeIndex}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+			});
+
+			if (!response.ok) {
+				const error = await response.text();
+				throw new Error(error || `List failed: ${response.status}`);
+			}
+
+			const result = await response.json();
+			this._showContentsModal(node, result.contents || [], true);
+
+		} catch (error) {
+			console.error('[FileUpload] List contents error:', error);
+			this.eventBus.emit('content:listFailed', {
+				nodeId: node.id,
+				error: error.message,
+			});
+		}
+	}
+
+	async removeContents(node, ids) {
+		if (!ids || ids.length === 0) return;
+
+		const nodeIndex = node.workflowIndex;
+		if (nodeIndex === undefined || nodeIndex === null) {
+			console.error('[FileUpload] Node has no workflow index');
+			return null;
+		}
+
+		this._lockGraph('Removing contents');
+
+		try {
+			const response = await fetch(`${this.baseUrl}/contents/remove/${nodeIndex}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ ids }),
+			});
+
+			if (!response.ok) {
+				const error = await response.text();
+				throw new Error(error || `Remove failed: ${response.status}`);
+			}
+
+			const result = await response.json();
+			console.log('[FileUpload] Remove result:', result);
+
+			this._flashNode(node, 'success');
+			this._unlockGraph();
+
+			return result;
+
+		} catch (error) {
+			console.error('[FileUpload] Remove contents error:', error);
+			this._flashNode(node, 'error');
+			this._unlockGraph();
+
+			this.eventBus.emit('content:removeFailed', {
+				nodeId: node.id,
+				error: error.message,
+			});
+
+			return null;
+		}
+	}
+
+	_showContentsModal(node, contents, allowRemove = false) {
+		// Remove existing modal if any
+		const existing = document.getElementById('sg-contents-modal');
+		existing?.remove();
+
+		const modal = document.createElement('div');
+		modal.id = 'sg-contents-modal';
+		modal.className = 'sg-contents-modal-overlay';
+
+		const isEmpty = !contents || contents.length === 0;
+
+		modal.innerHTML = `
+			<div class="sg-contents-modal">
+				<div class="sg-contents-modal-header">
+					<h3>${allowRemove ? 'Remove Contents' : 'Contents'}</h3>
+					<button class="sg-contents-modal-close">&times;</button>
+				</div>
+				<div class="sg-contents-modal-body">
+					${isEmpty ? '<p class="sg-contents-empty">No contents available</p>' : `
+						${allowRemove ? '<p class="sg-contents-hint">Select items to remove:</p>' : ''}
+						<div class="sg-contents-list">
+							${contents.map((item, i) => `
+								<div class="sg-contents-item" data-id="${item.id}">
+									${allowRemove ? `<input type="checkbox" class="sg-contents-checkbox" data-id="${item.id}">` : ''}
+									<div class="sg-contents-item-info">
+										<span class="sg-contents-item-source">${this._getContentSource(item.metadata)}</span>
+										<span class="sg-contents-item-id">${item.id}</span>
+									</div>
+								</div>
+							`).join('')}
+						</div>
+					`}
+				</div>
+				<div class="sg-contents-modal-footer">
+					${allowRemove && !isEmpty ? `
+						<button class="sg-contents-btn sg-contents-btn-select-all">Select All</button>
+						<button class="sg-contents-btn sg-contents-btn-danger sg-contents-btn-remove" disabled>Remove Selected</button>
+					` : ''}
+					<button class="sg-contents-btn sg-contents-btn-close">Close</button>
+				</div>
+			</div>
+		`;
+
+		document.body.appendChild(modal);
+
+		// Event handlers
+		const closeModal = () => modal.remove();
+
+		modal.querySelector('.sg-contents-modal-close').onclick = closeModal;
+		modal.querySelector('.sg-contents-btn-close').onclick = closeModal;
+		modal.onclick = (e) => {
+			if (e.target === modal) closeModal();
+		};
+
+		if (allowRemove && !isEmpty) {
+			const checkboxes = modal.querySelectorAll('.sg-contents-checkbox');
+			const removeBtn = modal.querySelector('.sg-contents-btn-remove');
+			const selectAllBtn = modal.querySelector('.sg-contents-btn-select-all');
+
+			const updateRemoveBtn = () => {
+				const checked = modal.querySelectorAll('.sg-contents-checkbox:checked');
+				removeBtn.disabled = checked.length === 0;
+				removeBtn.textContent = checked.length > 0
+					? `Remove Selected (${checked.length})`
+					: 'Remove Selected';
+			};
+
+			checkboxes.forEach(cb => cb.onchange = updateRemoveBtn);
+
+			selectAllBtn.onclick = () => {
+				const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+				checkboxes.forEach(cb => cb.checked = !allChecked);
+				selectAllBtn.textContent = allChecked ? 'Select All' : 'Deselect All';
+				updateRemoveBtn();
+			};
+
+			removeBtn.onclick = async () => {
+				const selectedIds = Array.from(modal.querySelectorAll('.sg-contents-checkbox:checked'))
+					.map(cb => cb.dataset.id);
+
+				if (selectedIds.length === 0) return;
+
+				if (!confirm(`Remove ${selectedIds.length} item(s)? This cannot be undone.`)) return;
+
+				closeModal();
+				await this.removeContents(node, selectedIds);
+			};
+		}
+	}
+
+	_getContentSource(metadata) {
+		if (!metadata) return 'Unknown';
+		return metadata.source || metadata.filename || metadata.name || 'Unknown';
 	}
 
 	_ensureStableId(node) {
@@ -660,8 +960,174 @@ class FileUploadManager {
 				0%, 100% { opacity: 1; }
 				50% { opacity: 0.5; }
 			}
+
+			/* Contents Modal Styles */
+			.sg-contents-modal-overlay {
+				position: fixed;
+				top: 0;
+				left: 0;
+				right: 0;
+				bottom: 0;
+				background: rgba(0, 0, 0, 0.6);
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				z-index: 10002;
+			}
+
+			.sg-contents-modal {
+				background: #1e1e1e;
+				border-radius: 8px;
+				min-width: 400px;
+				max-width: 600px;
+				max-height: 80vh;
+				display: flex;
+				flex-direction: column;
+				box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+				border: 1px solid #333;
+			}
+
+			.sg-contents-modal-header {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				padding: 12px 16px;
+				border-bottom: 1px solid #333;
+			}
+
+			.sg-contents-modal-header h3 {
+				margin: 0;
+				font-size: 14px;
+				font-weight: 600;
+				color: #fff;
+			}
+
+			.sg-contents-modal-close {
+				background: none;
+				border: none;
+				color: #888;
+				font-size: 20px;
+				cursor: pointer;
+				padding: 0;
+				line-height: 1;
+			}
+
+			.sg-contents-modal-close:hover {
+				color: #fff;
+			}
+
+			.sg-contents-modal-body {
+				padding: 16px;
+				overflow-y: auto;
+				flex: 1;
+			}
+
+			.sg-contents-empty {
+				color: #888;
+				text-align: center;
+				padding: 20px;
+				margin: 0;
+			}
+
+			.sg-contents-hint {
+				color: #aaa;
+				font-size: 12px;
+				margin: 0 0 12px 0;
+			}
+
+			.sg-contents-list {
+				display: flex;
+				flex-direction: column;
+				gap: 8px;
+			}
+
+			.sg-contents-item {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+				padding: 10px 12px;
+				background: #2a2a2a;
+				border-radius: 6px;
+				border: 1px solid #3a3a3a;
+			}
+
+			.sg-contents-item:hover {
+				border-color: #4a4a4a;
+			}
+
+			.sg-contents-checkbox {
+				width: 16px;
+				height: 16px;
+				cursor: pointer;
+			}
+
+			.sg-contents-item-info {
+				display: flex;
+				flex-direction: column;
+				gap: 2px;
+				flex: 1;
+				min-width: 0;
+			}
+
+			.sg-contents-item-source {
+				color: #fff;
+				font-size: 13px;
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+			}
+
+			.sg-contents-item-id {
+				color: #666;
+				font-size: 10px;
+				font-family: monospace;
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
+			}
+
+			.sg-contents-modal-footer {
+				display: flex;
+				justify-content: flex-end;
+				gap: 8px;
+				padding: 12px 16px;
+				border-top: 1px solid #333;
+			}
+
+			.sg-contents-btn {
+				padding: 8px 16px;
+				border: none;
+				border-radius: 4px;
+				font-size: 13px;
+				font-weight: 500;
+				cursor: pointer;
+				background: #3a3a3a;
+				color: #fff;
+				transition: background 0.15s;
+			}
+
+			.sg-contents-btn:hover:not(:disabled) {
+				background: #4a4a4a;
+			}
+
+			.sg-contents-btn:disabled {
+				opacity: 0.5;
+				cursor: not-allowed;
+			}
+
+			.sg-contents-btn-danger {
+				background: #c53030;
+			}
+
+			.sg-contents-btn-danger:hover:not(:disabled) {
+				background: #e53e3e;
+			}
+
+			.sg-contents-btn-select-all {
+				margin-right: auto;
+			}
 		`;
-		
+
 		document.head.appendChild(style);
 	}
 

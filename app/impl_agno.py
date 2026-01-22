@@ -6,7 +6,7 @@ import tempfile
 
 
 from   fastapi                         import FastAPI
-from   typing                          import Any, List
+from   typing                          import Any, Dict, List, Tuple
 
 
 from   agno.agent                      import Agent
@@ -404,6 +404,14 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		return result
 
 
+	async def list_contents(knowledge: Any) -> List[Tuple[str, Dict[str, Any]]]:
+		if not isinstance(knowledge, Knowledge):
+			raise "Invalid Agno Knowledge instance"
+		contents, _ = knowledge.get_content()
+		result = [(content.id, content.metadata) for content in contents]
+		return result
+
+
 	backend = ImplementedBackend(
 		handles         = impl,
 		run_tool        = run_tool,
@@ -411,6 +419,7 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		get_agent_app   = get_agent_app,
 		add_contents    = add_contents,
 		remove_contents = remove_contents,
+		list_contents   = list_contents,
 	)
 
 	return backend

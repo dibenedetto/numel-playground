@@ -66,6 +66,11 @@ class EventType(str, Enum):
 	PROCESSING_COMPLETED     = "processing.completed"
 	PROCESSING_FAILED        = "processing.failed"
 
+	# Content management events
+	CONTENT_REMOVE_STARTED   = "content.remove_started"
+	CONTENT_REMOVE_COMPLETED = "content.remove_completed"
+	CONTENT_REMOVE_FAILED    = "content.remove_failed"
+
 
 
 class WorkflowEvent(BaseModel):

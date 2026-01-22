@@ -34,6 +34,10 @@ class ToolCallRequest(BaseModel):
 	args : Any
 
 
+class ContentRemoveRequest(BaseModel):
+	ids : List[str]
+
+
 def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, manager: WorkflowManager, engine: WorkflowEngine):
 
 	@app.post("/shutdown")
@@ -389,6 +393,116 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 				error   = str(e),
 				data    = {
 					"upload_id"  : upload_id,
+					"node_index" : node_index,
+				}
+			)
+			raise HTTPException(status_code=500, detail=str(e))
+
+
+	@app.post("/contents/list/{node_index}")
+	async def list_contents(node_index: int):
+		"""List all contents for a node (e.g., knowledge manager)"""
+		nonlocal manager
+
+		try:
+			impl = await manager.impl()
+			if not impl:
+				raise HTTPException(status_code=404, detail="No active workflow")
+
+			workflow = impl["workflow"]
+			if node_index < 0 or node_index >= len(workflow.nodes):
+				raise HTTPException(status_code=404, detail=f"Node {node_index} not found")
+
+			node    = workflow.nodes[node_index]
+			backend = impl["backend"]
+			handle  = backend.handles[node_index]
+
+			if not handle:
+				raise HTTPException(status_code=400, detail=f"Node {node_index} has no content handle")
+
+			contents = await backend.list_contents(handle)
+
+			result = {
+				"status"     : "ok",
+				"node_index" : node_index,
+				"node_type"  : node.type,
+				"contents"   : [
+					{"id": id, "metadata": metadata}
+					for id, metadata in contents
+				],
+			}
+			return result
+
+		except HTTPException:
+			raise
+		except Exception as e:
+			log_print(f"Error listing contents: {e}")
+			raise HTTPException(status_code=500, detail=str(e))
+
+
+	@app.post("/contents/remove/{node_index}")
+	async def remove_contents(node_index: int, request: ContentRemoveRequest):
+		"""Remove contents from a node by their IDs"""
+		nonlocal event_bus, manager
+
+		try:
+			impl = await manager.impl()
+			if not impl:
+				raise HTTPException(status_code=404, detail="No active workflow")
+
+			workflow = impl["workflow"]
+			if node_index < 0 or node_index >= len(workflow.nodes):
+				raise HTTPException(status_code=404, detail=f"Node {node_index} not found")
+
+			node    = workflow.nodes[node_index]
+			backend = impl["backend"]
+			handle  = backend.handles[node_index]
+
+			if not handle:
+				raise HTTPException(status_code=400, detail=f"Node {node_index} has no content handle")
+
+			await event_bus.emit(
+				EventType.CONTENT_REMOVE_STARTED,
+				node_id = str(node_index),
+				data    = {
+					"node_index" : node_index,
+					"node_type"  : node.type,
+					"ids"        : request.ids,
+				}
+			)
+
+			removed = await backend.remove_contents(handle, request.ids)
+
+			await event_bus.emit(
+				EventType.CONTENT_REMOVE_COMPLETED,
+				node_id = str(node_index),
+				data    = {
+					"node_index" : node_index,
+					"node_type"  : node.type,
+					"removed"    : removed,
+				}
+			)
+
+			result = {
+				"status"     : "ok",
+				"node_index" : node_index,
+				"node_type"  : node.type,
+				"removed"    : [
+					{"id": id, "success": success}
+					for id, success in zip(request.ids, removed)
+				],
+			}
+			return result
+
+		except HTTPException:
+			raise
+		except Exception as e:
+			log_print(f"Error removing contents: {e}")
+			await event_bus.emit(
+				EventType.CONTENT_REMOVE_FAILED,
+				node_id = str(node_index),
+				error   = str(e),
+				data    = {
 					"node_index" : node_index,
 				}
 			)

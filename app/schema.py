@@ -464,6 +464,18 @@ DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS : int  = 10
 	icon        = "📥",
 	position    = "bottom"
 )
+@node_button(
+	id          = "list",
+	label       = "List",
+	icon        = "📋",
+	position    = "bottom"
+)
+@node_button(
+	id          = "remove",
+	label       = "Remove",
+	icon        = "🗑",
+	position    = "bottom"
+)
 @node_dropzone(
 	accept      = ".csv,.doc,.docx,.json,.md,.pdf,.pptx,.txt,.xls,.xlsx",
 	area        = "content",
