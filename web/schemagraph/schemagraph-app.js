@@ -99,6 +99,7 @@ class SchemaGraphApp {
 			preview: [],       // Node types that display previews (e.g., ['schema.PreviewFlow'])
 			startNode: [],     // Node types that represent workflow start (e.g., ['schema.StartFlow'])
 			endNode: [],       // Node types that represent workflow end (e.g., ['schema.EndFlow'])
+			agentChat: [],     // Node types that display agent chat (e.g., ['schema.AgentChat'])
 			metaInputSlot: 'meta',  // Default slot name for meta connection on data nodes
 			workflowOptions: null,          // Model name for workflow options (e.g., 'WorkflowOptions')
 			workflowExecutionOptions: null  // Model name for workflow execution options (e.g., 'WorkflowExecutionOptions')
@@ -5802,6 +5803,10 @@ class SchemaGraphApp {
 					if (config.endNode) {
 						self._schemaTypeRoles.endNode = Array.isArray(config.endNode)
 							? config.endNode : [config.endNode];
+					}
+					if (config.agentChat) {
+						self._schemaTypeRoles.agentChat = Array.isArray(config.agentChat)
+							? config.agentChat : [config.agentChat];
 					}
 					if (config.metaInputSlot) {
 						self._schemaTypeRoles.metaInputSlot = config.metaInputSlot;

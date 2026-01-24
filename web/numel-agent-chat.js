@@ -1,32 +1,39 @@
 /* ========================================================================
-   NUMEL AGENT CHAT MANAGER - Agent Chat Management
+   NUMEL AGENT CHAT MANAGER
+   Handles agent connections and chat events via AG-UI protocol
+   Depends on: schemagraph-chat-ext.js, agui-bundle.js
    ======================================================================== */
 
-class AgentHandler {
+console.log('[Numel] Loading agent chat manager...');
 
+// ========================================================================
+// Agent Handler - Individual agent connection
+// ========================================================================
+
+class AgentHandler {
 	constructor() {
 		this._clear();
 	}
 
 	static _randomId() {
-		// https://gist.github.com/jed/982883?permalink_comment_id=852670#gistcomment-852670
-		return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g,a=>(a^Math.random()*16>>a/4).toString(16));
+		return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, a =>
+			(a ^ Math.random() * 16 >> a / 4).toString(16)
+		);
 	}
 
 	static _randomMessageId() {
-		const id = `numel-message-${AgentHandler._randomId()}`;
-		return id;
+		return `numel-message-${AgentHandler._randomId()}`;
 	}
 
 	_clear() {
-		this.url       = null;
-		this.name      = null;
+		this.url = null;
+		this.name = null;
 		this.callbacks = null;
-		this.agent     = null;
+		this.agent = null;
+		this.onEvent = null;
 	}
 
 	_handleAGUIEvent(event) {
-		// addLog("ag-ui", event);
 		if (!event) return;
 
 		this.onEvent?.(event);
@@ -37,49 +44,55 @@ class AgentHandler {
 
 	connect(
 		url,
-		name                 = null,
-		onEvent              = null,
-		onRunStarted         = null,
-		onRunFinished        = null,
-		onRunError           = null,
-		onToolCallStart      = null,
-		onToolCallResult     = null,
-		onTextMessageStart   = null,
-		onTextMessageEnd     = null,
+		name = null,
+		onEvent = null,
+		onRunStarted = null,
+		onRunFinished = null,
+		onRunError = null,
+		onToolCallStart = null,
+		onToolCallResult = null,
+		onTextMessageStart = null,
+		onTextMessageEnd = null,
 		onTextMessageContent = null,
 	) {
 		this.disconnect();
 
-		const callbacks = {}
-		callbacks[AGUI.EventType.RUN_STARTED         ] = onRunStarted;
-		callbacks[AGUI.EventType.RUN_FINISHED        ] = onRunFinished;
-		callbacks[AGUI.EventType.RUN_ERROR           ] = onRunError;
-		callbacks[AGUI.EventType.TOOL_CALL_START     ] = onToolCallStart;
-		callbacks[AGUI.EventType.TOOL_CALL_RESULT    ] = onToolCallResult;
-		callbacks[AGUI.EventType.TEXT_MESSAGE_START  ] = onTextMessageStart;
-		callbacks[AGUI.EventType.TEXT_MESSAGE_END    ] = onTextMessageEnd;
-		callbacks[AGUI.EventType.TEXT_MESSAGE_CONTENT] = onTextMessageContent;
-		callbacks[AGUI.EventType.TEXT_MESSAGE_CHUNK  ] = onTextMessageContent;
+		// Check if AGUI is available
+		if (typeof AGUI === 'undefined') {
+			console.error('[AgentHandler] AGUI not available');
+			return false;
+		}
 
-		const self       = this;
-		const target     = `${url}/agui`;
+		const callbacks = {};
+		callbacks[AGUI.EventType.RUN_STARTED] = onRunStarted;
+		callbacks[AGUI.EventType.RUN_FINISHED] = onRunFinished;
+		callbacks[AGUI.EventType.RUN_ERROR] = onRunError;
+		callbacks[AGUI.EventType.TOOL_CALL_START] = onToolCallStart;
+		callbacks[AGUI.EventType.TOOL_CALL_RESULT] = onToolCallResult;
+		callbacks[AGUI.EventType.TEXT_MESSAGE_START] = onTextMessageStart;
+		callbacks[AGUI.EventType.TEXT_MESSAGE_END] = onTextMessageEnd;
+		callbacks[AGUI.EventType.TEXT_MESSAGE_CONTENT] = onTextMessageContent;
+		callbacks[AGUI.EventType.TEXT_MESSAGE_CHUNK] = onTextMessageContent;
+
+		const self = this;
+		const target = `${url}/agui`;
 		const subscriber = {
 			onEvent(params) {
-				self._handleAGUIEvent(params.event)
+				self._handleAGUIEvent(params.event);
 			}
 		};
 
 		const agent = new AGUI.HttpAgent({
-			name : this.name,
-			url  : target,
+			name: this.name,
+			url: target,
 		});
 		agent.subscribe(subscriber);
 
-		this.url       = url;
-		this.name      = name;
-		this.onEvent   = onEvent;
+		this.url = url;
+		this.name = name;
+		this.onEvent = onEvent;
 		this.callbacks = callbacks;
-		this.agent     = agent;
+		this.agent = agent;
 
 		return true;
 	}
@@ -100,32 +113,35 @@ class AgentHandler {
 		if (!this.isConnected()) {
 			return null;
 		}
-		const messageId   = AgentHandler._randomMessageId();
+		const messageId = AgentHandler._randomMessageId();
 		const userMessage = {
-			id      : messageId,
-			role    : "user",
-			content : message,
+			id: messageId,
+			role: "user",
+			content: message,
 		};
 		this.agent.setMessages([userMessage]);
 		return await this.agent.runAgent({});
 	}
-};
+}
 
+// ========================================================================
+// Agent Chat Manager - Manages all agent chat connections
+// ========================================================================
 
 class AgentChatManager {
 	constructor(url, app, syncWorkflowFn) {
 		this.url = url;
 		this.app = app;
-		this.syncWorkflow = syncWorkflowFn;  // async () => Promise<void>
-		this.handlers = new Map();           // nodeId -> { handler, port, dirty }
-		
+		this.syncWorkflow = syncWorkflowFn;
+		this.handlers = new Map(); // chatId -> { handler, port, dirty }
+
 		this._setupListeners();
 	}
 
 	_setupListeners() {
 		const { eventBus } = this.app;
 
-		// Mark all handlers dirty on any graph change
+		// Mark all handlers dirty on graph changes
 		eventBus.on('graph:changed', () => this._markAllDirty());
 		eventBus.on('link:created', () => this._markAllDirty());
 		eventBus.on('link:removed', () => this._markAllDirty());
@@ -146,13 +162,13 @@ class AgentChatManager {
 	}
 
 	async _handleSend({ node, message }) {
-		const nodeId = node.chatId;
+		const chatId = node.chatId;
 
 		try {
 			// Ensure connected (lazy reconnect if dirty)
 			await this._ensureConnected(node);
 
-			const entry = this.handlers.get(nodeId);
+			const entry = this.handlers.get(chatId);
 			if (!entry?.handler?.isConnected()) {
 				throw new Error('Not connected to agent');
 			}
@@ -168,7 +184,7 @@ class AgentChatManager {
 	}
 
 	async _ensureConnected(node) {
-		const chatId = node.chatId;  // Stable ID
+		const chatId = node.chatId;
 		let entry = this.handlers.get(chatId);
 
 		const agentConfig = this._getConnectedAgentConfig(node);
@@ -183,7 +199,7 @@ class AgentChatManager {
 
 		await this.syncWorkflow();
 
-		// Re-fetch node by chatId after sync (node reference is now stale)
+		// Re-fetch node by chatId after sync
 		const newNode = this._findNodeByChatId(chatId);
 		if (!newNode) {
 			throw new Error('Chat node not found after sync');
@@ -204,7 +220,7 @@ class AgentChatManager {
 		const baseUrl = this.url.substr(0, this.url.lastIndexOf(":"));
 		const url = `${baseUrl}:${port}`;
 		const name = updatedConfig?.options?.name || null;
-		const callbacks = this._createCallbacks(newNode, chatId);  // Pass chatId
+		const callbacks = this._createCallbacks(newNode, chatId);
 
 		handler.connect(url, name, ...Object.values(callbacks));
 
@@ -242,28 +258,23 @@ class AgentChatManager {
 			annotations: { ...node.annotations }
 		};
 
-		// Include annotation fields at top level too for convenience
 		if (node.annotations) {
 			Object.assign(data, node.annotations);
 		}
 
-		// Extract native input values
 		for (let i = 0; i < (node.inputs?.length || 0); i++) {
 			const input = node.inputs[i];
 			const name = input.name;
 
-			// Skip multi-input base fields
 			const baseName = name.split('.')[0];
 			if (node.multiInputSlots?.[baseName]) continue;
 
-			// Connected value
 			const connected = node.getInputData?.(i);
 			if (connected !== undefined && connected !== null) {
 				data[name] = connected;
 				continue;
 			}
 
-			// Native input value
 			const native = node.nativeInputs?.[i];
 			if (native?.value !== null && native?.value !== undefined && native?.value !== '') {
 				data[name] = native.value;
@@ -275,15 +286,14 @@ class AgentChatManager {
 
 	_createCallbacks(node, chatId) {
 		const api = this.app.api.chat;
-		
-		// Always get fresh node reference via chatId
+
 		const getNode = () => this._findNodeByChatId(chatId);
 
 		return {
 			onEvent: (event) => {
 				console.debug(`[AgentChat:${chatId}]`, event);
 			},
-			onRunStarted: () => {},
+			onRunStarted: () => { },
 			onRunFinished: () => {
 				const n = getNode();
 				if (n) this._updateResponseOutput(n);
@@ -297,17 +307,17 @@ class AgentChatManager {
 			},
 			onToolCallStart: (toolName) => {
 				const n = getNode();
-				if (n) api.addMessage(n, MessageRole.SYSTEM, `🔧 ${toolName}...`);
+				if (n) api.addMessage(n, MessageRole.SYSTEM, `Tool: ${toolName}...`);
 			},
 			onToolCallResult: (toolName) => {
 				const n = getNode();
 				if (!n) return;
 				const messages = n.chatMessages || [];
-				const lastSystem = [...messages].reverse().find(m => 
+				const lastSystem = [...messages].reverse().find(m =>
 					m.role === MessageRole.SYSTEM && m.content.includes(toolName)
 				);
 				if (lastSystem) {
-					lastSystem.content = `🔧 ${toolName} ✔`;
+					lastSystem.content = `Tool: ${toolName} done`;
 					api.updateLastMessage(n, lastSystem.content, false);
 				}
 			},
@@ -354,7 +364,13 @@ class AgentChatManager {
 	}
 }
 
-// Export
+// ========================================================================
+// EXPORTS
+// ========================================================================
+
 if (typeof window !== 'undefined') {
+	window.AgentHandler = AgentHandler;
 	window.AgentChatManager = AgentChatManager;
 }
+
+console.log('[Numel] Agent chat manager loaded');

@@ -66,6 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const previewFlowTypeName = `${WORKFLOW_SCHEMA_NAME}.PreviewFlow`;
 		const startFlowTypeName   = `${WORKFLOW_SCHEMA_NAME}.StartFlow`  ;
 		const endFlowTypeName     = `${WORKFLOW_SCHEMA_NAME}.EndFlow`    ;
+		const agentChatTypeName   = `${WORKFLOW_SCHEMA_NAME}.AgentChat`  ;
 
 		schemaGraph.api.schemaTypes.setTypes({
 			sourceMeta               : sourceMetaTypeName,
@@ -73,6 +74,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			preview                  : previewFlowTypeName,
 			startNode                : startFlowTypeName,
 			endNode                  : endFlowTypeName,
+			agentChat                : agentChatTypeName,
 			metaInputSlot            : "meta",
 			workflowOptions          : "WorkflowOptions",
 			workflowExecutionOptions : "WorkflowExecutionOptions",
