@@ -19,7 +19,7 @@ from   api                     import setup_api
 from   engine                  import WorkflowEngine
 from   event_bus               import EventBus, get_event_bus
 from   manager                 import WorkflowManager
-from   utils                   import log_print, seed_everything
+from   utils                   import add_middleware, log_print, seed_everything
 
 
 load_dotenv()
@@ -42,14 +42,8 @@ async def run_server(args: Any):
 
 	await manager.initialize()
 
-	app : FastAPI = FastAPI(title="App")
-	app.add_middleware(
-		CORSMiddleware,
-		allow_credentials = False,
-		allow_headers     = ["*"],
-		allow_methods     = ["*"],
-		allow_origins     = ["*"],
-	)
+	app: FastAPI = FastAPI(title="App")
+	add_middleware(app)
 
 	host   = "0.0.0.0"
 	port   = args.port
