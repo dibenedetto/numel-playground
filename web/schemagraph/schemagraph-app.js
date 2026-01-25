@@ -88,6 +88,9 @@ class SchemaGraphApp {
 		this._decoratorParser = new NodeDecoratorParser();
 		this._schemaDecorators = {};
 
+		// Section-based header colors for nodes (configured via api.schemaTypes.setSectionColors)
+		this._sectionColors = {};
+
 		this._nodeTooltipsEnabled = true;
 		this._fieldTooltipsEnabled = true;
 		this._nodeHeaderTooltipEl = null;
@@ -151,6 +154,7 @@ class SchemaGraphApp {
 			themeSwitch: true,
 			autoPreview: true,
 			edgePreview: true,
+			sectionColors: true,
 			// Node types
 			nativeTypes: true
 		};
@@ -371,7 +375,8 @@ class SchemaGraphApp {
 			'sg-feature-linking': this._features.linkCreation && this._features.linkDeletion,
 			'sg-feature-contextmenu': this._features.contextMenu,
 			'sg-feature-zooming': this._features.zooming,
-			'sg-feature-panning': this._features.panning
+			'sg-feature-panning': this._features.panning,
+			'sg-feature-sectioncolors': this._features.sectionColors
 		};
 
 		for (const [id, checked] of Object.entries(basicCheckboxMap)) {
@@ -451,6 +456,11 @@ class SchemaGraphApp {
 						<input type="checkbox" id="sg-feature-panning" checked>
 						<span class="sg-toolbar-toggle-slider"></span>
 						<span class="sg-toolbar-toggle-text">Panning</span>
+					</label>
+					<label class="sg-toolbar-toggle-switch" title="Color node headers by section">
+						<input type="checkbox" id="sg-feature-sectioncolors" checked>
+						<span class="sg-toolbar-toggle-slider"></span>
+						<span class="sg-toolbar-toggle-text">Section Colors</span>
 					</label>
 				</div>
 			</div>
@@ -2644,6 +2654,17 @@ class SchemaGraphApp {
 		}
 		this.ctx.fillText(displayTitle, x + 8, y + 13);
 		this.ctx.restore();
+
+		// Draw execution state indicator (animated spinner for running nodes)
+		if (node.executionState) {
+			if (node.executionState === 'running') {
+				this._drawExecutionSpinner(x + w - 16, y + 13, 6, colors);
+			} else if (node.executionState === 'completed') {
+				this._drawExecutionCheck(x + w - 16, y + 13, 6, colors);
+			} else if (node.executionState === 'failed') {
+				this._drawExecutionX(x + w - 16, y + 13, 6, colors);
+			}
+		}
 
 		if (this._features.completenessIndicators) {
 			this._drawCompletenessIndicator(node, colors);
@@ -4858,7 +4879,14 @@ class SchemaGraphApp {
 		if (!node?.schemaName || !node?.modelName) return;
 		const decorators = this._schemaDecorators[node.schemaName]?.[node.modelName];
 		if (!decorators) return;
-		if (decorators.info) { node.nodeInfo = decorators.info; if (decorators.info.title) node.displayTitle = decorators.info.title; }
+		if (decorators.info) {
+			node.nodeInfo = decorators.info;
+			if (decorators.info.title) node.displayTitle = decorators.info.title;
+			// Apply section-based header color if feature is enabled and color is configured
+			if (this._features.sectionColors && decorators.info.section && this._sectionColors[decorators.info.section]) {
+				node.color = this._sectionColors[decorators.info.section];
+			}
+		}
 		const completeness = this._getNodeCompleteness(node);
 		const isComplete = completeness.complete;
 		for (const cfg of decorators.buttons || []) {
@@ -4869,6 +4897,22 @@ class SchemaGraphApp {
 			this.setNodeDropZone(node, { accept: decorators.dropzone.accept || '*', area: decorators.dropzone.area || 'content', label: isComplete ? (decorators.dropzone.label || 'Drop file here') : 'Complete required fields first', reject: decorators.dropzone.reject || 'File type not accepted', enabled: isComplete, callback: this._resolveDropCallback(decorators.dropzone.callback || 'emit_event') });
 		}
 		if (decorators.chat) { node.isChat = true; node.chatConfig = decorators.chat; }
+	}
+
+	_reapplySectionColorsToAllNodes() {
+		for (const node of this.graph.nodes) {
+			if (!node?.schemaName || !node?.modelName) continue;
+			const decorators = this._schemaDecorators[node.schemaName]?.[node.modelName];
+			if (!decorators?.info?.section) continue;
+
+			if (this._features.sectionColors && this._sectionColors[decorators.info.section]) {
+				node.color = this._sectionColors[decorators.info.section];
+			} else {
+				// Clear the color so default coloring takes over
+				delete node.color;
+			}
+		}
+		this.draw();
 	}
 
 	// ========================================================================
@@ -5234,6 +5278,62 @@ class SchemaGraphApp {
 			ctx.textBaseline = 'middle';
 			ctx.fillText(!selfComplete ? '!' : '⋯', badgeX, badgeY + 7);
 		}
+	}
+
+	_drawExecutionSpinner(cx, cy, r, colors) {
+		const ctx = this.ctx;
+		const time = performance.now() / 1000;
+		const rotation = (time * 3) % (Math.PI * 2); // 3 rotations per second
+
+		ctx.save();
+		ctx.translate(cx, cy);
+		ctx.rotate(rotation);
+
+		// Draw spinning arc
+		ctx.strokeStyle = '#ffffff';
+		ctx.lineWidth = 2 / this.camera.scale;
+		ctx.lineCap = 'round';
+		ctx.beginPath();
+		ctx.arc(0, 0, r, 0, Math.PI * 1.5);
+		ctx.stroke();
+
+		// Draw dot at the end
+		ctx.fillStyle = '#ffffff';
+		ctx.beginPath();
+		ctx.arc(r * Math.cos(Math.PI * 1.5), r * Math.sin(Math.PI * 1.5), 1.5 / this.camera.scale, 0, Math.PI * 2);
+		ctx.fill();
+
+		ctx.restore();
+	}
+
+	_drawExecutionCheck(cx, cy, r, colors) {
+		const ctx = this.ctx;
+		ctx.save();
+		ctx.strokeStyle = '#ffffff';
+		ctx.lineWidth = 2 / this.camera.scale;
+		ctx.lineCap = 'round';
+		ctx.lineJoin = 'round';
+		ctx.beginPath();
+		ctx.moveTo(cx - r * 0.5, cy);
+		ctx.lineTo(cx - r * 0.1, cy + r * 0.5);
+		ctx.lineTo(cx + r * 0.6, cy - r * 0.4);
+		ctx.stroke();
+		ctx.restore();
+	}
+
+	_drawExecutionX(cx, cy, r, colors) {
+		const ctx = this.ctx;
+		ctx.save();
+		ctx.strokeStyle = '#ffffff';
+		ctx.lineWidth = 2 / this.camera.scale;
+		ctx.lineCap = 'round';
+		ctx.beginPath();
+		ctx.moveTo(cx - r * 0.5, cy - r * 0.5);
+		ctx.lineTo(cx + r * 0.5, cy + r * 0.5);
+		ctx.moveTo(cx + r * 0.5, cy - r * 0.5);
+		ctx.lineTo(cx - r * 0.5, cy + r * 0.5);
+		ctx.stroke();
+		ctx.restore();
 	}
 
 	_refreshNodeInteractivity(node) {
@@ -5820,6 +5920,27 @@ class SchemaGraphApp {
 				},
 
 				/**
+				 * Configure section-based header colors for nodes
+				 * Colors are applied based on the 'section' field in @node_info decorator
+				 * @param {Object<string, string>} colors - Map of section name to hex color
+				 * @example
+				 * schemaTypes.setSectionColors({
+				 *   'Data Sources': '#4a7c59',
+				 *   'Configurations': '#5c7caa',
+				 *   'Workflow': '#7a5c8a'
+				 * });
+				 */
+				setSectionColors: (colors) => {
+					Object.assign(self._sectionColors, colors);
+				},
+
+				/**
+				 * Get the configured section colors
+				 * @returns {Object<string, string>} Map of section name to hex color
+				 */
+				getSectionColors: () => ({ ...self._sectionColors }),
+
+				/**
 				 * Check if a node is a data tensor type
 				 * @param {Object} node - The node to check
 				 * @returns {boolean} True if node is a data tensor type
@@ -6277,6 +6398,10 @@ class SchemaGraphApp {
 					});
 					document.getElementById('sg-feature-panning')?.addEventListener('change', (e) => {
 						self.api.features.set({ panning: e.target.checked });
+					});
+					document.getElementById('sg-feature-sectioncolors')?.addEventListener('change', (e) => {
+						self.api.features.set({ sectionColors: e.target.checked });
+						self._reapplySectionColorsToAllNodes();
 					});
 
 					// Features panel toggle (show/hide with animation)

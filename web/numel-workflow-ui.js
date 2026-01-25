@@ -80,6 +80,16 @@ document.addEventListener('DOMContentLoaded', () => {
 			workflowExecutionOptions : "WorkflowExecutionOptions",
 		});
 
+		// Configure section-based node header colors
+		schemaGraph.api.schemaTypes.setSectionColors({
+			'Data Sources'   : '#4a7c59',  // Forest green
+			'Native Types'   : '#9370db',  // Medium purple
+			'Configurations' : '#5c7caa',  // Steel blue
+			'Workflow'       : '#7a5c8a',  // Muted purple
+			'Interactive'    : '#c2714f',  // Terracotta
+			'Miscellanea'    : '#6b6b7a',  // Gray
+		});
+
 		schemaGraph.api.canvasDrop.setAccept("image/*,audio/*,video/*,text/*,application/json");
 
 		// schemaGraph.api.canvasDrop.setCreationCallback(async (file, x, y, app) => {

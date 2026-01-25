@@ -1179,22 +1179,14 @@ class ChatExtension extends SchemaGraphExtension {
 		const schemaName = node.schemaName;
 		const modelName = node.modelName;
 
-		console.log(`[ChatExtension] Checking node ${node.id}: schemaName=${schemaName}, modelName=${modelName}`);
-
 		if (!schemaName || !modelName) {
-			console.log(`[ChatExtension] Node ${node.id} missing schemaName or modelName`);
 			return;
 		}
-
-		console.log(`[ChatExtension] Available chat configs:`, this.schemaChats);
 
 		const chatConfig = this.schemaChats[schemaName]?.[modelName];
 		if (!chatConfig) {
-			console.log(`[ChatExtension] No chat config for ${schemaName}.${modelName}`);
 			return;
 		}
-
-		console.log(`[ChatExtension] Found chat config for ${modelName}:`, chatConfig);
 
 		Object.assign(node, ChatNodeMixin);
 		node.initChat(chatConfig);

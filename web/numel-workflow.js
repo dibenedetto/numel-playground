@@ -357,19 +357,58 @@ class WorkflowVisualizer {
 		};
 
 		graphNode.color = colorMap[status] || graphNode.color;
+		graphNode.executionState = status;
 
 		if (status === 'running') {
 			this.schemaGraph.api.node.select(graphNode, false);
+			// Start execution animation if not already running
+			this._startExecutionAnimation();
 		}
 
-		this.schemaGraph.draw();
+		// Skip draw if we're in batch update mode
+		if (!this._batchUpdate) {
+			this.schemaGraph.draw();
+		}
+	}
+
+	_startExecutionAnimation() {
+		if (this._animationIntervalId) return;
+
+		const self = this;
+		this._animationIntervalId = setInterval(() => {
+			// Check if any node is still running
+			const hasRunningNode = self.graphNodes?.some(n => n?.executionState === 'running');
+			if (!hasRunningNode) {
+				self._stopExecutionAnimation();
+				return;
+			}
+			self.schemaGraph?.draw();
+		}, 50); // 20fps for smooth spinner animation
+	}
+
+	_stopExecutionAnimation() {
+		if (this._animationIntervalId) {
+			clearInterval(this._animationIntervalId);
+			this._animationIntervalId = null;
+		}
 	}
 
 	clearNodeStates() {
+		// Stop any running animation
+		this._stopExecutionAnimation();
+
+		// Batch update to avoid multiple draw calls
+		this._batchUpdate = true;
 		this.graphNodes.forEach((node, idx) => {
-			if (node) this.updateNodeState(idx, 'pending');
+			if (node) {
+				node.executionState = 'pending';
+				node.color = '#4a5568';
+			}
 		});
+		this._batchUpdate = false;
+
 		this.schemaGraph.api.node.clearSelection();
+		this.schemaGraph.draw();
 	}
 
 	// --- Node Addition ---

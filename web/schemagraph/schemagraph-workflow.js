@@ -720,25 +720,33 @@ class WorkflowNodeFactory {
 
 	_getNativeBaseType(typeStr) {
 		if (!typeStr) return 'str';
-		if (typeStr.includes('Message[')) {
+		if (typeStr.startsWith('Message[')) {
 			const match = typeStr.match(/Message\[([^\]]+)\]/);
 			if (match) return this._getNativeBaseType(match[1]);
 		}
-		if (typeStr.includes('Union[') || typeStr.includes('|')) {
-			const parts = this._splitUnionTypes(typeStr.replace(/^Union\[|\]$/g, ''));
+		// Only process Union if it's at the top level (starts with Union[ or contains |)
+		if (typeStr.startsWith('Union[')) {
+			const inner = typeStr.slice(6, -1); // Remove "Union[" and trailing "]"
+			const parts = this._splitUnionTypes(inner);
 			for (const part of parts) {
 				if (!part.trim().startsWith('Message')) return this._getNativeBaseType(part.trim());
 			}
-			if (parts.length > 0 && parts[0].includes('Message[')) {
+			if (parts.length > 0 && parts[0].startsWith('Message[')) {
 				const match = parts[0].match(/Message\[([^\]]+)\]/);
 				if (match) return this._getNativeBaseType(match[1]);
 			}
+		} else if (typeStr.includes('|') && !typeStr.includes('[')) {
+			// Simple union with | (e.g., "int | str") but not nested in brackets
+			const parts = typeStr.split('|').map(p => p.trim());
+			for (const part of parts) {
+				if (!part.startsWith('Message')) return this._getNativeBaseType(part);
+			}
 		}
+		if (typeStr.includes('Dict') || typeStr.includes('dict')) return 'dict';
+		if (typeStr.includes('List') || typeStr.includes('list')) return 'list';
 		if (typeStr.includes('int') || typeStr.includes('Int')) return 'int';
 		if (typeStr.includes('bool') || typeStr.includes('Bool')) return 'bool';
 		if (typeStr.includes('float') || typeStr.includes('Float')) return 'float';
-		if (typeStr.includes('Dict') || typeStr.includes('dict')) return 'dict';
-		if (typeStr.includes('List') || typeStr.includes('list')) return 'list';
 		if (typeStr.includes('Any')) return 'str';
 		return 'str';
 	}
