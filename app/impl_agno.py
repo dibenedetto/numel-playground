@@ -1,10 +1,12 @@
 # impl_agno
 
 import copy
+import importlib
 import os
 import tempfile
 
 
+from   importlib                       import import_module
 from   fastapi                         import FastAPI
 from   typing                          import Any, Dict, List, Tuple
 
@@ -171,13 +173,26 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 	def _build_tool(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "tool_config", "Invalid Agno tool"
-		args = item_config.args if item_config.args is not None else dict()
-		if item_config.name == "@reasoning":
-			item = ReasoningTools()
-		elif item_config.name == "@web_search":
-			max_results = args.get("max_results", DEFAULT_TOOL_MAX_WEB_SEARCH_RESULTS)
-			item = DuckDuckGoTools(fixed_max_results=max_results)
+		if item_config.lang and item_config.script:
+			raise ValueError(f"Inline Agno tool not implemented")
+		if not item_config.name:
+			raise ValueError(f"Agno tool needs name")
+		args = item_config.args or dict()
+		item = None
+		if item_config.name[0] == "@":
+			if item_config.name == "@reasoning":
+				item = ReasoningTools()
+			elif item_config.name == "@web_search":
+				max_results = args.get("max_results", DEFAULT_TOOL_MAX_WEB_SEARCH_RESULTS)
+				item = DuckDuckGoTools(fixed_max_results=max_results)
 		else:
+			module_path, func_name = item_config.name.rsplit(".", 1)
+			md = import_module(module_path)
+			fn = getattr(md, func_name)
+			if not fn:
+				raise ValueError(f"Agno tool not found")
+			item = fn
+		if not item:
 			raise ValueError(f"Unsupported Agno tool")
 		impl[index] = item
 
@@ -204,10 +219,9 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		if True:
 			content_db = impl[links[index]["content_db"]] if item_config.content_db is not None else None
 
-		# TODO
 		tools = None
-		# if True:
-		# 	tools = [impl.tools[i] for i in item_config.tools if impl.tools[i] is not None]
+		if item_config.tools:
+			tools = [impl[links[index]["tools"][i]] for i in item_config.tools]
 
 		if True:
 			enable_agentic_memory   = False

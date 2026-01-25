@@ -763,7 +763,7 @@ class InteractiveType(BaseType):
 	title       = "Interactive Tool",
 	description = "Calls tool interactively",
 	icon        = "☎️",
-	section     = "Workflow",
+	section     = "Interactive",
 	visible     = True
 )
 class ToolCall(InteractiveType):
@@ -787,7 +787,7 @@ class ToolCall(InteractiveType):
 	title       = "Interactive Agent Chat",
 	description = "Allows to chat with agent interactively",
 	icon        = "🗪",
-	section     = "Workflow",
+	section     = "Interactive",
 	visible     = True
 )
 class AgentChat(InteractiveType):
