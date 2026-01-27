@@ -1,7 +1,7 @@
 # impl_agno
 
+import asyncio
 import copy
-import importlib
 import os
 import tempfile
 
@@ -348,7 +348,10 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 
 
 	async def run_tool(tool: Any, *args, **kwargs) -> dict:
-		raw    = await tool(*args, **kwargs)
+		if asyncio.iscoroutinefunction(tool):
+			raw = await tool(*args, **kwargs)
+		else:
+			raw = tool(*args, **kwargs)
 		result = dict(
 			content_type = "",
 			content      = raw,

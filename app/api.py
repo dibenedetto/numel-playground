@@ -107,16 +107,15 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 
 	@app.post("/tool_call")
-	@app.post("/tool_call/{name}")
-	async def tool_call(request: ToolCallRequest, name: Optional[str] = None):
+	async def tool_call(request: ToolCallRequest):
 		nonlocal manager
 		try:
-			impl = await manager.impl(name)
+			impl = await manager.impl()
 			if not impl:
-				raise HTTPException(status_code=404, detail=f"Workflow '{name}' not found")
+				raise HTTPException(status_code=404, detail="No active workflow")
 
 			workflow = impl["workflow"]
-			backend  = impl["backend"]
+			backend  = impl["backend" ]
 
 			if not backend:
 				raise HTTPException(status_code=400, detail=f"Workflow has no backend implementation")

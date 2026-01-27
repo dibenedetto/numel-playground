@@ -1200,7 +1200,9 @@ async function executeToolCall(toolCallNode) {
 
 		addLog('info', `🔧 Executing tool at node ${toolConfig.workflowIndex}...`);
 
-		const response = await fetch(`${serverUrl}/tool_call/${visualizer.currentWorkflowName}`, {
+		const serverUrl = client.baseUrl;
+		// const response = await fetch(`${serverUrl}/tool_call/${visualizer.currentWorkflowName}`, {
+		const response = await fetch(`${serverUrl}/tool_call`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
