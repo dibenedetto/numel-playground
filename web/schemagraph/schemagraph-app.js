@@ -106,7 +106,8 @@ class SchemaGraphApp {
 			toolCall: [],      // Node types that make interactive tool calls (e.g., ['schema.ToolCall'])
 			metaInputSlot: 'meta',  // Default slot name for meta connection on data nodes
 			workflowOptions: null,          // Model name for workflow options (e.g., 'WorkflowOptions')
-			workflowExecutionOptions: null  // Model name for workflow execution options (e.g., 'WorkflowExecutionOptions')
+			workflowExecutionOptions: null, // Model name for workflow execution options (e.g., 'WorkflowExecutionOptions')
+			previewSlotMap: {}              // Maps preview input slot names to output slot names (e.g., { 'input': 'get' })
 		};
 
 		// Canvas drop configuration (node types come from _schemaTypeRoles)
@@ -156,6 +157,7 @@ class SchemaGraphApp {
 			autoPreview: true,
 			edgePreview: true,
 			sectionColors: true,
+			preservePreviewLinks: true,
 			// Node types
 			nativeTypes: true
 		};
@@ -377,7 +379,8 @@ class SchemaGraphApp {
 			'sg-feature-contextmenu': this._features.contextMenu,
 			'sg-feature-zooming': this._features.zooming,
 			'sg-feature-panning': this._features.panning,
-			'sg-feature-sectioncolors': this._features.sectionColors
+			'sg-feature-sectioncolors': this._features.sectionColors,
+			'sg-feature-preservepreviewlinks': this._features.preservePreviewLinks
 		};
 
 		for (const [id, checked] of Object.entries(basicCheckboxMap)) {
@@ -462,6 +465,11 @@ class SchemaGraphApp {
 						<input type="checkbox" id="sg-feature-sectioncolors" checked>
 						<span class="sg-toolbar-toggle-slider"></span>
 						<span class="sg-toolbar-toggle-text">Section Colors</span>
+					</label>
+					<label class="sg-toolbar-toggle-switch" title="Preserve connections when deleting preview nodes">
+						<input type="checkbox" id="sg-feature-preservepreviewlinks" checked>
+						<span class="sg-toolbar-toggle-slider"></span>
+						<span class="sg-toolbar-toggle-text">Preserve Links</span>
 					</label>
 				</div>
 			</div>
@@ -1643,6 +1651,11 @@ class SchemaGraphApp {
 			if (this.selectedNode === node) this.selectedNode = null;
 			this.selectedNodes.delete(node);
 			return;
+		}
+
+		// If preserve preview links is enabled and this is a preview node, reconnect underlying nodes
+		if (this._features.preservePreviewLinks && this._isPreviewFlowNode(node)) {
+			this._preservePreviewNodeLinks(node);
 		}
 
 		for (let j = 0; j < node.inputs.length; j++) {
@@ -3532,6 +3545,58 @@ class SchemaGraphApp {
 			   node.modelName === 'PreviewFlow' ||
 			   node.type?.includes('PreviewFlow') ||
 			   (node.title?.toLowerCase().includes('preview') && node.isWorkflowNode);
+	}
+
+	/**
+	 * Preserve preview node links by connecting source to targets directly
+	 * Called before removing a preview node when preservePreviewLinks feature is enabled
+	 * Uses previewSlotMap from schemaTypeRoles to determine which input->output pairs to preserve
+	 * @param {Object} node - The preview node being removed
+	 */
+	_preservePreviewNodeLinks(node) {
+		if (!node) return;
+
+		// Get the configured slot map (e.g., { 'input': 'get', 'data': 'output' })
+		const slotMap = this._schemaTypeRoles.previewSlotMap;
+		if (!slotMap || Object.keys(slotMap).length === 0) return;
+
+		// Process each configured input->output mapping
+		for (const [inputSlotName, outputSlotName] of Object.entries(slotMap)) {
+			// Find input slot index by name
+			const inputIdx = this._findInputSlotByName(node, inputSlotName);
+			if (inputIdx === null || inputIdx === undefined) continue;
+
+			// Find output slot index by name
+			const outputIdx = this._findOutputSlotByName(node, outputSlotName);
+			if (outputIdx === null || outputIdx === undefined) continue;
+
+			// Get incoming links for this input (handle both single and multi-input)
+			const inLinkIds = node.multiInputs?.[inputIdx]?.links ||
+				(node.inputs[inputIdx]?.link ? [node.inputs[inputIdx].link] : []);
+
+			// Get outgoing links for this output
+			const outLinkIds = node.outputs?.[outputIdx]?.links || [];
+
+			// Create bypass links: source -> target (skipping preview node)
+			for (const inLinkId of inLinkIds) {
+				const inLink = this.graph.links[inLinkId];
+				if (!inLink) continue;
+
+				const src = this.graph.getNodeById(inLink.origin_id);
+				if (!src) continue;
+
+				for (const outLinkId of outLinkIds) {
+					const outLink = this.graph.links[outLinkId];
+					if (!outLink) continue;
+
+					const tgt = this.graph.getNodeById(outLink.target_id);
+					if (!tgt) continue;
+
+					// Create direct link bypassing the preview node
+					this.graph.addLink(src.id, inLink.origin_slot, tgt.id, outLink.target_slot, inLink.type);
+				}
+			}
+		}
 	}
 
 	/**
@@ -5939,6 +6004,11 @@ class SchemaGraphApp {
 					if (config.workflowExecutionOptions) {
 						self._schemaTypeRoles.workflowExecutionOptions = config.workflowExecutionOptions;
 					}
+					if (config.previewSlotMap) {
+						// Map of input slot names to output slot names for preview link preservation
+						// e.g., { 'input': 'get', 'data': 'output' }
+						self._schemaTypeRoles.previewSlotMap = { ...config.previewSlotMap };
+					}
 				},
 
 				/**
@@ -6431,6 +6501,9 @@ class SchemaGraphApp {
 					document.getElementById('sg-feature-sectioncolors')?.addEventListener('change', (e) => {
 						self.api.features.set({ sectionColors: e.target.checked });
 						self._reapplySectionColorsToAllNodes();
+					});
+					document.getElementById('sg-feature-preservepreviewlinks')?.addEventListener('change', (e) => {
+						self.api.features.set({ preservePreviewLinks: e.target.checked });
 					});
 
 					// Features panel toggle (show/hide with animation)

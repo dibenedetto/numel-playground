@@ -5,21 +5,20 @@ import asyncio
 import uvicorn
 
 
-from   dotenv                  import load_dotenv
-from   fastapi                 import FastAPI
-from   fastapi.middleware.cors import CORSMiddleware
-from   inspect                 import getsource
-from   typing                  import Any
+from   dotenv    import load_dotenv
+from   fastapi   import FastAPI
+from   inspect   import getsource
+from   typing    import Any
 
 
 import schema
 
 
-from   api                     import setup_api
-from   engine                  import WorkflowEngine
-from   event_bus               import EventBus, get_event_bus
-from   manager                 import WorkflowManager
-from   utils                   import add_middleware, log_print, seed_everything
+from   api       import setup_api
+from   engine    import WorkflowEngine
+from   event_bus import EventBus, get_event_bus
+from   manager   import WorkflowManager
+from   utils     import add_middleware, log_print, seed_everything
 
 
 load_dotenv()
