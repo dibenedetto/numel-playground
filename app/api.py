@@ -31,7 +31,8 @@ class UserInputRequest(BaseModel):
 
 
 class ToolCallRequest(BaseModel):
-	args : Any
+	node_index : int
+	args       : Optional[Dict[str, Any]] = None
 
 
 class ContentRemoveRequest(BaseModel):
@@ -105,15 +106,54 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 	# 	return result
 
 
-	# @app.post("/tool_call/{name}")
-	# async def tool_call(name: str, request: ToolCallRequest):
-	# 	raise HTTPException(status_code=501, detail=f"Tool call not implemented")
-	# 	result = {
-	# 		"name"    : name,
-	# 		"request" : request,
-	# 		"error"   : 501,
-	# 	}
-	# 	return result
+	@app.post("/tool_call")
+	@app.post("/tool_call/{name}")
+	async def tool_call(request: ToolCallRequest, name: Optional[str] = None):
+		nonlocal manager
+		try:
+			impl = await manager.impl(name)
+			if not impl:
+				raise HTTPException(status_code=404, detail=f"Workflow '{name}' not found")
+
+			workflow = impl["workflow"]
+			backend  = impl["backend"]
+
+			if not backend:
+				raise HTTPException(status_code=400, detail=f"Workflow has no backend implementation")
+
+			node_index = request.node_index
+			if node_index < 0 or node_index >= len(workflow.nodes):
+				raise HTTPException(status_code=400, detail=f"Invalid node index: {node_index}")
+
+			node = workflow.nodes[node_index]
+			if node.type != "tool_config":
+				raise HTTPException(status_code=400, detail=f"Node at index {node_index} is not a tool_config (got {node.type})")
+
+			handle = backend.handles[node_index]
+			if not handle:
+				raise HTTPException(status_code=400, detail=f"Tool at index {node_index} has no implementation")
+
+			# Merge default args from config with request args
+			args = dict(node.args or {})
+			if request.args:
+				args.update(request.args)
+
+			# Execute the tool
+			result_data = await backend.run_tool(handle, **args)
+
+			result = {
+				"status"     : "success",
+				"node_index" : node_index,
+				"tool_name"  : node.name,
+				"result"     : result_data,
+			}
+			return result
+
+		except HTTPException:
+			raise
+		except Exception as e:
+			log_print(f"[API] Tool call error: {str(e)}")
+			raise HTTPException(status_code=500, detail=str(e))
 
 
 	@app.post("/add")

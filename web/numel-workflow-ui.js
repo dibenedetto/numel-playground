@@ -41,8 +41,16 @@ document.addEventListener('DOMContentLoaded', () => {
 		// console.log('Graph modified:', e.originalEvent);
 	});
 
-	schemaGraph.eventBus.on('node:buttonClicked', (data) => {
+	schemaGraph.eventBus.on('node:buttonClicked', async (data) => {
 		console.log('Button clicked:', data.buttonId, 'on node:', data.nodeId);
+
+		// Handle tool call execute button
+		if (data.buttonId === 'execute') {
+			const node = schemaGraph.graph.getNodeById(data.nodeId);
+			if (node && schemaGraph.api.schemaTypes.isToolCall(node)) {
+				await executeToolCall(node);
+			}
+		}
 	});
 
 	schemaGraph.eventBus.on('node:fileDrop', (data) => {
@@ -67,6 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const startFlowTypeName   = `${WORKFLOW_SCHEMA_NAME}.StartFlow`  ;
 		const endFlowTypeName     = `${WORKFLOW_SCHEMA_NAME}.EndFlow`    ;
 		const agentChatTypeName   = `${WORKFLOW_SCHEMA_NAME}.AgentChat`  ;
+		const toolCallTypeName    = `${WORKFLOW_SCHEMA_NAME}.ToolCall`   ;
 
 		schemaGraph.api.schemaTypes.setTypes({
 			sourceMeta               : sourceMetaTypeName,
@@ -75,6 +84,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			startNode                : startFlowTypeName,
 			endNode                  : endFlowTypeName,
 			agentChat                : agentChatTypeName,
+			toolCall                 : toolCallTypeName,
 			metaInputSlot            : "meta",
 			workflowOptions          : "WorkflowOptions",
 			workflowExecutionOptions : "WorkflowExecutionOptions",
@@ -1119,6 +1129,120 @@ async function cancelExecution() {
 	} catch (error) {
 		addLog('error', `❌ Cancel failed: ${error.message}`);
 		$('cancelBtn').disabled = false;
+	}
+}
+
+// ========================================================================
+// TOOL CALL EXECUTION
+// ========================================================================
+
+/**
+ * Get the connected ToolConfig node from a ToolCall node
+ * @param {Object} toolCallNode - The ToolCall node
+ * @returns {Object|null} The connected ToolConfig node data or null
+ */
+function getConnectedToolConfig(toolCallNode) {
+	if (!toolCallNode || !schemaGraph) return null;
+
+	const configSlotIdx = toolCallNode.getInputSlotByName?.('config');
+	if (configSlotIdx < 0) return null;
+
+	const input = toolCallNode.inputs?.[configSlotIdx];
+	if (!input?.link) return null;
+
+	const link = schemaGraph.graph.links[input.link];
+	if (!link) return null;
+
+	const configNode = schemaGraph.graph.getNodeById(link.origin_id);
+	if (!configNode) return null;
+
+	// Return config node data including workflow index
+	return {
+		node: configNode,
+		workflowIndex: configNode.workflowIndex
+	};
+}
+
+/**
+ * Execute a tool call via the ToolCall node
+ * @param {Object} toolCallNode - The ToolCall node to execute
+ */
+async function executeToolCall(toolCallNode) {
+	if (!client || !visualizer?.currentWorkflowName) {
+		addLog('error', '❌ Not connected or no workflow loaded');
+		return;
+	}
+
+	const toolConfig = getConnectedToolConfig(toolCallNode);
+	if (!toolConfig) {
+		addLog('error', '❌ ToolCall node must be connected to a ToolConfig');
+		schemaGraph.showError('ToolCall must be connected to a ToolConfig node');
+		return;
+	}
+
+	// Get args from the ToolCall node's native input
+	let args = {};
+	const argsSlotIdx = toolCallNode.getInputSlotByName?.('args');
+	if (argsSlotIdx >= 0 && toolCallNode.nativeInputs?.[argsSlotIdx]) {
+		const argsValue = toolCallNode.nativeInputs[argsSlotIdx].value;
+		if (argsValue) {
+			try {
+				args = typeof argsValue === 'string' ? JSON.parse(argsValue) : argsValue;
+			} catch (e) {
+				addLog('warning', '⚠️ Could not parse args as JSON, using empty args');
+			}
+		}
+	}
+
+	try {
+		// Sync workflow first to ensure server has latest state
+		await syncWorkflow();
+
+		addLog('info', `🔧 Executing tool at node ${toolConfig.workflowIndex}...`);
+
+		const response = await fetch(`${serverUrl}/tool_call/${visualizer.currentWorkflowName}`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				node_index: toolConfig.workflowIndex,
+				args: args
+			})
+		});
+
+		const result = await response.json();
+
+		if (!response.ok) {
+			throw new Error(result.detail || 'Tool call failed');
+		}
+
+		addLog('success', `✅ Tool "${result.tool_name}" executed successfully`);
+
+		// Update the result output on the ToolCall node
+		const resultContent = result.result?.content;
+		if (resultContent !== undefined) {
+			// Store result in node for display
+			toolCallNode.extra = toolCallNode.extra || {};
+			toolCallNode.extra.toolResult = resultContent;
+
+			// Update any connected preview nodes
+			if (toolCallNode.workflowIndex !== undefined) {
+				updateConnectedPreviews(toolCallNode.workflowIndex, { result: resultContent });
+			}
+		}
+
+		// Show result in a dialog
+		const resultStr = typeof resultContent === 'object'
+			? JSON.stringify(resultContent, null, 2)
+			: String(resultContent ?? 'No result');
+
+		schemaGraph.showNotification?.(`Tool Result:\n${resultStr.substring(0, 500)}${resultStr.length > 500 ? '...' : ''}`, 'success', 5000);
+
+		schemaGraph.draw();
+
+	} catch (error) {
+		console.error('Tool call error:', error);
+		addLog('error', `❌ Tool call failed: ${error.message}`);
+		schemaGraph.showError?.(`Tool call failed: ${error.message}`);
 	}
 }
 

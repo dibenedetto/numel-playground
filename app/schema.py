@@ -759,6 +759,12 @@ class InteractiveType(BaseType):
 	type : Annotated[Literal["interactive_type"], FieldRole.CONSTANT] = "interactive_type"
 
 
+@node_button(
+	id          = "execute",
+	label       = "Execute",
+	icon        = "▶",
+	position    = "bottom"
+)
 @node_info(
 	title       = "Interactive Tool",
 	description = "Calls tool interactively",

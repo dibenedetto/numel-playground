@@ -103,6 +103,7 @@ class SchemaGraphApp {
 			startNode: [],     // Node types that represent workflow start (e.g., ['schema.StartFlow'])
 			endNode: [],       // Node types that represent workflow end (e.g., ['schema.EndFlow'])
 			agentChat: [],     // Node types that display agent chat (e.g., ['schema.AgentChat'])
+			toolCall: [],      // Node types that make interactive tool calls (e.g., ['schema.ToolCall'])
 			metaInputSlot: 'meta',  // Default slot name for meta connection on data nodes
 			workflowOptions: null,          // Model name for workflow options (e.g., 'WorkflowOptions')
 			workflowExecutionOptions: null  // Model name for workflow execution options (e.g., 'WorkflowExecutionOptions')
@@ -3534,6 +3535,23 @@ class SchemaGraphApp {
 	}
 
 	/**
+	 * Check if a node is a ToolCall type
+	 * @param {Object} node - The node to check
+	 * @returns {boolean} True if this is a tool call node
+	 */
+	_isToolCallNode(node) {
+		if (!node) return false;
+		// Check configured types first
+		if (this._schemaTypeRoles.toolCall.length > 0) {
+			return this._nodeMatchesTypes(node, this._schemaTypeRoles.toolCall);
+		}
+		// Fallback to pattern matching
+		return node.workflowType === 'tool_call' ||
+			   node.modelName === 'ToolCall' ||
+			   node.type?.includes('ToolCall');
+	}
+
+	/**
 	 * Check if a node is a DataTensor type
 	 * @param {Object} node - The node to check
 	 * @returns {boolean} True if this is a data tensor node
@@ -5908,6 +5926,10 @@ class SchemaGraphApp {
 						self._schemaTypeRoles.agentChat = Array.isArray(config.agentChat)
 							? config.agentChat : [config.agentChat];
 					}
+					if (config.toolCall) {
+						self._schemaTypeRoles.toolCall = Array.isArray(config.toolCall)
+							? config.toolCall : [config.toolCall];
+					}
 					if (config.metaInputSlot) {
 						self._schemaTypeRoles.metaInputSlot = config.metaInputSlot;
 					}
@@ -5974,6 +5996,13 @@ class SchemaGraphApp {
 				 * @returns {boolean} True if node is an end node type
 				 */
 				isEndNode: (node) => self._isEndNode(node),
+
+				/**
+				 * Check if a node is a tool call type
+				 * @param {Object} node - The node to check
+				 * @returns {boolean} True if node is a tool call type
+				 */
+				isToolCall: (node) => self._isToolCallNode(node),
 
 				/**
 				 * Auto-detect type roles from a registered schema
