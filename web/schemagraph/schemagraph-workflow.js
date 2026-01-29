@@ -641,6 +641,11 @@ class WorkflowNodeFactory {
 				description: field.description,
 				type: field.rawType
 			};
+
+			// Store default value on output slot for preview access
+			if (field.default !== undefined && node.outputs[outputIdx]) {
+				node.outputs[outputIdx].defaultValue = field.default;
+			}
 			outputIdx++;
 		}
 

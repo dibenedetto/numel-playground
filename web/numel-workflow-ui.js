@@ -38,7 +38,24 @@ document.addEventListener('DOMContentLoaded', () => {
 	// schemaGraph.api.events.enableDebug();
 	schemaGraph.api.events.onGraphChanged((e) => {
 		workflowDirty = true;
+		updateClearButtonState();
 		// console.log('Graph modified:', e.originalEvent);
+	});
+
+	// Handle link creation - trace upward for preview data
+	schemaGraph.api.events.onLinkCreated((data) => {
+		handleLinkCreatedForPreview(data);
+	});
+
+	// Handle link removal - refresh preview data for affected nodes
+	schemaGraph.api.events.onLinkRemoved((data) => {
+		handleLinkRemovedForPreview(data);
+	});
+
+	// Handle node removal - refresh downstream preview nodes after graph settles
+	schemaGraph.api.events.onNodeRemoved(() => {
+		// Delay to let preservePreviewLinks reconnect first
+		setTimeout(() => refreshAllPreviewNodes(), 100);
 	});
 
 	schemaGraph.eventBus.on('node:buttonClicked', async (data) => {
@@ -99,6 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			'Workflow'       : '#7a5c8a',  // Muted purple
 			'Interactive'    : '#c2714f',  // Terracotta
 			'Miscellanea'    : '#6b6b7a',  // Gray
+			'Tutorial'       : '#e67e22',  // Orange (tutorial extension)
 		});
 
 		schemaGraph.api.canvasDrop.setAccept("image/*,audio/*,video/*,text/*,application/json");
@@ -258,7 +276,13 @@ function enableStart(enable) {
 	$('cancelBtn'        ).disabled = enable;
 	$('singleImportBtn'  ).disabled = !enable;
 	$('singleDownloadBtn').disabled = !enable;
-	$('clearWorkflowBtn' ).disabled = !enable;
+	updateClearButtonState();
+}
+
+function updateClearButtonState() {
+	const hasNodes = schemaGraph?.graph?.nodes?.length > 0;
+	const isConnected = client?.isConnected;
+	$('clearWorkflowBtn').disabled = !hasNodes || !isConnected;
 }
 
 // ========================================================================
@@ -345,7 +369,6 @@ async function connect() {
 		$('downloadWorkflowBtn').disabled = false;
 		$('singleImportBtn').disabled = false;
 		$('singleDownloadBtn').disabled = false;
-		$('clearWorkflowBtn').disabled = false;
 		enableStart(true);
 
 		if (singleMode) {
@@ -618,7 +641,7 @@ async function handleFileUpload(event) {
 			$('singleWorkflowName').textContent = visualizer.currentWorkflowName || 'Untitled';
 			$('singleDownloadBtn').disabled = false;
 		}
-		$('clearWorkflowBtn').disabled = false;
+		updateClearButtonState();
 	} catch (error) {
 		addLog('error', `❌ Failed to upload: ${error.message}`);
 	}
@@ -834,7 +857,7 @@ async function clearWorkflow() {
 	$('downloadWorkflowBtn').disabled = true;
 	$('singleDownloadBtn'  ).disabled = true;
 	$('startBtn'           ).disabled = true;
-	$('clearWorkflowBtn'   ).disabled = true;
+	updateClearButtonState();
 	
 	if (singleMode) {
 		$('singleWorkflowName').textContent = 'None';
@@ -1265,22 +1288,22 @@ async function executeToolCall(toolCallNode) {
  */
 function updateConnectedPreviews(workflowNodeIdx, outputs) {
 	if (!visualizer || !schemaGraph) return;
-	
+
 	const graphNode = visualizer.graphNodes[workflowNodeIdx];
 	if (!graphNode) return;
-	
+
 	const graph = schemaGraph.graph;
 	const previewManager = schemaGraph.edgePreviewManager;
 	let needsRedraw = false;
-	
+
 	// Check each output slot
 	for (const output of graphNode.outputs || []) {
 		for (const linkId of output.links || []) {
 			const link = graph.links[linkId];
 			if (!link) continue;
-			
+
 			const targetNode = graph.getNodeById(link.target_id);
-			if (!targetNode?.isPreviewNode) continue;
+			if (!isPreviewNode(targetNode)) continue;
 			
 			// Determine which output data to use
 			const slotName = output.name;
@@ -1317,29 +1340,43 @@ function updateConnectedPreviews(workflowNodeIdx, outputs) {
 /**
  * Update a single preview node with new data and trigger flash animation
  * @param {Node} previewNode - The preview node to update
- * @param {any} data - New data to display
+ * @param {any} data - New data to display (or object with {data, type})
  * @param {EdgePreviewManager} previewManager - Preview manager instance
  */
 function updatePreviewNode(previewNode, data, previewManager) {
+	// Handle both raw data and {data, type} objects
+	let actualData = data;
+	let dataType = null;
+	if (data && typeof data === 'object' && 'data' in data && 'type' in data) {
+		actualData = data.data;
+		dataType = data.type;
+	}
+
 	// Store previous data for comparison
-	// const hadData = previewNode.previewData !== null && previewNode.previewData !== undefined;
-	const dataChanged = FORCE_PREVIEW_ON_SAME_DATA || !deepEqual(previewNode.previewData, data);
-	
+	const dataChanged = FORCE_PREVIEW_ON_SAME_DATA || !deepEqual(previewNode.previewData, actualData);
+
 	// Update node data
-	previewNode.previewData = data;
-	previewNode.previewType = previewNode._detectType(data);
+	previewNode.previewData = actualData;
+	// Use provided type, schemaGraph's method, or node's method as fallback
+	if (dataType) {
+		previewNode.previewType = dataType;
+	} else if (schemaGraph?._guessTypeFromData) {
+		previewNode.previewType = schemaGraph._guessTypeFromData(actualData);
+	} else if (typeof previewNode._detectType === 'function') {
+		previewNode.previewType = previewNode._detectType(actualData);
+	}
 	previewNode.previewError = null;
 	previewNode._lastUpdateTime = Date.now();
-	
+
 	// Trigger flash animation if data changed
 	if (dataChanged) {
 		triggerPreviewFlash(previewNode);
 	}
-	
+
 	// Update overlay if this preview is currently expanded
 	if (previewManager?.previewOverlay?.activeNode === previewNode) {
 		previewManager.previewOverlay.update();
-		
+
 		// Flash the overlay too
 		if (dataChanged) {
 			triggerOverlayFlash(previewManager.previewOverlay);
@@ -1348,22 +1385,39 @@ function updatePreviewNode(previewNode, data, previewManager) {
 }
 
 /**
- * Propagate data through chained preview nodes
+ * Check if a node is a preview node
+ * @param {Object} node - The node to check
+ * @returns {boolean} True if this is a preview node
+ */
+function isPreviewNode(node) {
+	if (!node) return false;
+	// Use the schemaGraph's method if available, otherwise check type
+	if (schemaGraph?._isPreviewFlowNode) {
+		return schemaGraph._isPreviewFlowNode(node);
+	}
+	// Fallback check
+	return node.type?.includes('PreviewFlow') ||
+	       node.modelName === 'PreviewFlow' ||
+	       (node.title?.toLowerCase().includes('preview') && node.isWorkflowNode);
+}
+
+/**
+ * Propagate data through chained preview nodes (downstream)
  * @param {Node} previewNode - Source preview node
  * @param {any} data - Data to propagate
  * @param {EdgePreviewManager} previewManager - Preview manager instance
  */
 function propagateToDownstreamPreviews(previewNode, data, previewManager) {
 	const graph = schemaGraph.graph;
-	
+
 	for (const output of previewNode.outputs || []) {
 		for (const linkId of output.links || []) {
 			const link = graph.links[linkId];
 			if (!link) continue;
-			
+
 			const targetNode = graph.getNodeById(link.target_id);
-			if (!targetNode?.isPreviewNode) continue;
-			
+			if (!isPreviewNode(targetNode)) continue;
+
 			updatePreviewNode(targetNode, data, previewManager);
 			propagateToDownstreamPreviews(targetNode, data, previewManager);
 		}
@@ -1371,14 +1425,205 @@ function propagateToDownstreamPreviews(previewNode, data, previewManager) {
 }
 
 /**
+ * Trace upward from a preview node to find source data
+ * Finds the upstream preview node that has actual data and extracts it
+ * Also stores previewData on intermediate preview nodes for rendering
+ * @param {Node} previewNode - The preview node to trace from
+ * @param {Set} visited - Set of visited node IDs to prevent infinite loops
+ * @returns {Object|null} Object with {data, type} or null if not found
+ */
+function traceUpwardForPreviewData(previewNode, visited = new Set()) {
+	if (!previewNode || !schemaGraph || visited.has(previewNode.id)) return null;
+	visited.add(previewNode.id);
+
+	const graph = schemaGraph.graph;
+
+	// Check input slots for incoming links
+	for (const input of previewNode.inputs || []) {
+		if (!input.link) continue;
+
+		const link = graph.links[input.link];
+		if (!link) continue;
+
+		const sourceNode = graph.getNodeById(link.origin_id);
+		if (!sourceNode) continue;
+
+		// If source is a preview node, get its preview data using _getPreviewData
+		if (isPreviewNode(sourceNode)) {
+			// Call _getPreviewData on the SOURCE preview node (which already shows data)
+			if (schemaGraph._getPreviewData) {
+				const previewResult = schemaGraph._getPreviewData(sourceNode);
+				// Check various data properties the result might have
+				const data = previewResult?.data ?? previewResult?.value;
+				if (data !== undefined && data !== null && previewResult?.type !== 'node') {
+					// IMPORTANT: Store previewData on the source node so _extractPreviewDataFromNode finds it
+					if (sourceNode.previewData === undefined || sourceNode.previewData === null) {
+						sourceNode.previewData = data;
+						sourceNode.previewType = previewResult.type;
+					}
+					// Return object with data and type
+					return { data, type: previewResult.type };
+				}
+			}
+			// Also check stored previewData
+			if (sourceNode.previewData !== undefined && sourceNode.previewData !== null) {
+				return { data: sourceNode.previewData, type: sourceNode.previewType };
+			}
+			// Recursively trace further upstream
+			const upstreamResult = traceUpwardForPreviewData(sourceNode, visited);
+			if (upstreamResult !== null) {
+				// Store on this intermediate node too
+				if (sourceNode.previewData === undefined || sourceNode.previewData === null) {
+					sourceNode.previewData = upstreamResult.data;
+					sourceNode.previewType = upstreamResult.type;
+				}
+				return upstreamResult;
+			}
+		}
+		// Non-preview node - use _extractPreviewDataFromNode if available
+		else {
+			if (schemaGraph._extractPreviewDataFromNode) {
+				const result = schemaGraph._extractPreviewDataFromNode(sourceNode, link.origin_slot);
+				const data = result?.data ?? result?.value;
+				if (data !== undefined && data !== null) {
+					return { data, type: result?.type };
+				}
+			}
+		}
+	}
+
+	return null;
+}
+
+/**
+ * Handle link creation - update preview nodes by tracing upward for data
+ * @param {Object} data - Event data containing linkId and optionally link object
+ */
+function handleLinkCreatedForPreview(data) {
+	if (!schemaGraph?.graph) return;
+
+	// Get link from data (could be passed directly or via linkId)
+	let link = data.link || schemaGraph.graph.links[data.linkId];
+	if (!link) {
+		console.warn('handleLinkCreatedForPreview: link not found', data);
+		return;
+	}
+
+	// Get target node - could be target_id or targetNodeId depending on source
+	const targetId = link.target_id ?? data.targetNodeId;
+	const targetNode = schemaGraph.graph.getNodeById(targetId);
+
+	if (!isPreviewNode(targetNode)) {
+		return;
+	}
+
+	// Trace upward to find source data (returns {data, type} or null)
+	const result = traceUpwardForPreviewData(targetNode);
+
+	if (result !== null) {
+		const previewManager = schemaGraph.edgePreviewManager;
+		// Pass the result object which contains {data, type}
+		updatePreviewNode(targetNode, result, previewManager);
+		// Also propagate to any downstream preview nodes
+		propagateToDownstreamPreviews(targetNode, result, previewManager);
+		schemaGraph.draw();
+	}
+}
+
+/**
+ * Refresh all preview nodes in the graph by re-tracing their data sources
+ */
+function refreshAllPreviewNodes() {
+	if (!schemaGraph?.graph) return;
+
+	const previewManager = schemaGraph.edgePreviewManager;
+	let refreshed = 0;
+
+	for (const node of schemaGraph.graph.nodes) {
+		if (!isPreviewNode(node)) continue;
+
+		// Check if node has an input connection
+		const hasInputConnection = node.inputs?.some(input => input.link != null);
+		if (!hasInputConnection) continue;
+
+		// Re-trace upward to find source data
+		const result = traceUpwardForPreviewData(node, new Set());
+		if (result !== null) {
+			updatePreviewNode(node, result, previewManager);
+			refreshed++;
+		}
+	}
+
+	if (refreshed > 0) {
+		if (schemaGraph._refreshAllCompleteness) {
+			schemaGraph._refreshAllCompleteness();
+		}
+		schemaGraph.draw();
+	}
+}
+
+/**
+ * Handle link removal - refresh preview data for affected preview nodes
+ * @param {Object} data - Event data containing link info
+ */
+function handleLinkRemovedForPreview(data) {
+	if (!schemaGraph?.graph) return;
+
+	// Get the target node that lost its connection
+	const targetId = data.targetNodeId ?? data.target_id;
+	if (!targetId) return;
+
+	const targetNode = schemaGraph.graph.getNodeById(targetId);
+
+	// Skip if node doesn't exist (was deleted) or isn't a preview node
+	if (!targetNode || !isPreviewNode(targetNode)) return;
+
+	// Check if this node still has an input connection BEFORE clearing data
+	// This handles the case where preservePreviewLinks creates a new connection before removing the old one
+	const hasInputConnection = targetNode.inputs?.some(input => input.link != null);
+
+	// Only clear data if the node has no more input connections
+	if (!hasInputConnection) {
+		targetNode.previewData = null;
+		targetNode.previewType = null;
+	}
+
+	// Always refresh to ensure visual state is correct
+	setTimeout(() => {
+		// Recheck input connection status
+		const stillHasInput = targetNode.inputs?.some(input => input.link != null);
+
+		if (stillHasInput) {
+			// Re-trace upward to find source data
+			const result = traceUpwardForPreviewData(targetNode, new Set());
+			if (result !== null) {
+				const previewManager = schemaGraph.edgePreviewManager;
+				updatePreviewNode(targetNode, result, previewManager);
+				propagateToDownstreamPreviews(targetNode, result, previewManager);
+			}
+		}
+
+		// Force a complete visual refresh
+		if (schemaGraph._refreshAllCompleteness) {
+			schemaGraph._refreshAllCompleteness();
+		}
+		schemaGraph.draw();
+	}, 50);
+}
+
+/**
  * Trigger flash animation on a preview node (canvas-based)
  * @param {Node} node - Preview node to flash
  */
 function triggerPreviewFlash(node) {
+	// Check if preview flash feature is enabled
+	if (!schemaGraph._features?.previewFlash) return;
+
 	node._flashStart = performance.now();
 	node._flashDuration = 600; // ms
 	node._isFlashing = true;
-	
+	node._flashProgress = 0;
+
 	// Start animation loop if not already running
 	if (!schemaGraph._previewFlashAnimating) {
 		schemaGraph._previewFlashAnimating = true;

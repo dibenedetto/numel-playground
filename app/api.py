@@ -14,6 +14,9 @@ from   manager   import WorkflowManager
 from   schema    import Workflow, WorkflowExecutionOptions
 from   utils     import get_now_str, get_timestamp_str, log_print, serialize_result
 
+# Tutorial extension (see docs/tutorial-extension.md)
+from   tutorial_api import setup_tutorial_api
+
 
 class WorkflowUploadRequest(BaseModel):
 	workflow : Workflow
@@ -40,6 +43,9 @@ class ContentRemoveRequest(BaseModel):
 
 
 def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, manager: WorkflowManager, engine: WorkflowEngine):
+
+	# Setup tutorial extension API (see docs/tutorial-extension.md)
+	setup_tutorial_api(app, manager)
 
 	@app.post("/shutdown")
 	async def shutdown_server():

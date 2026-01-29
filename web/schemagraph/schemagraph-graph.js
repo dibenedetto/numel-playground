@@ -441,10 +441,15 @@ class SchemaGraph extends Graph {
 					}
 				}
 
-				// Setup outputs
+				// Setup outputs (with defaults stored on slots)
 				if (schema.outputs) {
-					for (const out of schema.outputs) {
+					for (let i = 0; i < schema.outputs.length; i++) {
+						const out = schema.outputs[i];
 						this.addOutput(out.name, out.type || 'any');
+						// Store default value on the output slot for preview access
+						if (out.default !== undefined && this.outputs[i]) {
+							this.outputs[i].defaultValue = out.default;
+						}
 					}
 				}
 

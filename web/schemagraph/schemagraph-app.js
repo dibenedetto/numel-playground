@@ -158,6 +158,7 @@ class SchemaGraphApp {
 			edgePreview: true,
 			sectionColors: true,
 			preservePreviewLinks: true,
+			previewFlash: true,  // Flash animation when preview data updates
 			// Node types
 			nativeTypes: true
 		};
@@ -380,7 +381,8 @@ class SchemaGraphApp {
 			'sg-feature-zooming': this._features.zooming,
 			'sg-feature-panning': this._features.panning,
 			'sg-feature-sectioncolors': this._features.sectionColors,
-			'sg-feature-preservepreviewlinks': this._features.preservePreviewLinks
+			'sg-feature-preservepreviewlinks': this._features.preservePreviewLinks,
+			'sg-feature-previewflash': this._features.previewFlash
 		};
 
 		for (const [id, checked] of Object.entries(basicCheckboxMap)) {
@@ -470,6 +472,11 @@ class SchemaGraphApp {
 						<input type="checkbox" id="sg-feature-preservepreviewlinks" checked>
 						<span class="sg-toolbar-toggle-slider"></span>
 						<span class="sg-toolbar-toggle-text">Preserve Links</span>
+					</label>
+					<label class="sg-toolbar-toggle-switch" title="Flash animation when preview data updates">
+						<input type="checkbox" id="sg-feature-previewflash" checked>
+						<span class="sg-toolbar-toggle-slider"></span>
+						<span class="sg-toolbar-toggle-text">Preview Flash</span>
 					</label>
 				</div>
 			</div>
@@ -1675,7 +1682,11 @@ class SchemaGraphApp {
 							const idx = targetNode.multiInputs[link.target_slot].links.indexOf(linkId);
 							if (idx > -1) targetNode.multiInputs[link.target_slot].links.splice(idx, 1);
 						} else {
-							targetNode.inputs[link.target_slot].link = null;
+							// Only clear the link if it's the same link being removed
+							// (preservePreviewLinks may have already created a new link to this slot)
+							if (targetNode.inputs[link.target_slot].link === linkId) {
+								targetNode.inputs[link.target_slot].link = null;
+							}
 						}
 					}
 					delete this.graph.links[linkId];
@@ -3879,6 +3890,25 @@ class SchemaGraphApp {
 		const isSelected = this.isNodeSelected(node);
 		const isPreviewSelected = this.previewSelection.has(node);
 
+		// Calculate flash intensity (0 to 1) for animation
+		let flashIntensity = 0;
+		if (this._features.previewFlash && node._isFlashing && node._flashProgress !== undefined) {
+			// Quadratic ease-out for smooth fade
+			flashIntensity = 1 - (node._flashProgress * node._flashProgress);
+		}
+
+		// Flash colors
+		const flashColor = { r: 146, g: 208, b: 80 };  // Green flash
+		const baseColor = { r: 74, g: 144, b: 217 };   // Blue base (accentBlue)
+
+		// Interpolate header color based on flash intensity
+		const currentColor = {
+			r: Math.round(baseColor.r + (flashColor.r - baseColor.r) * flashIntensity),
+			g: Math.round(baseColor.g + (flashColor.g - baseColor.g) * flashIntensity),
+			b: Math.round(baseColor.b + (flashColor.b - baseColor.b) * flashIntensity)
+		};
+		const headerColorStr = `rgb(${currentColor.r}, ${currentColor.g}, ${currentColor.b})`;
+
 		// Ensure minimum size based on preview mode
 		const isExpanded = node.extra?.previewExpanded ?? false;
 		const minW = isExpanded ? 280 : 200;
@@ -3889,10 +3919,13 @@ class SchemaGraphApp {
 		// Draw base node body
 		const bodyColor = isSelected ? colors.nodeBgSelected : (isPreviewSelected ? this.adjustColorBrightness(colors.nodeBg, 20) : colors.nodeBg);
 
-		if (style.nodeShadowBlur > 0) {
-			this.ctx.shadowColor = colors.nodeShadow;
-			this.ctx.shadowBlur = style.nodeShadowBlur / this.camera.scale;
-			this.ctx.shadowOffsetY = style.nodeShadowOffset / this.camera.scale;
+		// Enhanced shadow/glow during flash
+		if (style.nodeShadowBlur > 0 || flashIntensity > 0) {
+			this.ctx.shadowColor = flashIntensity > 0
+				? `rgba(${flashColor.r}, ${flashColor.g}, ${flashColor.b}, ${0.8 * flashIntensity})`
+				: colors.nodeShadow;
+			this.ctx.shadowBlur = Math.max(style.nodeShadowBlur, flashIntensity * 25) / this.camera.scale;
+			this.ctx.shadowOffsetY = flashIntensity > 0 ? 0 : style.nodeShadowOffset / this.camera.scale;
 		}
 
 		this.ctx.fillStyle = style.currentStyle === 'wireframe' ? 'transparent' : bodyColor;
@@ -3911,12 +3944,13 @@ class SchemaGraphApp {
 		if (style.currentStyle !== 'wireframe') this.ctx.fill();
 
 		this.ctx.shadowBlur = 0; this.ctx.shadowOffsetY = 0;
-		this.ctx.strokeStyle = isSelected ? colors.borderHighlight : colors.borderColor;
-		this.ctx.lineWidth = (isSelected ? 2 : 1) / this.camera.scale;
+		// Border color affected by flash
+		this.ctx.strokeStyle = flashIntensity > 0 ? headerColorStr : (isSelected ? colors.borderHighlight : colors.borderColor);
+		this.ctx.lineWidth = ((isSelected ? 2 : 1) + flashIntensity * 1.5) / this.camera.scale;
 		this.ctx.stroke();
 
-		// Draw header with preview icon
-		const headerColor = colors.accentBlue || '#4a90d9';
+		// Draw header with preview icon (color affected by flash)
+		const headerColor = flashIntensity > 0 ? headerColorStr : (colors.accentBlue || '#4a90d9');
 		this.ctx.fillStyle = style.currentStyle === 'wireframe' ? 'transparent' : headerColor;
 		this.ctx.beginPath();
 		if (radius > 0) {
@@ -3965,6 +3999,68 @@ class SchemaGraphApp {
 
 		// Draw button stacks if any
 		this._drawButtonStacks(node, colors);
+	}
+
+	/**
+	 * Trigger flash animation on a preview node
+	 * Called when preview data is updated
+	 * @param {Object} node - The preview node to flash
+	 */
+	triggerPreviewFlash(node) {
+		if (!node || !this._features.previewFlash) return;
+		if (!this._isPreviewFlowNode(node)) return;
+
+		// Start flash animation (using same property names as numel-workflow-ui.js)
+		node._flashStart = performance.now();
+		node._flashDuration = 600; // ms
+		node._isFlashing = true;
+		node._flashProgress = 0;
+
+		// Start animation if not already running
+		if (!this._previewFlashAnimating) {
+			this._previewFlashAnimating = true;
+			this._runPreviewFlashAnimation();
+		}
+	}
+
+	/**
+	 * Run the preview flash animation loop
+	 * @private
+	 */
+	_runPreviewFlashAnimation() {
+		const self = this;
+
+		const animate = () => {
+			const now = performance.now();
+			let hasActiveFlash = false;
+
+			// Update all flashing nodes
+			for (const node of self.graph.nodes) {
+				if (!node._isFlashing) continue;
+
+				const elapsed = now - node._flashStart;
+				const duration = node._flashDuration || 600;
+
+				if (elapsed < duration) {
+					node._flashProgress = elapsed / duration;
+					hasActiveFlash = true;
+				} else {
+					node._isFlashing = false;
+					node._flashProgress = 0;
+				}
+			}
+
+			// Redraw and continue animation if needed
+			self.draw();
+
+			if (hasActiveFlash) {
+				requestAnimationFrame(animate);
+			} else {
+				self._previewFlashAnimating = false;
+			}
+		};
+
+		requestAnimationFrame(animate);
 	}
 
 	/**
@@ -4076,13 +4172,23 @@ class SchemaGraphApp {
 			};
 		}
 
-		// Try to get output data
+		// Try to get output data (runtime value)
 		const outputData = sourceNode.outputs?.[outputSlot]?.value;
 		if (outputData !== undefined) {
 			return {
 				type: this._guessTypeFromData(outputData),
 				value: outputData,
 				source: 'workflow'
+			};
+		}
+
+		// Try to get output default value (from schema)
+		const outputDefault = sourceNode.outputs?.[outputSlot]?.defaultValue;
+		if (outputDefault !== undefined) {
+			return {
+				type: this._guessTypeFromData(outputDefault),
+				value: outputDefault,
+				source: 'default'
 			};
 		}
 
@@ -6504,6 +6610,9 @@ class SchemaGraphApp {
 					});
 					document.getElementById('sg-feature-preservepreviewlinks')?.addEventListener('change', (e) => {
 						self.api.features.set({ preservePreviewLinks: e.target.checked });
+					});
+					document.getElementById('sg-feature-previewflash')?.addEventListener('change', (e) => {
+						self.api.features.set({ previewFlash: e.target.checked });
 					});
 
 					// Features panel toggle (show/hide with animation)
