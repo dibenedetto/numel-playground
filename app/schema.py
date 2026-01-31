@@ -101,6 +101,7 @@ DEFAULT_EDGE_PREVIEW : bool = False
 class Edge(ComponentType):
 	type        : Annotated[Literal["edge"], FieldRole.CONSTANT  ] = "edge"
 	preview     : Annotated[bool           , FieldRole.ANNOTATION] = DEFAULT_EDGE_PREVIEW
+	loop        : Annotated[bool           , FieldRole.ANNOTATION] = False  # True for loop-back edges (visual hint)
 	source      : Annotated[int            , FieldRole.INPUT     ] = None
 	target      : Annotated[int            , FieldRole.INPUT     ] = None
 	source_slot : Annotated[str            , FieldRole.INPUT     ] = None
@@ -616,19 +617,6 @@ class SinkFlow(FlowType):
 	pin  : Annotated[Any                 , FieldRole.INPUT   ] = None
 
 
-# @node_info(
-# 	title       = "Passthrough",
-# 	description = "Identity value pass through",
-# 	icon        = "➠",
-# 	section     = "Workflow",
-# 	visible     = True
-# )
-# class PassthroughFlow(FlowType):
-# 	type   : Annotated[Literal["passthrough_flow"], FieldRole.CONSTANT] = "passthrough_flow"
-# 	input  : Annotated[Any                        , FieldRole.INPUT   ] = None
-# 	output : Annotated[Any                        , FieldRole.OUTPUT  ] = None
-
-
 @node_info(
 	title       = "Preview",
 	description = "Data preview",
@@ -754,6 +742,150 @@ class AgentFlow(FlowType):
 	output : Annotated[Any                  , FieldRole.OUTPUT  ] = None
 
 
+# =============================================================================
+# LOOP FLOW NODES
+# Enables nested loops within workflows
+# =============================================================================
+
+DEFAULT_LOOP_MAX_ITERATIONS : int = 10000
+
+
+@node_info(
+	title       = "Loop Start",
+	description = "Marks the beginning of a loop. Connect to a Loop End node to define the loop body. "
+	              "The loop continues while 'condition' is True (up to max_iterations).",
+	icon        = "🔁",
+	section     = "Workflow",
+	visible     = True
+)
+class LoopStartFlow(FlowType):
+	"""
+	Loop Start node - begins a loop construct.
+
+	The loop body consists of all nodes between this LoopStart and its paired LoopEnd.
+	Each iteration:
+	1. Evaluates 'condition' - if False, skips to after LoopEnd
+	2. Increments 'iteration' counter
+	3. Executes all nodes in the loop body
+	4. When LoopEnd is reached, returns here for next iteration
+	"""
+	type          : Annotated[Literal["loop_start_flow"], FieldRole.CONSTANT] = "loop_start_flow"
+	pin           : Annotated[Any                       , FieldRole.INPUT   ] = None
+	condition     : Annotated[bool                      , FieldRole.INPUT   ] = True
+	max_iter      : Annotated[int                       , FieldRole.INPUT   ] = DEFAULT_LOOP_MAX_ITERATIONS
+	iteration     : Annotated[int                       , FieldRole.OUTPUT  ] = 0
+
+
+@node_info(
+	title       = "Loop End",
+	description = "Marks the end of a loop. Must be connected downstream from a Loop Start node. "
+	              "When reached, execution returns to the paired Loop Start for the next iteration.",
+	icon        = "↩️",
+	section     = "Workflow",
+	visible     = True
+)
+class LoopEndFlow(FlowType):
+	"""
+	Loop End node - ends a loop construct and triggers the next iteration.
+
+	When this node executes:
+	1. Finds its paired LoopStart (the nearest upstream LoopStart)
+	2. Signals the engine to re-evaluate the LoopStart condition
+	3. If condition is still True, resets all loop body nodes and re-executes
+	4. If condition is False, execution continues past this LoopEnd
+	"""
+	type   : Annotated[Literal["loop_end_flow"], FieldRole.CONSTANT] = "loop_end_flow"
+	pin    : Annotated[Any                     , FieldRole.INPUT   ] = None
+	output : Annotated[Any                     , FieldRole.OUTPUT  ] = None
+
+
+@node_info(
+	title       = "For Each",
+	description = "Iterates over a list of items. For each item, executes the loop body once. "
+	              "Outputs 'current' (the current item) and 'index' (0-based position).",
+	icon        = "📋",
+	section     = "Workflow",
+	visible     = True
+)
+class ForEachFlow(FlowType):
+	"""
+	For Each node - iterates over a collection.
+
+	This is a convenience node that combines LoopStart logic with list iteration.
+	For each item in 'items':
+	1. Sets 'current' to the current item
+	2. Sets 'index' to the current position (0-based)
+	3. Executes all downstream nodes until ForEachEnd
+	4. Moves to the next item
+	"""
+	type    : Annotated[Literal["for_each_flow"], FieldRole.CONSTANT] = "for_each_flow"
+	pin     : Annotated[Any                     , FieldRole.INPUT   ] = None
+	items   : Annotated[List[Any]               , FieldRole.INPUT   ] = None
+	current : Annotated[Any                     , FieldRole.OUTPUT  ] = None
+	index   : Annotated[int                     , FieldRole.OUTPUT  ] = 0
+
+
+@node_info(
+	title       = "For Each End",
+	description = "Marks the end of a For Each loop body. When reached, moves to the next item.",
+	icon        = "↩️",
+	section     = "Workflow",
+	visible     = True
+)
+class ForEachEndFlow(FlowType):
+	"""
+	For Each End node - ends a For Each loop iteration.
+	"""
+	type   : Annotated[Literal["for_each_end_flow"], FieldRole.CONSTANT] = "for_each_end_flow"
+	pin    : Annotated[Any                         , FieldRole.INPUT   ] = None
+	output : Annotated[Any                         , FieldRole.OUTPUT  ] = None
+
+
+@node_info(
+	title       = "Break",
+	description = "Immediately exits the innermost loop. Execution continues after the loop end.",
+	icon        = "⏹️",
+	section     = "Workflow",
+	visible     = True
+)
+class BreakFlow(FlowType):
+	"""
+	Break node - exits the current loop immediately.
+
+	When executed, signals the engine to:
+	1. Stop the current loop iteration
+	2. Mark the loop as complete
+	3. Continue execution after the LoopEnd/ForEachEnd
+	"""
+	type : Annotated[Literal["break_flow"], FieldRole.CONSTANT] = "break_flow"
+	pin  : Annotated[Any                  , FieldRole.INPUT   ] = None
+
+
+@node_info(
+	title       = "Continue",
+	description = "Skips the rest of the current iteration and moves to the next loop iteration.",
+	icon        = "⏭️",
+	section     = "Workflow",
+	visible     = True
+)
+class ContinueFlow(FlowType):
+	"""
+	Continue node - skips to the next loop iteration.
+
+	When executed, signals the engine to:
+	1. Stop the current iteration immediately
+	2. Skip any remaining nodes in the loop body
+	3. Return to the LoopStart/ForEach for the next iteration
+	"""
+	type : Annotated[Literal["continue_flow"], FieldRole.CONSTANT] = "continue_flow"
+	pin  : Annotated[Any                     , FieldRole.INPUT   ] = None
+
+
+# =============================================================================
+# END LOOP FLOW NODES
+# =============================================================================
+
+
 @node_info(visible=False)
 class InteractiveType(BaseType):
 	type : Annotated[Literal["interactive_type"], FieldRole.CONSTANT] = "interactive_type"
@@ -858,13 +990,6 @@ WorkflowNodeUnion = Union[
 
 	# Tensor nodes
 	DataTensor,
-	# BinaryTensor,
-	# TextTensor,
-	# DocumentTensor,
-	# ImageTensor,
-	# AudioTensor,
-	# VideoTensor,
-	# Model3DTensor,
 
 	# Config nodes
 	BackendConfig,
@@ -883,7 +1008,6 @@ WorkflowNodeUnion = Union[
 	StartFlow,
 	EndFlow,
 	SinkFlow,
-	# PassthroughFlow,
 	PreviewFlow,
 	TransformFlow,
 	RouteFlow,
@@ -892,6 +1016,14 @@ WorkflowNodeUnion = Union[
 	UserInputFlow,
 	ToolFlow,
 	AgentFlow,
+
+	# Loop nodes
+	LoopStartFlow,
+	LoopEndFlow,
+	ForEachFlow,
+	ForEachEndFlow,
+	BreakFlow,
+	ContinueFlow,
 
 	# Interactive nodes
 	ToolCall,

@@ -8,7 +8,7 @@ from   collections import defaultdict
 from   datetime    import datetime
 from   enum        import Enum
 from   functools   import partial
-from   pydantic    import BaseModel
+from   pydantic    import BaseModel, Field
 from   typing      import Any, Dict, List, Optional, Set, Tuple
 
 
@@ -28,6 +28,30 @@ class WorkflowNodeStatus(str, Enum):
 	WAITING   = "waiting"
 
 
+class LoopSignal(str, Enum):
+	"""Signals from loop control nodes"""
+	NONE          = "none"
+	LOOP_END      = "end"
+	FOR_EACH_END  = "for_each_end"
+	BREAK         = "break"
+	CONTINUE      = "continue"
+
+
+class LoopContext(BaseModel):
+	"""Context for a single loop (supports nesting via stack)"""
+	loop_start_idx  : int                          # Index of LoopStart/ForEach node
+	loop_end_idx    : Optional[int] = None         # Index of LoopEnd/ForEachEnd node
+	loop_type       : str = "loop"                 # "loop" or "for_each"
+	iteration       : int = 0                      # Current iteration (0-based)
+	max_iterations  : int = 10000                  # Safety limit
+	items_count     : int = 0                      # For ForEach: total items
+	body_nodes      : Set[int] = Field(default_factory=set)  # Nodes inside this loop body
+	is_active       : bool = True                  # False when loop is done/broken
+
+	class Config:
+		arbitrary_types_allowed = True
+
+
 class WorkflowExecutionState(BaseModel):
 	"""State of a workflow execution"""
 	workflow_id     : str
@@ -42,6 +66,12 @@ class WorkflowExecutionState(BaseModel):
 	start_time      : Optional[str] = None
 	end_time        : Optional[str] = None
 	error           : Optional[str] = None
+	# Loop tracking
+	loop_stack      : List[int] = []                    # Stack of active loop_start indices
+	loop_contexts   : Dict[int, Dict[str, Any]] = {}    # loop_start_idx -> LoopContext dict
+
+	class Config:
+		arbitrary_types_allowed = True
 
 
 class WorkflowEngine:
@@ -140,6 +170,368 @@ class WorkflowEngine:
 		}
 
 
+	# =========================================================================
+	# LOOP HANDLING METHODS
+	# =========================================================================
+
+	def _is_loop_start_node(self, node: BaseType) -> bool:
+		"""Check if node is a loop start (LoopStart or ForEach)"""
+		return getattr(node, 'type', None) in ('loop_start_flow', 'for_each_flow')
+
+	def _is_loop_end_node(self, node: BaseType) -> bool:
+		"""Check if node is a loop end (LoopEnd or ForEachEnd)"""
+		return getattr(node, 'type', None) in ('loop_end_flow', 'for_each_end_flow')
+
+	def _is_break_node(self, node: BaseType) -> bool:
+		"""Check if node is a Break node"""
+		return getattr(node, 'type', None) == 'break_flow'
+
+	def _is_continue_node(self, node: BaseType) -> bool:
+		"""Check if node is a Continue node"""
+		return getattr(node, 'type', None) == 'continue_flow'
+
+	def _is_loop_control_node(self, node: BaseType) -> bool:
+		"""Check if node is any loop control node"""
+		return self._is_loop_start_node(node) or self._is_loop_end_node(node) or \
+		       self._is_break_node(node) or self._is_continue_node(node)
+
+	def _detect_loop_structures(
+		self,
+		nodes: List[BaseType],
+		edges: List[Edge]
+	) -> Dict[int, LoopContext]:
+		"""
+		Detect and pair loop structures in the workflow.
+
+		Uses DFS from each LoopStart to find its corresponding LoopEnd.
+		Supports nested loops by tracking the loop stack.
+
+		Returns: Dict mapping loop_start_idx -> LoopContext
+		"""
+		loop_contexts: Dict[int, LoopContext] = {}
+
+		# Build adjacency list for forward traversal
+		forward_edges: Dict[int, Set[int]] = defaultdict(set)
+		for edge in edges:
+			forward_edges[edge.source].add(edge.target)
+
+		# Find all loop start nodes
+		loop_starts = [
+			i for i, node in enumerate(nodes)
+			if self._is_loop_start_node(node)
+		]
+
+		# For each loop start, find its body and end
+		for start_idx in loop_starts:
+			node = nodes[start_idx]
+			loop_type = "for_each" if node.type == 'for_each_flow' else "loop"
+			end_type = 'for_each_end_flow' if loop_type == "for_each" else 'loop_end_flow'
+
+			# DFS to find loop body and matching end
+			body_nodes: Set[int] = set()
+			loop_end_idx: Optional[int] = None
+			stack = list(forward_edges[start_idx])
+			visited = {start_idx}
+
+			while stack and loop_end_idx is None:
+				current = stack.pop()
+				if current in visited:
+					continue
+				visited.add(current)
+
+				current_node = nodes[current]
+				current_type = getattr(current_node, 'type', None)
+
+				# Found matching loop end
+				if current_type == end_type:
+					loop_end_idx = current
+					break
+
+				# Handle nested loop starts - include all their body nodes
+				if self._is_loop_start_node(current_node) and current != start_idx:
+					# Find the nested loop's end and its body
+					nested_end, nested_body = self._find_loop_end_and_body(nodes, edges, current)
+					if nested_end is not None:
+						body_nodes.add(current)
+						body_nodes.add(nested_end)
+						# Add all nested loop body nodes too
+						body_nodes.update(nested_body)
+						# Continue from after the nested loop
+						stack.extend(forward_edges[nested_end])
+					continue
+
+				body_nodes.add(current)
+				stack.extend(forward_edges[current])
+
+			# Create loop context
+			max_iter = getattr(node, 'max_iter', 10000) if hasattr(node, 'max_iter') else 10000
+			loop_contexts[start_idx] = LoopContext(
+				loop_start_idx=start_idx,
+				loop_end_idx=loop_end_idx,
+				loop_type=loop_type,
+				iteration=0,
+				max_iterations=max_iter,
+				body_nodes=body_nodes,
+				is_active=True
+			)
+
+		return loop_contexts
+
+	def _find_loop_end(
+		self,
+		nodes: List[BaseType],
+		edges: List[Edge],
+		start_idx: int
+	) -> Optional[int]:
+		"""Find the loop end node for a given loop start"""
+		node = nodes[start_idx]
+		end_type = 'for_each_end_flow' if node.type == 'for_each_flow' else 'loop_end_flow'
+
+		forward_edges: Dict[int, Set[int]] = defaultdict(set)
+		for edge in edges:
+			forward_edges[edge.source].add(edge.target)
+
+		stack = list(forward_edges[start_idx])
+		visited = {start_idx}
+		nested_depth = 0
+
+		while stack:
+			current = stack.pop()
+			if current in visited:
+				continue
+			visited.add(current)
+
+			current_node = nodes[current]
+			current_type = getattr(current_node, 'type', None)
+
+			# Track nested loops
+			if self._is_loop_start_node(current_node):
+				nested_depth += 1
+			elif self._is_loop_end_node(current_node):
+				if nested_depth > 0:
+					nested_depth -= 1
+				elif current_type == end_type:
+					return current
+
+			stack.extend(forward_edges[current])
+
+		return None
+
+	def _find_loop_end_and_body(
+		self,
+		nodes: List[BaseType],
+		edges: List[Edge],
+		start_idx: int
+	) -> tuple[Optional[int], Set[int]]:
+		"""Find the loop end node and all body nodes for a given loop start"""
+		node = nodes[start_idx]
+		end_type = 'for_each_end_flow' if node.type == 'for_each_flow' else 'loop_end_flow'
+
+		forward_edges: Dict[int, Set[int]] = defaultdict(set)
+		for edge in edges:
+			forward_edges[edge.source].add(edge.target)
+
+		stack = list(forward_edges[start_idx])
+		visited = {start_idx}
+		body_nodes: Set[int] = set()
+		nested_depth = 0
+
+		while stack:
+			current = stack.pop()
+			if current in visited:
+				continue
+			visited.add(current)
+
+			current_node = nodes[current]
+			current_type = getattr(current_node, 'type', None)
+
+			# Track nested loops
+			if self._is_loop_start_node(current_node):
+				nested_depth += 1
+				body_nodes.add(current)
+			elif self._is_loop_end_node(current_node):
+				if nested_depth > 0:
+					nested_depth -= 1
+					body_nodes.add(current)
+				elif current_type == end_type:
+					return current, body_nodes
+			else:
+				body_nodes.add(current)
+
+			stack.extend(forward_edges[current])
+
+		return None, body_nodes
+
+	def _get_current_loop_context(
+		self,
+		node_idx: int,
+		loop_contexts: Dict[int, LoopContext],
+		loop_stack: List[int]
+	) -> Optional[LoopContext]:
+		"""Get the innermost active loop context for a node"""
+		for loop_start_idx in reversed(loop_stack):
+			ctx = loop_contexts.get(loop_start_idx)
+			if ctx and ctx.is_active:
+				if node_idx in ctx.body_nodes or node_idx == ctx.loop_start_idx or node_idx == ctx.loop_end_idx:
+					return ctx
+		return None
+
+	def _reset_loop_body(
+		self,
+		ctx: LoopContext,
+		completed: Set[int],
+		pending: Set[int],
+		ready: Set[int],
+		running: Set[int],
+		node_outputs: Dict[int, Dict[str, Any]],
+		loop_contexts: Dict[int, LoopContext] = None
+	):
+		"""Reset all nodes in a loop body for the next iteration"""
+		for node_idx in ctx.body_nodes:
+			completed.discard(node_idx)
+			running.discard(node_idx)
+			ready.discard(node_idx)
+			pending.add(node_idx)
+			# Clear outputs from previous iteration
+			if node_idx in node_outputs:
+				del node_outputs[node_idx]
+			# Reset any nested loop context iteration counters
+			if loop_contexts and node_idx in loop_contexts:
+				nested_ctx = loop_contexts[node_idx]
+				nested_ctx.iteration = 0
+				nested_ctx.is_active = True
+
+		# Also reset the loop end node
+		if ctx.loop_end_idx is not None:
+			completed.discard(ctx.loop_end_idx)
+			running.discard(ctx.loop_end_idx)
+			ready.discard(ctx.loop_end_idx)
+			pending.add(ctx.loop_end_idx)
+			if ctx.loop_end_idx in node_outputs:
+				del node_outputs[ctx.loop_end_idx]
+
+	def _skip_loop_body(
+		self,
+		ctx: LoopContext,
+		completed: Set[int],
+		pending: Set[int],
+		ready: Set[int]
+	):
+		"""Skip all nodes in a loop body (when condition is false or break)"""
+		for node_idx in ctx.body_nodes:
+			pending.discard(node_idx)
+			ready.discard(node_idx)
+			completed.add(node_idx)
+
+		# Mark loop end as completed too
+		if ctx.loop_end_idx is not None:
+			pending.discard(ctx.loop_end_idx)
+			ready.discard(ctx.loop_end_idx)
+			completed.add(ctx.loop_end_idx)
+
+		ctx.is_active = False
+
+	def _handle_loop_signal(
+		self,
+		signal: str,
+		node_idx: int,
+		nodes: List[BaseType],
+		loop_contexts: Dict[int, LoopContext],
+		loop_stack: List[int],
+		completed: Set[int],
+		pending: Set[int],
+		ready: Set[int],
+		running: Set[int],
+		node_outputs: Dict[int, Dict[str, Any]],
+		dependencies: Dict[int, Set[int]]
+	) -> bool:
+		"""
+		Handle a loop control signal.
+
+		Returns True if the signal was handled and normal flow should be interrupted.
+		"""
+		if signal == LoopSignal.NONE.value or not signal:
+			return False
+
+		# Find the current loop context
+		ctx = self._get_current_loop_context(node_idx, loop_contexts, loop_stack)
+		if not ctx:
+			return False
+
+		if signal == LoopSignal.BREAK.value:
+			# Exit the loop immediately
+			self._skip_loop_body(ctx, completed, pending, ready)
+			if ctx.loop_start_idx in loop_stack:
+				loop_stack.remove(ctx.loop_start_idx)
+			return True
+
+		elif signal == LoopSignal.CONTINUE.value:
+			# Skip remaining body nodes and go to next iteration
+			# Reset body but increment iteration first
+			ctx.iteration += 1
+
+			# Check if we should continue or exit
+			should_continue = self._evaluate_loop_condition(ctx, nodes, node_outputs)
+			if should_continue:
+				self._reset_loop_body(ctx, completed, pending, ready, running, node_outputs, loop_contexts)
+				# Re-queue the loop start
+				completed.discard(ctx.loop_start_idx)
+				ready.add(ctx.loop_start_idx)
+			else:
+				self._skip_loop_body(ctx, completed, pending, ready)
+				if ctx.loop_start_idx in loop_stack:
+					loop_stack.remove(ctx.loop_start_idx)
+			return True
+
+		elif signal in (LoopSignal.LOOP_END.value, LoopSignal.FOR_EACH_END.value):
+			# End of current iteration - check condition for next
+			ctx.iteration += 1
+
+			should_continue = self._evaluate_loop_condition(ctx, nodes, node_outputs)
+			if should_continue:
+				self._reset_loop_body(ctx, completed, pending, ready, running, node_outputs, loop_contexts)
+				# Re-queue the loop start
+				completed.discard(ctx.loop_start_idx)
+				ready.add(ctx.loop_start_idx)
+			else:
+				# Loop is done
+				ctx.is_active = False
+				if ctx.loop_start_idx in loop_stack:
+					loop_stack.remove(ctx.loop_start_idx)
+			return True
+
+		return False
+
+	def _evaluate_loop_condition(
+		self,
+		ctx: LoopContext,
+		nodes: List[BaseType],
+		node_outputs: Dict[int, Dict[str, Any]]
+	) -> bool:
+		"""Evaluate whether a loop should continue"""
+		# Check max iterations
+		if ctx.iteration >= ctx.max_iterations:
+			return False
+
+		if ctx.loop_type == "for_each":
+			# ForEach continues while there are items
+			outputs = node_outputs.get(ctx.loop_start_idx, {})
+			items_count = outputs.get("_items_count", 0)
+			return ctx.iteration < items_count
+		else:
+			# Regular loop - check condition input
+			# The condition is evaluated at the loop start node
+			# For now, we check the last known condition value
+			# A more sophisticated approach would re-evaluate connected inputs
+			node = nodes[ctx.loop_start_idx]
+			condition = getattr(node, 'condition', True)
+			return bool(condition)
+
+	# =========================================================================
+	# END LOOP HANDLING METHODS
+	# =========================================================================
+
+
 	async def start_workflow(self, workflow: Workflow, backend: ImplementedBackend, initial_data: Optional[Dict[str, Any]] = None) -> str:
 		"""Start a new workflow execution"""
 
@@ -175,7 +567,7 @@ class WorkflowEngine:
 
 
 	async def _execute_workflow(self, workflow: Workflow, backend: ImplementedBackend, state: WorkflowExecutionState, initial_data: Dict[str, Any]):
-		"""Main execution loop - frontier-based"""
+		"""Main execution loop - frontier-based with loop support"""
 		try:
 			if not initial_data:
 				initial_data = {}
@@ -210,6 +602,16 @@ class WorkflowEngine:
 			# Node outputs storage
 			node_outputs: Dict[int, Dict[str, Any]] = {}
 
+			# ===== LOOP SUPPORT =====
+			# Detect and initialize loop structures
+			loop_contexts = self._detect_loop_structures(nodes, active_edges)
+			loop_stack: List[int] = []  # Stack of active loop_start indices
+
+			# Store in state for visibility
+			state.loop_contexts = {k: v.model_dump() for k, v in loop_contexts.items()}
+			state.loop_stack = loop_stack
+			# ========================
+
 			# Find start nodes (no dependencies)
 			for idx in list(pending):
 				if not dependencies[idx]:
@@ -228,11 +630,41 @@ class WorkflowEngine:
 				state.running_nodes   = list(running)
 				state.completed_nodes = list(completed)
 				state.node_outputs    = node_outputs
+				state.loop_stack      = loop_stack
 
 				if ready:
 					tasks = set()
 
 					for node_idx in list(ready):
+						node = nodes[node_idx]
+
+						# ===== LOOP START HANDLING =====
+						if self._is_loop_start_node(node):
+							ctx = loop_contexts.get(node_idx)
+							if ctx:
+								# Inject iteration into variables for the node
+								variables["_loop_iteration"] = ctx.iteration
+
+								# Check if this is the first time or a repeat
+								if ctx.iteration == 0:
+									# First iteration - evaluate condition
+									condition = self._gather_loop_condition(node_idx, nodes, edges, node_outputs)
+									if not condition:
+										# Condition false from start - skip entire loop
+										self._skip_loop_body(ctx, completed, pending, ready)
+										ready.discard(node_idx)
+										completed.add(node_idx)
+										continue
+
+									# Push to loop stack
+									if node_idx not in loop_stack:
+										loop_stack.append(node_idx)
+								else:
+									# Subsequent iteration - push back if not in stack
+									if node_idx not in loop_stack:
+										loop_stack.append(node_idx)
+						# ===============================
+
 						ready.discard(node_idx)
 						running.add(node_idx)
 
@@ -255,6 +687,25 @@ class WorkflowEngine:
 								completed.add(node_idx)
 								node_outputs[node_idx] = result.outputs
 
+								# ===== LOOP SIGNAL HANDLING =====
+								loop_signal = result.outputs.get("_loop_signal", "")
+								if loop_signal:
+									signal_handled = self._handle_loop_signal(
+										loop_signal, node_idx, nodes,
+										loop_contexts, loop_stack,
+										completed, pending, ready, running,
+										node_outputs, dependencies
+									)
+									if signal_handled:
+										# Update dependencies for ready check after reset
+										for dep_idx in list(pending):
+											if dependencies[dep_idx].issubset(completed):
+												pending.discard(dep_idx)
+												ready.add(dep_idx)
+										continue
+								# =================================
+
+								# Normal dependency propagation
 								for dep_idx in dependents[node_idx]:
 									if dep_idx not in completed and dep_idx not in running:
 										if dependencies[dep_idx].issubset(completed):
@@ -294,6 +745,26 @@ class WorkflowEngine:
 				execution_id = state.execution_id,
 				error        = str(e)
 			)
+
+	def _gather_loop_condition(
+		self,
+		loop_start_idx: int,
+		nodes: List[BaseType],
+		edges: List[Edge],
+		node_outputs: Dict[int, Dict[str, Any]]
+	) -> bool:
+		"""Gather the condition input for a loop start node"""
+		node = nodes[loop_start_idx]
+
+		# Check for connected condition input
+		for edge in edges:
+			if edge.target == loop_start_idx and edge.target_slot == "condition":
+				source_outputs = node_outputs.get(edge.source, {})
+				if edge.source_slot in source_outputs:
+					return bool(source_outputs[edge.source_slot])
+
+		# Fall back to node's default condition
+		return getattr(node, 'condition', True)
 
 
 	def _build_dependencies(self, edges: List[Edge]) -> Dict[int, Set[int]]:

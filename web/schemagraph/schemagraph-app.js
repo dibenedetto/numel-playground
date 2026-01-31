@@ -2518,8 +2518,11 @@ class SchemaGraphApp {
 			const isIncompleteLink = incompleteLinks.some(lid => String(lid) === String(link.id) || lid === link.id);
 			const isHovered = String(link.id) === String(hoveredLinkId);
 
+			// Check if this is a loop-back edge
+			const isLoopEdge = link.loop === true;
+
 			// Determine link color and width
-			let strokeColor = isIncompleteLink ? colors.accentOrange : colors.linkColor;
+			let strokeColor = isLoopEdge ? (colors.loopColor || '#9b59b6') : (isIncompleteLink ? colors.accentOrange : colors.linkColor);
 			let lineWidth = (isIncompleteLink ? style.linkWidth + 1 : style.linkWidth) / this.camera.scale;
 
 			// Apply hover highlight
@@ -2545,12 +2548,26 @@ class SchemaGraphApp {
 
 			this.ctx.strokeStyle = strokeColor;
 			this.ctx.lineWidth = lineWidth;
-			if (isIncompleteLink || style.useDashed) this.ctx.setLineDash([8 / this.camera.scale, 4 / this.camera.scale]);
+			if (isLoopEdge || isIncompleteLink || style.useDashed) this.ctx.setLineDash([8 / this.camera.scale, 4 / this.camera.scale]);
 			this.ctx.beginPath();
 			if (style.linkCurve > 0) { this.ctx.moveTo(x1, y1); this.ctx.bezierCurveTo(x1 + controlOffset, y1, x2 - controlOffset, y2, x2, y2); }
 			else { this.ctx.moveTo(x1, y1); this.ctx.lineTo(x2, y2); }
 			this.ctx.stroke();
 			this.ctx.setLineDash([]);
+
+			// Draw loop indicator icon for loop-back edges
+			if (isLoopEdge) {
+				const midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
+				this.ctx.fillStyle = colors.loopColor || '#9b59b6';
+				this.ctx.beginPath();
+				this.ctx.arc(midX, midY, 10 / this.camera.scale, 0, Math.PI * 2);
+				this.ctx.fill();
+				this.ctx.fillStyle = '#fff';
+				this.ctx.font = `${12 / this.camera.scale}px sans-serif`;
+				this.ctx.textAlign = 'center';
+				this.ctx.textBaseline = 'middle';
+				this.ctx.fillText('↺', midX, midY);
+			}
 
 			// Draw hover hint icon at midpoint
 			if (isHovered) {

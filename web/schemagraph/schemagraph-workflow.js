@@ -930,7 +930,9 @@ class WorkflowImporter {
 		const targetSlotIdx = this._findInputSlot(targetNode, target_slot);
 		if (sourceSlotIdx === -1 || targetSlotIdx === -1) return null;
 
-		return this._createStandardEdge(sourceNode, sourceSlotIdx, targetNode, targetSlotIdx, edgeData.data, edgeData.extra);
+		const link = this._createStandardEdge(sourceNode, sourceSlotIdx, targetNode, targetSlotIdx, edgeData.data, edgeData.extra);
+		if (link && edgeData.loop) link.loop = true;  // Mark as loop-back edge
+		return link;
 	}
 
 	_findOutputSlot(node, slotName) {
@@ -1099,6 +1101,7 @@ class WorkflowExporter {
 			source_slot: sourceNode.outputs[link.origin_slot]?.name || 'output',
 			target_slot: targetNode.inputs[link.target_slot]?.name || 'input'
 		};
+		if (link.loop) edge.loop = true;  // Preserve loop-back edge marker
 		if (link.data && Object.keys(link.data).length > 0)
 			edge.data = JSON.parse(JSON.stringify(link.data));
 		if (link.extra && Object.keys(link.extra).length > 0)

@@ -379,6 +379,149 @@ class WFAgentFlow(WFFlowType):
 		return result
 
 
+# =============================================================================
+# LOOP FLOW NODES
+# =============================================================================
+
+class WFLoopStartFlow(WFFlowType):
+	"""
+	Loop Start node executor.
+
+	The actual loop logic is handled by the engine. This node:
+	1. Outputs the current iteration count
+	2. Passes through the pin value
+
+	The engine handles:
+	- Condition evaluation
+	- Iteration counting
+	- Loop body reset
+	"""
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+
+		# Get iteration from engine-injected context
+		iteration = context.variables.get("_loop_iteration", 0)
+
+		result.outputs["iteration"] = iteration
+
+		return result
+
+
+class WFLoopEndFlow(WFFlowType):
+	"""
+	Loop End node executor.
+
+	Signals the engine to check for loop continuation.
+	The engine will:
+	1. Find the paired LoopStart
+	2. Re-evaluate the condition
+	3. Reset loop body nodes if continuing
+	"""
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+
+		# Pass through input to output
+		result.outputs["output"] = context.inputs.get("pin")
+
+		# Signal that this is a loop end (engine will handle the rest)
+		result.outputs["_loop_signal"] = "end"
+
+		return result
+
+
+class WFForEachFlow(WFFlowType):
+	"""
+	For Each node executor.
+
+	Iterates over a list of items. The engine manages:
+	- Current index tracking
+	- Item extraction
+	- Loop continuation
+	"""
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+
+		# Get items from edge input or fall back to node's items field
+		items = context.inputs.get("items")
+		if items is None:
+			items = getattr(self.config, 'items', None)
+		if items is None:
+			items = []
+
+		# Get current index from engine-injected context
+		index = context.variables.get("_loop_iteration", 0)
+
+		# Get current item
+		if isinstance(items, list) and 0 <= index < len(items):
+			current = items[index]
+		elif isinstance(items, dict):
+			keys = list(items.keys())
+			if 0 <= index < len(keys):
+				current = items[keys[index]]
+			else:
+				current = None
+		else:
+			current = None
+
+		result.outputs["current"] = current
+		result.outputs["index"] = index
+
+		# Store items count for engine to check loop end condition
+		result.outputs["_items_count"] = len(items) if hasattr(items, '__len__') else 0
+
+		return result
+
+
+class WFForEachEndFlow(WFFlowType):
+	"""
+	For Each End node executor.
+
+	Similar to LoopEnd but for ForEach loops.
+	"""
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+
+		result.outputs["output"] = context.inputs.get("pin")
+		result.outputs["_loop_signal"] = "for_each_end"
+
+		return result
+
+
+class WFBreakFlow(WFFlowType):
+	"""
+	Break node executor.
+
+	Signals the engine to exit the current loop immediately.
+	"""
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+
+		# Signal break to the engine
+		result.outputs["_loop_signal"] = "break"
+
+		return result
+
+
+class WFContinueFlow(WFFlowType):
+	"""
+	Continue node executor.
+
+	Signals the engine to skip to the next iteration.
+	"""
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+
+		# Signal continue to the engine
+		result.outputs["_loop_signal"] = "continue"
+
+		return result
+
+
+# =============================================================================
+# END LOOP FLOW NODES
+# =============================================================================
+
+
 class WFInteractiveType(WFBaseType):
 	pass
 
@@ -457,6 +600,14 @@ _NODE_TYPES = {
 	"user_input_flow"          : WFUserInputFlow,
 	"tool_flow"                : WFToolFlow,
 	"agent_flow"               : WFAgentFlow,
+
+	# Loop nodes
+	"loop_start_flow"          : WFLoopStartFlow,
+	"loop_end_flow"            : WFLoopEndFlow,
+	"for_each_flow"            : WFForEachFlow,
+	"for_each_end_flow"        : WFForEachEndFlow,
+	"break_flow"               : WFBreakFlow,
+	"continue_flow"            : WFContinueFlow,
 
 	"tool_call"                : WFToolCall,
 	"agent_chat"               : WFAgentChat,
