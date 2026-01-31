@@ -214,7 +214,7 @@ function setupEventListeners() {
 	$('connectBtn').addEventListener('click', toggleConnection);
 
 	// Workflow management
-	$('refreshListBtn').addEventListener('click', refreshWorkflowList);
+	$('refreshListBtn')?.addEventListener('click', refreshWorkflowList);
 	$('loadWorkflowBtn').addEventListener('click', loadSelectedWorkflow);
 	$('uploadWorkflowBtn').addEventListener('click', () => $('workflowFileInput').click());
 	$('downloadWorkflowBtn').addEventListener('click', downloadWorkflow);

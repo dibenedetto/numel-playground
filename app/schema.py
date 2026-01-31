@@ -804,6 +804,49 @@ class AgentChat(InteractiveType):
 	# chat          : Annotated[Any                  , FieldRole.OUTPUT  ] = None
 
 
+# =============================================================================
+# TUTORIAL EXTENSION
+# Counter node example - demonstrates @node_info and @node_button decorators
+# See docs/tutorial-extension.md for full documentation
+# =============================================================================
+
+@node_button(
+	id       = "reset",
+	label    = "Reset",
+	icon     = "0",
+	position = "bottom"
+)
+@node_button(
+	id       = "decrement",
+	label    = "Decrement",
+	icon     = "➖",
+	position = "bottom"
+)
+@node_button(
+	id       = "increment",
+	label    = "Increment",
+	icon     = "➕",
+	position = "bottom"
+)
+@node_info(
+	title       = "Counter",
+	description = "A simple counter that can be incremented, decremented, or reset. "
+	              "Connect 'step' to control the increment/decrement amount.",
+	icon        = "#️⃣",
+	section     = "Tutorial",
+	visible     = True
+)
+class Counter(InteractiveType):
+	"""Tutorial: A Counter node demonstrating basic interactivity."""
+	type  : Annotated[Literal["counter"], FieldRole.CONSTANT] = "counter"
+	step  : Annotated[int               , FieldRole.INPUT   ] = 1
+	value : Annotated[int               , FieldRole.OUTPUT  ] = 0
+
+# =============================================================================
+# END TUTORIAL
+# =============================================================================
+
+
 WorkflowNodeUnion = Union[
 	# Native nodes
 	NativeBoolean,
@@ -853,6 +896,9 @@ WorkflowNodeUnion = Union[
 	# Interactive nodes
 	ToolCall,
 	AgentChat,
+
+	# Tutorial nodes
+	Counter
 ]
 
 
@@ -923,45 +969,6 @@ class Workflow(ComponentType):
 				dst_field[dst_parts[0]] = src_value
 			else:
 				setattr(target_node, dst_base, src_value)
-
-
-# =============================================================================
-# TUTORIAL EXTENSION
-# Counter node example - demonstrates @node_info and @node_button decorators
-# See docs/tutorial-extension.md for full documentation
-# =============================================================================
-
-@node_button(
-    id       = "reset",
-    label    = "Reset",
-    icon     = "0",
-    position = "bottom"
-)
-@node_button(
-    id       = "decrement",
-    label    = "-",
-    icon     = "-",
-    position = "bottom"
-)
-@node_button(
-    id       = "increment",
-    label    = "+",
-    icon     = "+",
-    position = "bottom"
-)
-@node_info(
-    title       = "Counter",
-    description = "A simple counter that can be incremented, decremented, or reset. "
-                  "Connect 'step' to control the increment/decrement amount.",
-    icon        = "#",
-    section     = "Tutorial",
-    visible     = True
-)
-class Counter(InteractiveType):
-    """Tutorial: A Counter node demonstrating basic interactivity."""
-    type  : Annotated[Literal["counter"], FieldRole.CONSTANT] = "counter"
-    value : Annotated[int               , FieldRole.OUTPUT  ] = 0
-    step  : Annotated[int               , FieldRole.INPUT   ] = 1
 
 
 if __name__ == "__main__":
