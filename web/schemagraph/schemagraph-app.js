@@ -159,6 +159,7 @@ class SchemaGraphApp {
 			sectionColors: true,
 			preservePreviewLinks: true,
 			previewFlash: true,  // Flash animation when preview data updates
+			loopEdgeOrthogonal: true,  // Use orthogonal routing for loop-back edges
 			// Node types
 			nativeTypes: true
 		};
@@ -619,6 +620,11 @@ class SchemaGraphApp {
 							<input type="checkbox" id="sg-feature-adv-edgePreview" checked>
 							<span class="sg-toolbar-toggle-slider"></span>
 							<span class="sg-toolbar-toggle-text">Edge Preview</span>
+						</label>
+						<label class="sg-toolbar-toggle-switch" title="Use orthogonal routing for loop-back edges">
+							<input type="checkbox" id="sg-feature-adv-loopEdgeOrthogonal" checked>
+							<span class="sg-toolbar-toggle-slider"></span>
+							<span class="sg-toolbar-toggle-text">Orthogonal Loop Edges</span>
 						</label>
 					</div>
 				</div>
@@ -2550,23 +2556,59 @@ class SchemaGraphApp {
 			this.ctx.lineWidth = lineWidth;
 			if (isLoopEdge || isIncompleteLink || style.useDashed) this.ctx.setLineDash([8 / this.camera.scale, 4 / this.camera.scale]);
 			this.ctx.beginPath();
-			if (style.linkCurve > 0) { this.ctx.moveTo(x1, y1); this.ctx.bezierCurveTo(x1 + controlOffset, y1, x2 - controlOffset, y2, x2, y2); }
-			else { this.ctx.moveTo(x1, y1); this.ctx.lineTo(x2, y2); }
+
+			// Use orthogonal routing for loop-back edges when feature is enabled
+			if (isLoopEdge && this._features.loopEdgeOrthogonal) {
+				// Orthogonal routing: right → down → left → up pattern
+				const margin = 40;  // Distance from nodes
+				const loopOffset = (link.origin_slot + 1) * 15;  // Stagger multiple loop edges
+
+				// Calculate routing points
+				const rightX = Math.max(x1, x2) + margin + loopOffset;
+				const bottomY = Math.max(orig.pos[1] + orig.size[1], targ.pos[1] + targ.size[1]) + margin + loopOffset;
+				const leftX = Math.min(orig.pos[0], targ.pos[0]) - margin - loopOffset;
+
+				// Draw orthogonal path: source → right → down → left → up → target
+				this.ctx.moveTo(x1, y1);
+				this.ctx.lineTo(rightX, y1);           // Go right
+				this.ctx.lineTo(rightX, bottomY);       // Go down
+				this.ctx.lineTo(leftX, bottomY);        // Go left
+				this.ctx.lineTo(leftX, y2);             // Go up
+				this.ctx.lineTo(x2, y2);                // Go to target
+			} else if (style.linkCurve > 0) {
+				this.ctx.moveTo(x1, y1);
+				this.ctx.bezierCurveTo(x1 + controlOffset, y1, x2 - controlOffset, y2, x2, y2);
+			} else {
+				this.ctx.moveTo(x1, y1);
+				this.ctx.lineTo(x2, y2);
+			}
 			this.ctx.stroke();
 			this.ctx.setLineDash([]);
 
 			// Draw loop indicator icon for loop-back edges
 			if (isLoopEdge) {
-				const midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
+				// Position icon at the bottom-left corner of the orthogonal path
+				let iconX, iconY;
+				if (this._features.loopEdgeOrthogonal) {
+					const margin = 40;
+					const loopOffset = (link.origin_slot + 1) * 15;
+					const leftX = Math.min(orig.pos[0], targ.pos[0]) - margin - loopOffset;
+					const bottomY = Math.max(orig.pos[1] + orig.size[1], targ.pos[1] + targ.size[1]) + margin + loopOffset;
+					iconX = leftX;
+					iconY = bottomY;
+				} else {
+					iconX = (x1 + x2) / 2;
+					iconY = (y1 + y2) / 2;
+				}
 				this.ctx.fillStyle = colors.loopColor || '#9b59b6';
 				this.ctx.beginPath();
-				this.ctx.arc(midX, midY, 10 / this.camera.scale, 0, Math.PI * 2);
+				this.ctx.arc(iconX, iconY, 10 / this.camera.scale, 0, Math.PI * 2);
 				this.ctx.fill();
 				this.ctx.fillStyle = '#fff';
 				this.ctx.font = `${12 / this.camera.scale}px sans-serif`;
 				this.ctx.textAlign = 'center';
 				this.ctx.textBaseline = 'middle';
-				this.ctx.fillText('↺', midX, midY);
+				this.ctx.fillText('↺', iconX, iconY);
 			}
 
 			// Draw hover hint icon at midpoint
@@ -6680,7 +6722,7 @@ class SchemaGraphApp {
 					});
 
 					// Advanced feature checkboxes - Tooltips & Visual
-					const advVisualFeatures = ['nodeTooltips', 'fieldTooltips', 'completenessIndicators', 'analytics', 'textScaling', 'themeSwitch', 'autoPreview', 'edgePreview', 'nativeTypes'];
+					const advVisualFeatures = ['nodeTooltips', 'fieldTooltips', 'completenessIndicators', 'analytics', 'textScaling', 'themeSwitch', 'autoPreview', 'edgePreview', 'loopEdgeOrthogonal', 'nativeTypes'];
 					advVisualFeatures.forEach(feat => {
 						document.getElementById('sg-feature-adv-' + feat)?.addEventListener('change', (e) => {
 							self.api.features.set({ [feat]: e.target.checked });

@@ -677,7 +677,7 @@ async function syncWorkflow(workflow = null, name = null, force = false) {
 			// Reload entire workflow from backend
 			if (response.workflow) {
 				const layout = workflowEmpty ? null : DEFAULT_WORKFLOW_LAYOUT;
-				visualizer.loadWorkflow(response.workflow, response.name, layout);
+				visualizer.loadWorkflow(response.workflow, response.name, layout, true);
 			}
 			
 			// Restore chat messages

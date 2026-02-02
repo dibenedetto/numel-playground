@@ -212,7 +212,7 @@ class WorkflowVisualizer {
 	
 	// --- Workflow Loading ---
 
-	loadWorkflow(workflow, name = null, layout = DEFAULT_WORKFLOW_LAYOUT) {
+	loadWorkflow(workflow, name = null, layout = DEFAULT_WORKFLOW_LAYOUT, sync = false) {
 		if (!this.isReady) {
 			console.error('Schema not registered');
 			return false;
@@ -251,7 +251,7 @@ class WorkflowVisualizer {
 			this.schemaGraph.api.view.center();
 		}
 
-		console.log(`✅ Loaded workflow: ${this.currentWorkflowName}`);
+		console.log(`✅ ${sync ? 'Synced' : 'Loaded'} workflow: ${this.currentWorkflowName}`);
 
 		return true;
 	}
