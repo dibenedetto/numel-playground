@@ -10,7 +10,7 @@
       "extra": { "name": "Start" }
     },
     {
-      "type": "for_each_flow",
+      "type": "for_each_start_flow",
       "items": ["A", "B"],
       "extra": { "name": "Outer Loop" }
     },
@@ -19,7 +19,7 @@
       "extra": { "name": "Outer Value" }
     },
     {
-      "type": "for_each_flow",
+      "type": "for_each_start_flow",
       "items": [1, 2, 3],
       "extra": { "name": "Middle Loop" }
     },

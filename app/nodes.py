@@ -429,9 +429,9 @@ class WFLoopEndFlow(WFFlowType):
 		return result
 
 
-class WFForEachFlow(WFFlowType):
+class WFForEachStartFlow(WFFlowType):
 	"""
-	For Each node executor.
+	For Each Start node executor.
 
 	Iterates over a list of items. The engine manages:
 	- Current index tracking
@@ -591,7 +591,6 @@ _NODE_TYPES = {
 	"start_flow"               : WFStartFlow,
 	"end_flow"                 : WFEndFlow,
 	"sink_flow"                : WFSinkFlow,
-	# "passthrough_flow"         : WFPassthroughFlow,
 	"preview_flow"             : WFPreviewFlow,
 	"route_flow"               : WFRouteFlow,
 	"combine_flow"             : WFCombineFlow,
@@ -604,11 +603,12 @@ _NODE_TYPES = {
 	# Loop nodes
 	"loop_start_flow"          : WFLoopStartFlow,
 	"loop_end_flow"            : WFLoopEndFlow,
-	"for_each_flow"            : WFForEachFlow,
+	"for_each_start_flow"      : WFForEachStartFlow,
 	"for_each_end_flow"        : WFForEachEndFlow,
 	"break_flow"               : WFBreakFlow,
 	"continue_flow"            : WFContinueFlow,
 
+	# Interactive nodes
 	"tool_call"                : WFToolCall,
 	"agent_chat"               : WFAgentChat,
 }

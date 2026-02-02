@@ -807,9 +807,9 @@ class LoopEndFlow(FlowType):
 	section     = "Workflow",
 	visible     = True
 )
-class ForEachFlow(FlowType):
+class ForEachStartFlow(FlowType):
 	"""
-	For Each node - iterates over a collection.
+	For Each Start node - iterates over a collection.
 
 	This is a convenience node that combines LoopStart logic with list iteration.
 	For each item in 'items':
@@ -818,11 +818,11 @@ class ForEachFlow(FlowType):
 	3. Executes all downstream nodes until ForEachEnd
 	4. Moves to the next item
 	"""
-	type    : Annotated[Literal["for_each_flow"], FieldRole.CONSTANT] = "for_each_flow"
-	pin     : Annotated[Any                     , FieldRole.INPUT   ] = None
-	items   : Annotated[List[Any]               , FieldRole.INPUT   ] = None
-	current : Annotated[Any                     , FieldRole.OUTPUT  ] = None
-	index   : Annotated[int                     , FieldRole.OUTPUT  ] = 0
+	type    : Annotated[Literal["for_each_start_flow"], FieldRole.CONSTANT] = "for_each_start_flow"
+	pin     : Annotated[Any                           , FieldRole.INPUT   ] = None
+	items   : Annotated[List[Any]                     , FieldRole.INPUT   ] = None
+	current : Annotated[Any                           , FieldRole.OUTPUT  ] = None
+	index   : Annotated[int                           , FieldRole.OUTPUT  ] = 0
 
 
 @node_info(
@@ -1020,7 +1020,7 @@ WorkflowNodeUnion = Union[
 	# Loop nodes
 	LoopStartFlow,
 	LoopEndFlow,
-	ForEachFlow,
+	ForEachStartFlow,
 	ForEachEndFlow,
 	BreakFlow,
 	ContinueFlow,

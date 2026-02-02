@@ -176,7 +176,7 @@ class WorkflowEngine:
 
 	def _is_loop_start_node(self, node: BaseType) -> bool:
 		"""Check if node is a loop start (LoopStart or ForEach)"""
-		return getattr(node, 'type', None) in ('loop_start_flow', 'for_each_flow')
+		return getattr(node, 'type', None) in ('loop_start_flow', 'for_each_start_flow')
 
 	def _is_loop_end_node(self, node: BaseType) -> bool:
 		"""Check if node is a loop end (LoopEnd or ForEachEnd)"""
@@ -210,9 +210,11 @@ class WorkflowEngine:
 		"""
 		loop_contexts: Dict[int, LoopContext] = {}
 
-		# Build adjacency list for forward traversal
+		# Build adjacency list for forward traversal (excluding loop-back edges)
 		forward_edges: Dict[int, Set[int]] = defaultdict(set)
 		for edge in edges:
+			if getattr(edge, 'loop', False):
+				continue
 			forward_edges[edge.source].add(edge.target)
 
 		# Find all loop start nodes
@@ -224,7 +226,7 @@ class WorkflowEngine:
 		# For each loop start, find its body and end
 		for start_idx in loop_starts:
 			node = nodes[start_idx]
-			loop_type = "for_each" if node.type == 'for_each_flow' else "loop"
+			loop_type = "for_each" if node.type == 'for_each_start_flow' else "loop"
 			end_type = 'for_each_end_flow' if loop_type == "for_each" else 'loop_end_flow'
 
 			# DFS to find loop body and matching end
@@ -285,10 +287,12 @@ class WorkflowEngine:
 	) -> Optional[int]:
 		"""Find the loop end node for a given loop start"""
 		node = nodes[start_idx]
-		end_type = 'for_each_end_flow' if node.type == 'for_each_flow' else 'loop_end_flow'
+		end_type = 'for_each_end_flow' if node.type == 'for_each_start_flow' else 'loop_end_flow'
 
 		forward_edges: Dict[int, Set[int]] = defaultdict(set)
 		for edge in edges:
+			if getattr(edge, 'loop', False):
+				continue
 			forward_edges[edge.source].add(edge.target)
 
 		stack = list(forward_edges[start_idx])
@@ -325,10 +329,12 @@ class WorkflowEngine:
 	) -> tuple[Optional[int], Set[int]]:
 		"""Find the loop end node and all body nodes for a given loop start"""
 		node = nodes[start_idx]
-		end_type = 'for_each_end_flow' if node.type == 'for_each_flow' else 'loop_end_flow'
+		end_type = 'for_each_end_flow' if node.type == 'for_each_start_flow' else 'loop_end_flow'
 
 		forward_edges: Dict[int, Set[int]] = defaultdict(set)
 		for edge in edges:
+			if getattr(edge, 'loop', False):
+				continue
 			forward_edges[edge.source].add(edge.target)
 
 		stack = list(forward_edges[start_idx])
@@ -768,17 +774,23 @@ class WorkflowEngine:
 
 
 	def _build_dependencies(self, edges: List[Edge]) -> Dict[int, Set[int]]:
-		"""Build dependency graph: target -> set of sources"""
+		"""Build dependency graph: target -> set of sources (excluding loop-back edges)"""
 		deps = defaultdict(set)
 		for edge in edges:
+			# Skip loop-back edges - they don't create execution dependencies
+			if getattr(edge, 'loop', False):
+				continue
 			deps[edge.target].add(edge.source)
 		return deps
 
 
 	def _build_dependents(self, edges: List[Edge]) -> Dict[int, Set[int]]:
-		"""Build dependent graph: source -> set of targets"""
+		"""Build dependent graph: source -> set of targets (excluding loop-back edges)"""
 		deps = defaultdict(set)
 		for edge in edges:
+			# Skip loop-back edges - they don't create execution dependencies
+			if getattr(edge, 'loop', False):
+				continue
 			deps[edge.source].add(edge.target)
 		return deps
 
