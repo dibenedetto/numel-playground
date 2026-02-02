@@ -800,7 +800,7 @@ class LoopEndFlow(FlowType):
 
 
 @node_info(
-	title       = "For Each",
+	title       = "For Each Start",
 	description = "Iterates over a list of items. For each item, executes the loop body once. "
 	              "Outputs 'current' (the current item) and 'index' (0-based position).",
 	icon        = "📋",
