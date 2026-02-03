@@ -43,6 +43,7 @@ class EventType(str, Enum):
 	NODE_FAILED              = "node.failed"
 	NODE_SKIPPED             = "node.skipped"
 	NODE_WAITING             = "node.waiting"
+	NODE_RESUMED             = "node.resumed"
 
 	# Edge events
 	EDGE_TRAVERSED           = "edge.traversed"

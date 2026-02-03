@@ -589,8 +589,8 @@ class FlowType(BaseType):
 	visible     = True
 )
 class StartFlow(FlowType):
-	type : Annotated[Literal["start_flow"], FieldRole.CONSTANT] = "start_flow"
-	pin  : Annotated[Any                  , FieldRole.OUTPUT  ] = None
+	type   : Annotated[Literal["start_flow"], FieldRole.CONSTANT] = "start_flow"
+	output : Annotated[Any                  , FieldRole.OUTPUT  ] = None
 
 
 @node_info(
@@ -601,8 +601,8 @@ class StartFlow(FlowType):
 	visible     = True
 )
 class EndFlow(FlowType):
-	type : Annotated[Literal["end_flow"], FieldRole.CONSTANT] = "end_flow"
-	pin  : Annotated[Any                , FieldRole.INPUT   ] = None
+	type  : Annotated[Literal["end_flow"], FieldRole.CONSTANT] = "end_flow"
+	input : Annotated[Any                , FieldRole.INPUT   ] = None
 
 
 @node_info(
@@ -613,8 +613,8 @@ class EndFlow(FlowType):
 	visible     = True
 )
 class SinkFlow(FlowType):
-	type : Annotated[Literal["sink_flow"], FieldRole.CONSTANT] = "sink_flow"
-	pin  : Annotated[Any                 , FieldRole.INPUT   ] = None
+	type  : Annotated[Literal["sink_flow"], FieldRole.CONSTANT] = "sink_flow"
+	input : Annotated[Any                 , FieldRole.INPUT   ] = None
 
 
 @node_info(
@@ -770,7 +770,7 @@ class LoopStartFlow(FlowType):
 	4. When LoopEnd is reached, returns here for next iteration
 	"""
 	type          : Annotated[Literal["loop_start_flow"], FieldRole.CONSTANT] = "loop_start_flow"
-	pin           : Annotated[Any                       , FieldRole.INPUT   ] = None
+	input         : Annotated[Any                       , FieldRole.INPUT   ] = None
 	condition     : Annotated[bool                      , FieldRole.INPUT   ] = True
 	max_iter      : Annotated[int                       , FieldRole.INPUT   ] = DEFAULT_LOOP_MAX_ITERATIONS
 	iteration     : Annotated[int                       , FieldRole.OUTPUT  ] = 0
@@ -795,7 +795,7 @@ class LoopEndFlow(FlowType):
 	4. If condition is False, execution continues past this LoopEnd
 	"""
 	type   : Annotated[Literal["loop_end_flow"], FieldRole.CONSTANT] = "loop_end_flow"
-	pin    : Annotated[Any                     , FieldRole.INPUT   ] = None
+	input  : Annotated[Any                     , FieldRole.INPUT   ] = None
 	output : Annotated[Any                     , FieldRole.OUTPUT  ] = None
 
 
@@ -819,7 +819,7 @@ class ForEachStartFlow(FlowType):
 	4. Moves to the next item
 	"""
 	type    : Annotated[Literal["for_each_start_flow"], FieldRole.CONSTANT] = "for_each_start_flow"
-	pin     : Annotated[Any                           , FieldRole.INPUT   ] = None
+	input   : Annotated[Any                           , FieldRole.INPUT   ] = None
 	items   : Annotated[List[Any]                     , FieldRole.INPUT   ] = None
 	current : Annotated[Any                           , FieldRole.OUTPUT  ] = None
 	index   : Annotated[int                           , FieldRole.OUTPUT  ] = 0
@@ -837,7 +837,7 @@ class ForEachEndFlow(FlowType):
 	For Each End node - ends a For Each loop iteration.
 	"""
 	type   : Annotated[Literal["for_each_end_flow"], FieldRole.CONSTANT] = "for_each_end_flow"
-	pin    : Annotated[Any                         , FieldRole.INPUT   ] = None
+	input  : Annotated[Any                         , FieldRole.INPUT   ] = None
 	output : Annotated[Any                         , FieldRole.OUTPUT  ] = None
 
 
@@ -857,8 +857,8 @@ class BreakFlow(FlowType):
 	2. Mark the loop as complete
 	3. Continue execution after the LoopEnd/ForEachEnd
 	"""
-	type : Annotated[Literal["break_flow"], FieldRole.CONSTANT] = "break_flow"
-	pin  : Annotated[Any                  , FieldRole.INPUT   ] = None
+	type  : Annotated[Literal["break_flow"], FieldRole.CONSTANT] = "break_flow"
+	input : Annotated[Any                  , FieldRole.INPUT   ] = None
 
 
 @node_info(
@@ -877,12 +877,107 @@ class ContinueFlow(FlowType):
 	2. Skip any remaining nodes in the loop body
 	3. Return to the LoopStart/ForEach for the next iteration
 	"""
-	type : Annotated[Literal["continue_flow"], FieldRole.CONSTANT] = "continue_flow"
-	pin  : Annotated[Any                     , FieldRole.INPUT   ] = None
+	type  : Annotated[Literal["continue_flow"], FieldRole.CONSTANT] = "continue_flow"
+	input : Annotated[Any                     , FieldRole.INPUT   ] = None
 
 
 # =============================================================================
 # END LOOP FLOW NODES
+# =============================================================================
+
+
+# =============================================================================
+# EVENT/TRIGGER FLOW NODES
+# Nodes for event-driven workflow execution (timers, gates, accumulators)
+# =============================================================================
+
+DEFAULT_TIMER_INTERVAL_MS   : int  = 1000
+DEFAULT_TIMER_MAX_TRIGGERS  : int  = -1      # -1 = infinite
+DEFAULT_GATE_THRESHOLD      : int  = 1
+DEFAULT_GATE_RESET          : bool = True
+
+
+@node_info(
+	title       = "Timer",
+	description = "Triggers at regular intervals. Pauses workflow execution until interval elapses, "
+	              "then continues. Use max_triggers to limit iterations or -1 for infinite.",
+	icon        = "⏱️",
+	section     = "Workflow",
+	visible     = True
+)
+class TimerFlow(FlowType):
+	"""
+	Timer node - triggers execution at regular intervals.
+
+	The timer pauses workflow execution and resumes after the interval.
+	Each trigger:
+	1. Waits for 'interval_ms' milliseconds
+	2. Increments 'count' and outputs current values
+	3. Continues to downstream nodes
+	4. If inside a loop, repeats until max_triggers or loop condition
+	"""
+	type          : Annotated[Literal["timer_flow"], FieldRole.CONSTANT] = "timer_flow"
+	input         : Annotated[Any                  , FieldRole.INPUT   ] = None
+	interval_ms   : Annotated[int                  , FieldRole.INPUT   ] = DEFAULT_TIMER_INTERVAL_MS
+	max_triggers  : Annotated[int                  , FieldRole.INPUT   ] = DEFAULT_TIMER_MAX_TRIGGERS
+	count         : Annotated[int                  , FieldRole.OUTPUT  ] = 0
+	elapsed_ms    : Annotated[int                  , FieldRole.OUTPUT  ] = 0
+	output        : Annotated[Any                  , FieldRole.OUTPUT  ] = None
+
+
+@node_info(
+	title       = "Gate",
+	description = "Accumulates inputs and triggers when threshold is reached. "
+	              "Use for batching, throttling, or conditional triggering.",
+	icon        = "🚧",
+	section     = "Workflow",
+	visible     = True
+)
+class GateFlow(FlowType):
+	"""
+	Gate/Accumulator node - collects inputs and triggers on condition.
+
+	The gate accumulates incoming data and triggers when:
+	1. 'threshold' number of inputs received, OR
+	2. 'condition' expression evaluates to True
+
+	Useful for:
+	- Batching: process every N items together
+	- Throttling: limit rate of downstream execution
+	- Conditional: trigger only when custom condition met
+	"""
+	type          : Annotated[Literal["gate_flow"], FieldRole.CONSTANT] = "gate_flow"
+	input         : Annotated[Any                 , FieldRole.INPUT   ] = None
+	threshold     : Annotated[int                 , FieldRole.INPUT   ] = DEFAULT_GATE_THRESHOLD
+	condition     : Annotated[Optional[str]       , FieldRole.INPUT   ] = None  # Python expression
+	reset_on_fire : Annotated[bool                , FieldRole.INPUT   ] = DEFAULT_GATE_RESET
+	count         : Annotated[int                 , FieldRole.OUTPUT  ] = 0
+	accumulated   : Annotated[List[Any]           , FieldRole.OUTPUT  ] = None
+	triggered     : Annotated[bool                , FieldRole.OUTPUT  ] = False
+	output        : Annotated[Any                 , FieldRole.OUTPUT  ] = None
+
+
+@node_info(
+	title       = "Delay",
+	description = "Pauses execution for specified duration, then continues.",
+	icon        = "⏸️",
+	section     = "Workflow",
+	visible     = True
+)
+class DelayFlow(FlowType):
+	"""
+	Delay node - simple pause in execution.
+
+	Unlike Timer, Delay executes only once and passes through data.
+	"""
+	type          : Annotated[Literal["delay_flow"], FieldRole.CONSTANT] = "delay_flow"
+	input         : Annotated[Any                  , FieldRole.INPUT   ] = None
+	duration_ms   : Annotated[int                  , FieldRole.INPUT   ] = 1000
+	output        : Annotated[Any                  , FieldRole.OUTPUT  ] = None
+
+
+# =============================================================================
+# END EVENT/TRIGGER FLOW NODES
 # =============================================================================
 
 
@@ -1024,6 +1119,11 @@ WorkflowNodeUnion = Union[
 	ForEachEndFlow,
 	BreakFlow,
 	ContinueFlow,
+
+	# Event/Trigger nodes
+	TimerFlow,
+	GateFlow,
+	DelayFlow,
 
 	# Interactive nodes
 	ToolCall,

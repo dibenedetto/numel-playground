@@ -37,6 +37,29 @@ class LoopSignal(str, Enum):
 	CONTINUE      = "continue"
 
 
+class WaitType(str, Enum):
+	"""Types of wait conditions"""
+	TIMER         = "timer"          # Wait for duration
+	EVENT         = "event"          # Wait for external event
+	GATE          = "gate"           # Wait for threshold/condition
+
+
+class WaitSignal(BaseModel):
+	"""Signal from a node requesting to pause execution"""
+	wait_type     : WaitType
+	duration_ms   : Optional[int] = None      # For TIMER: milliseconds to wait
+	event_name    : Optional[str] = None      # For EVENT: event to wait for
+	threshold     : Optional[int] = None      # For GATE: count threshold
+	condition     : Optional[str] = None      # For GATE: custom condition expression
+	accumulated   : List[Any] = Field(default_factory=list)  # Accumulated data for gate
+	count         : int = 0                   # Current count for gate/timer
+	max_count     : Optional[int] = None      # Max triggers before stopping
+	resume_data   : Dict[str, Any] = Field(default_factory=dict)  # Data to pass on resume
+
+	class Config:
+		arbitrary_types_allowed = True
+
+
 class LoopContext(BaseModel):
 	"""Context for a single loop (supports nesting via stack)"""
 	loop_start_idx  : int                          # Index of LoopStart/ForEach node
@@ -60,6 +83,7 @@ class WorkflowExecutionState(BaseModel):
 	pending_nodes   : List[int] = []
 	ready_nodes     : List[int] = []
 	running_nodes   : List[int] = []
+	waiting_nodes   : List[int] = []
 	completed_nodes : List[int] = []
 	failed_nodes    : List[int] = []
 	node_outputs    : Dict[int, Dict[str, Any]] = {}
@@ -69,6 +93,9 @@ class WorkflowExecutionState(BaseModel):
 	# Loop tracking
 	loop_stack      : List[int] = []                    # Stack of active loop_start indices
 	loop_contexts   : Dict[int, Dict[str, Any]] = {}    # loop_start_idx -> LoopContext dict
+	# Wait/Event tracking
+	wait_signals    : Dict[int, Dict[str, Any]] = {}    # node_idx -> WaitSignal dict
+	scheduled_tasks : Dict[int, str] = {}               # node_idx -> task_id for timers
 
 	class Config:
 		arbitrary_types_allowed = True
@@ -390,7 +417,10 @@ class WorkflowEngine:
 		ready: Set[int],
 		running: Set[int],
 		node_outputs: Dict[int, Dict[str, Any]],
-		loop_contexts: Dict[int, LoopContext] = None
+		loop_contexts: Dict[int, LoopContext] = None,
+		waiting: Set[int] = None,
+		wait_signals: Dict[int, Dict[str, Any]] = None,
+		timer_tasks: Dict[int, Any] = None
 	):
 		"""Reset all nodes in a loop body for the next iteration"""
 		for node_idx in ctx.body_nodes:
@@ -406,6 +436,15 @@ class WorkflowEngine:
 				nested_ctx = loop_contexts[node_idx]
 				nested_ctx.iteration = 0
 				nested_ctx.is_active = True
+			# Reset waiting state if node was waiting (e.g., gate not yet fired)
+			if waiting is not None:
+				waiting.discard(node_idx)
+			if wait_signals is not None and node_idx in wait_signals:
+				del wait_signals[node_idx]
+			if timer_tasks is not None and node_idx in timer_tasks:
+				# Cancel any pending timer task
+				timer_tasks[node_idx].cancel()
+				del timer_tasks[node_idx]
 
 		# Also reset the loop end node
 		if ctx.loop_end_idx is not None:
@@ -415,6 +454,8 @@ class WorkflowEngine:
 			pending.add(ctx.loop_end_idx)
 			if ctx.loop_end_idx in node_outputs:
 				del node_outputs[ctx.loop_end_idx]
+			if waiting is not None:
+				waiting.discard(ctx.loop_end_idx)
 
 	def _skip_loop_body(
 		self,
@@ -449,7 +490,10 @@ class WorkflowEngine:
 		ready: Set[int],
 		running: Set[int],
 		node_outputs: Dict[int, Dict[str, Any]],
-		dependencies: Dict[int, Set[int]]
+		dependencies: Dict[int, Set[int]],
+		waiting: Set[int] = None,
+		wait_signals: Dict[int, Dict[str, Any]] = None,
+		timer_tasks: Dict[int, Any] = None
 	) -> bool:
 		"""
 		Handle a loop control signal.
@@ -479,7 +523,8 @@ class WorkflowEngine:
 			# Check if we should continue or exit
 			should_continue = self._evaluate_loop_condition(ctx, nodes, node_outputs)
 			if should_continue:
-				self._reset_loop_body(ctx, completed, pending, ready, running, node_outputs, loop_contexts)
+				self._reset_loop_body(ctx, completed, pending, ready, running, node_outputs, loop_contexts,
+					waiting, wait_signals, timer_tasks)
 				# Re-queue the loop start
 				completed.discard(ctx.loop_start_idx)
 				ready.add(ctx.loop_start_idx)
@@ -495,7 +540,8 @@ class WorkflowEngine:
 
 			should_continue = self._evaluate_loop_condition(ctx, nodes, node_outputs)
 			if should_continue:
-				self._reset_loop_body(ctx, completed, pending, ready, running, node_outputs, loop_contexts)
+				self._reset_loop_body(ctx, completed, pending, ready, running, node_outputs, loop_contexts,
+					waiting, wait_signals, timer_tasks)
 				# Re-queue the loop start
 				completed.discard(ctx.loop_start_idx)
 				ready.add(ctx.loop_start_idx)
@@ -604,9 +650,14 @@ class WorkflowEngine:
 			# Track node states
 			ready   = set()
 			running = set()
+			waiting = set()  # Nodes waiting for timer/event/gate
 
 			# Node outputs storage
 			node_outputs: Dict[int, Dict[str, Any]] = {}
+
+			# Wait signal storage for paused nodes
+			wait_signals: Dict[int, Dict[str, Any]] = {}
+			timer_tasks: Dict[int, asyncio.Task] = {}  # Timer tasks for waiting nodes
 
 			# ===== LOOP SUPPORT =====
 			# Detect and initialize loop structures
@@ -628,15 +679,49 @@ class WorkflowEngine:
 			variables = dict(initial_data)
 
 			# Main execution loop
-			while ready or running:
+			while ready or running or timer_tasks:
 				# await asyncio.sleep(0.01)
 
 				state.pending_nodes   = list(pending)
 				state.ready_nodes     = list(ready)
 				state.running_nodes   = list(running)
+				state.waiting_nodes   = list(waiting)
 				state.completed_nodes = list(completed)
 				state.node_outputs    = node_outputs
 				state.loop_stack      = loop_stack
+				state.wait_signals    = {k: v for k, v in wait_signals.items()}
+
+				# ===== TIMER COMPLETION HANDLING =====
+				# Check for completed timer tasks
+				if timer_tasks:
+					done_timers = [idx for idx, t in timer_tasks.items() if t.done()]
+					for node_idx in done_timers:
+						timer_task = timer_tasks.pop(node_idx)
+						try:
+							idx, signal = await timer_task
+							waiting.discard(idx)
+
+							# Inject resume state into variables (node-scoped)
+							variables["_timer_resume"] = True
+							variables["_timer_count"] = signal.get("count", 0)
+							variables["_timer_elapsed"] = signal.get("elapsed_ms", 0)
+							variables[f"_delay_{idx}_resume"] = True  # Node-scoped for delay nodes
+
+							# Re-queue node for execution
+							ready.add(idx)
+
+							await self.event_bus.emit(
+								event_type   = EventType.NODE_RESUMED,
+								workflow_id  = state.workflow_id,
+								execution_id = state.execution_id,
+								node_id      = str(idx),
+								data         = {"resumed_from": "timer"}
+							)
+						except Exception as e:
+							# Timer failed, mark node as failed
+							state.failed_nodes.append(node_idx)
+							waiting.discard(node_idx)
+				# =====================================
 
 				if ready:
 					tasks = set()
@@ -696,13 +781,59 @@ class WorkflowEngine:
 								# ===== LOOP SIGNAL HANDLING =====
 								loop_signal = result.outputs.get("_loop_signal", "")
 								if loop_signal:
+									# Save loop context BEFORE handling (it may be removed from stack)
+									pre_handle_ctx = self._get_current_loop_context(node_idx, loop_contexts, loop_stack)
+									loop_start_idx = pre_handle_ctx.loop_start_idx if pre_handle_ctx else None
+
 									signal_handled = self._handle_loop_signal(
 										loop_signal, node_idx, nodes,
 										loop_contexts, loop_stack,
 										completed, pending, ready, running,
-										node_outputs, dependencies
+										node_outputs, dependencies,
+										waiting, wait_signals, timer_tasks
 									)
 									if signal_handled:
+										# Check if loop is continuing or finished
+										node = nodes[node_idx]
+										node_label = ""
+										if hasattr(node, 'extra') and node.extra:
+											node_label = node.extra.get("name", "") or node.extra.get("label", "")
+
+										# Check if loop is still active after handling
+										loop_still_active = pre_handle_ctx is not None and pre_handle_ctx.is_active
+
+										if loop_still_active:
+											# Loop is continuing - show waiting state for loop_end
+											await self.event_bus.emit(
+												event_type   = EventType.NODE_WAITING,
+												workflow_id  = state.workflow_id,
+												execution_id = state.execution_id,
+												node_id      = str(node_idx),
+												data         = {"wait_type": "loop", "iteration": pre_handle_ctx.iteration, "node_label": node_label}
+											)
+										else:
+											# Loop finished - show completed state for loop_end
+											await self.event_bus.emit(
+												event_type   = EventType.NODE_COMPLETED,
+												workflow_id  = state.workflow_id,
+												execution_id = state.execution_id,
+												node_id      = str(node_idx),
+												data         = {"outputs": result.outputs, "node_label": node_label}
+											)
+											# Also emit NODE_COMPLETED for the loop_start node
+											if loop_start_idx is not None:
+												start_node = nodes[loop_start_idx]
+												start_label = ""
+												if hasattr(start_node, 'extra') and start_node.extra:
+													start_label = start_node.extra.get("name", "") or start_node.extra.get("label", "")
+												await self.event_bus.emit(
+													event_type   = EventType.NODE_COMPLETED,
+													workflow_id  = state.workflow_id,
+													execution_id = state.execution_id,
+													node_id      = str(loop_start_idx),
+													data         = {"outputs": node_outputs.get(loop_start_idx, {}), "node_label": start_label}
+												)
+
 										# Update dependencies for ready check after reset
 										for dep_idx in list(pending):
 											if dependencies[dep_idx].issubset(completed):
@@ -710,6 +841,92 @@ class WorkflowEngine:
 												ready.add(dep_idx)
 										continue
 								# =================================
+
+								# ===== WAIT SIGNAL HANDLING =====
+								if result.wait_signal:
+									wait_type = result.wait_signal.get("wait_type", "")
+
+									if wait_type == "timer":
+										# Timer/Delay wait - schedule a timer task
+										duration_ms = result.wait_signal.get("duration_ms", 1000)
+										wait_signals[node_idx] = result.wait_signal
+
+										# Move to waiting state (don't propagate downstream yet)
+										# Downstream will execute only after all timer triggers complete
+										completed.discard(node_idx)
+										waiting.add(node_idx)
+
+										# Schedule timer to resume this node
+										async def resume_after_timer(idx, duration, signals):
+											await asyncio.sleep(duration / 1000.0)
+											return idx, signals[idx]
+
+										timer_task = asyncio.create_task(
+											resume_after_timer(node_idx, duration_ms, wait_signals)
+										)
+										timer_tasks[node_idx] = timer_task
+
+										await self.event_bus.emit(
+											event_type   = EventType.NODE_WAITING,
+											workflow_id  = state.workflow_id,
+											execution_id = state.execution_id,
+											node_id      = str(node_idx),
+											data         = {"wait_type": "timer", "duration_ms": duration_ms}
+										)
+										continue
+
+									elif wait_type == "gate":
+										# Gate wait - hold until threshold met
+										wait_signals[node_idx] = result.wait_signal
+										completed.discard(node_idx)
+										waiting.add(node_idx)
+
+										await self.event_bus.emit(
+											event_type   = EventType.NODE_WAITING,
+											workflow_id  = state.workflow_id,
+											execution_id = state.execution_id,
+											node_id      = str(node_idx),
+											data         = {"wait_type": "gate", "count": result.wait_signal.get("count", 0)}
+										)
+										continue
+								# =================================
+
+								# Emit NODE_COMPLETED or NODE_WAITING for loop_start nodes
+								node = nodes[node_idx]
+								node_label = ""
+								if hasattr(node, 'extra') and node.extra:
+									node_label = node.extra.get("name", "") or node.extra.get("label", "")
+
+								# Check if this is a loop_start node with active loop
+								if self._is_loop_start_node(node):
+									loop_ctx = loop_contexts.get(node_idx)
+									if loop_ctx and loop_ctx.is_active:
+										# Loop is active - show waiting state
+										await self.event_bus.emit(
+											event_type   = EventType.NODE_WAITING,
+											workflow_id  = state.workflow_id,
+											execution_id = state.execution_id,
+											node_id      = str(node_idx),
+											data         = {"wait_type": "loop", "iteration": loop_ctx.iteration, "node_label": node_label}
+										)
+									else:
+										# Loop finished or skipped - show completed
+										await self.event_bus.emit(
+											event_type   = EventType.NODE_COMPLETED,
+											workflow_id  = state.workflow_id,
+											execution_id = state.execution_id,
+											node_id      = str(node_idx),
+											data         = {"outputs": result.outputs, "node_label": node_label}
+										)
+								else:
+									# Regular node - emit completed
+									await self.event_bus.emit(
+										event_type   = EventType.NODE_COMPLETED,
+										workflow_id  = state.workflow_id,
+										execution_id = state.execution_id,
+										node_id      = str(node_idx),
+										data         = {"outputs": result.outputs, "node_label": node_label}
+									)
 
 								# Normal dependency propagation
 								for dep_idx in dependents[node_idx]:
@@ -863,14 +1080,8 @@ class WorkflowEngine:
 			else:
 				result = await node.execute(context)
 
-			if result.success:
-				await self.event_bus.emit(
-					event_type   = EventType.NODE_COMPLETED,
-					workflow_id  = state.workflow_id,
-					execution_id = state.execution_id,
-					node_id      = str(node_idx),
-					data         = {"outputs": result.outputs, "node_label": node_label}
-				)
+			# NOTE: NODE_COMPLETED is emitted in the main loop after checking for wait_signal
+			# This ensures nodes waiting for timer/gate don't trigger premature visual feedback
 
 			return node_idx, result
 

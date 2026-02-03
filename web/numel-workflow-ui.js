@@ -392,6 +392,9 @@ async function disconnect() {
 		schemaGraph.api.lock.unlock();
 	}
 
+	// Close all preview text overlays
+	schemaGraph.closeAllPreviewTextOverlays?.();
+
 	fileUploadManager?.destroy();
 	fileUploadManager = null;
 
@@ -513,6 +516,21 @@ function setupClientEvents() {
 		const label = event.data?.node_label || `Node ${idx}`;
 		visualizer?.updateNodeState(idx, 'failed');
 		addLog('error', `❌ [${idx}] ${label}: ${event.error}`);
+	});
+
+	client.on('node.waiting', (event) => {
+		const idx = parseInt(event.node_id);
+		const label = event.data?.node_label || `Node ${idx}`;
+		const waitType = event.data?.wait_type || 'unknown';
+		visualizer?.updateNodeState(idx, 'waiting');
+		addLog('info', `⏳ [${idx}] ${label} waiting (${waitType})`);
+	});
+
+	client.on('node.resumed', (event) => {
+		const idx = parseInt(event.node_id);
+		const label = event.data?.node_label || `Node ${idx}`;
+		visualizer?.updateNodeState(idx, 'running');
+		addLog('info', `▶️ [${idx}] ${label} resumed`);
 	});
 
 	client.on('user_input.requested', (event) => {
@@ -657,6 +675,9 @@ async function syncWorkflow(workflow = null, name = null, force = false) {
 	try {
 		// Save chat state before reload
 		const chatState = saveChatState();
+
+		// Close all preview text overlays (node IDs will change)
+		schemaGraph.closeAllPreviewTextOverlays?.();
 
 		const workflowEmpty = workflow == null;
 		if (workflowEmpty) {
@@ -845,6 +866,9 @@ async function confirmRemoveWorkflow() {
 
 async function clearWorkflow() {
 	if (!visualizer.currentWorkflow) return;
+
+	// Close all preview text overlays before clearing
+	schemaGraph.closeAllPreviewTextOverlays?.();
 
 	schemaGraph.api.graph.clear();
 	schemaGraph.api.view.reset();
@@ -1381,6 +1405,11 @@ function updatePreviewNode(previewNode, data, previewManager) {
 		if (dataChanged) {
 			triggerOverlayFlash(previewManager.previewOverlay);
 		}
+	}
+
+	// Update scrollable text overlay if it exists
+	if (schemaGraph?._updatePreviewTextOverlayContent) {
+		schemaGraph._updatePreviewTextOverlayContent(previewNode);
 	}
 }
 

@@ -22,6 +22,7 @@ class NodeExecutionResult:
 		self.success     : bool           = True
 		self.error       : Optional[str]  = None
 		self.next_target : Optional[str]  = None
+		self.wait_signal : Optional[Dict] = None  # If set, node wants to pause (timer/gate)
 
 
 class WFBaseType:
@@ -164,7 +165,7 @@ class WFFlowType(WFBaseType):
 class WFStartFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
-		result.outputs["pin"] = context.variables.copy()
+		result.outputs["output"] = context.variables.copy()
 		return result
 
 
@@ -421,7 +422,7 @@ class WFLoopEndFlow(WFFlowType):
 		result = NodeExecutionResult()
 
 		# Pass through input to output
-		result.outputs["output"] = context.inputs.get("pin")
+		result.outputs["output"] = context.inputs.get("input")
 
 		# Signal that this is a loop end (engine will handle the rest)
 		result.outputs["_loop_signal"] = "end"
@@ -481,7 +482,7 @@ class WFForEachEndFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
 
-		result.outputs["output"] = context.inputs.get("pin")
+		result.outputs["output"] = context.inputs.get("input")
 		result.outputs["_loop_signal"] = "for_each_end"
 
 		return result
@@ -519,6 +520,202 @@ class WFContinueFlow(WFFlowType):
 
 # =============================================================================
 # END LOOP FLOW NODES
+# =============================================================================
+
+
+# =============================================================================
+# EVENT/TRIGGER FLOW NODES
+# =============================================================================
+
+class WFTimerFlow(WFFlowType):
+	"""
+	Timer node executor.
+
+	Returns a wait signal that tells the engine to pause for the interval,
+	then resume execution. The engine handles the actual timing.
+	"""
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+
+		# Get configuration from node or inputs
+		interval_ms = context.inputs.get("interval_ms")
+		if interval_ms is None:
+			interval_ms = getattr(self.config, 'interval_ms', 1000)
+
+		max_triggers = context.inputs.get("max_triggers")
+		if max_triggers is None:
+			max_triggers = getattr(self.config, 'max_triggers', -1)
+
+		# Get current state from context (injected by engine on resume)
+		count = context.variables.get("_timer_count", 0)
+		elapsed_ms = context.variables.get("_timer_elapsed", 0)
+		is_resume = context.variables.get("_timer_resume", False)
+
+		if is_resume:
+			# This is a resume after waiting - increment and continue
+			count += 1
+			elapsed_ms += interval_ms
+
+			result.outputs["count"] = count
+			result.outputs["elapsed_ms"] = elapsed_ms
+			result.outputs["output"] = context.inputs.get("input")
+
+			# Check if we should stop
+			if max_triggers > 0 and count >= max_triggers:
+				# Timer exhausted, continue normally
+				result.outputs["_timer_done"] = True
+			else:
+				# Signal to wait again
+				result.wait_signal = {
+					"wait_type": "timer",
+					"duration_ms": interval_ms,
+					"count": count,
+					"elapsed_ms": elapsed_ms,
+					"max_count": max_triggers
+				}
+		else:
+			# First execution - start the timer
+			result.outputs["count"] = 0
+			result.outputs["elapsed_ms"] = 0
+			result.outputs["output"] = context.inputs.get("input")
+
+			# Signal to wait for interval
+			result.wait_signal = {
+				"wait_type": "timer",
+				"duration_ms": interval_ms,
+				"count": 0,
+				"elapsed_ms": 0,
+				"max_count": max_triggers
+			}
+
+		return result
+
+
+class WFGateFlow(WFFlowType):
+	"""
+	Gate/Accumulator node executor.
+
+	Accumulates inputs and triggers when threshold or condition is met.
+	State is scoped per-node using node_index to avoid conflicts between multiple gates.
+	"""
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+
+		# Get configuration
+		threshold = context.inputs.get("threshold")
+		if threshold is None:
+			threshold = getattr(self.config, 'threshold', 1)
+
+		condition = context.inputs.get("condition")
+		if condition is None:
+			condition = getattr(self.config, 'condition', None)
+
+		reset_on_fire = context.inputs.get("reset_on_fire")
+		if reset_on_fire is None:
+			reset_on_fire = getattr(self.config, 'reset_on_fire', True)
+
+		# Node-scoped state keys to avoid conflicts between multiple gates
+		node_idx = context.node_index
+		acc_key = f"_gate_{node_idx}_accumulated"
+		count_key = f"_gate_{node_idx}_count"
+
+		# Get accumulated state from context (node-scoped)
+		accumulated = context.variables.get(acc_key, [])
+		count = context.variables.get(count_key, 0)
+
+		# Add current input to accumulator
+		input_data = context.inputs.get("input")
+		if input_data is not None:
+			accumulated.append(input_data)
+			count += 1
+
+		# Update state in variables
+		context.variables[acc_key] = accumulated
+		context.variables[count_key] = count
+
+		# Check if gate should fire
+		should_fire = False
+
+		if condition:
+			# Evaluate custom condition
+			try:
+				local_vars = {
+					"count": count,
+					"threshold": threshold,
+					"accumulated": accumulated,
+					"input": input_data
+				}
+				should_fire = eval(condition, {"__builtins__": {}}, local_vars)
+			except Exception:
+				should_fire = False
+		else:
+			# Simple threshold check
+			should_fire = count >= threshold
+
+		result.outputs["count"] = count
+		result.outputs["accumulated"] = accumulated.copy()
+		result.outputs["triggered"] = should_fire
+
+		if should_fire:
+			# Gate fires - pass through accumulated data
+			result.outputs["output"] = accumulated.copy() if len(accumulated) > 1 else (accumulated[0] if accumulated else None)
+
+			if reset_on_fire:
+				# Actually reset the state variables for next accumulation cycle
+				context.variables[acc_key] = []
+				context.variables[count_key] = 0
+				result.outputs["_gate_reset"] = True
+		else:
+			# Gate holds - don't set output but still complete
+			# This allows the workflow to continue (loop can iterate)
+			# Downstream nodes should check 'triggered' output to decide whether to process
+			result.outputs["output"] = None
+
+		return result
+
+
+class WFDelayFlow(WFFlowType):
+	"""
+	Delay node executor.
+
+	Simple pause - waits for duration then passes through input.
+	Uses node-scoped resume flag to properly handle loop iterations.
+	"""
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+
+		# Get duration from node or inputs
+		duration_ms = context.inputs.get("duration_ms")
+		if duration_ms is None:
+			duration_ms = getattr(self.config, 'duration_ms', 1000)
+
+		# Node-scoped resume key
+		node_idx = context.node_index
+		resume_key = f"_delay_{node_idx}_resume"
+
+		# Check if this is a resume after waiting
+		is_resume = context.variables.get(resume_key, False)
+
+		if is_resume:
+			# Resume after delay - pass through input and clear the flag
+			result.outputs["output"] = context.inputs.get("input")
+			# Clear the flag so next loop iteration will delay again
+			context.variables[resume_key] = False
+		else:
+			# First execution - signal to wait
+			result.outputs["output"] = context.inputs.get("input")
+			result.wait_signal = {
+				"wait_type": "timer",
+				"duration_ms": duration_ms,
+				"count": 0,
+				"max_count": 1  # Only trigger once
+			}
+
+		return result
+
+
+# =============================================================================
+# END EVENT/TRIGGER FLOW NODES
 # =============================================================================
 
 
@@ -607,6 +804,11 @@ _NODE_TYPES = {
 	"for_each_end_flow"        : WFForEachEndFlow,
 	"break_flow"               : WFBreakFlow,
 	"continue_flow"            : WFContinueFlow,
+
+	# Event/Trigger nodes
+	"timer_flow"               : WFTimerFlow,
+	"gate_flow"                : WFGateFlow,
+	"delay_flow"               : WFDelayFlow,
 
 	# Interactive nodes
 	"tool_call"                : WFToolCall,

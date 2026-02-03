@@ -351,6 +351,7 @@ class WorkflowVisualizer {
 			'pending': '#4a5568',
 			'ready': '#3182ce',
 			'running': '#805ad5',
+			'waiting': '#d69e2e',  // Amber/orange for waiting state
 			'completed': '#38a169',
 			'failed': '#e53e3e',
 			'skipped': '#718096'
@@ -359,7 +360,7 @@ class WorkflowVisualizer {
 		graphNode.color = colorMap[status] || graphNode.color;
 		graphNode.executionState = status;
 
-		if (status === 'running') {
+		if (status === 'running' || status === 'waiting') {
 			this.schemaGraph.api.node.select(graphNode, false);
 			// Start execution animation if not already running
 			this._startExecutionAnimation();
@@ -376,9 +377,11 @@ class WorkflowVisualizer {
 
 		const self = this;
 		this._animationIntervalId = setInterval(() => {
-			// Check if any node is still running
-			const hasRunningNode = self.graphNodes?.some(n => n?.executionState === 'running');
-			if (!hasRunningNode) {
+			// Check if any node is still running or waiting
+			const hasActiveNode = self.graphNodes?.some(n =>
+				n?.executionState === 'running' || n?.executionState === 'waiting'
+			);
+			if (!hasActiveNode) {
 				self._stopExecutionAnimation();
 				return;
 			}

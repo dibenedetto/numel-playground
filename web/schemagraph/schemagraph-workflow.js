@@ -852,6 +852,7 @@ class WorkflowImporter {
 		if (nodeData.extra) {
 			node.extra = { ...nodeData.extra };
 			if (nodeData.extra.title) node.title = nodeData.extra.title;
+			if (nodeData.extra.name) node.displayTitle = nodeData.extra.name;
 			if (nodeData.extra.color) node.color = nodeData.extra.color;
 		}
 
@@ -1077,6 +1078,7 @@ class WorkflowExporter {
 			nodeData.extra = { ...nodeData.extra, ...rest };
 		}
 		if (node.title !== `${node.schemaName}.${node.modelName}`) nodeData.extra.title = node.title;
+		if (node.displayTitle) nodeData.extra.name = node.displayTitle;
 		if (node.color) nodeData.extra.color = node.color;
 		if (Object.keys(nodeData.extra).length === 0) delete nodeData.extra;
 

@@ -30,6 +30,7 @@ class SchemaGraphApp {
 		this.injectFeaturesPanelHTML();
 		this.injectMultiSlotUIStyles();
 		this.injectInteractiveStyles();
+		this.injectPreviewOverlayStyles();
 
 		this.api = this._createAPI();
 		this.ui = this._createUI();
@@ -736,6 +737,295 @@ class SchemaGraphApp {
 		document.head.appendChild(style);
 	}
 
+	injectPreviewOverlayStyles() {
+		if (document.getElementById('sg-preview-overlay-styles')) return;
+		const style = document.createElement('style');
+		style.id = 'sg-preview-overlay-styles';
+		style.textContent = `
+			.sg-preview-text-overlay {
+				position: absolute;
+				pointer-events: auto;
+				font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+				font-size: 12px;
+				border-radius: 6px;
+				overflow: hidden;
+				box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+				z-index: 100;
+				display: flex;
+				flex-direction: column;
+				background: var(--sg-bg-secondary, #1e1e2e);
+				border: 1px solid var(--sg-border-color, #404060);
+			}
+			.sg-preview-text-header {
+				display: flex;
+				justify-content: space-between;
+				align-items: center;
+				padding: 6px 10px;
+				background: var(--sg-node-header, #404060);
+				border-bottom: 1px solid var(--sg-border-color, #303050);
+				cursor: move;
+				user-select: none;
+			}
+			.sg-preview-text-title {
+				font-size: 11px;
+				font-weight: 600;
+				color: var(--sg-text-primary, #ffffff);
+				font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+			}
+			.sg-preview-text-actions {
+				display: flex;
+				gap: 4px;
+			}
+			.sg-preview-text-btn {
+				background: transparent;
+				border: none;
+				color: var(--sg-text-tertiary, #888);
+				width: 20px;
+				height: 20px;
+				border-radius: 3px;
+				cursor: pointer;
+				font-size: 12px;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				padding: 0;
+			}
+			.sg-preview-text-btn:hover {
+				background: rgba(255,255,255,0.1);
+				color: var(--sg-text-primary, #fff);
+			}
+			.sg-preview-text-content {
+				flex: 1;
+				overflow: auto;
+				padding: 10px;
+				color: var(--sg-text-primary, #e0e0e0);
+				white-space: pre-wrap;
+				word-break: break-word;
+				line-height: 1.5;
+				min-height: 100px;
+				max-height: 400px;
+			}
+			.sg-preview-text-content::-webkit-scrollbar {
+				width: 8px;
+				height: 8px;
+			}
+			.sg-preview-text-content::-webkit-scrollbar-track {
+				background: rgba(0,0,0,0.2);
+				border-radius: 4px;
+			}
+			.sg-preview-text-content::-webkit-scrollbar-thumb {
+				background: rgba(255,255,255,0.2);
+				border-radius: 4px;
+			}
+			.sg-preview-text-content::-webkit-scrollbar-thumb:hover {
+				background: rgba(255,255,255,0.3);
+			}
+			.sg-preview-text-footer {
+				padding: 4px 10px;
+				background: rgba(0,0,0,0.2);
+				border-top: 1px solid var(--sg-border-color, #303050);
+				font-size: 10px;
+				color: var(--sg-text-tertiary, #808090);
+				font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+			}
+			.sg-preview-text-resize {
+				position: absolute;
+				bottom: 0;
+				right: 0;
+				width: 16px;
+				height: 16px;
+				cursor: se-resize;
+				background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.1) 50%);
+			}
+		`;
+		document.head.appendChild(style);
+	}
+
+	// === PREVIEW TEXT OVERLAY MANAGEMENT ===
+
+	_createPreviewTextOverlay(node) {
+		const previewData = this._getPreviewData(node);
+		if (!previewData) return null;
+
+		// Format the data based on type
+		let text;
+		const value = previewData.value;
+		if (value === null || value === undefined) {
+			text = String(value);
+		} else if (typeof value === 'object') {
+			text = JSON.stringify(value, null, 2);
+		} else {
+			text = String(value);
+		}
+		const title = node.displayTitle || node.title || 'Preview';
+
+		const overlay = document.createElement('div');
+		overlay.className = 'sg-preview-text-overlay';
+		overlay.id = `sg-preview-overlay-${node.id}`;
+		overlay.innerHTML = `
+			<div class="sg-preview-text-header">
+				<span class="sg-preview-text-title">${title}</span>
+				<div class="sg-preview-text-actions">
+					<button class="sg-preview-text-btn sg-preview-copy-btn" title="Copy to clipboard">📋</button>
+					<button class="sg-preview-text-btn sg-preview-close-btn" title="Close">✕</button>
+				</div>
+			</div>
+			<div class="sg-preview-text-content">${this._escapeHtml(text)}</div>
+			<div class="sg-preview-text-footer">${text.length} chars, ${text.split('\n').length} lines</div>
+			<div class="sg-preview-text-resize"></div>
+		`;
+
+		const container = this.canvas?.parentElement || document.body;
+		container.appendChild(overlay);
+
+		// Bind events
+		const closeBtn = overlay.querySelector('.sg-preview-close-btn');
+		const copyBtn = overlay.querySelector('.sg-preview-copy-btn');
+		const header = overlay.querySelector('.sg-preview-text-header');
+		const resizeHandle = overlay.querySelector('.sg-preview-text-resize');
+
+		closeBtn?.addEventListener('click', () => this._closePreviewTextOverlay(node));
+
+		copyBtn?.addEventListener('click', () => {
+			navigator.clipboard.writeText(text).then(() => {
+				copyBtn.textContent = '✓';
+				setTimeout(() => { copyBtn.textContent = '📋'; }, 1000);
+			});
+		});
+
+		// Drag to move
+		let isDragging = false;
+		let dragOffsetX = 0, dragOffsetY = 0;
+
+		header?.addEventListener('mousedown', (e) => {
+			isDragging = true;
+			const rect = overlay.getBoundingClientRect();
+			dragOffsetX = e.clientX - rect.left;
+			dragOffsetY = e.clientY - rect.top;
+			e.preventDefault();
+		});
+
+		document.addEventListener('mousemove', (e) => {
+			if (!isDragging) return;
+			const containerRect = container.getBoundingClientRect();
+			overlay.style.left = (e.clientX - containerRect.left - dragOffsetX) + 'px';
+			overlay.style.top = (e.clientY - containerRect.top - dragOffsetY) + 'px';
+		});
+
+		document.addEventListener('mouseup', () => { isDragging = false; });
+
+		// Resize
+		let isResizing = false;
+		let startWidth, startHeight, startX, startY;
+
+		resizeHandle?.addEventListener('mousedown', (e) => {
+			isResizing = true;
+			startWidth = overlay.offsetWidth;
+			startHeight = overlay.offsetHeight;
+			startX = e.clientX;
+			startY = e.clientY;
+			e.preventDefault();
+			e.stopPropagation();
+		});
+
+		document.addEventListener('mousemove', (e) => {
+			if (!isResizing) return;
+			const newWidth = Math.max(200, startWidth + (e.clientX - startX));
+			const newHeight = Math.max(150, startHeight + (e.clientY - startY));
+			overlay.style.width = newWidth + 'px';
+			overlay.style.height = newHeight + 'px';
+		});
+
+		document.addEventListener('mouseup', () => { isResizing = false; });
+
+		// Position overlay relative to node
+		this._updatePreviewTextOverlayPosition(node, overlay);
+
+		// Store reference
+		if (!this._previewTextOverlays) this._previewTextOverlays = new Map();
+		this._previewTextOverlays.set(node.id, overlay);
+
+		return overlay;
+	}
+
+	_updatePreviewTextOverlayPosition(node, overlay) {
+		if (!overlay) return;
+
+		const camera = this.camera;
+		const nodeScreenX = node.pos[0] * camera.scale + camera.x;
+		const nodeScreenY = node.pos[1] * camera.scale + camera.y;
+		const nodeScreenW = node.size[0] * camera.scale;
+
+		// Position to the right of the node
+		overlay.style.left = (nodeScreenX + nodeScreenW + 10) + 'px';
+		overlay.style.top = nodeScreenY + 'px';
+		overlay.style.width = '400px';
+		overlay.style.height = '300px';
+	}
+
+	_closePreviewTextOverlay(node) {
+		const overlay = this._previewTextOverlays?.get(node.id);
+		if (overlay) {
+			overlay.remove();
+			this._previewTextOverlays.delete(node.id);
+		}
+		// Collapse the node
+		if (node.extra) node.extra.previewExpanded = false;
+		this._recalculatePreviewNodeSize(node);
+		this.draw();
+	}
+
+	_updatePreviewTextOverlayContent(node) {
+		const overlay = this._previewTextOverlays?.get(node.id);
+		if (!overlay) return;
+
+		const previewData = this._getPreviewData(node);
+		const value = previewData?.value;
+		let text;
+		if (value === null || value === undefined) {
+			text = String(value);
+		} else if (typeof value === 'object') {
+			text = JSON.stringify(value, null, 2);
+		} else {
+			text = String(value);
+		}
+
+		const content = overlay.querySelector('.sg-preview-text-content');
+		const footer = overlay.querySelector('.sg-preview-text-footer');
+
+		if (content) content.textContent = text;
+		if (footer) footer.textContent = `${text.length} chars, ${text.split('\n').length} lines`;
+	}
+
+	updateAllPreviewTextOverlayPositions() {
+		if (!this._previewTextOverlays) return;
+		for (const [nodeId, overlay] of this._previewTextOverlays) {
+			const node = this.graph.getNodeById(nodeId);
+			if (node) {
+				this._updatePreviewTextOverlayPosition(node, overlay);
+			}
+		}
+	}
+
+	closeAllPreviewTextOverlays() {
+		if (!this._previewTextOverlays) return;
+		for (const [nodeId, overlay] of this._previewTextOverlays) {
+			overlay.remove();
+			// Also reset the node's expanded state
+			const node = this.graph.getNodeById(nodeId);
+			if (node?.extra) {
+				node.extra.previewExpanded = false;
+			}
+		}
+		this._previewTextOverlays.clear();
+	}
+
+	_escapeHtml(text) {
+		const div = document.createElement('div');
+		div.textContent = text;
+		return div.innerHTML;
+	}
+
 	// === EVENT SETUP ===
 	setupEventListeners() {
 		this.eventBus.on('mouse:down', (data) => this.handleMouseDown(data));
@@ -1060,6 +1350,7 @@ class SchemaGraphApp {
 			this.camera.x = data.coords.screenX - this.panStart[0];
 			this.camera.y = data.coords.screenY - this.panStart[1];
 			this._hideTooltip();
+			this.updateAllPreviewTextOverlayPositions();
 			this.draw();
 			return;
 		}
@@ -1073,6 +1364,7 @@ class SchemaGraphApp {
 				node.pos[1] += dy;
 			}
 			this._hideTooltip();
+			this.updateAllPreviewTextOverlayPositions();
 			this.draw();
 			return;
 		}
@@ -1334,10 +1626,9 @@ class SchemaGraphApp {
 	}
 
 	handleDoubleClick(data) {
-		if (this.isLocked) return;
 		const [wx, wy] = this.screenToWorld(data.coords.screenX, data.coords.screenY);
 
-		// Check for PreviewFlow node double-click on preview area
+		// Check for PreviewFlow node double-click on preview area (allowed even when locked)
 		for (const node of this.graph.nodes) {
 			if (!this._isPreviewFlowNode(node)) continue;
 
@@ -1346,7 +1637,22 @@ class SchemaGraphApp {
 				wy >= bounds.y && wy <= bounds.y + bounds.h) {
 				// Toggle preview mode
 				if (!node.extra) node.extra = {};
-				node.extra.previewExpanded = !node.extra.previewExpanded;
+				const wasExpanded = node.extra.previewExpanded;
+				node.extra.previewExpanded = !wasExpanded;
+
+				// Check if this is text-like content - show scrollable overlay
+				const previewData = this._getPreviewData(node);
+				const textTypes = ['text', 'json', 'list', 'dict', 'integer', 'float', 'boolean'];
+				const isTextType = previewData && textTypes.includes(previewData.type);
+
+				if (node.extra.previewExpanded && isTextType) {
+					// Show scrollable text overlay
+					this._createPreviewTextOverlay(node);
+				} else if (!node.extra.previewExpanded) {
+					// Close overlay if it exists
+					this._closePreviewTextOverlay(node);
+				}
+
 				this._recalculatePreviewNodeSize(node);
 				this.draw();
 				this.eventBus.emit('preview:modeToggled', {
@@ -1356,6 +1662,9 @@ class SchemaGraphApp {
 				return;
 			}
 		}
+
+		// Block other double-click actions when locked
+		if (this.isLocked) return;
 
 		for (const node of this.graph.nodes) {
 			if (node.nativeInputs) {
@@ -1407,6 +1716,7 @@ class SchemaGraphApp {
 		this.camera.x += (after[0] - before[0]) * this.camera.scale;
 		this.camera.y += (after[1] - before[1]) * this.camera.scale;
 		this.eventBus.emit('ui:update', { id: 'zoomLevel', content: Math.round(this.camera.scale * 100) + '%' });
+		this.updateAllPreviewTextOverlayPositions();
 		this.draw();
 	}
 
@@ -2611,8 +2921,8 @@ class SchemaGraphApp {
 				this.ctx.fillText('↺', iconX, iconY);
 			}
 
-			// Draw hover hint icon at midpoint
-			if (isHovered) {
+			// Draw hover hint icon at midpoint (skip for loop-back edges)
+			if (isHovered && !isLoopEdge) {
 				const midX = (x1 + x2) / 2;
 				const midY = (y1 + y2) / 2;
 				// Draw preview icon background
@@ -2628,7 +2938,8 @@ class SchemaGraphApp {
 				this.ctx.fillText('👁', midX, midY);
 			}
 
-			if (isIncompleteLink) {
+			// Skip incomplete link indicator for loop-back edges
+			if (isIncompleteLink && !isLoopEdge) {
 				const midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
 				this.ctx.fillStyle = colors.accentOrange;
 				this.ctx.beginPath();
@@ -2723,7 +3034,7 @@ class SchemaGraphApp {
 		this.ctx.fillStyle = colors.textPrimary;
 		this.ctx.font = (11 * textScale) + 'px ' + style.textFont;
 		this.ctx.textBaseline = 'middle'; this.ctx.textAlign = 'left';
-		const infoTitle = node.nodeInfo?.title || node.displayTitle || node.title;
+		const infoTitle = node.displayTitle || node.nodeInfo?.title || node.title;
 		const icon = node.nodeInfo?.icon || '';
 		let displayTitle = (node.isRootType ? '☆ ' : '') + (icon ? `${icon} ${infoTitle}` : infoTitle);
 		const maxWidth = w - 16;
@@ -2743,6 +3054,8 @@ class SchemaGraphApp {
 		if (node.executionState) {
 			if (node.executionState === 'running') {
 				this._drawExecutionSpinner(x + w - 16, y + 13, 6, colors);
+			} else if (node.executionState === 'waiting') {
+				this._drawWaitingClock(x + w - 16, y + 13, 6, colors);
 			} else if (node.executionState === 'completed') {
 				this._drawExecutionCheck(x + w - 16, y + 13, 6, colors);
 			} else if (node.executionState === 'failed') {
@@ -4022,12 +4335,13 @@ class SchemaGraphApp {
 		this.ctx.closePath();
 		if (style.currentStyle !== 'wireframe') this.ctx.fill();
 
-		// Header title
+		// Header title - use displayTitle from extra.name if available
 		this.ctx.fillStyle = colors.textPrimary;
 		this.ctx.font = (11 * textScale) + 'px ' + style.textFont;
 		this.ctx.textBaseline = 'middle'; this.ctx.textAlign = 'left';
 		const modeIcon = isExpanded ? '▼' : '▶';
-		this.ctx.fillText(`${modeIcon} Preview`, x + 8, y + 13);
+		const previewTitle = node.displayTitle || 'Preview';
+		this.ctx.fillText(`${modeIcon} ${previewTitle}`, x + 8, y + 13);
 
 		// Draw input/output slots
 		const worldMouse = this.screenToWorld(this.mousePos[0], this.mousePos[1]);
@@ -4847,19 +5161,27 @@ class SchemaGraphApp {
 			switch (previewData.type) {
 				case 'image':
 				case 'video':
-					node.size = [320, 280];
+					node.size = [400, 350];
 					break;
 				case 'text':
+					// Calculate size based on text length
+					const text = String(previewData.value || '');
+					const lines = text.split('\n');
+					const maxLineLen = Math.max(...lines.map(l => l.length), 20);
+					const width = Math.min(Math.max(280, maxLineLen * 6 + 20), 600);
+					const height = Math.min(Math.max(180, lines.length * 14 + 40), 500);
+					node.size = [width, height];
+					break;
 				case 'list':
 				case 'dict':
 				case 'json':
-					node.size = [280, 220];
+					node.size = [400, 350];
 					break;
 				case 'audio':
 					node.size = [280, 160];
 					break;
 				default:
-					node.size = [240, 160];
+					node.size = [280, 200];
 			}
 		} else {
 			// Compact size
@@ -4939,6 +5261,9 @@ class SchemaGraphApp {
 	_canInsertPreviewOnLink(link) {
 		if (!link) return { allowed: false, reason: 'Invalid link' };
 		if (!this._features.edgePreview) return { allowed: false, reason: 'Edge preview disabled' };
+
+		// Disallow preview insertion on loop-back edges
+		if (link.loop) return { allowed: false, reason: 'Cannot insert preview on loop-back edge' };
 
 		const src = this.graph.getNodeById(link.origin_id);
 		const tgt = this.graph.getNodeById(link.target_id);
@@ -5129,7 +5454,8 @@ class SchemaGraphApp {
 		if (!decorators) return;
 		if (decorators.info) {
 			node.nodeInfo = decorators.info;
-			if (decorators.info.title) node.displayTitle = decorators.info.title;
+			// Only set displayTitle from decorator if not already set (e.g., from extra.name)
+			if (decorators.info.title && !node.displayTitle) node.displayTitle = decorators.info.title;
 			// Apply section-based header color if feature is enabled and color is configured
 			if (this._features.sectionColors && decorators.info.section && this._sectionColors[decorators.info.section]) {
 				node.color = this._sectionColors[decorators.info.section];
@@ -5581,6 +5907,45 @@ class SchemaGraphApp {
 		ctx.moveTo(cx + r * 0.5, cy - r * 0.5);
 		ctx.lineTo(cx - r * 0.5, cy + r * 0.5);
 		ctx.stroke();
+		ctx.restore();
+	}
+
+	_drawWaitingClock(cx, cy, r, colors) {
+		const ctx = this.ctx;
+		const time = performance.now() / 1000;
+
+		// Pulsing effect (opacity oscillates)
+		const pulse = 0.5 + 0.5 * Math.sin(time * 4);
+
+		ctx.save();
+		ctx.globalAlpha = 0.5 + pulse * 0.5;
+
+		// Draw clock circle
+		ctx.strokeStyle = '#ffffff';
+		ctx.lineWidth = 1.5 / this.camera.scale;
+		ctx.beginPath();
+		ctx.arc(cx, cy, r, 0, Math.PI * 2);
+		ctx.stroke();
+
+		// Draw clock hands (animated)
+		const minuteAngle = (time * 0.5) % (Math.PI * 2) - Math.PI / 2;
+		const hourAngle = (time * 0.05) % (Math.PI * 2) - Math.PI / 2;
+
+		ctx.lineWidth = 1.5 / this.camera.scale;
+		ctx.lineCap = 'round';
+
+		// Hour hand (shorter)
+		ctx.beginPath();
+		ctx.moveTo(cx, cy);
+		ctx.lineTo(cx + Math.cos(hourAngle) * r * 0.4, cy + Math.sin(hourAngle) * r * 0.4);
+		ctx.stroke();
+
+		// Minute hand (longer)
+		ctx.beginPath();
+		ctx.moveTo(cx, cy);
+		ctx.lineTo(cx + Math.cos(minuteAngle) * r * 0.7, cy + Math.sin(minuteAngle) * r * 0.7);
+		ctx.stroke();
+
 		ctx.restore();
 	}
 
