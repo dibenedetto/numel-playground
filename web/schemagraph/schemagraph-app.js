@@ -893,7 +893,7 @@ class SchemaGraphApp {
 			});
 		});
 
-		// Drag to move
+		// Drag to move - track relative offset from node
 		let isDragging = false;
 		let dragOffsetX = 0, dragOffsetY = 0;
 
@@ -905,14 +905,32 @@ class SchemaGraphApp {
 			e.preventDefault();
 		});
 
-		document.addEventListener('mousemove', (e) => {
+		const onMouseMove = (e) => {
 			if (!isDragging) return;
 			const containerRect = container.getBoundingClientRect();
-			overlay.style.left = (e.clientX - containerRect.left - dragOffsetX) + 'px';
-			overlay.style.top = (e.clientY - containerRect.top - dragOffsetY) + 'px';
-		});
+			const newLeft = e.clientX - containerRect.left - dragOffsetX;
+			const newTop = e.clientY - containerRect.top - dragOffsetY;
+			overlay.style.left = newLeft + 'px';
+			overlay.style.top = newTop + 'px';
+			// Store relative offset from node in world coordinates
+			const camera = this.camera;
+			const nodeScreenX = node.pos[0] * camera.scale + camera.x;
+			const nodeScreenY = node.pos[1] * camera.scale + camera.y;
+			overlay._relativeOffsetX = (newLeft - nodeScreenX) / camera.scale;
+			overlay._relativeOffsetY = (newTop - nodeScreenY) / camera.scale;
+			overlay._wasDragged = true;
+		};
 
-		document.addEventListener('mouseup', () => { isDragging = false; });
+		const onMouseUp = () => { isDragging = false; };
+
+		document.addEventListener('mousemove', onMouseMove);
+		document.addEventListener('mouseup', onMouseUp);
+
+		// Store cleanup functions for later removal
+		overlay._cleanupDrag = () => {
+			document.removeEventListener('mousemove', onMouseMove);
+			document.removeEventListener('mouseup', onMouseUp);
+		};
 
 		// Resize
 		let isResizing = false;
@@ -928,15 +946,23 @@ class SchemaGraphApp {
 			e.stopPropagation();
 		});
 
-		document.addEventListener('mousemove', (e) => {
+		const onResizeMove = (e) => {
 			if (!isResizing) return;
 			const newWidth = Math.max(200, startWidth + (e.clientX - startX));
 			const newHeight = Math.max(150, startHeight + (e.clientY - startY));
 			overlay.style.width = newWidth + 'px';
 			overlay.style.height = newHeight + 'px';
-		});
+		};
 
-		document.addEventListener('mouseup', () => { isResizing = false; });
+		const onResizeUp = () => { isResizing = false; };
+
+		document.addEventListener('mousemove', onResizeMove);
+		document.addEventListener('mouseup', onResizeUp);
+
+		overlay._cleanupResize = () => {
+			document.removeEventListener('mousemove', onResizeMove);
+			document.removeEventListener('mouseup', onResizeUp);
+		};
 
 		// Position overlay relative to node
 		this._updatePreviewTextOverlayPosition(node, overlay);
@@ -954,18 +980,32 @@ class SchemaGraphApp {
 		const camera = this.camera;
 		const nodeScreenX = node.pos[0] * camera.scale + camera.x;
 		const nodeScreenY = node.pos[1] * camera.scale + camera.y;
-		const nodeScreenW = node.size[0] * camera.scale;
 
-		// Position to the right of the node
-		overlay.style.left = (nodeScreenX + nodeScreenW + 10) + 'px';
-		overlay.style.top = nodeScreenY + 'px';
-		overlay.style.width = '400px';
-		overlay.style.height = '300px';
+		if (overlay._wasDragged) {
+			// Use stored relative offset from node (in world coords, convert to screen)
+			const offsetScreenX = (overlay._relativeOffsetX || 0) * camera.scale;
+			const offsetScreenY = (overlay._relativeOffsetY || 0) * camera.scale;
+			overlay.style.left = (nodeScreenX + offsetScreenX) + 'px';
+			overlay.style.top = (nodeScreenY + offsetScreenY) + 'px';
+		} else {
+			// Default position: centered over the node
+			const nodeScreenW = node.size[0] * camera.scale;
+			const nodeScreenH = node.size[1] * camera.scale;
+			const overlayWidth = overlay.offsetWidth || 400;
+			const overlayHeight = overlay.offsetHeight || 300;
+			overlay.style.left = (nodeScreenX + (nodeScreenW - overlayWidth) / 2) + 'px';
+			overlay.style.top = (nodeScreenY + (nodeScreenH - overlayHeight) / 2) + 'px';
+			if (!overlay.style.width) overlay.style.width = '400px';
+			if (!overlay.style.height) overlay.style.height = '300px';
+		}
 	}
 
 	_closePreviewTextOverlay(node) {
 		const overlay = this._previewTextOverlays?.get(node.id);
 		if (overlay) {
+			// Clean up event listeners
+			overlay._cleanupDrag?.();
+			overlay._cleanupResize?.();
 			overlay.remove();
 			this._previewTextOverlays.delete(node.id);
 		}
@@ -1010,6 +1050,9 @@ class SchemaGraphApp {
 	closeAllPreviewTextOverlays() {
 		if (!this._previewTextOverlays) return;
 		for (const [nodeId, overlay] of this._previewTextOverlays) {
+			// Clean up event listeners
+			overlay._cleanupDrag?.();
+			overlay._cleanupResize?.();
 			overlay.remove();
 			// Also reset the node's expanded state
 			const node = this.graph.getNodeById(nodeId);
@@ -2827,8 +2870,8 @@ class SchemaGraphApp {
 			const orig = this.graph.getNodeById(link.origin_id);
 			const targ = this.graph.getNodeById(link.target_id);
 			if (!orig || !targ) continue;
-			const x1 = orig.pos[0] + orig.size[0], y1 = orig.pos[1] + 33 + link.origin_slot * 25;
-			const x2 = targ.pos[0], y2 = targ.pos[1] + 33 + link.target_slot * 25;
+			const x1 = orig.pos[0] + orig.size[0], y1 = orig.pos[1] + 38 + link.origin_slot * 25;
+			const x2 = targ.pos[0], y2 = targ.pos[1] + 38 + link.target_slot * 25;
 			const controlOffset = Math.min(Math.abs(x2 - x1) * style.linkCurve, 400);
 			const incompleteLinks = showCompleteness ? (targ._incompleteChainLinks || []) : [];
 			const isIncompleteLink = incompleteLinks.some(lid => String(lid) === String(link.id) || lid === link.id);
@@ -3193,7 +3236,7 @@ class SchemaGraphApp {
 		const node = this.connecting.node;
 		const worldMouse = this.screenToWorld(this.mousePos[0], this.mousePos[1]);
 		const x1 = this.connecting.isOutput ? node.pos[0] + node.size[0] : node.pos[0];
-		const y1 = node.pos[1] + 33 + this.connecting.slot * 25;
+		const y1 = node.pos[1] + 38 + this.connecting.slot * 25;
 		const controlOffset = Math.min(Math.abs(worldMouse[0] - x1) * 0.5, 400);
 		const cx1 = x1 + (this.connecting.isOutput ? controlOffset : -controlOffset);
 		const cx2 = worldMouse[0] + (this.connecting.isOutput ? -controlOffset : controlOffset);
@@ -5212,9 +5255,9 @@ class SchemaGraphApp {
 
 			// Calculate slot positions
 			const x1 = src.pos[0] + src.size[0];
-			const y1 = src.pos[1] + 33 + link.origin_slot * 25;
+			const y1 = src.pos[1] + 38 + link.origin_slot * 25;
 			const x2 = tgt.pos[0];
-			const y2 = tgt.pos[1] + 33 + link.target_slot * 25;
+			const y2 = tgt.pos[1] + 38 + link.target_slot * 25;
 
 			if (this._pointNearBezier(wx, wy, x1, y1, x2, y2, threshold)) {
 				return link;

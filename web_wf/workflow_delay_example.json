@@ -1,0 +1,36 @@
+{
+  "options": {
+    "type": "workflow_options",
+    "name": "Delay Demo",
+    "description": "Demonstrates delay node - pauses for 2 seconds then continues"
+  },
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": { "name": "Start" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Before Delay" }
+    },
+    {
+      "type": "delay_flow",
+      "duration_ms": 2000,
+      "extra": { "name": "Delay (2s)" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "After Delay" }
+    },
+    {
+      "type": "end_flow",
+      "extra": { "name": "End" }
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "source_slot": "output", "target_slot": "input" },
+    { "source": 1, "target": 2, "source_slot": "output", "target_slot": "input" },
+    { "source": 2, "target": 3, "source_slot": "output", "target_slot": "input" },
+    { "source": 3, "target": 4, "source_slot": "output", "target_slot": "input" }
+  ]
+}

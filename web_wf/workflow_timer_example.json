@@ -1,0 +1,44 @@
+{
+  "options": {
+    "type": "workflow_options",
+    "name": "Timer Demo",
+    "description": "Demonstrates repeated timed execution using loop + delay. Triggers 5 times with 1 second intervals."
+  },
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": { "name": "Start" }
+    },
+    {
+      "type": "loop_start_flow",
+      "condition": true,
+      "max_iter": 5,
+      "extra": { "name": "Timer Loop (5x)" }
+    },
+    {
+      "type": "delay_flow",
+      "duration_ms": 1000,
+      "extra": { "name": "Wait 1s" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Tick #" }
+    },
+    {
+      "type": "loop_end_flow",
+      "extra": { "name": "Loop End" }
+    },
+    {
+      "type": "end_flow",
+      "extra": { "name": "End" }
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "source_slot": "output", "target_slot": "input" },
+    { "source": 1, "target": 2, "source_slot": "iteration", "target_slot": "input" },
+    { "source": 2, "target": 3, "source_slot": "output", "target_slot": "input" },
+    { "source": 3, "target": 4, "source_slot": "output", "target_slot": "input" },
+    { "source": 4, "target": 5, "source_slot": "output", "target_slot": "input" },
+    { "source": 4, "target": 1, "source_slot": "output", "target_slot": "input", "loop": true }
+  ]
+}
