@@ -80,8 +80,9 @@ class SchemaGraphApp {
 
 		this.isLocked = false;
 		this.lockReason = null;
-		this.lockPending = null;
-		this.lockInterval = null;
+		this.lockPending = false;
+
+		this._hiddenFieldNames = [];
 
 		this._hoveredButton = null;
 		this._activeDropNode = null;
@@ -160,6 +161,8 @@ class SchemaGraphApp {
 			sectionColors: true,
 			preservePreviewLinks: true,
 			previewFlash: true,  // Flash animation when preview data updates
+			lockOverlay: true,  // Show lock status overlay when graph is locked
+			hiddenFields: true,  // Hide fields listed in _hiddenFieldNames from nodes
 			loopEdgeOrthogonal: true,  // Use orthogonal routing for loop-back edges
 			// Node types
 			nativeTypes: true
@@ -180,6 +183,7 @@ class SchemaGraphApp {
 	// === LOCK METHODS ===
 	lock(reason = 'Graph locked', pending = true) {
 		this.lockReason = reason;
+		this.lockPending = pending;
 		if (!this.isLocked) {
 			this.isLocked = true;
 			this.connecting = null;
@@ -190,9 +194,11 @@ class SchemaGraphApp {
 			document.getElementById('sg-schemaDialog')?.classList.remove('show');
 			this.canvas.classList.add('sg-locked');
 		}
-		if (pending) {
-			this.lockPending = 0;
-			this.lockInterval = setInterval(() => { this.lockPending = (this.lockPending + 1) % 3; this.draw(); }, 500);
+		const overlay = document.getElementById('sg-lockOverlay');
+		if (overlay && this._features.lockOverlay) {
+			document.getElementById('sg-lockText').textContent = reason || 'Locked';
+			overlay.classList.toggle('pending', pending);
+			overlay.classList.add('show');
 		}
 		this.eventBus.emit('graph:locked', { reason });
 		this.draw();
@@ -202,7 +208,8 @@ class SchemaGraphApp {
 		if (!this.isLocked) return;
 		this.isLocked = false;
 		this.lockReason = null;
-		if (this.lockInterval) { clearInterval(this.lockInterval); this.lockInterval = null; this.lockPending = null; }
+		this.lockPending = false;
+		document.getElementById('sg-lockOverlay')?.classList.remove('show', 'pending');
 		this.canvas.classList.remove('sg-locked');
 		this.eventBus.emit('graph:unlocked', {});
 		this.draw();
@@ -256,6 +263,14 @@ class SchemaGraphApp {
 
 			nodeSelectWrapper.appendChild(nodeSelect);
 			canvasContainer.appendChild(nodeSelectWrapper);
+		}
+
+		if (!document.getElementById('sg-lockOverlay')) {
+			const lockOverlay = document.createElement('div');
+			lockOverlay.id = 'sg-lockOverlay';
+			lockOverlay.className = 'sg-lock-overlay';
+			lockOverlay.innerHTML = '<span class="sg-lock-spinner"></span><span id="sg-lockText"></span>';
+			canvasContainer.appendChild(lockOverlay);
 		}
 
 		if (!document.getElementById('sg-schemaDialog')) {
@@ -397,7 +412,9 @@ class SchemaGraphApp {
 			'sg-feature-panning': this._features.panning,
 			'sg-feature-sectioncolors': this._features.sectionColors,
 			'sg-feature-preservepreviewlinks': this._features.preservePreviewLinks,
-			'sg-feature-previewflash': this._features.previewFlash
+			'sg-feature-previewflash': this._features.previewFlash,
+			'sg-feature-lockoverlay': this._features.lockOverlay,
+			'sg-feature-hiddenfields': this._features.hiddenFields
 		};
 
 		for (const [id, checked] of Object.entries(basicCheckboxMap)) {
@@ -492,6 +509,16 @@ class SchemaGraphApp {
 						<input type="checkbox" id="sg-feature-previewflash" checked>
 						<span class="sg-toolbar-toggle-slider"></span>
 						<span class="sg-toolbar-toggle-text">Preview Flash</span>
+					</label>
+					<label class="sg-toolbar-toggle-switch" title="Show lock status overlay when graph is locked">
+						<input type="checkbox" id="sg-feature-lockoverlay" checked>
+						<span class="sg-toolbar-toggle-slider"></span>
+						<span class="sg-toolbar-toggle-text">Lock Overlay</span>
+					</label>
+					<label class="sg-toolbar-toggle-switch" title="Hide specified fields (e.g. extra) from nodes">
+						<input type="checkbox" id="sg-feature-hiddenfields" checked>
+						<span class="sg-toolbar-toggle-slider"></span>
+						<span class="sg-toolbar-toggle-text">Hidden Fields</span>
 					</label>
 				</div>
 			</div>
@@ -1343,25 +1370,31 @@ class SchemaGraphApp {
 
 		if (!this.isLocked && this._features.linkCreation) {
 			for (const node of this.graph.nodes) {
+				let visIdx = 0;
 				for (let j = 0; j < node.outputs.length; j++) {
-					const slotY = node.pos[1] + 30 + j * 25;
+					if (this._isFieldHidden(node, j, true)) continue;
+					const slotY = node.pos[1] + 30 + visIdx * 25;
 					if (Math.sqrt(Math.pow(wx - (node.pos[0] + node.size[0]), 2) + Math.pow(wy - slotY, 2)) < 10) {
 						this.connecting = { node, slot: j, isOutput: true };
 						this.canvas.classList.add('connecting');
 						return;
 					}
+					visIdx++;
 				}
 			}
 
 			for (const node of this.graph.nodes) {
+				let visIdx = 0;
 				for (let j = 0; j < node.inputs.length; j++) {
-					const slotY = node.pos[1] + 30 + j * 25;
+					if (this._isFieldHidden(node, j, false)) continue;
+					const slotY = node.pos[1] + 30 + visIdx * 25;
 					if (Math.sqrt(Math.pow(wx - node.pos[0], 2) + Math.pow(wy - slotY, 2)) < 10) {
 						if (!node.multiInputs?.[j] && node.inputs[j].link && this._features.linkDeletion) this.removeLink(node.inputs[j].link, node, j);
 						this.connecting = { node, slot: j, isOutput: false };
 						this.canvas.classList.add('connecting');
 						return;
 					}
+					visIdx++;
 				}
 			}
 		}
@@ -1541,8 +1574,10 @@ class SchemaGraphApp {
 				foundNodeHeader = node;
 			}
 
+			let inVisIdx = 0;
 			for (let j = 0; j < node.inputs.length; j++) {
-				const slotY = y + 38 + j * 25;
+				if (this._isFieldHidden(node, j, false)) continue;
+				const slotY = y + 38 + inVisIdx * 25;
 				const hasEditBox = !node.multiInputs?.[j] && !node.inputs[j].link && node.nativeInputs?.[j] !== undefined;
 				const hitLeft = x - 10;
 				const hitRight = x + (hasEditBox ? 85 : 100);
@@ -1558,12 +1593,15 @@ class SchemaGraphApp {
 						break;
 					}
 				}
+				inVisIdx++;
 			}
 
 			if (foundSlot) break;
 
+			let outVisIdx = 0;
 			for (let j = 0; j < node.outputs.length; j++) {
-				const slotY = y + 38 + j * 25;
+				if (this._isFieldHidden(node, j, true)) continue;
+				const slotY = y + 38 + outVisIdx * 25;
 				const hitLeft = x + w - 100;
 				const hitRight = x + w + 10;
 				const hitTop = slotY - 10;
@@ -1577,6 +1615,7 @@ class SchemaGraphApp {
 						break;
 					}
 				}
+				outVisIdx++;
 			}
 
 			if (foundSlot) break;
@@ -1622,8 +1661,10 @@ class SchemaGraphApp {
 		if (this.connecting) {
 			for (const node of this.graph.nodes) {
 				if (this.connecting.isOutput) {
+					let visIdx = 0;
 					for (let j = 0; j < node.inputs.length; j++) {
-						const slotY = node.pos[1] + 30 + j * 25;
+						if (this._isFieldHidden(node, j, false)) continue;
+						const slotY = node.pos[1] + 30 + visIdx * 25;
 						if (Math.sqrt(Math.pow(wx - node.pos[0], 2) + Math.pow(wy - slotY, 2)) < 15 && node !== this.connecting.node) {
 							if (!this.isSlotCompatible(node, j, false)) { this.showError('Type mismatch'); break; }
 							if (node.multiInputs?.[j]) {
@@ -1640,10 +1681,13 @@ class SchemaGraphApp {
 							}
 							break;
 						}
+						visIdx++;
 					}
 				} else {
+					let visIdx = 0;
 					for (let j = 0; j < node.outputs.length; j++) {
-						const slotY = node.pos[1] + 30 + j * 25;
+						if (this._isFieldHidden(node, j, true)) continue;
+						const slotY = node.pos[1] + 30 + visIdx * 25;
 						if (Math.sqrt(Math.pow(wx - (node.pos[0] + node.size[0]), 2) + Math.pow(wy - slotY, 2)) < 15 && node !== this.connecting.node) {
 							if (!this.isSlotCompatible(node, j, true)) { this.showError('Type mismatch'); break; }
 							if (this.connecting.node.multiInputs?.[this.connecting.slot]) {
@@ -1660,6 +1704,7 @@ class SchemaGraphApp {
 							}
 							break;
 						}
+						visIdx++;
 					}
 				}
 			}
@@ -1729,9 +1774,11 @@ class SchemaGraphApp {
 
 		for (const node of this.graph.nodes) {
 			if (node.nativeInputs) {
+				let visIdx = 0;
 				for (let j = 0; j < node.inputs.length; j++) {
+					if (this._isFieldHidden(node, j, false)) continue;
 					if (!node.inputs[j].link && node.nativeInputs[j] !== undefined) {
-						const slotY = node.pos[1] + 30 + j * 25;
+						const slotY = node.pos[1] + 30 + visIdx * 25;
 						const boxX = node.pos[0] + 10, boxY = slotY + 6, boxW = 70, boxH = 12;
 						if (wx >= boxX && wx <= boxX + boxW && wy >= boxY && wy <= boxY + boxH) {
 							if (node.nativeInputs[j].type === 'bool') { node.nativeInputs[j].value = !node.nativeInputs[j].value; this.draw(); return; }
@@ -1739,6 +1786,7 @@ class SchemaGraphApp {
 							return;
 						}
 					}
+					visIdx++;
 				}
 			}
 		}
@@ -2657,15 +2705,45 @@ class SchemaGraphApp {
 		return false;
 	}
 
+	_isFieldHidden(node, slotIdx, isOutput) {
+		if (!this._features.hiddenFields) return false;
+		const meta = isOutput ? node.outputMeta?.[slotIdx] : node.inputMeta?.[slotIdx];
+		const name = meta?.name || (isOutput ? node.outputs[slotIdx]?.name : node.inputs[slotIdx]?.name);
+		return this._hiddenFieldNames.includes(name);
+	}
+
+	_getVisibleSlotIndex(node, slotIdx, isOutput) {
+		let vis = 0;
+		for (let j = 0; j < slotIdx; j++) {
+			if (!this._isFieldHidden(node, j, isOutput)) vis++;
+		}
+		return vis;
+	}
+
+	_getVisibleSlotCount(node, isOutput) {
+		const slots = isOutput ? node.outputs : node.inputs;
+		let count = 0;
+		for (let j = 0; j < slots.length; j++) {
+			if (!this._isFieldHidden(node, j, isOutput)) count++;
+		}
+		return count;
+	}
+
 	_getSlotUnderMouse(wx, wy) {
 		for (const node of this.graph.nodes) {
+			let visIdx = 0;
 			for (let j = 0; j < node.inputs.length; j++) {
-				const slotY = node.pos[1] + 38 + j * 25;
+				if (this._isFieldHidden(node, j, false)) continue;
+				const slotY = node.pos[1] + 38 + visIdx * 25;
 				if (Math.abs(wx - node.pos[0]) < 15 && Math.abs(wy - slotY) < 12) return { node, slotIdx: j, isInput: true };
+				visIdx++;
 			}
+			visIdx = 0;
 			for (let j = 0; j < node.outputs.length; j++) {
-				const slotY = node.pos[1] + 38 + j * 25;
+				if (this._isFieldHidden(node, j, true)) continue;
+				const slotY = node.pos[1] + 38 + visIdx * 25;
 				if (Math.abs(wx - (node.pos[0] + node.size[0])) < 15 && Math.abs(wy - slotY) < 12) return { node, slotIdx: j, isInput: false };
+				visIdx++;
 			}
 		}
 		return null;
@@ -2857,21 +2935,6 @@ class SchemaGraphApp {
 			this.ctx.setLineDash([]);
 		}
 		this.ctx.restore();
-		if (this.isLocked) {
-			this.ctx.save();
-			const text = `🔒 ${(this.lockReason || 'Locked') + (this.lockInterval ? '.'.repeat(this.lockPending + 1) : '')}`;
-			this.ctx.font = 'bold 12px Arial';
-			const tw = this.ctx.measureText(text).width;
-			this.ctx.fillStyle = 'rgba(220,100,100,0.9)';
-			this.ctx.beginPath();
-			this.ctx.roundRect(10, 10, tw + 16, 28, 6);
-			this.ctx.fill();
-			this.ctx.fillStyle = '#fff';
-			this.ctx.textAlign = 'left';
-			this.ctx.textBaseline = 'middle';
-			this.ctx.fillText(text, 18, 24);
-			this.ctx.restore();
-		}
 
 		// Canvas drop highlight overlay
 		if (this._canvasDropHighlight) {
@@ -2976,8 +3039,8 @@ class SchemaGraphApp {
 			const orig = this.graph.getNodeById(link.origin_id);
 			const targ = this.graph.getNodeById(link.target_id);
 			if (!orig || !targ) continue;
-			const x1 = orig.pos[0] + orig.size[0], y1 = orig.pos[1] + 38 + link.origin_slot * 25;
-			const x2 = targ.pos[0], y2 = targ.pos[1] + 38 + link.target_slot * 25;
+			const x1 = orig.pos[0] + orig.size[0], y1 = orig.pos[1] + 38 + this._getVisibleSlotIndex(orig, link.origin_slot, true) * 25;
+			const x2 = targ.pos[0], y2 = targ.pos[1] + 38 + this._getVisibleSlotIndex(targ, link.target_slot, false) * 25;
 			const controlOffset = Math.min(Math.abs(x2 - x1) * style.linkCurve, 400);
 			const incompleteLinks = showCompleteness ? (targ._incompleteChainLinks || []) : [];
 			const isIncompleteLink = incompleteLinks.some(lid => String(lid) === String(link.id) || lid === link.id);
@@ -3217,8 +3280,8 @@ class SchemaGraphApp {
 		}
 
 		const worldMouse = this.screenToWorld(this.mousePos[0], this.mousePos[1]);
-		for (let j = 0; j < node.inputs.length; j++) this.drawInputSlot(node, j, x, y, w, worldMouse, colors, textScale, style);
-		for (let j = 0; j < node.outputs.length; j++) this.drawOutputSlot(node, j, x, y, w, worldMouse, colors, textScale, style);
+		{ let vi = 0; for (let j = 0; j < node.inputs.length; j++) { if (!this._isFieldHidden(node, j, false)) this.drawInputSlot(node, j, x, y, w, worldMouse, colors, textScale, style, vi++); } }
+		{ let vi = 0; for (let j = 0; j < node.outputs.length; j++) { if (!this._isFieldHidden(node, j, true)) this.drawOutputSlot(node, j, x, y, w, worldMouse, colors, textScale, style, vi++); } }
 
 		if (node.isNative && node.properties.value !== undefined) {
 			const valueY = y + h - 18, valueX = x + 8, valueW = w - 16, valueH = 18;
@@ -3261,8 +3324,8 @@ class SchemaGraphApp {
 		}
 	}
 
-	drawInputSlot(node, j, x, y, w, worldMouse, colors, textScale, style) {
-		const inp = node.inputs[j], sy = y + 38 + j * 25;
+	drawInputSlot(node, j, x, y, w, worldMouse, colors, textScale, style, visIdx) {
+		const inp = node.inputs[j], sy = y + 38 + (visIdx !== undefined ? visIdx : j) * 25;
 		const isMulti = node.multiInputs?.[j];
 		const hasConnections = isMulti ? node.multiInputs[j].links.length > 0 : inp.link;
 		const compat = this.isSlotCompatible(node, j, false);
@@ -3313,8 +3376,8 @@ class SchemaGraphApp {
 		}
 	}
 
-	drawOutputSlot(node, j, x, y, w, worldMouse, colors, textScale, style) {
-		const out = node.outputs[j], sy = y + 38 + j * 25;
+	drawOutputSlot(node, j, x, y, w, worldMouse, colors, textScale, style, visIdx) {
+		const out = node.outputs[j], sy = y + 38 + (visIdx !== undefined ? visIdx : j) * 25;
 		const hasConnections = out.links.length > 0;
 		const compat = this.isSlotCompatible(node, j, true);
 		// Check if this is a base multi-field slot (no dot in name and tracked in multiOutputSlots)
@@ -3342,7 +3405,7 @@ class SchemaGraphApp {
 		const node = this.connecting.node;
 		const worldMouse = this.screenToWorld(this.mousePos[0], this.mousePos[1]);
 		const x1 = this.connecting.isOutput ? node.pos[0] + node.size[0] : node.pos[0];
-		const y1 = node.pos[1] + 38 + this.connecting.slot * 25;
+		const y1 = node.pos[1] + 38 + this._getVisibleSlotIndex(node, this.connecting.slot, this.connecting.isOutput) * 25;
 		const controlOffset = Math.min(Math.abs(worldMouse[0] - x1) * 0.5, 400);
 		const cx1 = x1 + (this.connecting.isOutput ? controlOffset : -controlOffset);
 		const cx2 = worldMouse[0] + (this.connecting.isOutput ? -controlOffset : controlOffset);
@@ -3522,7 +3585,7 @@ class SchemaGraphApp {
 
 	_recalculateNodeSize(node) {
 		const baseHeight = 35, slotHeight = 25, stackHeight = 28;
-		const maxSlots = Math.max(node.inputs?.length || 0, node.outputs?.length || 0, 1);
+		const maxSlots = Math.max(this._getVisibleSlotCount(node, false), this._getVisibleSlotCount(node, true), 1);
 		let height = baseHeight + maxSlots * slotHeight;
 		if (node._buttonStacks?.top?.length) height += stackHeight;
 		if (node._buttonStacks?.bottom?.length) height += stackHeight;
@@ -4494,11 +4557,11 @@ class SchemaGraphApp {
 
 		// Draw input/output slots
 		const worldMouse = this.screenToWorld(this.mousePos[0], this.mousePos[1]);
-		for (let j = 0; j < node.inputs.length; j++) this.drawInputSlot(node, j, x, y, w, worldMouse, colors, textScale, style);
-		for (let j = 0; j < node.outputs.length; j++) this.drawOutputSlot(node, j, x, y, w, worldMouse, colors, textScale, style);
+		{ let vi = 0; for (let j = 0; j < node.inputs.length; j++) { if (!this._isFieldHidden(node, j, false)) this.drawInputSlot(node, j, x, y, w, worldMouse, colors, textScale, style, vi++); } }
+		{ let vi = 0; for (let j = 0; j < node.outputs.length; j++) { if (!this._isFieldHidden(node, j, true)) this.drawOutputSlot(node, j, x, y, w, worldMouse, colors, textScale, style, vi++); } }
 
 		// Calculate preview content area
-		const slotHeight = Math.max(node.inputs.length, node.outputs.length) * 25 + 10;
+		const slotHeight = Math.max(this._getVisibleSlotCount(node, false), this._getVisibleSlotCount(node, true)) * 25 + 10;
 		const contentY = y + 30 + slotHeight;
 		const contentH = h - 36 - slotHeight;
 		const contentX = x + 8;
@@ -6688,6 +6751,10 @@ class SchemaGraphApp {
 						// e.g., { 'input': 'get', 'data': 'output' }
 						self._schemaTypeRoles.previewSlotMap = { ...config.previewSlotMap };
 					}
+					if (config.hiddenFields) {
+						self._hiddenFieldNames = Array.isArray(config.hiddenFields)
+							? config.hiddenFields : [config.hiddenFields];
+					}
 				},
 
 				/**
@@ -7186,6 +7253,22 @@ class SchemaGraphApp {
 					});
 					document.getElementById('sg-feature-previewflash')?.addEventListener('change', (e) => {
 						self.api.features.set({ previewFlash: e.target.checked });
+					});
+					document.getElementById('sg-feature-lockoverlay')?.addEventListener('change', (e) => {
+						self.api.features.set({ lockOverlay: e.target.checked });
+						const overlay = document.getElementById('sg-lockOverlay');
+						if (overlay) {
+							if (!e.target.checked) overlay.classList.remove('show');
+							else if (self.isLocked) {
+								overlay.classList.toggle('pending', self.lockPending);
+								overlay.classList.add('show');
+							}
+						}
+					});
+					document.getElementById('sg-feature-hiddenfields')?.addEventListener('change', (e) => {
+						self.api.features.set({ hiddenFields: e.target.checked });
+						for (const node of self.graph.nodes) self._recalculateNodeSize(node);
+						self.draw();
 					});
 
 					// Features panel toggle (show/hide with animation)

@@ -105,7 +105,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			metaInputSlot            : "meta",
 			workflowOptions          : "WorkflowOptions",
 			workflowExecutionOptions : "WorkflowExecutionOptions",
-			previewSlotMap           : { 'input': 'output' },  // Maps preview input->output slots for link preservation
+			previewSlotMap           : { "input": "output" },  // Maps preview input->output slots for link preservation
+			hiddenFields             : ["extra"],
 		});
 
 		// Configure section-based node header colors

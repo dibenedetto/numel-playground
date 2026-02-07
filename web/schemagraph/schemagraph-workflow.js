@@ -777,7 +777,10 @@ class WorkflowNodeFactory {
 			node.multiOutputSlots[field.name] = expandedIndices;
 		}
 
-		const maxSlots = Math.max(node.inputs.length, node.outputs.length, 1);
+		const hiddenNames = this.app?._features?.hiddenFields ? (this.app._hiddenFieldNames || []) : [];
+		const visInputs = node.inputs.filter((_, i) => !hiddenNames.includes(node.inputMeta?.[i]?.name || node.inputs[i]?.name)).length;
+		const visOutputs = node.outputs.filter((_, i) => !hiddenNames.includes(node.outputMeta?.[i]?.name || node.outputs[i]?.name)).length;
+		const maxSlots = Math.max(visInputs, visOutputs, 1);
 		node.size = [220, Math.max(80, 35 + maxSlots * 25)];
 
 		this.app?._applyDecoratorsToNode?.call(this.app, node);

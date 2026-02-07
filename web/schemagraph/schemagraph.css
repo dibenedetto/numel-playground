@@ -947,6 +947,48 @@
   cursor: grabbing !important;
 }
 
+/* Lock overlay */
+.sg-lock-overlay {
+  display: inline-flex;
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 50;
+  background: rgba(220, 100, 100, 0.92);
+  color: #fff;
+  font: bold 12px Arial, sans-serif;
+  padding: 5px 14px;
+  border-radius: 6px;
+  align-items: center;
+  gap: 7px;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity 0.2s ease, visibility 0.2s, transform 0.2s ease;
+}
+.sg-lock-overlay.show {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* Spinner (only visible when pending) */
+.sg-lock-spinner {
+  display: none;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: sg-lockSpin 0.7s linear infinite;
+}
+.sg-lock-overlay.pending .sg-lock-spinner { display: inline-block; }
+
+@keyframes sg-lockSpin {
+  to { transform: rotate(360deg); }
+}
+
 /* ========================================================================
    SECTION 4: TOOLTIP
    ======================================================================== */
