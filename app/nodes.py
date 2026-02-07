@@ -715,6 +715,77 @@ class WFDelayFlow(WFFlowType):
 
 
 # =============================================================================
+# EXTERNAL EVENT LISTENER
+# =============================================================================
+
+class WFEventListenerFlow(WFFlowType):
+	"""
+	Event Listener node executor.
+
+	Waits for events from external event sources. The engine handles the actual
+	subscription and event waiting; this executor just signals the wait and
+	processes the received event.
+	"""
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+
+		# Get configuration
+		sources = context.inputs.get("sources") or []
+		if not sources:
+			sources = getattr(self.config, 'sources', None) or []
+
+		mode = context.inputs.get("mode")
+		if not mode:
+			mode = getattr(self.config, 'mode', 'any')
+
+		timeout_ms = context.inputs.get("timeout_ms")
+		if timeout_ms is None:
+			timeout_ms = getattr(self.config, 'timeout_ms', None)
+
+		# Node-scoped keys for tracking state
+		node_idx = context.node_index
+		resume_key = f"_event_listener_{node_idx}_resume"
+		event_key = f"_event_listener_{node_idx}_event"
+		events_key = f"_event_listener_{node_idx}_events"
+		source_key = f"_event_listener_{node_idx}_source"
+		timeout_key = f"_event_listener_{node_idx}_timeout"
+
+		# Check if this is a resume after receiving event
+		is_resume = context.variables.get(resume_key, False)
+
+		if is_resume:
+			# Event received - get the data
+			event_data = context.variables.get(event_key)
+			source_id = context.variables.get(source_key)
+			all_events = context.variables.get(events_key, {})
+			timed_out = context.variables.get(timeout_key, False)
+
+			result.outputs["event"] = event_data
+			result.outputs["source_id"] = source_id
+			result.outputs["events"] = all_events if all_events else None
+			result.outputs["timed_out"] = timed_out
+			result.outputs["output"] = context.inputs.get("input")
+
+			# Clear state for next iteration (if in a loop)
+			context.variables[resume_key] = False
+			context.variables[event_key] = None
+			context.variables[events_key] = {}
+			context.variables[source_key] = None
+			context.variables[timeout_key] = False
+		else:
+			# First execution - signal to wait for events
+			result.outputs["output"] = context.inputs.get("input")
+			result.wait_signal = {
+				"wait_type": "event_listener",
+				"sources": sources,
+				"mode": mode,
+				"timeout_ms": timeout_ms,
+			}
+
+		return result
+
+
+# =============================================================================
 # END EVENT/TRIGGER FLOW NODES
 # =============================================================================
 
@@ -809,6 +880,7 @@ _NODE_TYPES = {
 	"timer_flow"               : WFTimerFlow,
 	"gate_flow"                : WFGateFlow,
 	"delay_flow"               : WFDelayFlow,
+	"event_listener_flow"      : WFEventListenerFlow,
 
 	# Interactive nodes
 	"tool_call"                : WFToolCall,

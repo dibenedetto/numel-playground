@@ -977,6 +977,42 @@ class DelayFlow(FlowType):
 
 
 # =============================================================================
+# EXTERNAL EVENT LISTENER NODE
+# =============================================================================
+
+@node_info(
+	title       = "Event Listener",
+	description = "Listens for external events from registered event sources (timers, file watchers, "
+	              "webhooks, browser sources). Can listen to multiple sources with different modes.",
+	icon        = "📡",
+	section     = "Workflow",
+	visible     = True
+)
+class EventListenerFlow(FlowType):
+	"""
+	Event Listener node - waits for events from external event sources.
+
+	Modes:
+	- 'any': Triggers on first event from any source (default)
+	- 'all': Waits for one event from each source before triggering
+	- 'race': First event wins, resets listener for next round
+
+	The node blocks workflow execution until an event is received.
+	"""
+	type        : Annotated[Literal["event_listener_flow"], FieldRole.CONSTANT] = "event_listener_flow"
+	input       : Annotated[Any                           , FieldRole.INPUT   ] = None
+	sources     : Annotated[List[str]                     , FieldRole.INPUT   ] = None   # List of source IDs
+	mode        : Annotated[Literal["any", "all", "race"] , FieldRole.INPUT   ] = "any"
+	timeout_ms  : Annotated[Optional[int]                 , FieldRole.INPUT   ] = None   # None = no timeout
+	# Outputs
+	event       : Annotated[Any                           , FieldRole.OUTPUT  ] = None   # The event data
+	source_id   : Annotated[Optional[str]                 , FieldRole.OUTPUT  ] = None   # Which source triggered
+	events      : Annotated[Optional[Dict[str, Any]]      , FieldRole.OUTPUT  ] = None   # All events (for 'all' mode)
+	timed_out   : Annotated[bool                          , FieldRole.OUTPUT  ] = False  # True if timeout occurred
+	output      : Annotated[Any                           , FieldRole.OUTPUT  ] = None   # Pass-through of input
+
+
+# =============================================================================
 # END EVENT/TRIGGER FLOW NODES
 # =============================================================================
 
@@ -1124,6 +1160,7 @@ WorkflowNodeUnion = Union[
 	TimerFlow,
 	GateFlow,
 	DelayFlow,
+	EventListenerFlow,
 
 	# Interactive nodes
 	ToolCall,

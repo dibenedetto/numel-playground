@@ -15,6 +15,7 @@ from   typing      import Any, Dict, List, Optional, Set, Tuple
 from   event_bus   import EventType, EventBus
 from   nodes       import ImplementedBackend, NodeExecutionContext, NodeExecutionResult, create_node
 from   schema      import DEFAULT_WORKFLOW_NODE_DELAY, DEFAULT_WORKFLOW_EXEC_DELAY, DEFAULT_WORKFLOW_USER_INPUT_TIMEOUT, Edge, BaseType, FlowType, Workflow
+from   events      import get_event_registry, EventSourceEvent
 
 
 class WorkflowNodeStatus(str, Enum):
@@ -691,34 +692,61 @@ class WorkflowEngine:
 				state.loop_stack      = loop_stack
 				state.wait_signals    = {k: v for k, v in wait_signals.items()}
 
-				# ===== TIMER COMPLETION HANDLING =====
-				# Check for completed timer tasks
+				# ===== TIMER/EVENT COMPLETION HANDLING =====
+				# Check for completed timer or event listener tasks
 				if timer_tasks:
-					done_timers = [idx for idx, t in timer_tasks.items() if t.done()]
-					for node_idx in done_timers:
-						timer_task = timer_tasks.pop(node_idx)
+					done_tasks = [idx for idx, t in timer_tasks.items() if t.done()]
+					for node_idx in done_tasks:
+						task = timer_tasks.pop(node_idx)
 						try:
-							idx, signal = await timer_task
-							waiting.discard(idx)
+							result = await task
+							waiting.discard(node_idx)
 
-							# Inject resume state into variables (node-scoped)
-							variables["_timer_resume"] = True
-							variables["_timer_count"] = signal.get("count", 0)
-							variables["_timer_elapsed"] = signal.get("elapsed_ms", 0)
-							variables[f"_delay_{idx}_resume"] = True  # Node-scoped for delay nodes
+							# Check what type of wait signal this was
+							wait_signal = wait_signals.get(node_idx, {})
+							wait_type = wait_signal.get("wait_type", "timer")
+
+							if wait_type == "event_listener":
+								# Event listener completed: (idx, event_data, source_id, all_events)
+								idx, event_data, source_id, all_events = result
+
+								# Inject resume state for event listener
+								variables[f"_event_listener_{idx}_resume"] = True
+								variables[f"_event_listener_{idx}_event"] = event_data
+								variables[f"_event_listener_{idx}_source"] = source_id
+								variables[f"_event_listener_{idx}_events"] = all_events
+								# timeout flag is already set by the task if needed
+
+								await self.event_bus.emit(
+									event_type   = EventType.NODE_RESUMED,
+									workflow_id  = state.workflow_id,
+									execution_id = state.execution_id,
+									node_id      = str(idx),
+									data         = {"resumed_from": "event_listener", "source_id": source_id}
+								)
+							else:
+								# Timer/delay completed: (idx, signal)
+								idx, signal = result
+
+								# Inject resume state into variables (node-scoped)
+								variables["_timer_resume"] = True
+								variables["_timer_count"] = signal.get("count", 0) if signal else 0
+								variables["_timer_elapsed"] = signal.get("elapsed_ms", 0) if signal else 0
+								variables[f"_delay_{idx}_resume"] = True  # Node-scoped for delay nodes
+
+								await self.event_bus.emit(
+									event_type   = EventType.NODE_RESUMED,
+									workflow_id  = state.workflow_id,
+									execution_id = state.execution_id,
+									node_id      = str(idx),
+									data         = {"resumed_from": "timer"}
+								)
 
 							# Re-queue node for execution
 							ready.add(idx)
 
-							await self.event_bus.emit(
-								event_type   = EventType.NODE_RESUMED,
-								workflow_id  = state.workflow_id,
-								execution_id = state.execution_id,
-								node_id      = str(idx),
-								data         = {"resumed_from": "timer"}
-							)
 						except Exception as e:
-							# Timer failed, mark node as failed
+							# Task failed, mark node as failed
 							state.failed_nodes.append(node_idx)
 							waiting.discard(node_idx)
 				# =====================================
@@ -887,6 +915,91 @@ class WorkflowEngine:
 											execution_id = state.execution_id,
 											node_id      = str(node_idx),
 											data         = {"wait_type": "gate", "count": result.wait_signal.get("count", 0)}
+										)
+										continue
+
+									elif wait_type == "event_listener":
+										# Event listener wait - subscribe to event sources
+										sources = result.wait_signal.get("sources", [])
+										mode = result.wait_signal.get("mode", "any")
+										timeout_ms = result.wait_signal.get("timeout_ms")
+
+										wait_signals[node_idx] = result.wait_signal
+										completed.discard(node_idx)
+										waiting.add(node_idx)
+
+										# Create event listener task
+										async def wait_for_events(idx, srcs, md, timeout, signals, vars_ref):
+											"""Wait for events from sources based on mode"""
+											registry = get_event_registry()
+											received_events = {}
+											event_queue = asyncio.Queue()
+											subscriber_id = f"workflow_{state.workflow_id}_{idx}"
+
+											# Callback to receive events
+											async def on_event(event: EventSourceEvent):
+												await event_queue.put(event)
+
+											try:
+												# Subscribe to all sources
+												for source_id in srcs:
+													source = registry.get(source_id)
+													if source:
+														await registry.subscribe(source_id, subscriber_id, on_event)
+
+												# Wait for events based on mode
+												start_time = asyncio.get_event_loop().time()
+
+												while True:
+													# Calculate remaining timeout
+													remaining_timeout = None
+													if timeout:
+														elapsed = (asyncio.get_event_loop().time() - start_time) * 1000
+														remaining_timeout = max(0.1, (timeout - elapsed) / 1000.0)
+														if elapsed >= timeout:
+															# Timeout occurred
+															vars_ref[f"_event_listener_{idx}_timeout"] = True
+															return idx, None, None, received_events
+
+													try:
+														event = await asyncio.wait_for(
+															event_queue.get(),
+															timeout=remaining_timeout or 0.5
+														)
+
+														received_events[event.source_id] = event.data
+
+														if md == "any" or md == "race":
+															# First event triggers
+															return idx, event.data, event.source_id, received_events
+
+														elif md == "all":
+															# Check if we have events from all sources
+															if all(sid in received_events for sid in srcs):
+																return idx, event.data, event.source_id, received_events
+
+													except asyncio.TimeoutError:
+														if timeout and remaining_timeout and remaining_timeout <= 0.1:
+															vars_ref[f"_event_listener_{idx}_timeout"] = True
+															return idx, None, None, received_events
+														continue
+
+											finally:
+												# Unsubscribe from all sources
+												for source_id in srcs:
+													await registry.unsubscribe(source_id, subscriber_id)
+
+										event_task = asyncio.create_task(
+											wait_for_events(node_idx, sources, mode, timeout_ms, wait_signals, variables)
+										)
+										timer_tasks[node_idx] = event_task  # Reuse timer_tasks dict for event tasks
+
+										await self.event_bus.emit(
+											event_type   = EventType.NODE_WAITING,
+											workflow_id  = state.workflow_id,
+											execution_id = state.execution_id,
+											node_id      = str(node_idx),
+											data         = {"wait_type": "event_listener", "sources": sources, "mode": mode}
 										)
 										continue
 								# =================================

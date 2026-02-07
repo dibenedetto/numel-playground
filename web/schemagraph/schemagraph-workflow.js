@@ -417,7 +417,8 @@ class WorkflowSchemaParser {
 
 	_parseDefaultValue(valStr) {
 		if (!valStr) return undefined;
-		valStr = valStr.trim();
+		// Strip inline Python comments (# ...) but not inside strings
+		valStr = this._stripInlineComment(valStr).trim();
 		if (valStr === 'None') return null;
 		if (valStr === 'True') return true;
 		if (valStr === 'False') return false;
@@ -435,6 +436,17 @@ class WorkflowSchemaParser {
 			if (this.moduleConstants[valStr] !== undefined) return this.moduleConstants[valStr];
 		}
 		return valStr;
+	}
+
+	_stripInlineComment(str) {
+		let inString = false, stringChar = null;
+		for (let i = 0; i < str.length; i++) {
+			const c = str[i];
+			if (!inString && (c === '"' || c === "'")) { inString = true; stringChar = c; }
+			else if (inString && c === stringChar) { inString = false; }
+			else if (!inString && c === '#') { return str.substring(0, i); }
+		}
+		return str;
 	}
 
 	_extractFieldMetadata(str) {
@@ -481,7 +493,79 @@ class WorkflowSchemaParser {
 			return { kind: 'dict', inner: this._extractBracketContent(typeStr, 5) };
 		if (typeStr.startsWith('Message['))
 			return { kind: 'message', inner: this._parseType(this._extractBracketContent(typeStr, 8)) };
+		if (typeStr.startsWith('Literal[')) {
+			const inner = this._extractBracketContent(typeStr, 8);
+			const options = this._parseLiteralOptions(inner);
+			return { kind: 'literal', options };
+		}
 		return { kind: 'basic', name: typeStr };
+	}
+
+	_parseLiteralOptions(str) {
+		// Parse Literal options like: "any", "all", "race" or 1, 2, 3
+		const options = [];
+		let current = '';
+		let inString = false;
+		let stringChar = null;
+		let depth = 0;
+
+		for (let i = 0; i < str.length; i++) {
+			const c = str[i];
+
+			if (!inString && (c === '"' || c === "'")) {
+				inString = true;
+				stringChar = c;
+				continue;
+			}
+			if (inString && c === stringChar) {
+				inString = false;
+				if (current.trim()) options.push(current.trim());
+				current = '';
+				stringChar = null;
+				continue;
+			}
+			if (inString) {
+				current += c;
+				continue;
+			}
+
+			// Handle nested brackets
+			if (c === '[') depth++;
+			if (c === ']') depth--;
+
+			// Split on comma at depth 0
+			if (c === ',' && depth === 0) {
+				if (current.trim() && !inString) {
+					// This handles non-string literals like integers
+					const val = current.trim();
+					if (val && !options.includes(val)) options.push(this._parseLiteralValue(val));
+				}
+				current = '';
+				continue;
+			}
+
+			if (!inString && c !== ' ' && c !== '\t') {
+				current += c;
+			}
+		}
+
+		// Handle last value if it's a non-string literal
+		if (current.trim()) {
+			const val = current.trim();
+			if (val) options.push(this._parseLiteralValue(val));
+		}
+
+		return options;
+	}
+
+	_parseLiteralValue(val) {
+		// Parse a literal value (could be int, float, bool, or unquoted string)
+		if (val === 'True') return true;
+		if (val === 'False') return false;
+		if (val === 'None') return null;
+		const num = parseFloat(val);
+		if (!isNaN(num) && val.match(/^-?\d+\.?\d*$/)) return num;
+		return val;
 	}
 
 	_splitUnionTypes(str) {
@@ -582,14 +666,24 @@ class WorkflowNodeFactory {
 			};
 
 			if (this._isNativeType(field.rawType)) {
-				const defaultValue = field.default !== undefined
-					? field.default
-					: this._getDefaultForType(field.rawType);
+				const baseType = this._getNativeBaseType(field.rawType);
+				const literalOptions = this._extractLiteralOptions(field.rawType);
+
+				// For Literal types, default to first option if no default specified
+				let defaultValue = field.default;
+				if (defaultValue === undefined) {
+					if (literalOptions && literalOptions.length > 0) {
+						defaultValue = literalOptions[0];
+					} else {
+						defaultValue = this._getDefaultForType(field.rawType);
+					}
+				}
 
 				node.nativeInputs[inputIdx] = {
-					type: this._getNativeBaseType(field.rawType),
+					type: baseType,
 					value: defaultValue,
-					optional: field.rawType.includes('Optional')
+					optional: field.rawType.includes('Optional'),
+					options: literalOptions  // Will be null for non-Literal types
 				};
 			}
 			inputIdx++;
@@ -694,12 +788,19 @@ class WorkflowNodeFactory {
 	_isNativeType(typeStr) {
 		if (!typeStr) return false;
 		const natives = ['str', 'int', 'bool', 'float', 'string', 'integer', 'Any', 'List', 'Dict', 'list', 'dict'];
-		let base = typeStr.replace(/Optional\[|\]/g, '').trim();
+		let base = typeStr.trim();
+		// Unwrap Optional[] if present
+		if (base.startsWith('Optional[') && base.endsWith(']')) {
+			base = base.slice(9, -1).trim();
+		}
+		// Literal types are native (they're essentially constrained strings/ints)
+		if (base.startsWith('Literal[')) return true;
 		if (base.startsWith('Union[') || base.includes('|')) {
 			const unionContent = base.startsWith('Union[') ? base.slice(6, -1) : base;
 			for (const part of this._splitUnionTypes(unionContent)) {
 				const trimmed = part.trim();
 				if (trimmed.startsWith('Message')) return true;
+				if (trimmed.startsWith('Literal[')) return true;
 				if (natives.includes(trimmed.split('[')[0])) return true;
 			}
 			return false;
@@ -729,6 +830,12 @@ class WorkflowNodeFactory {
 			const match = typeStr.match(/Message\[([^\]]+)\]/);
 			if (match) return this._getNativeBaseType(match[1]);
 		}
+		// Handle Literal types - return 'literal' as the base type
+		let cleanType = typeStr.trim();
+		if (cleanType.startsWith('Optional[') && cleanType.endsWith(']')) {
+			cleanType = cleanType.slice(9, -1).trim();
+		}
+		if (cleanType.startsWith('Literal[')) return 'literal';
 		// Only process Union if it's at the top level (starts with Union[ or contains |)
 		if (typeStr.startsWith('Union[')) {
 			const inner = typeStr.slice(6, -1); // Remove "Union[" and trailing "]"
@@ -754,6 +861,64 @@ class WorkflowNodeFactory {
 		if (typeStr.includes('float') || typeStr.includes('Float')) return 'float';
 		if (typeStr.includes('Any')) return 'str';
 		return 'str';
+	}
+
+	_extractLiteralOptions(typeStr) {
+		// Extract options from Literal[...] type string
+		if (!typeStr) return null;
+		// Remove Optional[ wrapper if present, but be careful not to remove ] from Literal[...]
+		let cleanType = typeStr.trim();
+		if (cleanType.startsWith('Optional[') && cleanType.endsWith(']')) {
+			cleanType = cleanType.slice(9, -1).trim();
+		}
+		if (!cleanType.startsWith('Literal[')) return null;
+		// Extract the content inside Literal[...]
+		const inner = this._extractBracketContent(cleanType, 8);
+		return this._parseLiteralOptions(inner);
+	}
+
+	_extractBracketContent(str, startIdx) {
+		let depth = 1, i = startIdx;
+		while (i < str.length && depth > 0) {
+			if (str[i] === '[') depth++;
+			if (str[i] === ']') depth--;
+			if (depth === 0) break;
+			i++;
+		}
+		return str.substring(startIdx, i);
+	}
+
+	_parseLiteralOptions(str) {
+		const options = [];
+		let current = '', inString = false, stringChar = null, depth = 0;
+		for (let i = 0; i < str.length; i++) {
+			const c = str[i];
+			if (!inString && (c === '"' || c === "'")) { inString = true; stringChar = c; continue; }
+			if (inString && c === stringChar) {
+				inString = false;
+				if (current.trim()) options.push(current.trim());
+				current = ''; stringChar = null; continue;
+			}
+			if (inString) { current += c; continue; }
+			if (c === '[') depth++;
+			if (c === ']') depth--;
+			if (c === ',' && depth === 0) {
+				if (current.trim()) options.push(this._parseLiteralValue(current.trim()));
+				current = ''; continue;
+			}
+			if (c !== ' ' && c !== '\t') current += c;
+		}
+		if (current.trim()) options.push(this._parseLiteralValue(current.trim()));
+		return options;
+	}
+
+	_parseLiteralValue(val) {
+		if (val === 'True') return true;
+		if (val === 'False') return false;
+		if (val === 'None') return null;
+		const num = parseFloat(val);
+		if (!isNaN(num) && val.match(/^-?\d+\.?\d*$/)) return num;
+		return val;
 	}
 
 	_getDefaultForType(typeStr) {
@@ -843,7 +1008,13 @@ class WorkflowImporter {
 		const modelName = this._resolveModelName(nodeData.type, schemaName, typeMap);
 		if (!modelName) { console.error(`Model not found for type: ${nodeData.type}`); return null; }
 
-		const node = factory.createNode(modelName, nodeData);
+		let node;
+		try {
+			node = factory.createNode(modelName, nodeData);
+		} catch (e) {
+			console.error(`createNode error for ${modelName}:`, e);
+			return null;
+		}
 		if (!node) return null;
 		if (nodeData.id) node.workflowId = nodeData.id;
 		this._applyLayout(node, nodeData);

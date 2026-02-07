@@ -245,6 +245,19 @@ class SchemaGraphApp {
 			canvasContainer.appendChild(nodeInput);
 		}
 
+		if (!document.getElementById('sg-nodeSelectWrapper')) {
+			const nodeSelectWrapper = document.createElement('div');
+			nodeSelectWrapper.id = 'sg-nodeSelectWrapper';
+			nodeSelectWrapper.className = 'sg-node-select-overlay-wrapper';
+
+			const nodeSelect = document.createElement('select');
+			nodeSelect.id = 'sg-nodeSelect';
+			nodeSelect.className = 'sg-node-input-overlay sg-node-select-overlay';
+
+			nodeSelectWrapper.appendChild(nodeSelect);
+			canvasContainer.appendChild(nodeSelectWrapper);
+		}
+
 		if (!document.getElementById('sg-schemaDialog')) {
 			const schemaDialog = document.createElement('div');
 			schemaDialog.id = 'sg-schemaDialog';
@@ -1098,6 +1111,11 @@ class SchemaGraphApp {
 		nodeInput?.addEventListener('blur', () => this.handleInputBlur());
 		nodeInput?.addEventListener('keydown', (e) => this.handleInputKeyDown(e));
 
+		const nodeSelect = document.getElementById('sg-nodeSelect');
+		nodeSelect?.addEventListener('change', () => this.handleSelectChange());
+		nodeSelect?.addEventListener('blur', () => this.handleSelectBlur());
+		nodeSelect?.addEventListener('keydown', (e) => this.handleSelectKeyDown(e));
+
 		this._setupFileDrop();
 		this._setupCompletenessListeners();
 
@@ -1740,14 +1758,54 @@ class SchemaGraphApp {
 		const valueScreen = this.worldToScreen(x, y);
 		this.editingNode = node;
 		this.editingNode.editingSlot = slot;
-		const nodeInput = document.getElementById('sg-nodeInput');
-		nodeInput.value = slot !== null ? String(node.nativeInputs[slot].value) : String(node.properties.value);
-		nodeInput.style.left = (valueScreen[0] * rect.width / this.canvas.width + rect.left) + 'px';
-		nodeInput.style.top = (valueScreen[1] * rect.height / this.canvas.height + rect.top) + 'px';
-		nodeInput.style.width = slot !== null ? '75px' : '160px';
-		nodeInput.classList.add('show');
-		nodeInput.focus();
-		nodeInput.select();
+
+		const currentValue = slot !== null ? node.nativeInputs[slot].value : node.properties.value;
+		const options = slot !== null ? node.nativeInputs[slot].options : null;
+
+		const leftPos = (valueScreen[0] * rect.width / this.canvas.width + rect.left) + 'px';
+		const topPos = (valueScreen[1] * rect.height / this.canvas.height + rect.top) + 'px';
+		const width = slot !== null ? '75px' : '160px';
+
+		// Check if this field has options (Literal type) - show select instead of input
+		if (options && Array.isArray(options) && options.length > 0) {
+			const nodeSelectWrapper = document.getElementById('sg-nodeSelectWrapper');
+			const nodeSelect = document.getElementById('sg-nodeSelect');
+			const nodeInput = document.getElementById('sg-nodeInput');
+
+			// Hide the text input
+			nodeInput.classList.remove('show');
+
+			// Populate the select with options
+			nodeSelect.innerHTML = options.map(opt => {
+				const selected = String(opt) === String(currentValue) ? ' selected' : '';
+				const displayValue = opt === null ? 'null' : String(opt);
+				return `<option value="${opt}"${selected}>${displayValue}</option>`;
+			}).join('');
+
+			// Position the wrapper (which contains the select and the arrow pseudo-element)
+			nodeSelectWrapper.style.left = leftPos;
+			nodeSelectWrapper.style.top = topPos;
+			nodeSelect.style.width = width;
+			nodeSelectWrapper.classList.add('show');
+			nodeSelect.classList.add('show');
+			nodeSelect.focus();
+		} else {
+			const nodeInput = document.getElementById('sg-nodeInput');
+			const nodeSelectWrapper = document.getElementById('sg-nodeSelectWrapper');
+			const nodeSelect = document.getElementById('sg-nodeSelect');
+
+			// Hide the select
+			nodeSelectWrapper.classList.remove('show');
+			nodeSelect.classList.remove('show');
+
+			nodeInput.value = String(currentValue);
+			nodeInput.style.left = leftPos;
+			nodeInput.style.top = topPos;
+			nodeInput.style.width = width;
+			nodeInput.classList.add('show');
+			nodeInput.focus();
+			nodeInput.select();
+		}
 	}
 
 	handleWheel(data) {
@@ -1988,6 +2046,54 @@ class SchemaGraphApp {
 	handleInputKeyDown(e) {
 		if (e.key === 'Enter') document.getElementById('sg-nodeInput')?.blur();
 		else if (e.key === 'Escape') { document.getElementById('sg-nodeInput')?.classList.remove('show'); this.editingNode = null; }
+	}
+
+	handleSelectChange() {
+		// Apply the selection immediately on change
+		if (this.editingNode) {
+			const nodeSelect = document.getElementById('sg-nodeSelect');
+			const val = nodeSelect.value;
+			let fieldName = null;
+
+			if (this.editingNode.editingSlot !== null && this.editingNode.editingSlot !== undefined) {
+				const slot = this.editingNode.editingSlot;
+				fieldName = this.editingNode.inputs?.[slot]?.name;
+				// For literal types, store the value as-is (it's already the correct type from options)
+				const inputInfo = this.editingNode.nativeInputs[slot];
+				if (inputInfo.options) {
+					// Find the original typed value from options
+					const typedValue = inputInfo.options.find(opt => String(opt) === val);
+					inputInfo.value = typedValue !== undefined ? typedValue : val;
+				} else {
+					inputInfo.value = val;
+				}
+			} else {
+				fieldName = 'value';
+				this.editingNode.properties.value = val;
+			}
+
+			const changedNode = this.editingNode;
+			this.eventBus.emit(GraphEvents.FIELD_CHANGED, { nodeId: changedNode.id, fieldName: fieldName, value: val });
+			this.draw();
+		}
+	}
+
+	handleSelectBlur() {
+		document.getElementById('sg-nodeSelectWrapper')?.classList.remove('show');
+		document.getElementById('sg-nodeSelect')?.classList.remove('show');
+		if (this.editingNode) {
+			this.editingNode.editingSlot = null;
+		}
+		this.editingNode = null;
+	}
+
+	handleSelectKeyDown(e) {
+		if (e.key === 'Enter' || e.key === 'Escape') {
+			document.getElementById('sg-nodeSelectWrapper')?.classList.remove('show');
+			document.getElementById('sg-nodeSelect')?.classList.remove('show');
+			if (this.editingNode) this.editingNode.editingSlot = null;
+			this.editingNode = null;
+		}
 	}
 
 	// === HELPER METHODS ===

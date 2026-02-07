@@ -1072,7 +1072,8 @@ function populateExecOptionsPanel() {
 
 function createInputForField(field, defaultVal) {
 	const rawType = field.rawType || '';
-	const baseType = rawType.replace(/Optional\[|\]/g, '').trim();
+	let baseType = rawType.trim();
+	if (baseType.startsWith('Optional[') && baseType.endsWith(']')) baseType = baseType.slice(9, -1).trim();
 
 	let input;
 

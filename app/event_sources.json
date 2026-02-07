@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "sources": {
+    "timer_main": {
+      "config": {
+        "id": "timer_main",
+        "name": "Main Timer (2s)",
+        "source_type": "timer",
+        "enabled": true,
+        "tags": [],
+        "interval_ms": 2000,
+        "max_triggers": -1,
+        "immediate": false
+      },
+      "created_at": "2026-02-06T13:43:34.467926",
+      "updated_at": "2026-02-06T13:43:34.467926"
+    },
+    "timer_heartbeat": {
+      "config": {
+        "id": "timer_heartbeat",
+        "name": "Heartbeat Timer (5s)",
+        "source_type": "timer",
+        "enabled": true,
+        "tags": [],
+        "interval_ms": 5000,
+        "max_triggers": -1,
+        "immediate": false
+      },
+      "created_at": "2026-02-06T13:43:36.501835",
+      "updated_at": "2026-02-06T13:43:36.501835"
+    },
+    "fswatch_data": {
+      "config": {
+        "id": "fswatch_data",
+        "name": "Data Folder Watcher",
+        "source_type": "fswatch",
+        "enabled": true,
+        "tags": [],
+        "path": "C:\\devel\\numel-playground\\examples\\data",
+        "recursive": true,
+        "patterns": [
+          "*"
+        ],
+        "events": [
+          "created",
+          "modified",
+          "deleted"
+        ],
+        "debounce_ms": 300
+      },
+      "created_at": "2026-02-06T13:43:38.566337",
+      "updated_at": "2026-02-06T13:43:38.566337"
+    },
+    "fswatch_inbox": {
+      "config": {
+        "id": "fswatch_inbox",
+        "name": "Inbox Watcher",
+        "source_type": "fswatch",
+        "enabled": true,
+        "tags": [],
+        "path": "C:\\devel\\numel-playground\\examples\\inbox",
+        "recursive": true,
+        "patterns": [
+          "*"
+        ],
+        "events": [
+          "created",
+          "modified",
+          "deleted"
+        ],
+        "debounce_ms": 300
+      },
+      "created_at": "2026-02-06T13:43:40.614962",
+      "updated_at": "2026-02-06T13:43:40.614962"
+    }
+  }
+}

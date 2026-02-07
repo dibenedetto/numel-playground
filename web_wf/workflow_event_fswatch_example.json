@@ -1,0 +1,82 @@
+{
+  "options": {
+    "type": "workflow_options",
+    "name": "File Watcher Demo",
+    "description": "Demonstrates filesystem watcher event source. Triggers when files are created/modified in watched directory."
+  },
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": { "name": "Start" }
+    },
+    {
+      "type": "loop_start_flow",
+      "condition": true,
+      "max_iter": 20,
+      "extra": { "name": "Watch Loop (20x)" }
+    },
+    {
+      "type": "event_listener_flow",
+      "sources": ["fswatch_data"],
+      "mode": "any",
+      "timeout_ms": 60000,
+      "extra": { "name": "Wait for File Change" }
+    },
+    {
+      "type": "route_flow",
+      "condition": "not timed_out",
+      "extra": { "name": "Check Timeout" }
+    },
+    {
+      "type": "transform_flow",
+      "expression": "f\"File {event.get('event_type', '?')}: {event.get('path', '?')}\"",
+      "extra": { "name": "Format Event" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Show File Event" }
+    },
+    {
+      "type": "loop_end_flow",
+      "extra": { "name": "Loop End" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Timeout - No Activity" }
+    },
+    {
+      "type": "end_flow",
+      "extra": { "name": "End" }
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "source_slot": "output", "target_slot": "input" },
+    { "source": 1, "target": 2, "source_slot": "iteration", "target_slot": "input" },
+    { "source": 2, "target": 3, "source_slot": "output", "target_slot": "input" },
+    { "source": 2, "target": 3, "source_slot": "timed_out", "target_slot": "condition" },
+    { "source": 3, "target": 4, "source_slot": "true_output", "target_slot": "input" },
+    { "source": 2, "target": 4, "source_slot": "event", "target_slot": "input" },
+    { "source": 4, "target": 5, "source_slot": "output", "target_slot": "input" },
+    { "source": 5, "target": 6, "source_slot": "output", "target_slot": "input" },
+    { "source": 6, "target": 1, "source_slot": "output", "target_slot": "input", "loop": true },
+    { "source": 3, "target": 7, "source_slot": "false_output", "target_slot": "input" },
+    { "source": 7, "target": 8, "source_slot": "output", "target_slot": "input" }
+  ],
+  "_setup_instructions": {
+    "description": "Create the filesystem watcher event source before running this workflow",
+    "api_call": {
+      "method": "POST",
+      "url": "/event-sources/fswatch",
+      "body": {
+        "id": "fswatch_data",
+        "name": "Data Folder Watcher",
+        "path": "./data",
+        "recursive": true,
+        "patterns": ["*"],
+        "events": ["created", "modified"],
+        "debounce_ms": 500
+      }
+    },
+    "note": "Make sure the ./data directory exists. Create/modify files in it to trigger events."
+  }
+}

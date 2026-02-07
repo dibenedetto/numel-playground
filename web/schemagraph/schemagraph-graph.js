@@ -343,7 +343,10 @@ class SchemaGraph extends Graph {
 
 	_isNativeType(typeStr) {
 		if (!typeStr) return false;
-		const base = typeStr.replace(/^Optional\[|\]$/g, '').split('|')[0].trim();
+		let base = typeStr.trim();
+		if (base.startsWith('Optional[') && base.endsWith(']')) base = base.slice(9, -1).trim();
+		if (base.startsWith('Literal[')) return true;
+		base = base.split('|')[0].trim();
 		const nativeTypes = ['str', 'int', 'bool', 'float', 'string', 'integer', 'Index'];
 		if (nativeTypes.indexOf(base) !== -1) return true;
 		if (base.indexOf('Dict[') === 0 || base.indexOf('List[') === 0) return true;
@@ -366,7 +369,10 @@ class SchemaGraph extends Graph {
 
 	_getNativeBaseType(typeStr) {
 		if (!typeStr) return 'str';
-		const base = typeStr.replace(/^Optional\[|\]$/g, '').split('|')[0].trim();
+		let base = typeStr.trim();
+		if (base.startsWith('Optional[') && base.endsWith(']')) base = base.slice(9, -1).trim();
+		if (base.startsWith('Literal[')) return 'literal';
+		base = base.split('|')[0].trim();
 		if (base === 'int' || base === 'integer' || base === 'Index') return 'int';
 		if (base === 'bool') return 'bool';
 		if (base === 'float') return 'float';

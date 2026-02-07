@@ -13,6 +13,11 @@ from   event_bus import EventType, EventBus
 from   manager   import WorkflowManager
 from   schema    import Workflow, WorkflowExecutionOptions
 from   utils     import get_now_str, get_timestamp_str, log_print, serialize_result
+from   events    import (
+	get_event_registry, init_event_registry, shutdown_event_registry,
+	TimerSourceConfig, FSWatchSourceConfig,
+	WebhookSourceConfig, BrowserSourceConfig
+)
 
 # Tutorial extension (see docs/tutorial-extension.md)
 from   tutorial_api import setup_tutorial_api
@@ -567,6 +572,150 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		except Exception as e:
 			log_print(f"WebSocket error: {e}")
 		event_bus.remove_websocket_client(websocket)
+
+
+	# =========================================================================
+	# EVENT SOURCE MANAGEMENT API
+	# =========================================================================
+
+	@app.on_event("startup")
+	async def init_event_sources():
+		"""Initialize event source registry on startup"""
+		await init_event_registry()
+		log_print("✅ Event source registry initialized")
+
+	@app.on_event("shutdown")
+	async def shutdown_event_sources():
+		"""Shutdown event source registry"""
+		await shutdown_event_registry()
+		log_print("✅ Event source registry shut down")
+
+	@app.post("/event-sources/list")
+	async def list_event_sources():
+		"""List all registered event sources"""
+		registry = get_event_registry()
+		return {
+			"status": "ok",
+			"sources": registry.list_sources()
+		}
+
+	@app.post("/event-sources/get/{source_id}")
+	async def get_event_source(source_id: str):
+		"""Get a specific event source"""
+		registry = get_event_registry()
+		source = registry.get(source_id)
+		if not source:
+			raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
+		return {
+			"status": "ok",
+			"source": source.get_status()
+		}
+
+	@app.post("/event-sources/timer")
+	async def create_timer_source(config: TimerSourceConfig):
+		"""Create a new timer event source"""
+		registry = get_event_registry()
+		try:
+			source = await registry.register(config)
+			return {
+				"status": "created",
+				"source": source.get_status()
+			}
+		except ValueError as e:
+			raise HTTPException(status_code=400, detail=str(e))
+
+	@app.post("/event-sources/fswatch")
+	async def create_fswatch_source(config: FSWatchSourceConfig):
+		"""Create a new filesystem watcher event source"""
+		registry = get_event_registry()
+		try:
+			source = await registry.register(config)
+			return {
+				"status": "created",
+				"source": source.get_status()
+			}
+		except ValueError as e:
+			raise HTTPException(status_code=400, detail=str(e))
+
+	@app.post("/event-sources/webhook")
+	async def create_webhook_source(config: WebhookSourceConfig):
+		"""Create a new webhook event source"""
+		registry = get_event_registry()
+		try:
+			source = await registry.register(config)
+			return {
+				"status": "created",
+				"source": source.get_status()
+			}
+		except ValueError as e:
+			raise HTTPException(status_code=400, detail=str(e))
+
+	@app.post("/event-sources/browser")
+	async def create_browser_source(config: BrowserSourceConfig):
+		"""Create a new browser event source (webcam, microphone, etc.)"""
+		registry = get_event_registry()
+		try:
+			source = await registry.register(config)
+			return {
+				"status": "created",
+				"source": source.get_status()
+			}
+		except ValueError as e:
+			raise HTTPException(status_code=400, detail=str(e))
+
+	@app.post("/event-sources/delete/{source_id}")
+	async def delete_event_source(source_id: str):
+		"""Delete an event source"""
+		registry = get_event_registry()
+		try:
+			await registry.unregister(source_id)
+			return {
+				"status": "deleted",
+				"source_id": source_id
+			}
+		except ValueError as e:
+			raise HTTPException(status_code=404, detail=str(e))
+
+	@app.post("/event-sources/{source_id}/start")
+	async def start_event_source(source_id: str):
+		"""Manually start an event source"""
+		registry = get_event_registry()
+		source = registry.get(source_id)
+		if not source:
+			raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
+		try:
+			await source.start()
+			return {
+				"status": "started",
+				"source": source.get_status()
+			}
+		except Exception as e:
+			raise HTTPException(status_code=500, detail=str(e))
+
+	@app.post("/event-sources/{source_id}/stop")
+	async def stop_event_source(source_id: str):
+		"""Manually stop an event source"""
+		registry = get_event_registry()
+		source = registry.get(source_id)
+		if not source:
+			raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
+		try:
+			await source.stop()
+			return {
+				"status": "stopped",
+				"source": source.get_status()
+			}
+		except Exception as e:
+			raise HTTPException(status_code=500, detail=str(e))
+
+	@app.post("/event-sources/status")
+	async def get_event_registry_status():
+		"""Get overall event registry status"""
+		registry = get_event_registry()
+		return {
+			"status": "ok",
+			**registry.get_status()
+		}
 
 
 	log_print("✅ Workflow API endpoints registered")

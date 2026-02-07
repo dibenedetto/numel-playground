@@ -1,0 +1,66 @@
+{
+  "options": {
+    "type": "workflow_options",
+    "name": "Event Timer Demo",
+    "description": "Demonstrates external timer event source triggering workflow execution. Create timer source first via API, then run workflow."
+  },
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": { "name": "Start" }
+    },
+    {
+      "type": "loop_start_flow",
+      "condition": true,
+      "max_iter": 10,
+      "extra": { "name": "Event Loop (10x)" }
+    },
+    {
+      "type": "event_listener_flow",
+      "sources": ["timer_main"],
+      "mode": "any",
+      "timeout_ms": null,
+      "extra": { "name": "Wait for Timer Event" }
+    },
+    {
+      "type": "transform_flow",
+      "expression": "f\"Timer tick #{event.get('count', 0)} at {event.get('elapsed_ms', 0)}ms\"",
+      "extra": { "name": "Format Message" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Show Event" }
+    },
+    {
+      "type": "loop_end_flow",
+      "extra": { "name": "Loop End" }
+    },
+    {
+      "type": "end_flow",
+      "extra": { "name": "End" }
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "source_slot": "output", "target_slot": "input" },
+    { "source": 1, "target": 2, "source_slot": "iteration", "target_slot": "input" },
+    { "source": 2, "target": 3, "source_slot": "event", "target_slot": "input" },
+    { "source": 3, "target": 4, "source_slot": "output", "target_slot": "input" },
+    { "source": 4, "target": 5, "source_slot": "output", "target_slot": "input" },
+    { "source": 5, "target": 6, "source_slot": "output", "target_slot": "input" },
+    { "source": 5, "target": 1, "source_slot": "output", "target_slot": "input", "loop": true }
+  ],
+  "_setup_instructions": {
+    "description": "Create the timer event source before running this workflow",
+    "api_call": {
+      "method": "POST",
+      "url": "/event-sources/timer",
+      "body": {
+        "id": "timer_main",
+        "name": "Main Timer",
+        "interval_ms": 2000,
+        "max_triggers": -1,
+        "immediate": false
+      }
+    }
+  }
+}

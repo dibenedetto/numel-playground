@@ -1,0 +1,79 @@
+{
+  "options": {
+    "type": "workflow_options",
+    "name": "Event All-Mode Demo",
+    "description": "Demonstrates 'all' mode - waits for events from ALL specified sources before continuing."
+  },
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": { "name": "Start" }
+    },
+    {
+      "type": "loop_start_flow",
+      "condition": true,
+      "max_iter": 5,
+      "extra": { "name": "Sync Loop (5x)" }
+    },
+    {
+      "type": "event_listener_flow",
+      "sources": ["timer_heartbeat", "fswatch_inbox"],
+      "mode": "all",
+      "timeout_ms": 30000,
+      "extra": { "name": "Wait for Timer AND File" }
+    },
+    {
+      "type": "transform_flow",
+      "expression": "f\"Synced! Timer: tick #{events.get('timer_heartbeat', {}).get('count', '?')}, File: {events.get('fswatch_inbox', {}).get('path', 'none').split('/')[-1]}\"",
+      "extra": { "name": "Combine Events" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Show Combined" }
+    },
+    {
+      "type": "loop_end_flow",
+      "extra": { "name": "Loop End" }
+    },
+    {
+      "type": "end_flow",
+      "extra": { "name": "End" }
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "source_slot": "output", "target_slot": "input" },
+    { "source": 1, "target": 2, "source_slot": "iteration", "target_slot": "input" },
+    { "source": 2, "target": 3, "source_slot": "events", "target_slot": "input" },
+    { "source": 3, "target": 4, "source_slot": "output", "target_slot": "input" },
+    { "source": 4, "target": 5, "source_slot": "output", "target_slot": "input" },
+    { "source": 5, "target": 6, "source_slot": "output", "target_slot": "input" },
+    { "source": 5, "target": 1, "source_slot": "output", "target_slot": "input", "loop": true }
+  ],
+  "_setup_instructions": {
+    "description": "This workflow waits for BOTH a timer tick AND a new file before each iteration",
+    "api_calls": [
+      {
+        "description": "Create heartbeat timer",
+        "method": "POST",
+        "url": "/event-sources/timer",
+        "body": {
+          "id": "timer_heartbeat",
+          "name": "Heartbeat Timer",
+          "interval_ms": 5000
+        }
+      },
+      {
+        "description": "Create inbox watcher",
+        "method": "POST",
+        "url": "/event-sources/fswatch",
+        "body": {
+          "id": "fswatch_inbox",
+          "name": "Inbox Watcher",
+          "path": "./inbox",
+          "events": ["created"]
+        }
+      }
+    ],
+    "usage": "Run workflow, then create a file in ./inbox. The workflow won't proceed until BOTH the timer ticks AND a file appears."
+  }
+}
