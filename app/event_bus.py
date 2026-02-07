@@ -140,10 +140,15 @@ class EventBus:
 		if not self._websocket_clients:
 			return
 
+		def set_default(obj):
+			if isinstance(obj, set):
+				return list(obj)
+			raise TypeError
+
 		message = json.dumps({
 			"type"  : "workflow_event",
 			"event" : event.model_dump()
-		})
+		}, default=set_default)
 
 		dead_clients = set()
 		for client in self._websocket_clients:
