@@ -30,12 +30,18 @@ class WorkflowNode extends Node {
 		for (let i = 0; i < this.inputs.length; i++) {
 			if (this.inputs[i].name === name) return i;
 		}
+		for (let i = 0; i < this.inputs.length; i++) {
+			if (this.inputMeta?.[i]?.name === name) return i;
+		}
 		return -1;
 	}
 
 	getOutputSlotByName(name) {
 		for (let i = 0; i < this.outputs.length; i++) {
 			if (this.outputs[i].name === name) return i;
+		}
+		for (let i = 0; i < this.outputs.length; i++) {
+			if (this.outputMeta?.[i]?.name === name) return i;
 		}
 		return -1;
 	}
@@ -44,7 +50,7 @@ class WorkflowNode extends Node {
 		const data = { ...this.constantFields };
 		for (let i = 0; i < this.inputs.length; i++) {
 			const input = this.inputs[i];
-			const fieldName = input.name.split('.')[0];
+			const fieldName = (this.inputMeta?.[i]?.name || input.name).split('.')[0];
 			const connectedVal = this.getInputData(i);
 			if (connectedVal !== null && connectedVal !== undefined) {
 				data[fieldName] = connectedVal;
@@ -60,7 +66,7 @@ class WorkflowNode extends Node {
 		for (const [baseName, slotIndices] of Object.entries(this.multiInputSlots)) {
 			const values = {};
 			for (const idx of slotIndices) {
-				const slotName = this.inputs[idx].name;
+				const slotName = this.inputMeta?.[idx]?.name || this.inputs[idx].name;
 				const key = slotName.split('.')[1];
 				const link = this.inputs[idx].link;
 				if (link) {
@@ -607,6 +613,23 @@ class WorkflowNodeFactory {
 		this.schemaName = schemaName;
 	}
 
+	_prettifyName(name) {
+		// snake_case: split on underscores
+		if (name.includes('_')) {
+			return name.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+		}
+		// camelCase/PascalCase: split before uppercase letters
+		return name.replace(/([a-z])([A-Z])/g, '$1 $2')
+			.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+			.replace(/^./, c => c.toUpperCase());
+	}
+
+	_getDisplayName(field) {
+		if (field.title) return field.title;
+		if (this.app?._features?.prettyFieldNames) return this._prettifyName(field.name);
+		return field.name;
+	}
+
 	createNode(modelName, nodeData = {}) {
 		const { models, fieldRoles, defaults } = this.parsed;
 		const fields = models[modelName];
@@ -655,7 +678,7 @@ class WorkflowNodeFactory {
 		// Process INPUT fields
 		let inputIdx = 0;
 		for (const field of inputFields) {
-			const displayName = field.title || field.name;
+			const displayName = this._getDisplayName(field);
 			node.addInput(displayName, field.rawType);
 
 			node.inputMeta[inputIdx] = {
@@ -697,7 +720,7 @@ class WorkflowNodeFactory {
 
 			if (Array.isArray(keys) && keys.length > 0) {
 				for (const key of keys) {
-					const displayName = field.title ? `${field.title}.${key}` : `${field.name}.${key}`;
+					const displayName = `${this._getDisplayName(field)}.${key}`;
 					node.addInput(displayName, field.rawType);
 					node.inputMeta[inputIdx] = {
 						name: `${field.name}.${key}`,
@@ -709,7 +732,7 @@ class WorkflowNodeFactory {
 					expandedIndices.push(inputIdx++);
 				}
 			} else {
-				const displayName = field.title || field.name;
+				const displayName = this._getDisplayName(field);
 				node.addInput(displayName, field.rawType);
 				node.inputMeta[inputIdx] = {
 					name: field.name,
@@ -726,7 +749,7 @@ class WorkflowNodeFactory {
 		// Process OUTPUT fields
 		let outputIdx = 0;
 		for (const field of outputFields) {
-			const displayName = field.title || field.name;
+			const displayName = this._getDisplayName(field);
 			node.addOutput(displayName, field.rawType);
 
 			node.outputMeta[outputIdx] = {
@@ -751,7 +774,7 @@ class WorkflowNodeFactory {
 
 			if (Array.isArray(keys) && keys.length > 0) {
 				for (const key of keys) {
-					const displayName = field.title ? `${field.title}.${key}` : `${field.name}.${key}`;
+					const displayName = `${this._getDisplayName(field)}.${key}`;
 					node.addOutput(displayName, field.rawType);
 					node.outputMeta[outputIdx] = {
 						name: `${field.name}.${key}`,
@@ -763,7 +786,7 @@ class WorkflowNodeFactory {
 					expandedIndices.push(outputIdx++);
 				}
 			} else {
-				const displayName = field.title || field.name;
+				const displayName = this._getDisplayName(field);
 				node.addOutput(displayName, field.rawType);
 				node.outputMeta[outputIdx] = {
 					name: field.name,
@@ -1085,8 +1108,7 @@ class WorkflowImporter {
 
 	_populateNodeFields(node, nodeData) {
 		for (let i = 0; i < node.inputs.length; i++) {
-			const input = node.inputs[i];
-			const fieldName = input.name.split('.')[0];
+			const fieldName = (node.inputMeta?.[i]?.name || node.inputs[i].name).split('.')[0];
 			const value = nodeData[fieldName];
 			if (value === undefined || value === null) continue;
 			if (node.multiInputSlots?.[fieldName]) continue;
@@ -1113,6 +1135,8 @@ class WorkflowImporter {
 	_findOutputSlot(node, slotName) {
 		for (let i = 0; i < node.outputs.length; i++)
 			if (node.outputs[i].name === slotName) return i;
+		for (let i = 0; i < node.outputs.length; i++)
+			if (node.outputMeta?.[i]?.name === slotName) return i;
 		const idx = parseInt(slotName);
 		if (!isNaN(idx) && idx >= 0 && idx < node.outputs.length) return idx;
 		if (node.isNative && node.outputs.length > 0) return 0;
@@ -1122,6 +1146,8 @@ class WorkflowImporter {
 	_findInputSlot(node, slotName) {
 		for (let i = 0; i < node.inputs.length; i++)
 			if (node.inputs[i].name === slotName) return i;
+		for (let i = 0; i < node.inputs.length; i++)
+			if (node.inputMeta?.[i]?.name === slotName) return i;
 		const idx = parseInt(slotName);
 		if (!isNaN(idx) && idx >= 0 && idx < node.inputs.length) return idx;
 		if (node.isNative && node.inputs.length > 0) return 0;
@@ -1215,7 +1241,7 @@ class WorkflowExporter {
 
 		for (const [baseName, slotIndices] of Object.entries(node.multiInputSlots || {})) {
 			const keys = slotIndices.map(idx => {
-				const n = node.inputs[idx].name;
+				const n = node.inputMeta?.[idx]?.name || node.inputs[idx].name;
 				const d = n.indexOf('.');
 				return d !== -1 ? n.substring(d + 1) : null;
 			}).filter(Boolean);
@@ -1223,7 +1249,7 @@ class WorkflowExporter {
 		}
 		for (const [baseName, slotIndices] of Object.entries(node.multiOutputSlots || {})) {
 			const keys = slotIndices.map(idx => {
-				const n = node.outputs[idx].name;
+				const n = node.outputMeta?.[idx]?.name || node.outputs[idx].name;
 				const d = n.indexOf('.');
 				return d !== -1 ? n.substring(d + 1) : null;
 			}).filter(Boolean);
@@ -1233,12 +1259,13 @@ class WorkflowExporter {
 		for (let i = 0; i < node.inputs.length; i++) {
 			const input = node.inputs[i];
 			if (input.link) continue;
-			const baseName = input.name.split('.')[0];
+			const origName = node.inputMeta?.[i]?.name || input.name;
+			const baseName = origName.split('.')[0];
 			if (node.multiInputSlots?.[baseName]) continue;
 			if (node.nativeInputs?.[i] !== undefined) {
 				const val = node.nativeInputs[i].value;
 				if (val !== null && val !== undefined && val !== '')
-					nodeData[input.name] = this._convertExportValue(val, node.nativeInputs[i].type);
+					nodeData[origName] = this._convertExportValue(val, node.nativeInputs[i].type);
 			}
 		}
 
@@ -1274,8 +1301,8 @@ class WorkflowExporter {
 			type: 'edge',
 			source: sourceIdx,
 			target: targetIdx,
-			source_slot: sourceNode.outputs[link.origin_slot]?.name || 'output',
-			target_slot: targetNode.inputs[link.target_slot]?.name || 'input'
+			source_slot: sourceNode.outputMeta?.[link.origin_slot]?.name || sourceNode.outputs[link.origin_slot]?.name || 'output',
+			target_slot: targetNode.inputMeta?.[link.target_slot]?.name || targetNode.inputs[link.target_slot]?.name || 'input'
 		};
 		if (link.loop) edge.loop = true;  // Preserve loop-back edge marker
 		if (link.data && Object.keys(link.data).length > 0)

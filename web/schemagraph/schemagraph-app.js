@@ -163,6 +163,7 @@ class SchemaGraphApp {
 			previewFlash: true,  // Flash animation when preview data updates
 			lockOverlay: true,  // Show lock status overlay when graph is locked
 			hiddenFields: true,  // Hide fields listed in _hiddenFieldNames from nodes
+			prettyFieldNames: true,  // Convert snake_case/camelCase field names to Title Case
 			loopEdgeOrthogonal: true,  // Use orthogonal routing for loop-back edges
 			// Node types
 			nativeTypes: true
@@ -414,7 +415,8 @@ class SchemaGraphApp {
 			'sg-feature-preservepreviewlinks': this._features.preservePreviewLinks,
 			'sg-feature-previewflash': this._features.previewFlash,
 			'sg-feature-lockoverlay': this._features.lockOverlay,
-			'sg-feature-hiddenfields': this._features.hiddenFields
+			'sg-feature-hiddenfields': this._features.hiddenFields,
+			'sg-feature-prettyfieldnames': this._features.prettyFieldNames
 		};
 
 		for (const [id, checked] of Object.entries(basicCheckboxMap)) {
@@ -519,6 +521,11 @@ class SchemaGraphApp {
 						<input type="checkbox" id="sg-feature-hiddenfields" checked>
 						<span class="sg-toolbar-toggle-slider"></span>
 						<span class="sg-toolbar-toggle-text">Hidden Fields</span>
+					</label>
+					<label class="sg-toolbar-toggle-switch" title="Convert snake_case/camelCase field names to Title Case">
+						<input type="checkbox" id="sg-feature-prettyfieldnames" checked>
+						<span class="sg-toolbar-toggle-slider"></span>
+						<span class="sg-toolbar-toggle-text">Pretty Names</span>
 					</label>
 				</div>
 			</div>
@@ -2720,6 +2727,33 @@ class SchemaGraphApp {
 		return vis;
 	}
 
+	_prettifyName(name) {
+		if (name.includes('_')) {
+			return name.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+		}
+		return name.replace(/([a-z])([A-Z])/g, '$1 $2')
+			.replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
+			.replace(/^./, c => c.toUpperCase());
+	}
+
+	_getSlotDisplayName(node, slotIdx, isOutput) {
+		const meta = isOutput ? node.outputMeta?.[slotIdx] : node.inputMeta?.[slotIdx];
+		const slot = isOutput ? node.outputs[slotIdx] : node.inputs[slotIdx];
+		if (!meta) return slot?.name;
+		const origName = meta.name || slot?.name;
+		const dotIdx = origName.indexOf('.');
+		if (dotIdx >= 0) {
+			const parentName = origName.substring(0, dotIdx);
+			const key = origName.substring(dotIdx + 1);
+			if (meta.title) return `${meta.title}.${key}`;
+			if (this._features.prettyFieldNames) return `${this._prettifyName(parentName)}.${key}`;
+			return origName;
+		}
+		if (meta.title) return meta.title;
+		if (this._features.prettyFieldNames) return this._prettifyName(origName);
+		return origName;
+	}
+
 	_getVisibleSlotCount(node, isOutput) {
 		const slots = isOutput ? node.outputs : node.inputs;
 		let count = 0;
@@ -3359,7 +3393,7 @@ class SchemaGraphApp {
 		}
 		this.ctx.fillStyle = showRequiredHighlight ? colors.accentRed : colors.textSecondary;
 		this.ctx.font = (10 * textScale) + 'px Arial'; this.ctx.textAlign = 'left'; this.ctx.textBaseline = 'middle';
-		this.ctx.fillText(inp.name, x + 10, sy);
+		this.ctx.fillText(this._getSlotDisplayName(node, j, false), x + 10, sy);
 		const hasEditBox = !isMulti && !inp.link && node.nativeInputs?.[j] !== undefined;
 		if (hasEditBox) {
 			const boxX = x + 10, boxY = sy + 6, boxW = 70, boxH = 12;
@@ -3398,7 +3432,7 @@ class SchemaGraphApp {
 		}
 		this.ctx.fillStyle = colors.textSecondary;
 		this.ctx.font = (10 * textScale) + 'px Arial'; this.ctx.textAlign = 'right'; this.ctx.textBaseline = 'middle';
-		this.ctx.fillText(out.name, x + w - 10, sy);
+		this.ctx.fillText(this._getSlotDisplayName(node, j, true), x + w - 10, sy);
 	}
 
 	drawConnecting(colors) {
@@ -7268,6 +7302,10 @@ class SchemaGraphApp {
 					document.getElementById('sg-feature-hiddenfields')?.addEventListener('change', (e) => {
 						self.api.features.set({ hiddenFields: e.target.checked });
 						for (const node of self.graph.nodes) self._recalculateNodeSize(node);
+						self.draw();
+					});
+					document.getElementById('sg-feature-prettyfieldnames')?.addEventListener('change', (e) => {
+						self.api.features.set({ prettyFieldNames: e.target.checked });
 						self.draw();
 					});
 
