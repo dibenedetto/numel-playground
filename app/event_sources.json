@@ -4,16 +4,16 @@
     "timer_main": {
       "config": {
         "id": "timer_main",
-        "name": "Main Timer (2s)",
+        "name": "timer_main",
         "source_type": "timer",
         "enabled": true,
         "tags": [],
-        "interval_ms": 2000,
+        "interval_ms": 1000,
         "max_triggers": -1,
         "immediate": false
       },
       "created_at": "2026-02-06T13:43:34.467926",
-      "updated_at": "2026-02-06T13:43:34.467926"
+      "updated_at": "2026-02-07T22:56:22.494503"
     },
     "timer_heartbeat": {
       "config": {

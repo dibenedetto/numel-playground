@@ -4,7 +4,13 @@
       "Bash(python test_loops.py:*)",
       "Bash(python -m py_compile:*)",
       "Bash(node:*)",
-      "Bash(del:*)"
+      "Bash(del:*)",
+      "Bash(python -c:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(python3:*)",
+      "Bash(conda run:*)"
     ]
   }
 }

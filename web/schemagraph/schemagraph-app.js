@@ -112,6 +112,13 @@ class SchemaGraphApp {
 			previewSlotMap: {}              // Maps preview input slot names to output slot names (e.g., { 'input': 'get' })
 		};
 
+		// Set types: paired nodes that must be created/removed together with a loop-back edge
+		// Each entry maps a start workflowType to its end workflowType (and vice versa)
+		// Format: { startType: endType, ... } — both directions are auto-derived
+		this._setTypes = {};
+		this._creatingPairedNode = false;
+		this._removingPairedNode = false;
+
 		// Canvas drop configuration (node types come from _schemaTypeRoles)
 		this._canvasDropConfig = {
 			enabled: true,
@@ -1134,7 +1141,14 @@ class SchemaGraphApp {
 			}
 		});
 
-		this.eventBus.on('node:created', () => { this.ui?.update?.schemaList?.(); this.ui?.update?.nodeTypesList?.(); this.draw(); });
+		this.eventBus.on('node:created', (data) => {
+			this.ui?.update?.schemaList?.(); this.ui?.update?.nodeTypesList?.();
+			if (!this._creatingPairedNode && data?.nodeId) {
+				// Defer so the caller has time to set node.pos before we position the partner
+				setTimeout(() => this._maybeCreatePairedNode(data.nodeId), 0);
+			}
+			this.draw();
+		});
 		this.eventBus.on('node:deleted', () => { this.ui?.update?.schemaList?.(); this.draw(); });
 		this.eventBus.on('link:created', () => this.draw());
 		this.eventBus.on('link:deleted', () => this.draw());
@@ -2154,19 +2168,20 @@ class SchemaGraphApp {
 	// === HELPER METHODS ===
 	removeLink(linkId, targetNode, targetSlot) {
 		const link = this.graph.links[linkId];
-		if (link) {
-			const originNode = this.graph.getNodeById(link.origin_id);
-			if (originNode) {
-				const idx = originNode.outputs[link.origin_slot].links.indexOf(linkId);
-				if (idx > -1) originNode.outputs[link.origin_slot].links.splice(idx, 1);
-			}
-			delete this.graph.links[linkId];
-			targetNode.inputs[targetSlot].link = null;
-			this.eventBus.emit(GraphEvents.LINK_REMOVED, {
-				linkId, targetNodeId: targetNode.id, targetSlot,
-				sourceNodeId: link.origin_id, sourceSlot: link.origin_slot
-			});
+		if (!link) return;
+		// Prevent removal of loop-back edges unless removing paired nodes
+		if (link.loop && !this._removingPairedNode) return;
+		const originNode = this.graph.getNodeById(link.origin_id);
+		if (originNode) {
+			const idx = originNode.outputs[link.origin_slot].links.indexOf(linkId);
+			if (idx > -1) originNode.outputs[link.origin_slot].links.splice(idx, 1);
 		}
+		delete this.graph.links[linkId];
+		targetNode.inputs[targetSlot].link = null;
+		this.eventBus.emit(GraphEvents.LINK_REMOVED, {
+			linkId, targetNodeId: targetNode.id, targetSlot,
+			sourceNodeId: link.origin_id, sourceSlot: link.origin_slot
+		});
 	}
 
 	removeNode(node) {
@@ -2178,6 +2193,20 @@ class SchemaGraphApp {
 			if (this.selectedNode === node) this.selectedNode = null;
 			this.selectedNodes.delete(node);
 			return;
+		}
+
+		// If this node has a paired node (loop start/end), remove the partner too
+		if (!this._removingPairedNode) {
+			const partner = this._findPairedNode(node);
+			if (partner) {
+				this._removingPairedNode = true;
+				try {
+					this.removeNode(partner);
+					this.selectedNodes.delete(partner);
+				} finally {
+					this._removingPairedNode = false;
+				}
+			}
 		}
 
 		// If preserve preview links is enabled and this is a preview node, reconnect underlying nodes
@@ -2395,8 +2424,9 @@ class SchemaGraphApp {
 				}
 				if (baseSlotIdx === -1 && indices.length > 0) baseSlotIdx = indices[0];
 				if (baseSlotIdx === -1) continue;
-				// Position add button exactly at the pin location (pin is at x-1, sy)
-				const slotY = node.pos[1] + 38 + baseSlotIdx * 25;
+				if (this._isFieldHidden(node, baseSlotIdx, false)) continue;
+				const visIdx = this._getVisibleSlotIndex(node, baseSlotIdx, false);
+				const slotY = node.pos[1] + 38 + visIdx * 25;
 				buttons.push({ fieldName, type: 'input', slotIdx: baseSlotIdx, x: node.pos[0] - 7, y: slotY - 6, w: 12, h: 12 });
 			}
 			if (role === FieldRole.MULTI_OUTPUT) {
@@ -2409,8 +2439,9 @@ class SchemaGraphApp {
 				}
 				if (baseSlotIdx === -1 && indices.length > 0) baseSlotIdx = indices[0];
 				if (baseSlotIdx === -1) continue;
-				// Position add button exactly at the pin location (pin is at x+w+1, sy)
-				const slotY = node.pos[1] + 38 + baseSlotIdx * 25;
+				if (this._isFieldHidden(node, baseSlotIdx, true)) continue;
+				const visIdx = this._getVisibleSlotIndex(node, baseSlotIdx, true);
+				const slotY = node.pos[1] + 38 + visIdx * 25;
 				buttons.push({ fieldName, type: 'output', slotIdx: baseSlotIdx, x: node.pos[0] + node.size[0] - 5, y: slotY - 6, w: 12, h: 12 });
 			}
 		}
@@ -2422,26 +2453,32 @@ class SchemaGraphApp {
 		if (!node.isWorkflowNode) return buttons;
 		for (const [fieldName, indices] of Object.entries(node.multiInputSlots || {})) {
 			for (const idx of indices) {
-				const slotY = node.pos[1] + 38 + idx * 25;
-				const name = node.inputs[idx]?.name || '';
-				const dotIdx = name.indexOf('.');
+				if (this._isFieldHidden(node, idx, false)) continue;
+				const visIdx = this._getVisibleSlotIndex(node, idx, false);
+				const slotY = node.pos[1] + 38 + visIdx * 25;
+				const metaName = node.inputMeta?.[idx]?.name || node.inputs[idx]?.name || '';
+				const dotIdx = metaName.indexOf('.');
 				// Only show remove button for actual sub-fields (name contains a dot like "fieldName.key")
 				if (dotIdx === -1) continue;
-				const key = name.substring(dotIdx + 1);
+				const key = metaName.substring(dotIdx + 1);
 				const hasConnection = node.multiInputs?.[idx]?.links?.length > 0;
-				buttons.push({ fieldName, type: 'input', slotIdx: idx, key, x: node.pos[0] + 75, y: slotY - 5, w: 10, h: 10, hasConnection });
+				// Place at beginning of field name (left side, just after the pin)
+				buttons.push({ fieldName, type: 'input', slotIdx: idx, key, x: node.pos[0] + 8, y: slotY - 5, w: 10, h: 10, hasConnection });
 			}
 		}
 		for (const [fieldName, indices] of Object.entries(node.multiOutputSlots || {})) {
 			for (const idx of indices) {
-				const slotY = node.pos[1] + 38 + idx * 25;
-				const name = node.outputs[idx]?.name || '';
-				const dotIdx = name.indexOf('.');
+				if (this._isFieldHidden(node, idx, true)) continue;
+				const visIdx = this._getVisibleSlotIndex(node, idx, true);
+				const slotY = node.pos[1] + 38 + visIdx * 25;
+				const metaName = node.outputMeta?.[idx]?.name || node.outputs[idx]?.name || '';
+				const dotIdx = metaName.indexOf('.');
 				// Only show remove button for actual sub-fields (name contains a dot like "fieldName.key")
 				if (dotIdx === -1) continue;
-				const key = name.substring(dotIdx + 1);
+				const key = metaName.substring(dotIdx + 1);
 				const hasConnection = node.outputs[idx]?.links?.length > 0;
-				buttons.push({ fieldName, type: 'output', slotIdx: idx, key, x: node.pos[0] + node.size[0] - 85, y: slotY - 5, w: 10, h: 10, hasConnection });
+				// Place at end of field name (right side, just before the pin)
+				buttons.push({ fieldName, type: 'output', slotIdx: idx, key, x: node.pos[0] + node.size[0] - 18, y: slotY - 5, w: 10, h: 10, hasConnection });
 			}
 		}
 		return buttons;
@@ -2520,7 +2557,10 @@ class SchemaGraphApp {
 			const dotIdx = name.indexOf('.');
 			const slotKey = dotIdx !== -1 ? name.substring(dotIdx + 1) : name;
 			if (slotKey === key) {
-				// Remove any connections to this slot
+				// Capture the slot type before removal for potential base slot restoration
+				const slotType = node.inputMeta?.[idx]?.type || node.inputs[idx]?.type || 'Any';
+
+				// Remove any multi-input connections to this slot
 				if (node.multiInputs?.[idx]?.links) {
 					for (const linkId of node.multiInputs[idx].links.slice()) {
 						const link = this.graph.links[linkId];
@@ -2533,6 +2573,20 @@ class SchemaGraphApp {
 							delete this.graph.links[linkId];
 						}
 					}
+				}
+				// Remove any regular input connection to this slot
+				if (node.inputs[idx]?.link) {
+					const linkId = node.inputs[idx].link;
+					const link = this.graph.links[linkId];
+					if (link) {
+						const originNode = this.graph.getNodeById(link.origin_id);
+						if (originNode) {
+							const lidx = originNode.outputs[link.origin_slot].links.indexOf(linkId);
+							if (lidx > -1) originNode.outputs[link.origin_slot].links.splice(lidx, 1);
+						}
+						delete this.graph.links[linkId];
+					}
+					node.inputs[idx].link = null;
 				}
 
 				// Actually remove the input from the node
@@ -2583,6 +2637,15 @@ class SchemaGraphApp {
 					}
 				}
 
+				// If all sub-slots were removed, restore a base slot so the "+" button remains
+				if (node.multiInputSlots[fieldName].length === 0) {
+					const baseIdx = node.inputs.length;
+					node.inputs.push({ name: fieldName, type: slotType, link: null });
+					if (!node.inputMeta) node.inputMeta = {};
+					node.inputMeta[baseIdx] = { name: fieldName, type: slotType, isMulti: true };
+					node.multiInputSlots[fieldName] = [baseIdx];
+				}
+
 				this._recalculateNodeSize(node);
 				this.eventBus.emit(GraphEvents.FIELD_CHANGED, { nodeId: node.id, fieldName, action: 'removeSlot', key });
 				this.draw();
@@ -2618,6 +2681,9 @@ class SchemaGraphApp {
 			const dotIdx = name.indexOf('.');
 			const slotKey = dotIdx !== -1 ? name.substring(dotIdx + 1) : name;
 			if (slotKey === key) {
+				// Capture the slot type before removal for potential base slot restoration
+				const slotType = node.outputMeta?.[idx]?.type || node.outputs[idx]?.type || 'Any';
+
 				// Remove any connections from this slot
 				for (const linkId of node.outputs[idx].links.slice()) {
 					const link = this.graph.links[linkId];
@@ -2659,6 +2725,15 @@ class SchemaGraphApp {
 					if (link.origin_id === node.id && link.origin_slot > idx) {
 						link.origin_slot--;
 					}
+				}
+
+				// If all sub-slots were removed, restore a base slot so the "+" button remains
+				if (node.multiOutputSlots[fieldName].length === 0) {
+					const baseIdx = node.outputs.length;
+					node.outputs.push({ name: fieldName, type: slotType, links: [] });
+					if (!node.outputMeta) node.outputMeta = {};
+					node.outputMeta[baseIdx] = { name: fieldName, type: slotType, isMulti: true };
+					node.multiOutputSlots[fieldName] = [baseIdx];
 				}
 
 				this._recalculateNodeSize(node);
@@ -4158,11 +4233,87 @@ class SchemaGraphApp {
 		return false;
 	}
 
-	/**
-	 * Check if a node is a PreviewFlow type
-	 * @param {Object} node - The node to check
-	 * @returns {boolean} True if this is a preview node
-	 */
+	_getPairedWorkflowType(workflowType) {
+		return this._setTypes[workflowType] || null;
+	}
+
+	_findFullNodeType(workflowType) {
+		for (const [schemaName, schema] of Object.entries(this.graph.schemas)) {
+			if (!schema.defaults) continue;
+			for (const [modelName, defaults] of Object.entries(schema.defaults)) {
+				if (defaults.type === workflowType) return `${schemaName}.${modelName}`;
+			}
+		}
+		return null;
+	}
+
+	_maybeCreatePairedNode(nodeId) {
+		const node = this.graph.getNodeById(nodeId);
+		if (!node?.workflowType) return;
+		const partnerWorkflowType = this._getPairedWorkflowType(node.workflowType);
+		if (!partnerWorkflowType) return;
+		const partnerFullType = this._findFullNodeType(partnerWorkflowType);
+		if (!partnerFullType) return;
+
+		this._creatingPairedNode = true;
+		try {
+			const partner = this.graph.createNode(partnerFullType);
+			partner.pos = [node.pos[0] + node.size[0] + 80, node.pos[1]];
+
+			// Create loop-back edge: from end's output to start's input
+			// Determine which is start and which is end
+			const startNode = this._isLoopStartType(node.workflowType) ? node : partner;
+			const endNode = this._isLoopStartType(node.workflowType) ? partner : node;
+
+			// Find 'output' slot on end node and 'input' slot on start node
+			let endOutIdx = -1;
+			for (let i = 0; i < endNode.outputs.length; i++) {
+				const name = endNode.outputMeta?.[i]?.name || endNode.outputs[i]?.name;
+				if (name === 'output') { endOutIdx = i; break; }
+			}
+			let startInIdx = -1;
+			for (let i = 0; i < startNode.inputs.length; i++) {
+				const name = startNode.inputMeta?.[i]?.name || startNode.inputs[i]?.name;
+				if (name === 'input') { startInIdx = i; break; }
+			}
+			if (endOutIdx >= 0 && startInIdx >= 0) {
+				const prevLink = startNode.inputs[startInIdx].link;
+				const link = this.graph.connect(endNode, endOutIdx, startNode, startInIdx);
+				if (link) {
+					link.loop = true;
+					// Loop-back edges don't occupy the target input slot so normal connections can coexist
+					startNode.inputs[startInIdx].link = prevLink;
+				}
+			}
+		} finally {
+			this._creatingPairedNode = false;
+		}
+	}
+
+	_isLoopStartType(workflowType) {
+		// A start type has a partner that ends with the same suffix but 'end' instead of 'start'
+		return workflowType.includes('start');
+	}
+
+	_findPairedNode(node) {
+		if (!node?.workflowType) return null;
+		const partnerType = this._getPairedWorkflowType(node.workflowType);
+		if (!partnerType) return null;
+		// Find partner via loop-back edge
+		for (const link of Object.values(this.graph.links)) {
+			if (!link.loop) continue;
+			if (link.origin_id === node.id) {
+				const target = this.graph.getNodeById(link.target_id);
+				if (target?.workflowType === partnerType) return target;
+			}
+			if (link.target_id === node.id) {
+				const origin = this.graph.getNodeById(link.origin_id);
+				if (origin?.workflowType === partnerType) return origin;
+			}
+		}
+		return null;
+	}
+
 	_isPreviewFlowNode(node) {
 		if (!node) return false;
 		// Check configured types first
@@ -4355,19 +4506,24 @@ class SchemaGraphApp {
 	 * @returns {{allowed: boolean, reason: string|null}}
 	 */
 	_canCreateNodeType(nodeType) {
-		// Check if this would be a Start node
+		// Extract model name from full type (e.g., "Workflow.StartFlow" -> "StartFlow")
+		const modelName = nodeType.includes('.') ? nodeType.split('.').pop() : nodeType;
+
+		// Check if this would be a Start node (exact match only — don't match LoopStartFlow etc.)
 		const isStartType = this._schemaTypeRoles.startNode.some(t =>
 			nodeType === t || nodeType.endsWith('.' + t.split('.').pop())
-		) || nodeType.includes('StartFlow') || nodeType.includes('start_flow');
+		) || (this._schemaTypeRoles.startNode.length === 0 && (
+			modelName === 'StartFlow' || nodeType === 'start_flow'));
 
 		if (isStartType && this._countStartNodes() >= 1) {
 			return { allowed: false, reason: 'Only one Start node allowed per workflow' };
 		}
 
-		// Check if this would be an End node
+		// Check if this would be an End node (exact match only — don't match LoopEndFlow etc.)
 		const isEndType = this._schemaTypeRoles.endNode.some(t =>
 			nodeType === t || nodeType.endsWith('.' + t.split('.').pop())
-		) || nodeType.includes('EndFlow') || nodeType.includes('end_flow');
+		) || (this._schemaTypeRoles.endNode.length === 0 && (
+			modelName === 'EndFlow' || nodeType === 'end_flow'));
 
 		if (isEndType && this._countEndNodes() >= 1) {
 			return { allowed: false, reason: 'Only one End node allowed per workflow' };
@@ -5760,6 +5916,21 @@ class SchemaGraphApp {
 		// Multi-input with connections
 		if (node.multiInputs?.[slotIdx]?.links?.length > 0) return true;
 
+		// Base multi-field slot: filled if any sub-slot has a connection
+		const metaName = node.inputMeta?.[slotIdx]?.name || '';
+		if (!metaName.includes('.')) {
+			for (const [fieldName, indices] of Object.entries(node.multiInputSlots || {})) {
+				if (fieldName === metaName && indices.includes(slotIdx)) {
+					for (const sibIdx of indices) {
+						if (sibIdx === slotIdx) continue;
+						if (node.inputs[sibIdx]?.link) return true;
+						if (node.multiInputs?.[sibIdx]?.links?.length > 0) return true;
+					}
+					break;
+				}
+			}
+		}
+
 		// Native input with value (empty string is valid for string types)
 		if (node.nativeInputs?.[slotIdx] !== undefined) {
 			const val = node.nativeInputs[slotIdx].value;
@@ -6788,6 +6959,15 @@ class SchemaGraphApp {
 					if (config.hiddenFields) {
 						self._hiddenFieldNames = Array.isArray(config.hiddenFields)
 							? config.hiddenFields : [config.hiddenFields];
+					}
+					if (config.pairedNodes) {
+						// Array of [startType, endType] pairs, e.g. [['loop_start_flow', 'loop_end_flow']]
+						// Both directions are registered automatically
+						self._setTypes = {};
+						for (const [startType, endType] of config.pairedNodes) {
+							self._setTypes[startType] = endType;
+							self._setTypes[endType] = startType;
+						}
 					}
 				},
 

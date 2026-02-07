@@ -719,10 +719,23 @@ class WorkflowNodeFactory {
 			if (keys?.constructor === Object) keys = Object.keys(keys);
 			const elementType = this._getMultiSlotElementType(field.rawType);
 
+			// Always create the base slot (main field label with "+" button)
+			const displayName = this._getDisplayName(field);
+			node.addInput(displayName, elementType);
+			node.inputMeta[inputIdx] = {
+				name: field.name,
+				title: field.title,
+				description: field.description,
+				type: elementType,
+				isMulti: true
+			};
+			expandedIndices.push(inputIdx++);
+
+			// Add expanded sub-slots for each key
 			if (Array.isArray(keys) && keys.length > 0) {
 				for (const key of keys) {
-					const displayName = `${this._getDisplayName(field)}.${key}`;
-					node.addInput(displayName, elementType);
+					const subDisplayName = `${this._getDisplayName(field)}.${key}`;
+					node.addInput(subDisplayName, elementType);
 					node.inputMeta[inputIdx] = {
 						name: `${field.name}.${key}`,
 						title: field.title,
@@ -732,17 +745,6 @@ class WorkflowNodeFactory {
 					};
 					expandedIndices.push(inputIdx++);
 				}
-			} else {
-				const displayName = this._getDisplayName(field);
-				node.addInput(displayName, elementType);
-				node.inputMeta[inputIdx] = {
-					name: field.name,
-					title: field.title,
-					description: field.description,
-					type: elementType,
-					isMulti: true
-				};
-				expandedIndices.push(inputIdx++);
 			}
 			node.multiInputSlots[field.name] = expandedIndices;
 		}
@@ -774,10 +776,23 @@ class WorkflowNodeFactory {
 			if (keys?.constructor === Object) keys = Object.keys(keys);
 			const elementType = this._getMultiSlotElementType(field.rawType);
 
+			// Always create the base slot (main field label with "+" button)
+			const displayName = this._getDisplayName(field);
+			node.addOutput(displayName, elementType);
+			node.outputMeta[outputIdx] = {
+				name: field.name,
+				title: field.title,
+				description: field.description,
+				type: elementType,
+				isMulti: true
+			};
+			expandedIndices.push(outputIdx++);
+
+			// Add expanded sub-slots for each key
 			if (Array.isArray(keys) && keys.length > 0) {
 				for (const key of keys) {
-					const displayName = `${this._getDisplayName(field)}.${key}`;
-					node.addOutput(displayName, elementType);
+					const subDisplayName = `${this._getDisplayName(field)}.${key}`;
+					node.addOutput(subDisplayName, elementType);
 					node.outputMeta[outputIdx] = {
 						name: `${field.name}.${key}`,
 						title: field.title,
@@ -787,17 +802,6 @@ class WorkflowNodeFactory {
 					};
 					expandedIndices.push(outputIdx++);
 				}
-			} else {
-				const displayName = this._getDisplayName(field);
-				node.addOutput(displayName, elementType);
-				node.outputMeta[outputIdx] = {
-					name: field.name,
-					title: field.title,
-					description: field.description,
-					type: elementType,
-					isMulti: true
-				};
-				expandedIndices.push(outputIdx++);
 			}
 			node.multiOutputSlots[field.name] = expandedIndices;
 		}
@@ -1144,8 +1148,14 @@ class WorkflowImporter {
 		const targetSlotIdx = this._findInputSlot(targetNode, target_slot);
 		if (sourceSlotIdx === -1 || targetSlotIdx === -1) return null;
 
+		const prevLink = targetNode.inputs[targetSlotIdx].link;
 		const link = this._createStandardEdge(sourceNode, sourceSlotIdx, targetNode, targetSlotIdx, edgeData.data, edgeData.extra);
-		if (link && edgeData.loop) link.loop = true;  // Mark as loop-back edge
+		if (link && edgeData.loop) {
+			link.loop = true;
+			// Loop-back edges don't occupy the target input slot so normal connections can coexist
+			// Restore the previous link (if a normal edge was already connected)
+			targetNode.inputs[targetSlotIdx].link = prevLink;
+		}
 		return link;
 	}
 

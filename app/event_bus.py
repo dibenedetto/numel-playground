@@ -11,6 +11,12 @@ from   pydantic import BaseModel
 from   typing   import Any, Callable, Dict, List, Optional, Set
 
 
+def _set_default_json(obj):
+	if isinstance(obj, set):
+		return list(obj)
+	raise TypeError
+
+
 class EventType(str, Enum):
 	# System events
 	ERROR                    = "error"
@@ -140,15 +146,10 @@ class EventBus:
 		if not self._websocket_clients:
 			return
 
-		def set_default(obj):
-			if isinstance(obj, set):
-				return list(obj)
-			raise TypeError
-
 		message = json.dumps({
 			"type"  : "workflow_event",
 			"event" : event.model_dump()
-		}, default=set_default)
+		}, default=_set_default_json)
 
 		dead_clients = set()
 		for client in self._websocket_clients:
@@ -171,7 +172,7 @@ class EventBus:
 			history_message = json.dumps({
 				"type": "event_history",
 				"events": [e.model_dump() for e in self._event_history[-50:]]
-			})
+			}, default=_set_default_json)
 			await websocket.send_text(history_message)
 
 

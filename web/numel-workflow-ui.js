@@ -107,6 +107,10 @@ document.addEventListener('DOMContentLoaded', () => {
 			workflowExecutionOptions : "WorkflowExecutionOptions",
 			previewSlotMap           : { "input": "output" },  // Maps preview input->output slots for link preservation
 			hiddenFields             : ["extra"],
+			pairedNodes              : [
+				["loop_start_flow"    , "loop_end_flow"    ],
+				["for_each_start_flow", "for_each_end_flow"],
+			],
 		});
 
 		// Configure section-based node header colors

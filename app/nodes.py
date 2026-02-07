@@ -739,11 +739,14 @@ class WFTimerSourceFlow(WFFlowType):
 			immediate    = _src_get(context, "immediate", self.config, False)
 
 			registry = get_event_registry()
-			if not registry.get(source_id):
-				await registry.register(TimerSourceConfig(
-					id=source_id, name=name, interval_ms=interval_ms,
-					max_triggers=max_triggers, immediate=immediate
-				))
+			config = TimerSourceConfig(
+				id=source_id, name=name, interval_ms=interval_ms,
+				max_triggers=max_triggers, immediate=immediate
+			)
+			if registry.get(source_id):
+				await registry.update(source_id, config)
+			else:
+				await registry.register(config)
 
 			result.outputs["output"] = source_id
 		except Exception as e:
@@ -772,11 +775,14 @@ class WFFSWatchSourceFlow(WFFlowType):
 				events = [e.strip() for e in events.split(",") if e.strip()]
 
 			registry = get_event_registry()
-			if not registry.get(source_id):
-				await registry.register(FSWatchSourceConfig(
-					id=source_id, name=name, path=path, recursive=recursive,
-					patterns=patterns, events=events, debounce_ms=debounce_ms
-				))
+			config = FSWatchSourceConfig(
+				id=source_id, name=name, path=path, recursive=recursive,
+				patterns=patterns, events=events, debounce_ms=debounce_ms
+			)
+			if registry.get(source_id):
+				await registry.update(source_id, config)
+			else:
+				await registry.register(config)
 
 			result.outputs["output"] = source_id
 		except Exception as e:
@@ -801,11 +807,14 @@ class WFWebhookSourceFlow(WFFlowType):
 				methods = [m.strip() for m in methods.split(",") if m.strip()]
 
 			registry = get_event_registry()
-			if not registry.get(source_id):
-				await registry.register(WebhookSourceConfig(
-					id=source_id, name=name, endpoint=endpoint,
-					methods=methods, secret=secret
-				))
+			config = WebhookSourceConfig(
+				id=source_id, name=name, endpoint=endpoint,
+				methods=methods, secret=secret
+			)
+			if registry.get(source_id):
+				await registry.update(source_id, config)
+			else:
+				await registry.register(config)
 
 			result.outputs["output"] = source_id
 		except Exception as e:
@@ -828,12 +837,15 @@ class WFBrowserSourceFlow(WFFlowType):
 			audio_format = _src_get(context, "audio_format", self.config)
 
 			registry = get_event_registry()
-			if not registry.get(source_id):
-				await registry.register(BrowserSourceConfig(
-					id=source_id, name=name, device_type=device_type,
-					mode=mode, interval_ms=interval_ms,
-					resolution=resolution, audio_format=audio_format
-				))
+			config = BrowserSourceConfig(
+				id=source_id, name=name, device_type=device_type,
+				mode=mode, interval_ms=interval_ms,
+				resolution=resolution, audio_format=audio_format
+			)
+			if registry.get(source_id):
+				await registry.update(source_id, config)
+			else:
+				await registry.register(config)
 
 			result.outputs["output"] = source_id
 		except Exception as e:

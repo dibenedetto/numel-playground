@@ -585,7 +585,7 @@ class FlowType(BaseType):
 	title       = "Start",
 	description = "Represents the start of a workflow",
 	icon        = "▶",
-	section     = "Workflow",
+	section     = "Endpoints",
 	visible     = True
 )
 class StartFlow(FlowType):
@@ -597,7 +597,7 @@ class StartFlow(FlowType):
 	title       = "End",
 	description = "Represents the end of a workflow",
 	icon        = "🏁",
-	section     = "Workflow",
+	section     = "Endpoints",
 	visible     = True
 )
 class EndFlow(FlowType):
@@ -609,7 +609,7 @@ class EndFlow(FlowType):
 	title       = "Sink",
 	description = "Workflow dead end",
 	icon        = "🚧",
-	section     = "Workflow",
+	section     = "Endpoints",
 	visible     = True
 )
 class SinkFlow(FlowType):
@@ -755,7 +755,7 @@ DEFAULT_LOOP_MAX_ITERATIONS : int = 10000
 	description = "Marks the beginning of a loop. Connect to a Loop End node to define the loop body. "
 	              "The loop continues while 'condition' is True (up to max_iterations).",
 	icon        = "🔁",
-	section     = "Workflow",
+	section     = "Loops",
 	visible     = True
 )
 class LoopStartFlow(FlowType):
@@ -781,7 +781,7 @@ class LoopStartFlow(FlowType):
 	description = "Marks the end of a loop. Must be connected downstream from a Loop Start node. "
 	              "When reached, execution returns to the paired Loop Start for the next iteration.",
 	icon        = "↩️",
-	section     = "Workflow",
+	section     = "Loops",
 	visible     = True
 )
 class LoopEndFlow(FlowType):
@@ -804,7 +804,7 @@ class LoopEndFlow(FlowType):
 	description = "Iterates over a list of items. For each item, executes the loop body once. "
 	              "Outputs 'current' (the current item) and 'index' (0-based position).",
 	icon        = "📋",
-	section     = "Workflow",
+	section     = "Loops",
 	visible     = True
 )
 class ForEachStartFlow(FlowType):
@@ -829,7 +829,7 @@ class ForEachStartFlow(FlowType):
 	title       = "For Each End",
 	description = "Marks the end of a For Each loop body. When reached, moves to the next item.",
 	icon        = "↩️",
-	section     = "Workflow",
+	section     = "Loops",
 	visible     = True
 )
 class ForEachEndFlow(FlowType):
@@ -845,7 +845,7 @@ class ForEachEndFlow(FlowType):
 	title       = "Break",
 	description = "Immediately exits the innermost loop. Execution continues after the loop end.",
 	icon        = "⏹️",
-	section     = "Workflow",
+	section     = "Loops",
 	visible     = True
 )
 class BreakFlow(FlowType):
@@ -865,7 +865,7 @@ class BreakFlow(FlowType):
 	title       = "Continue",
 	description = "Skips the rest of the current iteration and moves to the next loop iteration.",
 	icon        = "⏭️",
-	section     = "Workflow",
+	section     = "Loops",
 	visible     = True
 )
 class ContinueFlow(FlowType):
@@ -985,7 +985,7 @@ class DelayFlow(FlowType):
 	description = "Listens for external events from registered event sources (timers, file watchers, "
 	              "webhooks, browser sources). Can listen to multiple sources with different modes.",
 	icon        = "📡",
-	section     = "Workflow",
+	section     = "Event Sources",
 	visible     = True
 )
 class EventListenerFlow(FlowType):
@@ -999,17 +999,17 @@ class EventListenerFlow(FlowType):
 
 	The node blocks workflow execution until an event is received.
 	"""
-	type        : Annotated[Literal["event_listener_flow"], FieldRole.CONSTANT] = "event_listener_flow"
-	input       : Annotated[Any                           , FieldRole.INPUT   ] = None
+	type        : Annotated[Literal["event_listener_flow"], FieldRole.CONSTANT   ] = "event_listener_flow"
+	input       : Annotated[Any                           , FieldRole.INPUT      ] = None
 	sources     : Annotated[List[str]                     , FieldRole.MULTI_INPUT] = None   # Source IDs (multi-input from source nodes)
-	mode        : Annotated[Literal["any", "all", "race"] , FieldRole.INPUT   ] = "any"
-	timeout_ms  : Annotated[Optional[int]                 , FieldRole.INPUT   ] = None   # None = no timeout
+	mode        : Annotated[Literal["any", "all", "race"] , FieldRole.INPUT      ] = "any"
+	timeout_ms  : Annotated[Optional[int]                 , FieldRole.INPUT      ] = None   # None = no timeout
 	# Outputs
-	event       : Annotated[Any                           , FieldRole.OUTPUT  ] = None   # The event data
-	source_id   : Annotated[Optional[str]                 , FieldRole.OUTPUT  ] = None   # Which source triggered
-	events      : Annotated[Optional[Dict[str, Any]]      , FieldRole.OUTPUT  ] = None   # All events (for 'all' mode)
-	timed_out   : Annotated[bool                          , FieldRole.OUTPUT  ] = False  # True if timeout occurred
-	output      : Annotated[Any                           , FieldRole.OUTPUT  ] = None   # Pass-through of input
+	event       : Annotated[Any                           , FieldRole.OUTPUT     ] = None   # The event data
+	source_id   : Annotated[Optional[str]                 , FieldRole.OUTPUT     ] = None   # Which source triggered
+	events      : Annotated[Optional[Dict[str, Any]]      , FieldRole.OUTPUT     ] = None   # All events (for 'all' mode)
+	timed_out   : Annotated[bool                          , FieldRole.OUTPUT     ] = False  # True if timeout occurred
+	output      : Annotated[Any                           , FieldRole.OUTPUT     ] = None   # Pass-through of input
 
 
 # =============================================================================
@@ -1020,13 +1020,13 @@ class EventListenerFlow(FlowType):
 	title       = "Timer Source",
 	description = "Registers a timer event source. Connect its output to an Event Listener's sources input.",
 	icon        = "🕐",
-	section     = "Workflow",
+	section     = "Event Sources",
 	visible     = True
 )
 class TimerSourceFlow(FlowType):
 	"""Timer Source node - creates/registers a timer event source."""
 	type         : Annotated[Literal["timer_source_flow"], FieldRole.CONSTANT] = "timer_source_flow"
-	input        : Annotated[Any                         , FieldRole.INPUT   ] = None
+	input        : Annotated[Optional[Any]               , FieldRole.INPUT   ] = None
 	source_id    : Annotated[Optional[str]               , FieldRole.INPUT   ] = None
 	interval_ms  : Annotated[int                         , FieldRole.INPUT   ] = DEFAULT_TIMER_INTERVAL_MS
 	max_triggers : Annotated[int                         , FieldRole.INPUT   ] = DEFAULT_TIMER_MAX_TRIGGERS
@@ -1038,13 +1038,13 @@ class TimerSourceFlow(FlowType):
 	title       = "FS Watch Source",
 	description = "Registers a filesystem watcher event source. Connect its output to an Event Listener's sources input.",
 	icon        = "📂",
-	section     = "Workflow",
+	section     = "Event Sources",
 	visible     = True
 )
 class FSWatchSourceFlow(FlowType):
 	"""FS Watch Source node - watches filesystem paths for changes."""
 	type         : Annotated[Literal["fswatch_source_flow"], FieldRole.CONSTANT] = "fswatch_source_flow"
-	input        : Annotated[Any                           , FieldRole.INPUT   ] = None
+	input        : Annotated[Optional[Any]                 , FieldRole.INPUT   ] = None
 	source_id    : Annotated[Optional[str]                 , FieldRole.INPUT   ] = None
 	path         : Annotated[str                           , FieldRole.INPUT   ] = "."
 	recursive    : Annotated[bool                          , FieldRole.INPUT   ] = True
@@ -1058,13 +1058,13 @@ class FSWatchSourceFlow(FlowType):
 	title       = "Webhook Source",
 	description = "Registers a webhook event source. Connect its output to an Event Listener's sources input.",
 	icon        = "🔗",
-	section     = "Workflow",
+	section     = "Event Sources",
 	visible     = True
 )
 class WebhookSourceFlow(FlowType):
 	"""Webhook Source node - receives HTTP webhook events."""
 	type         : Annotated[Literal["webhook_source_flow"], FieldRole.CONSTANT] = "webhook_source_flow"
-	input        : Annotated[Any                           , FieldRole.INPUT   ] = None
+	input        : Annotated[Optional[Any]                 , FieldRole.INPUT   ] = None
 	source_id    : Annotated[Optional[str]                 , FieldRole.INPUT   ] = None
 	endpoint     : Annotated[str                           , FieldRole.INPUT   ] = "/hook/default"
 	methods      : Annotated[Optional[str]                 , FieldRole.INPUT   ] = "POST"
@@ -1077,13 +1077,13 @@ class WebhookSourceFlow(FlowType):
 	description = "Registers a browser media event source (webcam, microphone, screen). "
 	              "Connect its output to an Event Listener's sources input.",
 	icon        = "🎥",
-	section     = "Workflow",
+	section     = "Event Sources",
 	visible     = True
 )
 class BrowserSourceFlow(FlowType):
 	"""Browser Source node - captures browser media events."""
 	type         : Annotated[Literal["browser_source_flow"]             , FieldRole.CONSTANT] = "browser_source_flow"
-	input        : Annotated[Any                                        , FieldRole.INPUT   ] = None
+	input        : Annotated[Optional[Any]                              , FieldRole.INPUT   ] = None
 	source_id    : Annotated[Optional[str]                              , FieldRole.INPUT   ] = None
 	device_type  : Annotated[Literal["webcam", "microphone", "screen"]  , FieldRole.INPUT   ] = "webcam"
 	mode         : Annotated[Literal["stream", "event"]                 , FieldRole.INPUT   ] = "event"
@@ -1294,6 +1294,12 @@ class Workflow(ComponentType):
 	options : Annotated[Optional[WorkflowOptions], FieldRole.INPUT   ] = None
 	nodes   : Annotated[Optional[List[Annotated[WorkflowNodeUnion, Field(discriminator="type")]]], FieldRole.INPUT] = None
 	edges   : Annotated[Optional[List[Edge]]     , FieldRole.INPUT   ] = None
+
+	def model_dump(self, **kwargs):
+		# link() mutates node fields (List→Dict for MULTI_INPUT/OUTPUT), which triggers
+		# Pydantic serialization warnings on the discriminated union. Suppress them.
+		kwargs.setdefault('warnings', False)
+		return super().model_dump(**kwargs)
 
 	@property
 	def get(self) -> Annotated[Workflow, FieldRole.OUTPUT]:
