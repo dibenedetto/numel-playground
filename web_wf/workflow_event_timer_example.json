@@ -2,12 +2,20 @@
   "options": {
     "type": "workflow_options",
     "name": "Event Timer Demo",
-    "description": "Demonstrates external timer event source triggering workflow execution. Create timer source first via API, then run workflow."
+    "description": "Demonstrates timer source node creating event source and connecting to event listener."
   },
   "nodes": [
     {
       "type": "start_flow",
       "extra": { "name": "Start" }
+    },
+    {
+      "type": "timer_source_flow",
+      "source_id": "timer_main",
+      "interval_ms": 2000,
+      "max_triggers": -1,
+      "immediate": false,
+      "extra": { "name": "Timer Source" }
     },
     {
       "type": "loop_start_flow",
@@ -42,25 +50,13 @@
   ],
   "edges": [
     { "source": 0, "target": 1, "source_slot": "output", "target_slot": "input" },
-    { "source": 1, "target": 2, "source_slot": "iteration", "target_slot": "input" },
-    { "source": 2, "target": 3, "source_slot": "event", "target_slot": "input" },
-    { "source": 3, "target": 4, "source_slot": "output", "target_slot": "input" },
+    { "source": 1, "target": 2, "source_slot": "output", "target_slot": "input" },
+    { "source": 1, "target": 3, "source_slot": "output", "target_slot": "sources.timer_main" },
+    { "source": 2, "target": 3, "source_slot": "iteration", "target_slot": "input" },
+    { "source": 3, "target": 4, "source_slot": "event", "target_slot": "input" },
     { "source": 4, "target": 5, "source_slot": "output", "target_slot": "input" },
     { "source": 5, "target": 6, "source_slot": "output", "target_slot": "input" },
-    { "source": 5, "target": 1, "source_slot": "output", "target_slot": "input", "loop": true }
-  ],
-  "_setup_instructions": {
-    "description": "Create the timer event source before running this workflow",
-    "api_call": {
-      "method": "POST",
-      "url": "/event-sources/timer",
-      "body": {
-        "id": "timer_main",
-        "name": "Main Timer",
-        "interval_ms": 2000,
-        "max_triggers": -1,
-        "immediate": false
-      }
-    }
-  }
+    { "source": 6, "target": 7, "source_slot": "output", "target_slot": "input" },
+    { "source": 6, "target": 2, "source_slot": "output", "target_slot": "input", "loop": true }
+  ]
 }

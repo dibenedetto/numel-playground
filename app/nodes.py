@@ -6,6 +6,7 @@ from typing   import Any, Callable, Dict, List, Optional
 
 
 from schema   import DEFAULT_TRANSFORM_NODE_LANG, DEFAULT_TRANSFORM_NODE_SCRIPT, DEFAULT_TRANSFORM_NODE_CONTEXT, BaseType
+from events   import get_event_registry, TimerSourceConfig, FSWatchSourceConfig, WebhookSourceConfig, BrowserSourceConfig
 
 
 class NodeExecutionContext:
@@ -715,6 +716,133 @@ class WFDelayFlow(WFFlowType):
 
 
 # =============================================================================
+# EVENT SOURCE NODES
+# =============================================================================
+
+def _src_get(ctx, key, config, default=None):
+	"""Get input value with config fallback for source flow executors."""
+	v = ctx.inputs.get(key)
+	if v is None:
+		v = getattr(config, key, default)
+	return v
+
+
+class WFTimerSourceFlow(WFFlowType):
+	"""Timer Source node executor - registers a timer event source."""
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+		try:
+			source_id    = _src_get(context, "source_id", self.config) or f"wf_timer_{context.node_index}"
+			name         = _src_get(context, "name", self.config) or source_id
+			interval_ms  = _src_get(context, "interval_ms", self.config, 1000)
+			max_triggers = _src_get(context, "max_triggers", self.config, -1)
+			immediate    = _src_get(context, "immediate", self.config, False)
+
+			registry = get_event_registry()
+			if not registry.get(source_id):
+				await registry.register(TimerSourceConfig(
+					id=source_id, name=name, interval_ms=interval_ms,
+					max_triggers=max_triggers, immediate=immediate
+				))
+
+			result.outputs["output"] = source_id
+		except Exception as e:
+			result.success = False
+			result.error = str(e)
+		return result
+
+
+class WFFSWatchSourceFlow(WFFlowType):
+	"""FS Watch Source node executor - registers a filesystem watcher event source."""
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+		try:
+			source_id   = _src_get(context, "source_id", self.config) or f"wf_fswatch_{context.node_index}"
+			name        = _src_get(context, "name", self.config) or source_id
+			path        = _src_get(context, "path", self.config, ".")
+			recursive   = _src_get(context, "recursive", self.config, True)
+			patterns    = _src_get(context, "patterns", self.config, "*")
+			events      = _src_get(context, "events", self.config, "created,modified,deleted,moved")
+			debounce_ms = _src_get(context, "debounce_ms", self.config, 100)
+
+			# Split comma-separated strings into lists
+			if isinstance(patterns, str):
+				patterns = [p.strip() for p in patterns.split(",") if p.strip()]
+			if isinstance(events, str):
+				events = [e.strip() for e in events.split(",") if e.strip()]
+
+			registry = get_event_registry()
+			if not registry.get(source_id):
+				await registry.register(FSWatchSourceConfig(
+					id=source_id, name=name, path=path, recursive=recursive,
+					patterns=patterns, events=events, debounce_ms=debounce_ms
+				))
+
+			result.outputs["output"] = source_id
+		except Exception as e:
+			result.success = False
+			result.error = str(e)
+		return result
+
+
+class WFWebhookSourceFlow(WFFlowType):
+	"""Webhook Source node executor - registers a webhook event source."""
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+		try:
+			source_id = _src_get(context, "source_id", self.config) or f"wf_webhook_{context.node_index}"
+			name      = _src_get(context, "name", self.config) or source_id
+			endpoint  = _src_get(context, "endpoint", self.config, "/hook/default")
+			methods   = _src_get(context, "methods", self.config, "POST")
+			secret    = _src_get(context, "secret", self.config)
+
+			# Split comma-separated string into list
+			if isinstance(methods, str):
+				methods = [m.strip() for m in methods.split(",") if m.strip()]
+
+			registry = get_event_registry()
+			if not registry.get(source_id):
+				await registry.register(WebhookSourceConfig(
+					id=source_id, name=name, endpoint=endpoint,
+					methods=methods, secret=secret
+				))
+
+			result.outputs["output"] = source_id
+		except Exception as e:
+			result.success = False
+			result.error = str(e)
+		return result
+
+
+class WFBrowserSourceFlow(WFFlowType):
+	"""Browser Source node executor - registers a browser media event source."""
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = NodeExecutionResult()
+		try:
+			source_id    = _src_get(context, "source_id", self.config) or f"wf_browser_{context.node_index}"
+			name         = _src_get(context, "name", self.config) or source_id
+			device_type  = _src_get(context, "device_type", self.config, "webcam")
+			mode         = _src_get(context, "mode", self.config, "event")
+			interval_ms  = _src_get(context, "interval_ms", self.config, 1000)
+			resolution   = _src_get(context, "resolution", self.config)
+			audio_format = _src_get(context, "audio_format", self.config)
+
+			registry = get_event_registry()
+			if not registry.get(source_id):
+				await registry.register(BrowserSourceConfig(
+					id=source_id, name=name, device_type=device_type,
+					mode=mode, interval_ms=interval_ms,
+					resolution=resolution, audio_format=audio_format
+				))
+
+			result.outputs["output"] = source_id
+		except Exception as e:
+			result.success = False
+			result.error = str(e)
+		return result
+
+
+# =============================================================================
 # EXTERNAL EVENT LISTENER
 # =============================================================================
 
@@ -729,8 +857,15 @@ class WFEventListenerFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
 
-		# Get configuration
-		sources = context.inputs.get("sources") or []
+		# Gather sources from MULTI_INPUT dotted keys (sources.timer_1, sources.timer_2, ...)
+		sources = []
+		for key, value in context.inputs.items():
+			if key.startswith("sources.") and isinstance(value, str) and value:
+				sources.append(value)
+		if not sources:
+			src = context.inputs.get("sources")
+			if isinstance(src, list):    sources = src
+			elif isinstance(src, str) and src: sources = [src]
 		if not sources:
 			sources = getattr(self.config, 'sources', None) or []
 
@@ -881,6 +1016,12 @@ _NODE_TYPES = {
 	"gate_flow"                : WFGateFlow,
 	"delay_flow"               : WFDelayFlow,
 	"event_listener_flow"      : WFEventListenerFlow,
+
+	# Event Source nodes
+	"timer_source_flow"        : WFTimerSourceFlow,
+	"fswatch_source_flow"      : WFFSWatchSourceFlow,
+	"webhook_source_flow"      : WFWebhookSourceFlow,
+	"browser_source_flow"      : WFBrowserSourceFlow,
 
 	# Interactive nodes
 	"tool_call"                : WFToolCall,

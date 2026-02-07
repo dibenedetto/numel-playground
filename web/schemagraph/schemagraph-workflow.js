@@ -717,28 +717,29 @@ class WorkflowNodeFactory {
 			let keys = nodeData[field.name];
 			const expandedIndices = [];
 			if (keys?.constructor === Object) keys = Object.keys(keys);
+			const elementType = this._getMultiSlotElementType(field.rawType);
 
 			if (Array.isArray(keys) && keys.length > 0) {
 				for (const key of keys) {
 					const displayName = `${this._getDisplayName(field)}.${key}`;
-					node.addInput(displayName, field.rawType);
+					node.addInput(displayName, elementType);
 					node.inputMeta[inputIdx] = {
 						name: `${field.name}.${key}`,
 						title: field.title,
 						description: field.description,
-						type: field.rawType,
+						type: elementType,
 						isMulti: true
 					};
 					expandedIndices.push(inputIdx++);
 				}
 			} else {
 				const displayName = this._getDisplayName(field);
-				node.addInput(displayName, field.rawType);
+				node.addInput(displayName, elementType);
 				node.inputMeta[inputIdx] = {
 					name: field.name,
 					title: field.title,
 					description: field.description,
-					type: field.rawType,
+					type: elementType,
 					isMulti: true
 				};
 				expandedIndices.push(inputIdx++);
@@ -771,28 +772,29 @@ class WorkflowNodeFactory {
 			let keys = nodeData[field.name];
 			const expandedIndices = [];
 			if (keys?.constructor === Object) keys = Object.keys(keys);
+			const elementType = this._getMultiSlotElementType(field.rawType);
 
 			if (Array.isArray(keys) && keys.length > 0) {
 				for (const key of keys) {
 					const displayName = `${this._getDisplayName(field)}.${key}`;
-					node.addOutput(displayName, field.rawType);
+					node.addOutput(displayName, elementType);
 					node.outputMeta[outputIdx] = {
 						name: `${field.name}.${key}`,
 						title: field.title,
 						description: field.description,
-						type: field.rawType,
+						type: elementType,
 						isMulti: true
 					};
 					expandedIndices.push(outputIdx++);
 				}
 			} else {
 				const displayName = this._getDisplayName(field);
-				node.addOutput(displayName, field.rawType);
+				node.addOutput(displayName, elementType);
 				node.outputMeta[outputIdx] = {
 					name: field.name,
 					title: field.title,
 					description: field.description,
-					type: field.rawType,
+					type: elementType,
 					isMulti: true
 				};
 				expandedIndices.push(outputIdx++);
@@ -887,6 +889,21 @@ class WorkflowNodeFactory {
 		if (typeStr.includes('float') || typeStr.includes('Float')) return 'float';
 		if (typeStr.includes('Any')) return 'str';
 		return 'str';
+	}
+
+	_getMultiSlotElementType(rawType) {
+		// For MULTI_INPUT/MULTI_OUTPUT, extract the element type from collection types.
+		// List[str] → str, Dict[str, Any] → Any (value type), otherwise keep as-is.
+		if (!rawType) return rawType;
+		let t = rawType.trim();
+		if (t.startsWith('Optional[') && t.endsWith(']')) t = t.slice(9, -1).trim();
+		if (t.startsWith('List[') && t.endsWith(']')) return t.slice(5, -1).trim();
+		if (t.startsWith('Dict[') && t.endsWith(']')) {
+			const inner = this._extractBracketContent(t, 5);
+			const parts = this._splitUnionTypes(inner); // splits on comma at depth 0
+			return parts.length >= 2 ? parts[parts.length - 1].trim() : 'Any';
+		}
+		return rawType;
 	}
 
 	_extractLiteralOptions(typeStr) {

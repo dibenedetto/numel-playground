@@ -1001,7 +1001,7 @@ class EventListenerFlow(FlowType):
 	"""
 	type        : Annotated[Literal["event_listener_flow"], FieldRole.CONSTANT] = "event_listener_flow"
 	input       : Annotated[Any                           , FieldRole.INPUT   ] = None
-	sources     : Annotated[List[str]                     , FieldRole.INPUT   ] = None   # List of source IDs
+	sources     : Annotated[List[str]                     , FieldRole.MULTI_INPUT] = None   # Source IDs (multi-input from source nodes)
 	mode        : Annotated[Literal["any", "all", "race"] , FieldRole.INPUT   ] = "any"
 	timeout_ms  : Annotated[Optional[int]                 , FieldRole.INPUT   ] = None   # None = no timeout
 	# Outputs
@@ -1010,6 +1010,87 @@ class EventListenerFlow(FlowType):
 	events      : Annotated[Optional[Dict[str, Any]]      , FieldRole.OUTPUT  ] = None   # All events (for 'all' mode)
 	timed_out   : Annotated[bool                          , FieldRole.OUTPUT  ] = False  # True if timeout occurred
 	output      : Annotated[Any                           , FieldRole.OUTPUT  ] = None   # Pass-through of input
+
+
+# =============================================================================
+# EVENT SOURCE FLOW NODES
+# =============================================================================
+
+@node_info(
+	title       = "Timer Source",
+	description = "Registers a timer event source. Connect its output to an Event Listener's sources input.",
+	icon        = "🕐",
+	section     = "Workflow",
+	visible     = True
+)
+class TimerSourceFlow(FlowType):
+	"""Timer Source node - creates/registers a timer event source."""
+	type         : Annotated[Literal["timer_source_flow"], FieldRole.CONSTANT] = "timer_source_flow"
+	input        : Annotated[Any                         , FieldRole.INPUT   ] = None
+	source_id    : Annotated[Optional[str]               , FieldRole.INPUT   ] = None
+	interval_ms  : Annotated[int                         , FieldRole.INPUT   ] = DEFAULT_TIMER_INTERVAL_MS
+	max_triggers : Annotated[int                         , FieldRole.INPUT   ] = DEFAULT_TIMER_MAX_TRIGGERS
+	immediate    : Annotated[bool                        , FieldRole.INPUT   ] = False
+	output       : Annotated[str                         , FieldRole.OUTPUT  ] = None
+
+
+@node_info(
+	title       = "FS Watch Source",
+	description = "Registers a filesystem watcher event source. Connect its output to an Event Listener's sources input.",
+	icon        = "📂",
+	section     = "Workflow",
+	visible     = True
+)
+class FSWatchSourceFlow(FlowType):
+	"""FS Watch Source node - watches filesystem paths for changes."""
+	type         : Annotated[Literal["fswatch_source_flow"], FieldRole.CONSTANT] = "fswatch_source_flow"
+	input        : Annotated[Any                           , FieldRole.INPUT   ] = None
+	source_id    : Annotated[Optional[str]                 , FieldRole.INPUT   ] = None
+	path         : Annotated[str                           , FieldRole.INPUT   ] = "."
+	recursive    : Annotated[bool                          , FieldRole.INPUT   ] = True
+	patterns     : Annotated[Optional[str]                 , FieldRole.INPUT   ] = "*"
+	events       : Annotated[Optional[str]                 , FieldRole.INPUT   ] = "created,modified,deleted,moved"
+	debounce_ms  : Annotated[int                           , FieldRole.INPUT   ] = 100
+	output       : Annotated[str                           , FieldRole.OUTPUT  ] = None
+
+
+@node_info(
+	title       = "Webhook Source",
+	description = "Registers a webhook event source. Connect its output to an Event Listener's sources input.",
+	icon        = "🔗",
+	section     = "Workflow",
+	visible     = True
+)
+class WebhookSourceFlow(FlowType):
+	"""Webhook Source node - receives HTTP webhook events."""
+	type         : Annotated[Literal["webhook_source_flow"], FieldRole.CONSTANT] = "webhook_source_flow"
+	input        : Annotated[Any                           , FieldRole.INPUT   ] = None
+	source_id    : Annotated[Optional[str]                 , FieldRole.INPUT   ] = None
+	endpoint     : Annotated[str                           , FieldRole.INPUT   ] = "/hook/default"
+	methods      : Annotated[Optional[str]                 , FieldRole.INPUT   ] = "POST"
+	secret       : Annotated[Optional[str]                 , FieldRole.INPUT   ] = None
+	output       : Annotated[str                           , FieldRole.OUTPUT  ] = None
+
+
+@node_info(
+	title       = "Browser Source",
+	description = "Registers a browser media event source (webcam, microphone, screen). "
+	              "Connect its output to an Event Listener's sources input.",
+	icon        = "🎥",
+	section     = "Workflow",
+	visible     = True
+)
+class BrowserSourceFlow(FlowType):
+	"""Browser Source node - captures browser media events."""
+	type         : Annotated[Literal["browser_source_flow"]             , FieldRole.CONSTANT] = "browser_source_flow"
+	input        : Annotated[Any                                        , FieldRole.INPUT   ] = None
+	source_id    : Annotated[Optional[str]                              , FieldRole.INPUT   ] = None
+	device_type  : Annotated[Literal["webcam", "microphone", "screen"]  , FieldRole.INPUT   ] = "webcam"
+	mode         : Annotated[Literal["stream", "event"]                 , FieldRole.INPUT   ] = "event"
+	interval_ms  : Annotated[int                                        , FieldRole.INPUT   ] = 1000
+	resolution   : Annotated[Optional[str]                              , FieldRole.INPUT   ] = None
+	audio_format : Annotated[Optional[str]                              , FieldRole.INPUT   ] = None
+	output       : Annotated[str                                        , FieldRole.OUTPUT  ] = None
 
 
 # =============================================================================
@@ -1161,6 +1242,12 @@ WorkflowNodeUnion = Union[
 	GateFlow,
 	DelayFlow,
 	EventListenerFlow,
+
+	# Event Source nodes
+	TimerSourceFlow,
+	FSWatchSourceFlow,
+	WebhookSourceFlow,
+	BrowserSourceFlow,
 
 	# Interactive nodes
 	ToolCall,
