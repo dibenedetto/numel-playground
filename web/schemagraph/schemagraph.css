@@ -386,17 +386,23 @@
   display: none;
   z-index: 1001;
   flex-direction: row;
-  align-items: flex-start;
+  align-items: stretch;
 }
 
 .sg-combo-box-wrapper.show {
   display: flex;
   animation: sg-inputFadeIn 0.2s ease;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(70, 162, 218, 0.3);
+  border-radius: var(--sg-node-radius, 6px);
 }
 
-.sg-combo-box-input {
+.sg-combo-box-wrapper.show .sg-combo-box-input {
+  display: block !important;
+  position: static !important;
+  min-width: 120px;
   border-radius: var(--sg-node-radius, 6px) 0 0 var(--sg-node-radius, 6px) !important;
   border-right: none !important;
+  box-sizing: border-box;
 }
 
 .sg-combo-box-refresh {
@@ -407,9 +413,11 @@
   color: var(--sg-accent-blue, #46a2da);
   cursor: pointer;
   font-size: 14px;
-  padding: 6px 8px;
+  padding: 0 8px;
   transition: all 0.15s ease;
   line-height: 1;
+  flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .sg-combo-box-refresh:hover {
@@ -420,14 +428,16 @@
 .sg-combo-box-spinner {
   display: none;
   position: absolute;
-  right: 36px;
-  top: 10px;
+  right: 40px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 12px;
   height: 12px;
   border: 2px solid var(--sg-text-tertiary, #707070);
   border-top-color: var(--sg-accent-blue, #46a2da);
   border-radius: 50%;
   animation: sg-lockSpin 0.7s linear infinite;
+  pointer-events: none;
 }
 
 .sg-combo-box-spinner.show {

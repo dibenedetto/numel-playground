@@ -1119,8 +1119,9 @@ class SchemaGraphApp {
 
 		const comboInput = document.getElementById('sg-comboBoxInput');
 		comboInput?.addEventListener('blur', () => {
+			// Delay to allow dropdown option mousedown to fire before blur hides everything
 			setTimeout(() => {
-				if (document.getElementById('sg-comboBoxWrapper')?.classList.contains('show')) {
+				if (this.editingNode && document.getElementById('sg-comboBoxWrapper')?.classList.contains('show')) {
 					this._applyComboBoxValue(comboInput.value);
 					this._hideComboBox();
 				}
@@ -1317,6 +1318,7 @@ class SchemaGraphApp {
 	handleMouseDown(data) {
 		this.isMouseDown = true;
 		document.getElementById('sg-contextMenu')?.classList.remove('show');
+		this._hideComboBox();
 
 		const [wx, wy] = this.screenToWorld(data.coords.screenX, data.coords.screenY);
 
@@ -1860,9 +1862,11 @@ class SchemaGraphApp {
 		const refreshBtn = document.getElementById('sg-comboBoxRefresh');
 		const spinner = document.getElementById('sg-comboBoxSpinner');
 
+		// Use a comfortable width for the combo-box (wider than the tiny slot width)
+		const comboWidth = Math.max(parseInt(width) || 75, 140) + 'px';
 		wrapper.style.left = leftPos;
 		wrapper.style.top = topPos;
-		input.style.width = width;
+		input.style.width = comboWidth;
 		input.value = String(currentValue ?? '');
 
 		// Check session cache
@@ -1976,10 +1980,13 @@ class SchemaGraphApp {
 	_hideComboBox() {
 		const wrapper = document.getElementById('sg-comboBoxWrapper');
 		const dropdown = document.getElementById('sg-comboBoxDropdown');
+		const wasVisible = wrapper?.classList.contains('show');
 		wrapper?.classList.remove('show');
 		dropdown?.classList.remove('show');
-		if (this.editingNode) this.editingNode.editingSlot = null;
-		this.editingNode = null;
+		if (wasVisible && this.editingNode) {
+			this.editingNode.editingSlot = null;
+			this.editingNode = null;
+		}
 	}
 
 	handleWheel(data) {
