@@ -212,7 +212,8 @@ class WorkflowSchemaParser {
 						rawType: fieldData.type,
 						title: fieldData.title,
 						description: fieldData.description,
-						optionsSource: fieldData.optionsSource
+						optionsSource: fieldData.optionsSource,
+						editor: fieldData.editor
 					});
 					currentRoles[fieldData.name] = fieldData.role;
 					if (fieldData.default !== undefined) currentDefaults[fieldData.name] = fieldData.default;
@@ -261,7 +262,8 @@ class WorkflowSchemaParser {
 						title: field.title,
 						description: field.description,
 						isProperty: field.isProperty,
-						optionsSource: field.optionsSource
+						optionsSource: field.optionsSource,
+						editor: field.editor
 					});
 					seenFields.add(field.name);
 				}
@@ -396,7 +398,8 @@ class WorkflowSchemaParser {
 				default: defaultVal,
 				title: fieldMeta.title,
 				description: fieldMeta.description,
-				optionsSource: fieldMeta.optionsSource
+				optionsSource: fieldMeta.optionsSource,
+				editor: fieldMeta.editor
 			};
 		}
 
@@ -419,7 +422,8 @@ class WorkflowSchemaParser {
 				default: defaultVal,
 				title: fieldMeta.title,
 				description: fieldMeta.description,
-				optionsSource: fieldMeta.optionsSource
+				optionsSource: fieldMeta.optionsSource,
+				editor: fieldMeta.editor
 			};
 		}
 		return null;
@@ -460,7 +464,7 @@ class WorkflowSchemaParser {
 	}
 
 	_extractFieldMetadata(str) {
-		const meta = { title: null, description: null, default: undefined, optionsSource: null };
+		const meta = { title: null, description: null, default: undefined, optionsSource: null, editor: null };
 
 		const fieldMatch = str.match(/Field\s*\(([^)]*(?:\([^)]*\)|{[^}]*}|[^)])*)\)/);
 		if (!fieldMatch) return meta;
@@ -482,15 +486,18 @@ class WorkflowSchemaParser {
 		} else {
 			const defaultValMatch = args.match(/default\s*=\s*([^,){}]+)/);
 			if (defaultValMatch) {
-				meta.default = this._parseConstantValue(defaultValMatch[1].trim());
+				meta.default = this._parseDefaultValue(defaultValMatch[1].trim());
 			}
 		}
 
-		// Extract options_source from json_schema_extra
+		// Extract from json_schema_extra
 		const extraMatch = args.match(/json_schema_extra\s*=\s*\{([^}]*)\}/);
 		if (extraMatch) {
-			const srcMatch = extraMatch[1].match(/["']options_source["']\s*:\s*["']([^"']+)["']/);
+			const extraContent = extraMatch[1];
+			const srcMatch = extraContent.match(/["']options_source["']\s*:\s*["']([^"']+)["']/);
 			if (srcMatch) meta.optionsSource = srcMatch[1];
+			const editorMatch = extraContent.match(/["']editor["']\s*:\s*["']([^"']+)["']/);
+			if (editorMatch) meta.editor = editorMatch[1];
 		}
 
 		return meta;
@@ -718,7 +725,8 @@ class WorkflowNodeFactory {
 					value: defaultValue,
 					optional: field.rawType.includes('Optional'),
 					options: literalOptions,  // Will be null for non-Literal types
-					optionsSource: field.optionsSource || null
+					optionsSource: field.optionsSource || null,
+					editor: field.editor || null
 				};
 			}
 			inputIdx++;

@@ -305,6 +305,33 @@ class SchemaGraphApp {
 			canvasContainer.appendChild(wrapper);
 		}
 
+		if (!document.getElementById('sg-codeEditorModal')) {
+			const modal = document.createElement('div');
+			modal.id = 'sg-codeEditorModal';
+			modal.className = 'sg-code-editor-modal';
+			modal.innerHTML = `
+				<div class="sg-code-editor-container">
+					<div class="sg-code-editor-header">
+						<span class="sg-code-editor-title">Edit Script</span>
+						<div class="sg-code-editor-lang">
+							<select id="sg-codeEditorLang">
+								<option value="python">Python</option>
+								<option value="jinja2">Jinja2</option>
+							</select>
+						</div>
+						<div class="sg-code-editor-actions">
+							<button id="sg-codeEditorSave" class="sg-code-editor-btn save">Save</button>
+							<button id="sg-codeEditorCancel" class="sg-code-editor-btn cancel">Cancel</button>
+						</div>
+					</div>
+					<div id="sg-codeEditorBody"></div>
+					<div class="sg-code-editor-footer">
+						<span id="sg-codeEditorStatus"></span>
+					</div>
+				</div>`;
+			document.body.appendChild(modal);
+		}
+
 		if (!document.getElementById('sg-lockOverlay')) {
 			const lockOverlay = document.createElement('div');
 			lockOverlay.id = 'sg-lockOverlay';
@@ -1136,6 +1163,12 @@ class SchemaGraphApp {
 			}
 		});
 
+		document.getElementById('sg-codeEditorSave')?.addEventListener('click', () => this._saveCodeEditor());
+		document.getElementById('sg-codeEditorCancel')?.addEventListener('click', () => this._closeCodeEditor());
+		document.getElementById('sg-codeEditorModal')?.addEventListener('keydown', (e) => {
+			if (e.key === 'Escape') this._closeCodeEditor();
+		});
+
 		this._setupFileDrop();
 		this._setupCompletenessListeners();
 
@@ -1807,6 +1840,13 @@ class SchemaGraphApp {
 		const currentValue = slot !== null ? node.nativeInputs[slot].value : node.properties.value;
 		const options = slot !== null ? node.nativeInputs[slot].options : null;
 		const optionsSource = slot !== null ? node.nativeInputs[slot]?.optionsSource : null;
+		const editorType = slot !== null ? node.nativeInputs[slot]?.editor : null;
+
+		// Code editor gets its own modal — no need for positioning
+		if (editorType === 'code') {
+			this._showCodeEditor(node, slot, currentValue);
+			return;
+		}
 
 		const leftPos = (valueScreen[0] * rect.width / this.canvas.width + rect.left) + 'px';
 		const topPos = (valueScreen[1] * rect.height / this.canvas.height + rect.top) + 'px';
@@ -1987,6 +2027,152 @@ class SchemaGraphApp {
 			this.editingNode.editingSlot = null;
 			this.editingNode = null;
 		}
+	}
+
+	// === CODE EDITOR ===
+
+	_showCodeEditor(node, slot, value) {
+		const modal = document.getElementById('sg-codeEditorModal');
+		const body = document.getElementById('sg-codeEditorBody');
+		const langSelect = document.getElementById('sg-codeEditorLang');
+		const status = document.getElementById('sg-codeEditorStatus');
+
+		this._codeEditorNode = node;
+		this._codeEditorSlot = slot;
+
+		// Detect language from sibling 'lang' field
+		const lang = this._getNodeLangValue(node);
+		langSelect.value = lang;
+
+		// Clear previous editor
+		body.innerHTML = '';
+
+		// Create CodeMirror instance
+		if (window.CodeEditor) {
+			const CE = window.CodeEditor;
+			const langExtension = lang === 'jinja2' ? CE.javascript() : CE.python();
+
+			const saveKeymap = CE.keymap.of([{
+				key: 'Mod-s',
+				run: () => { this._saveCodeEditor(); return true; }
+			}]);
+
+			this._codeEditorView = new CE.EditorView({
+				state: CE.EditorState.create({
+					doc: String(value ?? ''),
+					extensions: [
+						CE.basicSetup,
+						langExtension,
+						CE.oneDark,
+						CE.keymap.of([CE.indentWithTab]),
+						saveKeymap,
+						CE.EditorView.updateListener.of((update) => {
+							if (update.docChanged) {
+								const lines = update.state.doc.lines;
+								const pos = update.state.selection.main.head;
+								const line = update.state.doc.lineAt(pos);
+								status.textContent = `Ln ${line.number}, Col ${pos - line.from + 1} | ${lines} lines`;
+							}
+						})
+					]
+				}),
+				parent: body
+			});
+
+			// Initial status
+			const lines = this._codeEditorView.state.doc.lines;
+			status.textContent = `Ln 1, Col 1 | ${lines} lines`;
+		} else {
+			// Fallback: plain textarea
+			const textarea = document.createElement('textarea');
+			textarea.id = 'sg-codeEditorFallback';
+			textarea.className = 'sg-code-editor-fallback';
+			textarea.value = String(value ?? '');
+			textarea.addEventListener('keydown', (e) => {
+				if (e.key === 'Tab') {
+					e.preventDefault();
+					const start = textarea.selectionStart;
+					textarea.value = textarea.value.substring(0, start) + '\t' + textarea.value.substring(textarea.selectionEnd);
+					textarea.selectionStart = textarea.selectionEnd = start + 1;
+				}
+			});
+			body.appendChild(textarea);
+			textarea.focus();
+			status.textContent = 'CodeMirror not loaded - using fallback editor';
+		}
+
+		// Language change handler
+		langSelect.onchange = () => {
+			if (this._codeEditorView && window.CodeEditor) {
+				const doc = this._codeEditorView.state.doc.toString();
+				this._codeEditorView.destroy();
+				body.innerHTML = '';
+				const currentValue = doc;
+				// Recreate with new language
+				const savedSlot = this._codeEditorSlot;
+				const savedNode = this._codeEditorNode;
+				this._showCodeEditor(savedNode, savedSlot, currentValue);
+			}
+		};
+
+		modal.classList.add('show');
+		if (this._codeEditorView) this._codeEditorView.focus();
+	}
+
+	_getNodeLangValue(node) {
+		for (let i = 0; i < node.inputs.length; i++) {
+			if (node.inputs[i]?.name === 'lang' && node.nativeInputs[i]) {
+				return node.nativeInputs[i].value || 'python';
+			}
+		}
+		return 'python';
+	}
+
+	_saveCodeEditor() {
+		const node = this._codeEditorNode;
+		const slot = this._codeEditorSlot;
+		if (!node || slot === null || slot === undefined) { this._closeCodeEditor(); return; }
+
+		let val;
+		if (this._codeEditorView) {
+			val = this._codeEditorView.state.doc.toString();
+		} else {
+			const fallback = document.getElementById('sg-codeEditorFallback');
+			val = fallback ? fallback.value : '';
+		}
+
+		// Also update the lang field if changed
+		const langSelect = document.getElementById('sg-codeEditorLang');
+		if (langSelect) {
+			const newLang = langSelect.value;
+			for (let i = 0; i < node.inputs.length; i++) {
+				if (node.inputs[i]?.name === 'lang' && node.nativeInputs[i]) {
+					if (node.nativeInputs[i].value !== newLang) {
+						node.nativeInputs[i].value = newLang;
+						const fieldName = node.inputs[i].name;
+						this.eventBus.emit(GraphEvents.FIELD_CHANGED, { nodeId: node.id, fieldName, value: newLang });
+					}
+					break;
+				}
+			}
+		}
+
+		node.nativeInputs[slot].value = val;
+		const fieldName = node.inputs?.[slot]?.name;
+		this.eventBus.emit(GraphEvents.FIELD_CHANGED, { nodeId: node.id, fieldName, value: val });
+		this.draw();
+		this._closeCodeEditor();
+	}
+
+	_closeCodeEditor() {
+		const modal = document.getElementById('sg-codeEditorModal');
+		modal?.classList.remove('show');
+		if (this._codeEditorView) {
+			this._codeEditorView.destroy();
+			this._codeEditorView = null;
+		}
+		this._codeEditorNode = null;
+		this._codeEditorSlot = null;
 	}
 
 	handleWheel(data) {

@@ -691,7 +691,7 @@ DEFAULT_TRANSFORM_NODE_CONTEXT : Dict[str, Any] = {}
 class TransformFlow(FlowType):
 	type    : Annotated[Literal["transform_flow"], FieldRole.CONSTANT] = "transform_flow"
 	lang    : Annotated[str                      , FieldRole.INPUT   ] = DEFAULT_TRANSFORM_NODE_LANG
-	script  : Annotated[str                      , FieldRole.INPUT   ] = DEFAULT_TRANSFORM_NODE_SCRIPT
+	script  : Annotated[str                      , FieldRole.INPUT   ] = Field(default=DEFAULT_TRANSFORM_NODE_SCRIPT, json_schema_extra={"editor": "code"})
 	context : Annotated[Dict[str, Any]           , FieldRole.INPUT   ] = DEFAULT_TRANSFORM_NODE_CONTEXT
 	input   : Annotated[Any                      , FieldRole.INPUT   ] = None
 	output  : Annotated[Any                      , FieldRole.OUTPUT  ] = None
