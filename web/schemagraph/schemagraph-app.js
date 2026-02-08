@@ -399,7 +399,7 @@ class SchemaGraphApp {
 		closeBtn?.addEventListener('click', (e) => { e.stopPropagation(); hideToolbar(); });
 		document.addEventListener('click', (e) => {
 			// Hide toolbar when clicking outside
-			if (toolbarPanel.classList.contains('show') && !toolbarPanel.contains(e.target) && !toggleBtn.contains(e.target) && !e.target.closest('.sg-dialog-overlay') && !e.target.closest('#sg-analyticsPanel') && !e.target.closest('#sg-featuresPanel')) hideToolbar();
+			if (toolbarPanel.classList.contains('show') && !toolbarPanel.contains(e.target) && !toggleBtn.contains(e.target) && !e.target.closest('.sg-dialog-overlay') && !e.target.closest('#sg-analyticsPanel') && !e.target.closest('#sg-featuresPanel') && !e.target.closest('#sg-templatePanel')) hideToolbar();
 			// Hide analytics panel when clicking outside (with animation)
 			const analyticsPanel = document.getElementById('sg-analyticsPanel');
 			const analyticsToggleBtn = document.getElementById('sg-analyticsToggleBtn');
@@ -413,6 +413,13 @@ class SchemaGraphApp {
 			if (featuresPanel?.classList.contains('show') && !featuresPanel.contains(e.target) && !featuresToggleBtn?.contains(e.target) && !e.target.closest('.sg-dialog-overlay') && !e.target.closest('#sg-toolbarPanel')) {
 				featuresPanel.classList.add('hiding');
 				setTimeout(() => featuresPanel.classList.remove('show', 'hiding'), 300);
+			}
+			// Hide template panel when clicking outside (with animation)
+			const templatePanel = document.getElementById('sg-templatePanel');
+			const templatesBtn = document.getElementById('sg-templatesBtn');
+			if (templatePanel?.classList.contains('show') && !templatePanel.contains(e.target) && !templatesBtn?.contains(e.target) && !e.target.closest('.sg-dialog-overlay') && !e.target.closest('#sg-toolbarPanel')) {
+				templatePanel.classList.add('hiding');
+				setTimeout(() => templatePanel.classList.remove('show', 'hiding'), 300);
 			}
 		});
 
@@ -790,9 +797,7 @@ class SchemaGraphApp {
 		if (!panel) return;
 		if (panel.classList.contains('show')) {
 			panel.classList.add('hiding');
-			panel.addEventListener('animationend', () => {
-				panel.classList.remove('show', 'hiding');
-			}, { once: true });
+			setTimeout(() => panel.classList.remove('show', 'hiding'), 300);
 		} else {
 			panel.classList.add('show');
 			this.refreshTemplateList();

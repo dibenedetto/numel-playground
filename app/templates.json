@@ -1,0 +1,283 @@
+[
+  {
+    "id": "tpl_lakk2tqpg",
+    "name": "Agent Template 01",
+    "description": "",
+    "builtIn": false,
+    "createdAt": "2026-02-08T22:24:23.366Z",
+    "nodeCount": 4,
+    "edgeCount": 3,
+    "nodes": [
+      {
+        "id": "a4cspp9ms",
+        "type": "Workflow.BackendConfig",
+        "pos": [
+          0,
+          194.00000000000003
+        ],
+        "size": [
+          220,
+          110
+        ],
+        "properties": {},
+        "schemaName": "Workflow",
+        "modelName": "BackendConfig",
+        "isNative": false,
+        "isRootType": false,
+        "isWorkflowNode": true,
+        "nativeInputs": {
+          "0": {
+            "type": "dict",
+            "value": null,
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "1": {
+            "type": "str",
+            "value": "agno",
+            "optional": false,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "2": {
+            "type": "str",
+            "value": "",
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "3": {
+            "type": "bool",
+            "value": false,
+            "optional": false,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          }
+        },
+        "multiInputSlots": {},
+        "multiOutputSlots": {},
+        "constantFields": {
+          "type": "backend_config"
+        },
+        "workflowType": "backend_config",
+        "workflowIndex": null,
+        "color": "#5c7caa"
+      },
+      {
+        "id": "0ttsyh7si",
+        "type": "Workflow.AgentOptionsConfig",
+        "pos": [
+          244.0000000000001,
+          0
+        ],
+        "size": [
+          220,
+          160
+        ],
+        "properties": {},
+        "schemaName": "Workflow",
+        "modelName": "AgentOptionsConfig",
+        "isNative": false,
+        "isRootType": false,
+        "isWorkflowNode": true,
+        "nativeInputs": {
+          "0": {
+            "type": "dict",
+            "value": null,
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "1": {
+            "type": "str",
+            "value": "Zoe",
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "2": {
+            "type": "str",
+            "value": null,
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "3": {
+            "type": "list",
+            "value": null,
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "4": {
+            "type": "str",
+            "value": null,
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "5": {
+            "type": "bool",
+            "value": true,
+            "optional": false,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          }
+        },
+        "multiInputSlots": {},
+        "multiOutputSlots": {},
+        "constantFields": {
+          "type": "agent_options_config"
+        },
+        "workflowType": "agent_options_config",
+        "workflowIndex": null,
+        "color": "#5c7caa"
+      },
+      {
+        "id": "alaw29n22",
+        "type": "Workflow.AgentConfig",
+        "pos": [
+          536.9999999999999,
+          234.00000000000003
+        ],
+        "size": [
+          220,
+          235
+        ],
+        "properties": {},
+        "schemaName": "Workflow",
+        "modelName": "AgentConfig",
+        "isNative": false,
+        "isRootType": false,
+        "isWorkflowNode": true,
+        "nativeInputs": {
+          "0": {
+            "type": "dict",
+            "value": null,
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          }
+        },
+        "multiInputSlots": {
+          "tools": [
+            8
+          ]
+        },
+        "multiOutputSlots": {},
+        "constantFields": {
+          "type": "agent_config"
+        },
+        "workflowType": "agent_config",
+        "workflowIndex": null,
+        "color": "#5c7caa"
+      },
+      {
+        "id": "nadgarhkv",
+        "type": "Workflow.ModelConfig",
+        "pos": [
+          113,
+          444
+        ],
+        "size": [
+          220,
+          135
+        ],
+        "properties": {},
+        "schemaName": "Workflow",
+        "modelName": "ModelConfig",
+        "isNative": false,
+        "isRootType": false,
+        "isWorkflowNode": true,
+        "nativeInputs": {
+          "0": {
+            "type": "dict",
+            "value": null,
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "1": {
+            "type": "str",
+            "value": "ollama",
+            "optional": false,
+            "options": null,
+            "optionsSource": "model_sources",
+            "editor": null
+          },
+          "2": {
+            "type": "str",
+            "value": "mistral",
+            "optional": false,
+            "options": null,
+            "optionsSource": "model_names",
+            "editor": null
+          },
+          "3": {
+            "type": "str",
+            "value": "",
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "4": {
+            "type": "bool",
+            "value": false,
+            "optional": false,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          }
+        },
+        "multiInputSlots": {},
+        "multiOutputSlots": {},
+        "constantFields": {
+          "type": "model_config"
+        },
+        "workflowType": "model_config",
+        "workflowIndex": null,
+        "color": "#5c7caa"
+      }
+    ],
+    "links": [
+      {
+        "id": 1,
+        "origin_id": "a4cspp9ms",
+        "origin_slot": 0,
+        "target_id": "alaw29n22",
+        "target_slot": 2,
+        "type": "BackendConfig"
+      },
+      {
+        "id": 2,
+        "origin_id": "0ttsyh7si",
+        "origin_slot": 0,
+        "target_id": "alaw29n22",
+        "target_slot": 1,
+        "type": "AgentOptionsConfig"
+      },
+      {
+        "id": 3,
+        "origin_id": "nadgarhkv",
+        "origin_slot": 0,
+        "target_id": "alaw29n22",
+        "target_slot": 3,
+        "type": "ModelConfig"
+      }
+    ]
+  }
+]
