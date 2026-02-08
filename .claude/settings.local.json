@@ -10,7 +10,8 @@
       "Bash(find:*)",
       "WebFetch(domain:github.com)",
       "Bash(python3:*)",
-      "Bash(conda run:*)"
+      "Bash(conda run:*)",
+      "Bash(dir:*)"
     ]
   }
 }

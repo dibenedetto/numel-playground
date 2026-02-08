@@ -307,8 +307,8 @@ DEFAULT_MODEL_FALLBACK : bool = False
 )
 class ModelConfig(ConfigType):
 	type     : Annotated[Literal["model_config"], FieldRole.CONSTANT] = "model_config"
-	source   : Annotated[str                    , FieldRole.INPUT   ] = DEFAULT_MODEL_SOURCE
-	name     : Annotated[str                    , FieldRole.INPUT   ] = DEFAULT_MODEL_NAME
+	source   : Annotated[str                    , FieldRole.INPUT   ] = Field(default=DEFAULT_MODEL_SOURCE, json_schema_extra={"options_source": "model_sources"})
+	name     : Annotated[str                    , FieldRole.INPUT   ] = Field(default=DEFAULT_MODEL_NAME, json_schema_extra={"options_source": "model_names"})
 	version  : Annotated[Optional[str]          , FieldRole.INPUT   ] = DEFAULT_MODEL_VERSION
 	fallback : Annotated[bool                   , FieldRole.INPUT   ] = DEFAULT_MODEL_FALLBACK
 
@@ -332,8 +332,8 @@ DEFAULT_EMBEDDING_FALLBACK : bool = False
 )
 class EmbeddingConfig(ConfigType):
 	type     : Annotated[Literal["embedding_config"], FieldRole.CONSTANT] = "embedding_config"
-	source   : Annotated[str                        , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_SOURCE
-	name     : Annotated[str                        , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_NAME
+	source   : Annotated[str                        , FieldRole.INPUT   ] = Field(default=DEFAULT_EMBEDDING_SOURCE, json_schema_extra={"options_source": "model_sources"})
+	name     : Annotated[str                        , FieldRole.INPUT   ] = Field(default=DEFAULT_EMBEDDING_NAME, json_schema_extra={"options_source": "model_names"})
 	version  : Annotated[Optional[str]              , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_VERSION
 	fallback : Annotated[bool                       , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_FALLBACK
 
@@ -419,8 +419,8 @@ class MemoryManagerConfig(ConfigType):
 	query   : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_QUERY
 	update  : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_UPDATE
 	managed : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_MANAGED
-	zune    : Annotated[str, FieldRole.INPUT] = Field(default="oubi")
-	model   : Annotated[Optional[ModelConfig]           , FieldRole.INPUT   ] = Field(default=None, title="Embedding Source", description="Source of embedding model (e.g., 'ollama', 'openai')")
+	# model   : Annotated[Optional[ModelConfig]           , FieldRole.INPUT   ] = Field(default=None, title="Model Source", description="Source of language model (e.g., 'ollama', 'openai')")
+	model   : Annotated[Optional[ModelConfig]           , FieldRole.INPUT   ] = None
 	prompt  : Annotated[Optional[str]                   , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_PROMPT
 
 	@property

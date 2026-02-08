@@ -273,6 +273,38 @@ class SchemaGraphApp {
 			canvasContainer.appendChild(nodeSelectWrapper);
 		}
 
+		if (!document.getElementById('sg-comboBoxWrapper')) {
+			const wrapper = document.createElement('div');
+			wrapper.id = 'sg-comboBoxWrapper';
+			wrapper.className = 'sg-combo-box-wrapper';
+
+			const input = document.createElement('input');
+			input.type = 'text';
+			input.id = 'sg-comboBoxInput';
+			input.className = 'sg-node-input-overlay sg-combo-box-input';
+			input.autocomplete = 'off';
+
+			const refreshBtn = document.createElement('button');
+			refreshBtn.id = 'sg-comboBoxRefresh';
+			refreshBtn.className = 'sg-combo-box-refresh';
+			refreshBtn.title = 'Refresh options';
+			refreshBtn.textContent = '\u21BB';
+
+			const spinner = document.createElement('div');
+			spinner.id = 'sg-comboBoxSpinner';
+			spinner.className = 'sg-combo-box-spinner';
+
+			const dropdown = document.createElement('div');
+			dropdown.id = 'sg-comboBoxDropdown';
+			dropdown.className = 'sg-combo-box-dropdown';
+
+			wrapper.appendChild(input);
+			wrapper.appendChild(refreshBtn);
+			wrapper.appendChild(spinner);
+			wrapper.appendChild(dropdown);
+			canvasContainer.appendChild(wrapper);
+		}
+
 		if (!document.getElementById('sg-lockOverlay')) {
 			const lockOverlay = document.createElement('div');
 			lockOverlay.id = 'sg-lockOverlay';
@@ -1085,6 +1117,24 @@ class SchemaGraphApp {
 		nodeSelect?.addEventListener('blur', () => this.handleSelectBlur());
 		nodeSelect?.addEventListener('keydown', (e) => this.handleSelectKeyDown(e));
 
+		const comboInput = document.getElementById('sg-comboBoxInput');
+		comboInput?.addEventListener('blur', () => {
+			setTimeout(() => {
+				if (document.getElementById('sg-comboBoxWrapper')?.classList.contains('show')) {
+					this._applyComboBoxValue(comboInput.value);
+					this._hideComboBox();
+				}
+			}, 150);
+		});
+		comboInput?.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') {
+				this._applyComboBoxValue(comboInput.value);
+				this._hideComboBox();
+			} else if (e.key === 'Escape') {
+				this._hideComboBox();
+			}
+		});
+
 		this._setupFileDrop();
 		this._setupCompletenessListeners();
 
@@ -1754,28 +1804,33 @@ class SchemaGraphApp {
 
 		const currentValue = slot !== null ? node.nativeInputs[slot].value : node.properties.value;
 		const options = slot !== null ? node.nativeInputs[slot].options : null;
+		const optionsSource = slot !== null ? node.nativeInputs[slot]?.optionsSource : null;
 
 		const leftPos = (valueScreen[0] * rect.width / this.canvas.width + rect.left) + 'px';
 		const topPos = (valueScreen[1] * rect.height / this.canvas.height + rect.top) + 'px';
 		const width = slot !== null ? '75px' : '160px';
 
-		// Check if this field has options (Literal type) - show select instead of input
-		if (options && Array.isArray(options) && options.length > 0) {
+		// Hide all overlays first
+		document.getElementById('sg-nodeInput')?.classList.remove('show');
+		document.getElementById('sg-nodeSelectWrapper')?.classList.remove('show');
+		document.getElementById('sg-nodeSelect')?.classList.remove('show');
+		document.getElementById('sg-comboBoxWrapper')?.classList.remove('show');
+		document.getElementById('sg-comboBoxDropdown')?.classList.remove('show');
+
+		if (optionsSource) {
+			// Dynamic combo-box mode
+			this._showComboBox(leftPos, topPos, width, currentValue, options, optionsSource);
+		} else if (options && Array.isArray(options) && options.length > 0) {
+			// Static Literal select mode
 			const nodeSelectWrapper = document.getElementById('sg-nodeSelectWrapper');
 			const nodeSelect = document.getElementById('sg-nodeSelect');
-			const nodeInput = document.getElementById('sg-nodeInput');
 
-			// Hide the text input
-			nodeInput.classList.remove('show');
-
-			// Populate the select with options
 			nodeSelect.innerHTML = options.map(opt => {
 				const selected = String(opt) === String(currentValue) ? ' selected' : '';
 				const displayValue = opt === null ? 'null' : String(opt);
 				return `<option value="${opt}"${selected}>${displayValue}</option>`;
 			}).join('');
 
-			// Position the wrapper (which contains the select and the arrow pseudo-element)
 			nodeSelectWrapper.style.left = leftPos;
 			nodeSelectWrapper.style.top = topPos;
 			nodeSelect.style.width = width;
@@ -1783,13 +1838,8 @@ class SchemaGraphApp {
 			nodeSelect.classList.add('show');
 			nodeSelect.focus();
 		} else {
+			// Plain text input mode
 			const nodeInput = document.getElementById('sg-nodeInput');
-			const nodeSelectWrapper = document.getElementById('sg-nodeSelectWrapper');
-			const nodeSelect = document.getElementById('sg-nodeSelect');
-
-			// Hide the select
-			nodeSelectWrapper.classList.remove('show');
-			nodeSelect.classList.remove('show');
 
 			nodeInput.value = String(currentValue);
 			nodeInput.style.left = leftPos;
@@ -1799,6 +1849,137 @@ class SchemaGraphApp {
 			nodeInput.focus();
 			nodeInput.select();
 		}
+	}
+
+	// === COMBO-BOX ===
+
+	_showComboBox(leftPos, topPos, width, currentValue, staticOptions, optionsSource) {
+		const wrapper = document.getElementById('sg-comboBoxWrapper');
+		const input = document.getElementById('sg-comboBoxInput');
+		const dropdown = document.getElementById('sg-comboBoxDropdown');
+		const refreshBtn = document.getElementById('sg-comboBoxRefresh');
+		const spinner = document.getElementById('sg-comboBoxSpinner');
+
+		wrapper.style.left = leftPos;
+		wrapper.style.top = topPos;
+		input.style.width = width;
+		input.value = String(currentValue ?? '');
+
+		// Check session cache
+		const cacheKey = `_comboCache_${optionsSource}`;
+		const cached = this[cacheKey];
+
+		if (cached) {
+			this._populateComboDropdown(dropdown, cached, input.value);
+		} else if (staticOptions && staticOptions.length > 0) {
+			this._populateComboDropdown(dropdown, staticOptions, input.value);
+			// Also fetch from API to get fresh options
+			this._fetchComboOptions(optionsSource, dropdown, spinner, input.value);
+		} else {
+			this._fetchComboOptions(optionsSource, dropdown, spinner, input.value);
+		}
+
+		refreshBtn.onclick = () => {
+			delete this[cacheKey];
+			this._fetchComboOptions(optionsSource, dropdown, spinner, input.value);
+		};
+
+		input.oninput = () => {
+			const allOptions = this[cacheKey] || staticOptions || [];
+			this._populateComboDropdown(dropdown, allOptions, input.value);
+		};
+
+		wrapper.classList.add('show');
+		dropdown.classList.add('show');
+		input.focus();
+		input.select();
+	}
+
+	async _fetchComboOptions(optionsSource, dropdown, spinner, filterValue) {
+		spinner.classList.add('show');
+		dropdown.innerHTML = '<div class="sg-combo-box-loading">Loading...</div>';
+		dropdown.classList.add('show');
+
+		try {
+			const baseUrl = this._comboBoxBaseUrl || '';
+			const response = await fetch(`${baseUrl}/options/${optionsSource}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: null
+			});
+			if (!response.ok) throw new Error(`Failed: ${response.statusText}`);
+			const data = await response.json();
+			const options = data.options || [];
+
+			this[`_comboCache_${optionsSource}`] = options;
+			this._populateComboDropdown(dropdown, options, filterValue);
+		} catch (e) {
+			console.error(`[ComboBox] Failed to fetch options for ${optionsSource}:`, e);
+			dropdown.innerHTML = '<div class="sg-combo-box-error">Failed to load options</div>';
+		} finally {
+			spinner.classList.remove('show');
+		}
+	}
+
+	_populateComboDropdown(dropdown, options, filterValue) {
+		const filter = (filterValue || '').toLowerCase();
+		const filtered = filter
+			? options.filter(opt => String(opt).toLowerCase().includes(filter))
+			: options;
+
+		if (filtered.length === 0) {
+			dropdown.innerHTML = '<div class="sg-combo-box-empty">No matching options</div>';
+			dropdown.classList.add('show');
+			return;
+		}
+
+		dropdown.innerHTML = filtered.map(opt => {
+			const displayValue = opt === null ? 'null' : String(opt);
+			return `<div class="sg-combo-box-option" data-value="${opt}">${displayValue}</div>`;
+		}).join('');
+
+		dropdown.querySelectorAll('.sg-combo-box-option').forEach(el => {
+			el.addEventListener('mousedown', (e) => {
+				e.preventDefault();
+				const input = document.getElementById('sg-comboBoxInput');
+				input.value = el.dataset.value;
+				this._applyComboBoxValue(el.dataset.value);
+				this._hideComboBox();
+			});
+		});
+
+		dropdown.classList.add('show');
+	}
+
+	_applyComboBoxValue(val) {
+		if (!this.editingNode) return;
+		let fieldName = null;
+
+		if (this.editingNode.editingSlot !== null && this.editingNode.editingSlot !== undefined) {
+			const slot = this.editingNode.editingSlot;
+			fieldName = this.editingNode.inputs?.[slot]?.name;
+			const inputInfo = this.editingNode.nativeInputs[slot];
+			const inputType = inputInfo.type;
+			if (inputType === 'int') inputInfo.value = parseInt(val) || 0;
+			else if (inputType === 'float') inputInfo.value = parseFloat(val) || 0.0;
+			else inputInfo.value = val;
+		} else {
+			fieldName = 'value';
+			this.editingNode.properties.value = val;
+		}
+
+		const changedNode = this.editingNode;
+		this.eventBus.emit(GraphEvents.FIELD_CHANGED, { nodeId: changedNode.id, fieldName, value: val });
+		this.draw();
+	}
+
+	_hideComboBox() {
+		const wrapper = document.getElementById('sg-comboBoxWrapper');
+		const dropdown = document.getElementById('sg-comboBoxDropdown');
+		wrapper?.classList.remove('show');
+		dropdown?.classList.remove('show');
+		if (this.editingNode) this.editingNode.editingSlot = null;
+		this.editingNode = null;
 	}
 
 	handleWheel(data) {
@@ -6609,6 +6790,19 @@ class SchemaGraphApp {
 					self._fieldTooltipsEnabled = false;
 					self._hideTooltip();
 					self._hideNodeHeaderTooltip();
+				}
+			},
+
+			comboBox: {
+				setBaseUrl: (url) => { self._comboBoxBaseUrl = url; },
+				clearCache: (provider) => {
+					if (provider) {
+						delete self[`_comboCache_${provider}`];
+					} else {
+						for (const key of Object.keys(self)) {
+							if (key.startsWith('_comboCache_')) delete self[key];
+						}
+					}
 				}
 			},
 

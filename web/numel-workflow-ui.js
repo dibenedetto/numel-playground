@@ -335,6 +335,9 @@ async function connect() {
 		}
 		addLog('success', '✅ Schema registered');
 
+		// Set combo-box API base URL for dynamic options
+		schemaGraph.api.comboBox.setBaseUrl(serverUrl);
+
 		// Populate options panels now that schema is available
 		populateWorkflowOptionsPanel();
 		populateExecOptionsPanel();

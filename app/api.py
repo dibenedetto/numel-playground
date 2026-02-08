@@ -718,4 +718,29 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		}
 
 
+	# === Dynamic Options API ===
+
+	_options_providers: Dict[str, callable] = {}
+
+	def register_options_provider(key: str, fn: callable):
+		_options_providers[key] = fn
+
+	def _get_model_sources(context=None):
+		return ["ollama", "openai", "anthropic", "groq", "google"]
+
+	def _get_model_names(context=None):
+		return ["mistral", "llama3", "gpt-4o", "claude-sonnet", "gemini-pro"]
+
+	register_options_provider("model_sources", _get_model_sources)
+	register_options_provider("model_names", _get_model_names)
+
+	@app.post("/options/{provider_key}")
+	async def get_options(provider_key: str):
+		if provider_key not in _options_providers:
+			raise HTTPException(status_code=404, detail=f"Unknown options provider: {provider_key}")
+		fn = _options_providers[provider_key]
+		options = await fn() if asyncio.iscoroutinefunction(fn) else fn()
+		return {"options": options}
+
+
 	log_print("✅ Workflow API endpoints registered")
