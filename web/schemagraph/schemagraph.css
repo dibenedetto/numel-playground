@@ -1973,6 +1973,182 @@
   background: var(--sg-text-tertiary, #707070);
 }
 
+/* ======================================================================== */
+/* TEMPLATE PANEL                                                           */
+/* ======================================================================== */
+
+.sg-template-panel {
+  position: fixed;
+  top: 80px;
+  right: 16px;
+  width: 300px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--sg-bg-secondary, #2a2a2a);
+  border: 1px solid var(--sg-border-color, #1a1a1a);
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+  z-index: 1000;
+  display: none;
+}
+
+.sg-template-panel.show {
+  display: block;
+  animation: sg-templateSlideIn 0.3s ease forwards;
+}
+
+@keyframes sg-templateSlideIn {
+  from { opacity: 0; transform: translateX(20px) scale(0.95); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+.sg-template-panel.hiding {
+  animation: sg-templateSlideOut 0.3s ease forwards;
+}
+
+@keyframes sg-templateSlideOut {
+  from { opacity: 1; transform: translateX(0) scale(1); }
+  to   { opacity: 0; transform: translateX(20px) scale(0.95); }
+}
+
+.sg-template-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--sg-border-color, #1a1a1a);
+}
+
+.sg-template-title {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--sg-text-primary, #ffffff);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.sg-template-close {
+  background: var(--sg-accent-red, #dc6464);
+  color: var(--sg-text-primary, #ffffff);
+  border: none;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s;
+}
+
+.sg-template-close:hover {
+  background: var(--sg-accent-orange, #d89614);
+}
+
+.sg-template-empty {
+  color: var(--sg-text-tertiary, #707070);
+  font-size: 11px;
+  text-align: center;
+  padding: 20px 8px;
+  line-height: 1.5;
+}
+
+.sg-template-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sg-template-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 10px;
+  background: var(--sg-bg-tertiary, #353535);
+  border: 1px solid var(--sg-border-color, #1a1a1a);
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.sg-template-item:hover {
+  border-color: var(--sg-accent-blue, #46a2da);
+  background: var(--sg-bg-quaternary, #404040);
+}
+
+.sg-template-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.sg-template-item-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sg-text-primary, #ffffff);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sg-template-item-meta {
+  font-size: 10px;
+  color: var(--sg-text-tertiary, #707070);
+  margin-top: 2px;
+}
+
+.sg-template-item-badge {
+  display: inline-block;
+  font-size: 9px;
+  color: var(--sg-accent-blue-light, #7ec8e3);
+  background: rgba(70, 162, 218, 0.15);
+  border: 1px solid rgba(70, 162, 218, 0.3);
+  border-radius: 3px;
+  padding: 0 4px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+.sg-template-item-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: 8px;
+}
+
+.sg-template-item-btn {
+  background: var(--sg-bg-quaternary, #404040);
+  border: 1px solid var(--sg-border-color, #1a1a1a);
+  color: var(--sg-text-secondary, #aaaaaa);
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  transition: all 0.15s;
+}
+
+.sg-template-item-btn:hover {
+  background: var(--sg-accent-blue, #46a2da);
+  color: var(--sg-text-primary, #ffffff);
+  border-color: var(--sg-accent-blue, #46a2da);
+}
+
+.sg-template-item-btn.sg-template-delete:hover {
+  background: var(--sg-accent-red, #dc6464);
+  border-color: var(--sg-accent-red, #dc6464);
+}
+
+.sg-template-panel::-webkit-scrollbar { width: 6px; }
+.sg-template-panel::-webkit-scrollbar-track { background: transparent; }
+.sg-template-panel::-webkit-scrollbar-thumb { background: var(--sg-bg-quaternary, #404040); border-radius: 3px; }
+.sg-template-panel::-webkit-scrollbar-thumb:hover { background: var(--sg-text-tertiary, #707070); }
+
+/* Context menu template item */
+.sg-context-menu-template {
+  color: var(--sg-accent-blue, #46a2da) !important;
+}
+
+.sg-context-menu-template:hover {
+  background: var(--sg-accent-blue, #46a2da) !important;
+  color: var(--sg-text-primary, #ffffff) !important;
+}
+
 /* Buttons & Controls */
 .sg-action-btn {
   background: var(--sg-bg-tertiary, #353535);

@@ -1,8 +1,10 @@
 # api
 
 import asyncio
+import json
+import os
 
-
+from   pathlib   import Path
 from   fastapi   import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, File, Form
 from   pydantic  import BaseModel
 from   typing    import Any, Dict, List, Optional
@@ -45,6 +47,14 @@ class ToolCallRequest(BaseModel):
 
 class ContentRemoveRequest(BaseModel):
 	ids : List[str]
+
+
+class TemplateSaveRequest(BaseModel):
+	template : dict
+
+
+class TemplateRenameRequest(BaseModel):
+	name : str
 
 
 def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, manager: WorkflowManager, engine: WorkflowEngine):
@@ -741,6 +751,97 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		fn = _options_providers[provider_key]
 		options = await fn() if asyncio.iscoroutinefunction(fn) else fn()
 		return {"options": options}
+
+
+	# === Sub-Graph Templates API ===
+
+	_templates_path = str(Path(__file__).parent / "templates.json")
+
+	def _load_templates() -> list:
+		if not os.path.exists(_templates_path):
+			return []
+		try:
+			with open(_templates_path, "r") as f:
+				return json.load(f)
+		except Exception as e:
+			log_print(f"Error loading templates: {e}")
+			return []
+
+	def _save_templates(templates: list):
+		try:
+			with open(_templates_path, "w") as f:
+				json.dump(templates, f, indent=2)
+		except Exception as e:
+			log_print(f"Error saving templates: {e}")
+
+	@app.post("/templates/list")
+	async def list_templates():
+		templates = _load_templates()
+		meta_list = []
+		for t in templates:
+			meta_list.append({
+				"id":        t.get("id"),
+				"name":      t.get("name", "Untitled"),
+				"description": t.get("description", ""),
+				"builtIn":   t.get("builtIn", False),
+				"createdAt": t.get("createdAt", ""),
+				"nodeCount": t.get("nodeCount", 0),
+				"edgeCount": t.get("edgeCount", 0),
+			})
+		return {"templates": meta_list}
+
+	@app.post("/templates/get/{template_id}")
+	async def get_template(template_id: str):
+		templates = _load_templates()
+		for t in templates:
+			if t.get("id") == template_id:
+				return {"template": t}
+		raise HTTPException(status_code=404, detail=f"Template not found: {template_id}")
+
+	@app.post("/templates/save")
+	async def save_template(request: TemplateSaveRequest):
+		templates = _load_templates()
+		tpl = request.template
+		tpl_id = tpl.get("id")
+		if not tpl_id:
+			raise HTTPException(status_code=400, detail="Template must have an id")
+		# Upsert
+		found = False
+		for i, t in enumerate(templates):
+			if t.get("id") == tpl_id:
+				if t.get("builtIn", False):
+					raise HTTPException(status_code=403, detail="Cannot overwrite built-in template")
+				templates[i] = tpl
+				found = True
+				break
+		if not found:
+			templates.append(tpl)
+		_save_templates(templates)
+		return {"status": "ok", "id": tpl_id}
+
+	@app.post("/templates/delete/{template_id}")
+	async def delete_template(template_id: str):
+		templates = _load_templates()
+		for t in templates:
+			if t.get("id") == template_id:
+				if t.get("builtIn", False):
+					raise HTTPException(status_code=403, detail="Cannot delete built-in template")
+				templates.remove(t)
+				_save_templates(templates)
+				return {"status": "ok"}
+		raise HTTPException(status_code=404, detail=f"Template not found: {template_id}")
+
+	@app.post("/templates/rename/{template_id}")
+	async def rename_template(template_id: str, request: TemplateRenameRequest):
+		templates = _load_templates()
+		for t in templates:
+			if t.get("id") == template_id:
+				if t.get("builtIn", False):
+					raise HTTPException(status_code=403, detail="Cannot rename built-in template")
+				t["name"] = request.name
+				_save_templates(templates)
+				return {"status": "ok"}
+		raise HTTPException(status_code=404, detail=f"Template not found: {template_id}")
 
 
 	log_print("✅ Workflow API endpoints registered")

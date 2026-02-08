@@ -28,6 +28,7 @@ class SchemaGraphApp {
 		this.injectToolbarHTML();
 		this.injectAnalyticsPanelHTML();
 		this.injectFeaturesPanelHTML();
+		this.injectTemplatePanelHTML();
 		this.injectMultiSlotUIStyles();
 		this.injectInteractiveStyles();
 		this.injectPreviewOverlayStyles();
@@ -142,6 +143,7 @@ class SchemaGraphApp {
 			toolbarAnalytics: true,
 			toolbarSchema: true,
 			toolbarWorkflow: true,
+			toolbarTemplates: true,
 			toolbarView: true,
 			toolbarLayout: true,
 			toolbarZoom: true,
@@ -373,6 +375,8 @@ class SchemaGraphApp {
 				<div class="sg-toolbar-divider" id="sg-toolbar-schema-divider"></div>
 				<div class="sg-toolbar-section" id="sg-toolbar-workflow"><span class="sg-toolbar-label">Workflow</span><button id="sg-exportWorkflowBtn" class="sg-toolbar-btn">Export Workflow</button><button id="sg-importWorkflowBtn" class="sg-toolbar-btn">Import Workflow</button></div>
 				<div class="sg-toolbar-divider" id="sg-toolbar-workflow-divider"></div>
+				<div class="sg-toolbar-section" id="sg-toolbar-templates"><span class="sg-toolbar-label">Templates</span><button id="sg-templatesBtn" class="sg-toolbar-btn">Templates</button></div>
+				<div class="sg-toolbar-divider" id="sg-toolbar-templates-divider"></div>
 				<div class="sg-toolbar-section" id="sg-toolbar-view"><span class="sg-toolbar-label">View</span><button id="sg-centerViewBtn" class="sg-toolbar-btn">🎯 Center</button></div>
 				<div class="sg-toolbar-divider" id="sg-toolbar-view-divider"></div>
 				<div class="sg-toolbar-section" id="sg-toolbar-layout"><span class="sg-toolbar-label">Layout</span><select id="sg-layoutSelect" class="sg-toolbar-select"><option value="">🔧 Layout...</option><option value="hierarchical-vertical">Hierarchical ↓</option><option value="hierarchical-horizontal">Hierarchical →</option><option value="force-directed">Force-Directed</option><option value="grid">Grid</option><option value="circular">Circular</option></select></div>
@@ -432,6 +436,7 @@ class SchemaGraphApp {
 			toolbarAnalytics: ['sg-toolbar-analytics', 'sg-toolbar-analytics-divider'],
 			toolbarSchema: ['sg-toolbar-schema', 'sg-toolbar-schema-divider'],
 			toolbarWorkflow: ['sg-toolbar-workflow', 'sg-toolbar-workflow-divider'],
+			toolbarTemplates: ['sg-toolbar-templates', 'sg-toolbar-templates-divider'],
 			toolbarView: ['sg-toolbar-view', 'sg-toolbar-view-divider'],
 			toolbarLayout: ['sg-toolbar-layout', 'sg-toolbar-layout-divider'],
 			toolbarZoom: ['sg-toolbar-zoom'],
@@ -759,6 +764,137 @@ class SchemaGraphApp {
 				</div>
 			</div>`;
 		document.body.appendChild(panel);
+	}
+
+	injectTemplatePanelHTML() {
+		if (document.getElementById('sg-templatePanel')) return;
+		const panel = document.createElement('div');
+		panel.id = 'sg-templatePanel';
+		panel.className = 'sg-template-panel';
+		panel.innerHTML = `
+			<div class="sg-template-header">
+				<div class="sg-template-title">Templates</div>
+				<button id="sg-templateCloseBtn" class="sg-template-close">\u2715</button>
+			</div>
+			<div class="sg-template-list" id="sg-templateList"></div>
+			<div class="sg-template-empty" id="sg-templateEmpty">
+				No templates saved yet.<br>Select multiple nodes and right-click to save as template.
+			</div>`;
+		document.body.appendChild(panel);
+
+		document.getElementById('sg-templateCloseBtn').addEventListener('click', () => this.toggleTemplatePanel());
+	}
+
+	toggleTemplatePanel() {
+		const panel = document.getElementById('sg-templatePanel');
+		if (!panel) return;
+		if (panel.classList.contains('show')) {
+			panel.classList.add('hiding');
+			panel.addEventListener('animationend', () => {
+				panel.classList.remove('show', 'hiding');
+			}, { once: true });
+		} else {
+			panel.classList.add('show');
+			this.refreshTemplateList();
+		}
+	}
+
+	async refreshTemplateList() {
+		const listEl = document.getElementById('sg-templateList');
+		const emptyEl = document.getElementById('sg-templateEmpty');
+		if (!listEl || !emptyEl) return;
+
+		let templates = [];
+		try {
+			const url = (this._templateBaseUrl || '') + '/templates/list';
+			const resp = await fetch(url, { method: 'POST' });
+			if (resp.ok) {
+				const data = await resp.json();
+				templates = data.templates || [];
+			}
+		} catch (e) {
+			console.warn('[Templates] Failed to fetch list:', e);
+		}
+
+		if (templates.length === 0) {
+			listEl.innerHTML = '';
+			emptyEl.style.display = 'block';
+			return;
+		}
+
+		emptyEl.style.display = 'none';
+		listEl.innerHTML = templates.map(t => {
+			const badge = t.builtIn ? '<span class="sg-template-item-badge">built-in</span>' : '';
+			const actions = t.builtIn
+				? `<button class="sg-template-item-btn sg-template-insert" data-id="${t.id}" title="Insert">+</button>`
+				: `<button class="sg-template-item-btn sg-template-insert" data-id="${t.id}" title="Insert">+</button>
+				   <button class="sg-template-item-btn sg-template-rename" data-id="${t.id}" title="Rename">\u270E</button>
+				   <button class="sg-template-item-btn sg-template-delete" data-id="${t.id}" title="Delete">\u2715</button>`;
+			return `<div class="sg-template-item" data-template-id="${t.id}">
+				<div class="sg-template-item-info">
+					<div class="sg-template-item-name">${t.name || 'Untitled'}${badge}</div>
+					<div class="sg-template-item-meta">${t.nodeCount} nodes, ${t.edgeCount} edges</div>
+				</div>
+				<div class="sg-template-item-actions">${actions}</div>
+			</div>`;
+		}).join('');
+
+		// Wire handlers
+		listEl.querySelectorAll('.sg-template-insert').forEach(btn => {
+			btn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				this._handleTemplateInsert(btn.dataset.id);
+			});
+		});
+		listEl.querySelectorAll('.sg-template-rename').forEach(btn => {
+			btn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				this._handleTemplateRename(btn.dataset.id);
+			});
+		});
+		listEl.querySelectorAll('.sg-template-delete').forEach(btn => {
+			btn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				this._handleTemplateDelete(btn.dataset.id);
+			});
+		});
+	}
+
+	_handleTemplateInsert(templateId) {
+		// Compute viewport center in world coordinates
+		const centerX = (-this.camera.x + this.canvas.width / 2) / this.camera.scale;
+		const centerY = (-this.camera.y + this.canvas.height / 2) / this.camera.scale;
+		this.instantiateTemplate(templateId, centerX, centerY);
+	}
+
+	async _handleTemplateRename(templateId) {
+		const newName = await this._showInputDialog('Rename Template', 'New name:', '');
+		if (!newName) return;
+		try {
+			const url = (this._templateBaseUrl || '') + '/templates/rename/' + templateId;
+			const resp = await fetch(url, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ name: newName })
+			});
+			if (!resp.ok) throw new Error(await resp.text());
+			this.refreshTemplateList();
+		} catch (e) {
+			this.showError('Failed to rename template: ' + e.message);
+		}
+	}
+
+	async _handleTemplateDelete(templateId) {
+		const confirm = await this._showConfirmDialog('Delete Template', 'Are you sure you want to delete this template?', 'Delete', true);
+		if (!confirm) return;
+		try {
+			const url = (this._templateBaseUrl || '') + '/templates/delete/' + templateId;
+			const resp = await fetch(url, { method: 'POST' });
+			if (!resp.ok) throw new Error(await resp.text());
+			this.refreshTemplateList();
+		} catch (e) {
+			this.showError('Failed to delete template: ' + e.message);
+		}
 	}
 
 	injectMultiSlotUIStyles() {
@@ -1345,6 +1481,194 @@ class SchemaGraphApp {
 		}
 
 		this.draw();
+	}
+
+	// =========================================================================
+	// SUB-GRAPH TEMPLATES
+	// =========================================================================
+
+	async saveSelectionAsTemplate() {
+		if (this.selectedNodes.size < 2) {
+			this.showError('Select at least 2 nodes to create a template');
+			return;
+		}
+
+		const name = await this._showInputDialog('Save as Template', 'Template name:', 'My Template');
+		if (!name) return;
+
+		const selectedIds = new Set();
+		for (const node of this.selectedNodes) selectedIds.add(node.id);
+
+		// Serialize selected nodes (same pattern as Graph.serialize)
+		const nodes = [];
+		let minX = Infinity, minY = Infinity;
+		for (const node of this.selectedNodes) {
+			minX = Math.min(minX, node.pos[0]);
+			minY = Math.min(minY, node.pos[1]);
+		}
+
+		for (const node of this.selectedNodes) {
+			const nodeData = {
+				id: node.id,
+				type: node.title,
+				pos: [node.pos[0] - minX, node.pos[1] - minY],
+				size: node.size.slice(),
+				properties: JSON.parse(JSON.stringify(node.properties || {})),
+				schemaName: node.schemaName,
+				modelName: node.modelName,
+				isNative: node.isNative || false,
+				isRootType: node.isRootType || false,
+				isWorkflowNode: node.isWorkflowNode || false
+			};
+			if (node.nativeInputs) nodeData.nativeInputs = JSON.parse(JSON.stringify(node.nativeInputs));
+			if (node.multiInputs) nodeData.multiInputs = JSON.parse(JSON.stringify(node.multiInputs));
+			if (node.multiInputSlots) nodeData.multiInputSlots = JSON.parse(JSON.stringify(node.multiInputSlots));
+			if (node.multiOutputSlots) nodeData.multiOutputSlots = JSON.parse(JSON.stringify(node.multiOutputSlots));
+			if (node.constantFields) nodeData.constantFields = JSON.parse(JSON.stringify(node.constantFields));
+			if (node.workflowType) nodeData.workflowType = node.workflowType;
+			if (node.workflowIndex !== undefined) nodeData.workflowIndex = node.workflowIndex;
+			if (node.color) nodeData.color = node.color;
+			nodes.push(nodeData);
+		}
+
+		// Collect only links where both endpoints are in the selection
+		const links = [];
+		for (const linkId in this.graph.links) {
+			if (!this.graph.links.hasOwnProperty(linkId)) continue;
+			const link = this.graph.links[linkId];
+			if (selectedIds.has(link.origin_id) && selectedIds.has(link.target_id)) {
+				links.push({
+					id: link.id,
+					origin_id: link.origin_id,
+					origin_slot: link.origin_slot,
+					target_id: link.target_id,
+					target_slot: link.target_slot,
+					type: link.type
+				});
+			}
+		}
+
+		const template = {
+			id: 'tpl_' + Math.random().toString(36).substr(2, 9),
+			name: name,
+			description: '',
+			builtIn: false,
+			createdAt: new Date().toISOString(),
+			nodeCount: nodes.length,
+			edgeCount: links.length,
+			nodes: nodes,
+			links: links
+		};
+
+		// Save to backend
+		try {
+			const url = (this._templateBaseUrl || '') + '/templates/save';
+			const resp = await fetch(url, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ template })
+			});
+			if (!resp.ok) throw new Error(await resp.text());
+			this.eventBus.emit('template:saved', { id: template.id, name: template.name });
+			this.refreshTemplateList();
+		} catch (e) {
+			this.showError('Failed to save template: ' + e.message);
+		}
+	}
+
+	async instantiateTemplate(templateId, worldX, worldY) {
+		// Fetch full template from backend
+		let template;
+		try {
+			const url = (this._templateBaseUrl || '') + '/templates/get/' + templateId;
+			const resp = await fetch(url, { method: 'POST' });
+			if (!resp.ok) throw new Error(await resp.text());
+			const data = await resp.json();
+			template = data.template;
+		} catch (e) {
+			this.showError('Failed to load template: ' + e.message);
+			return;
+		}
+
+		if (!template || !template.nodes || template.nodes.length === 0) {
+			this.showError('Template is empty');
+			return;
+		}
+
+		// Build ID remap table
+		const idRemap = {};
+		for (const nodeData of template.nodes) {
+			idRemap[nodeData.id] = Math.random().toString(36).substr(2, 9);
+		}
+
+		// Instantiate nodes (same pattern as Graph.deserialize)
+		const newNodes = [];
+		for (const nodeData of template.nodes) {
+			const nodeTypeKey = nodeData.isNative
+				? 'Native.' + nodeData.type
+				: (nodeData.schemaName && nodeData.modelName)
+					? nodeData.schemaName + '.' + nodeData.modelName
+					: nodeData.type;
+
+			if (!this.graph.nodeTypes[nodeTypeKey]) {
+				console.warn('[Templates] Node type not found:', nodeTypeKey);
+				continue;
+			}
+
+			const node = new (this.graph.nodeTypes[nodeTypeKey])();
+			node.id = idRemap[nodeData.id];
+			node.pos = [nodeData.pos[0] + worldX, nodeData.pos[1] + worldY];
+			node.size = nodeData.size.slice();
+			node.properties = JSON.parse(JSON.stringify(nodeData.properties || {}));
+			if (nodeData.isRootType !== undefined) node.isRootType = nodeData.isRootType;
+			if (nodeData.nativeInputs) node.nativeInputs = JSON.parse(JSON.stringify(nodeData.nativeInputs));
+			if (nodeData.multiInputs) node.multiInputs = JSON.parse(JSON.stringify(nodeData.multiInputs));
+			if (nodeData.multiInputSlots) node.multiInputSlots = JSON.parse(JSON.stringify(nodeData.multiInputSlots));
+			if (nodeData.multiOutputSlots) node.multiOutputSlots = JSON.parse(JSON.stringify(nodeData.multiOutputSlots));
+			if (nodeData.constantFields) node.constantFields = JSON.parse(JSON.stringify(nodeData.constantFields));
+			if (nodeData.workflowType) node.workflowType = nodeData.workflowType;
+			if (nodeData.workflowIndex !== undefined) node.workflowIndex = nodeData.workflowIndex;
+			if (nodeData.color) node.color = nodeData.color;
+
+			this.graph.nodes.push(node);
+			this.graph._nodes_by_id[node.id] = node;
+			node.graph = this.graph;
+			newNodes.push(node);
+		}
+
+		// Recreate links with remapped IDs
+		if (template.links) {
+			for (const linkData of template.links) {
+				const newOriginId = idRemap[linkData.origin_id];
+				const newTargetId = idRemap[linkData.target_id];
+				const originNode = this.graph._nodes_by_id[newOriginId];
+				const targetNode = this.graph._nodes_by_id[newTargetId];
+				if (!originNode || !targetNode) continue;
+
+				const newLinkId = ++this.graph.last_link_id;
+				const link = new Link(
+					newLinkId,
+					newOriginId,
+					linkData.origin_slot,
+					newTargetId,
+					linkData.target_slot,
+					linkData.type
+				);
+				this.graph.links[newLinkId] = link;
+				if (originNode.outputs[linkData.origin_slot])
+					originNode.outputs[linkData.origin_slot].links.push(newLinkId);
+				if (targetNode.multiInputs && targetNode.multiInputs[linkData.target_slot])
+					targetNode.multiInputs[linkData.target_slot].links.push(newLinkId);
+				else if (targetNode.inputs[linkData.target_slot])
+					targetNode.inputs[linkData.target_slot].link = newLinkId;
+			}
+		}
+
+		// Select newly created nodes
+		this.clearSelection();
+		for (const node of newNodes) this.selectNode(node, true);
+		this.draw();
+		this.eventBus.emit('template:instantiated', { templateId, nodeCount: newNodes.length });
 	}
 
 	// === MOUSE HANDLERS ===
@@ -2215,6 +2539,9 @@ class SchemaGraphApp {
 			html += this.selectedNodes.size > 1
 				? `<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete-all">❌ Delete ${this.selectedNodes.size} Nodes</div>`
 				: '<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete">❌ Delete Node</div>';
+			if (this.selectedNodes.size >= 2) {
+				html += '<div class="sg-context-menu-item sg-context-menu-template" data-action="save-template">Save as Template</div>';
+			}
 		} else {
 			// Native types submenu (only if feature is enabled)
 			if (this._features.nativeTypes) {
@@ -2328,6 +2655,10 @@ class SchemaGraphApp {
 			contextMenu.querySelector('.sg-context-menu-delete')?.addEventListener('click', () => {
 				this.selectedNodes.size > 1 ? this.deleteSelectedNodes() : this.removeNode(node);
 				contextMenu.classList.remove('show');
+			});
+			contextMenu.querySelector('[data-action="save-template"]')?.addEventListener('click', () => {
+				contextMenu.classList.remove('show');
+				this.saveSelectionAsTemplate();
 			});
 		}
 
@@ -6999,6 +7330,10 @@ class SchemaGraphApp {
 				}
 			},
 
+			templates: {
+				setBaseUrl: (url) => { self._templateBaseUrl = url; },
+			},
+
 			completeness: {
 				check: (nodeOrId) => {
 					const node = typeof nodeOrId === 'string' ? self.graph.getNodeById(nodeOrId) : nodeOrId;
@@ -7714,6 +8049,9 @@ class SchemaGraphApp {
 						reader.readAsText(file);
 						e.target.value = '';
 					});
+
+					// Templates
+					document.getElementById('sg-templatesBtn')?.addEventListener('click', () => self.toggleTemplatePanel());
 
 					// View
 					document.getElementById('sg-centerViewBtn')?.addEventListener('click', () => self.centerView());
