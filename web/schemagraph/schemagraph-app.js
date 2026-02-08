@@ -801,23 +801,23 @@ class SchemaGraphApp {
 				pointer-events: auto;
 				font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
 				font-size: 12px;
-				border-radius: 6px;
+				border-radius: var(--sg-node-radius, 6px);
 				overflow: hidden;
-				box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+				box-shadow: 0 4px 20px var(--sg-node-shadow, rgba(0,0,0,0.4));
 				z-index: 100;
 				display: flex;
 				flex-direction: column;
-				background: var(--sg-bg-secondary, #1e1e2e);
-				border: 1px solid var(--sg-border-color, #404060);
+				background: var(--sg-node-bg, var(--sg-bg-secondary, #2a2a2a));
+				border: 1px solid var(--sg-border-color, #1a1a1a);
 			}
 			.sg-preview-text-header {
 				display: flex;
 				justify-content: space-between;
 				align-items: center;
-				padding: 6px 10px;
-				background: var(--sg-node-header, #404060);
-				border-bottom: 1px solid var(--sg-border-color, #303050);
-				cursor: move;
+				padding: 4px 8px;
+				background: var(--sg-node-header, #4a5568);
+				border-bottom: 1px solid var(--sg-border-color, #1a1a1a);
+				cursor: default;
 				user-select: none;
 			}
 			.sg-preview-text-title {
@@ -825,15 +825,19 @@ class SchemaGraphApp {
 				font-weight: 600;
 				color: var(--sg-text-primary, #ffffff);
 				font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
 			}
 			.sg-preview-text-actions {
 				display: flex;
 				gap: 4px;
+				flex-shrink: 0;
 			}
 			.sg-preview-text-btn {
 				background: transparent;
 				border: none;
-				color: var(--sg-text-tertiary, #888);
+				color: var(--sg-text-tertiary, #707070);
 				width: 20px;
 				height: 20px;
 				border-radius: 3px;
@@ -845,51 +849,43 @@ class SchemaGraphApp {
 				padding: 0;
 			}
 			.sg-preview-text-btn:hover {
-				background: rgba(255,255,255,0.1);
-				color: var(--sg-text-primary, #fff);
+				background: var(--sg-bg-tertiary, rgba(255,255,255,0.1));
+				color: var(--sg-text-primary, #ffffff);
 			}
 			.sg-preview-text-content {
 				flex: 1;
 				overflow: auto;
-				padding: 10px;
-				color: var(--sg-text-primary, #e0e0e0);
+				padding: 8px;
+				color: var(--sg-text-primary, #ffffff);
 				white-space: pre-wrap;
 				word-break: break-word;
-				line-height: 1.5;
-				min-height: 100px;
-				max-height: 400px;
+				line-height: 1.4;
+				font-size: 11px;
 			}
 			.sg-preview-text-content::-webkit-scrollbar {
-				width: 8px;
-				height: 8px;
+				width: 6px;
+				height: 6px;
 			}
 			.sg-preview-text-content::-webkit-scrollbar-track {
-				background: rgba(0,0,0,0.2);
-				border-radius: 4px;
+				background: transparent;
 			}
 			.sg-preview-text-content::-webkit-scrollbar-thumb {
-				background: rgba(255,255,255,0.2);
-				border-radius: 4px;
+				background: var(--sg-text-quaternary, rgba(255,255,255,0.15));
+				border-radius: 3px;
 			}
 			.sg-preview-text-content::-webkit-scrollbar-thumb:hover {
-				background: rgba(255,255,255,0.3);
+				background: var(--sg-text-tertiary, rgba(255,255,255,0.25));
 			}
 			.sg-preview-text-footer {
-				padding: 4px 10px;
-				background: rgba(0,0,0,0.2);
-				border-top: 1px solid var(--sg-border-color, #303050);
+				padding: 3px 8px;
+				background: var(--sg-bg-tertiary, rgba(0,0,0,0.2));
+				border-top: 1px solid var(--sg-border-color, #1a1a1a);
 				font-size: 10px;
-				color: var(--sg-text-tertiary, #808090);
+				color: var(--sg-text-tertiary, #707070);
 				font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 			}
 			.sg-preview-text-resize {
-				position: absolute;
-				bottom: 0;
-				right: 0;
-				width: 16px;
-				height: 16px;
-				cursor: se-resize;
-				background: linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.1) 50%);
+				display: none;
 			}
 		`;
 		document.head.appendChild(style);
@@ -918,15 +914,14 @@ class SchemaGraphApp {
 		overlay.id = `sg-preview-overlay-${node.id}`;
 		overlay.innerHTML = `
 			<div class="sg-preview-text-header">
-				<span class="sg-preview-text-title">${title}</span>
+				<span class="sg-preview-text-title">${this._escapeHtml(title)}</span>
 				<div class="sg-preview-text-actions">
 					<button class="sg-preview-text-btn sg-preview-copy-btn" title="Copy to clipboard">📋</button>
-					<button class="sg-preview-text-btn sg-preview-close-btn" title="Close">✕</button>
+					<button class="sg-preview-text-btn sg-preview-close-btn" title="Collapse">▲</button>
 				</div>
 			</div>
 			<div class="sg-preview-text-content">${this._escapeHtml(text)}</div>
 			<div class="sg-preview-text-footer">${text.length} chars, ${text.split('\n').length} lines</div>
-			<div class="sg-preview-text-resize"></div>
 		`;
 
 		const container = this.canvas?.parentElement || document.body;
@@ -936,89 +931,20 @@ class SchemaGraphApp {
 		const closeBtn = overlay.querySelector('.sg-preview-close-btn');
 		const copyBtn = overlay.querySelector('.sg-preview-copy-btn');
 		const header = overlay.querySelector('.sg-preview-text-header');
-		const resizeHandle = overlay.querySelector('.sg-preview-text-resize');
 
+		// Clicking header or close button collapses back
 		closeBtn?.addEventListener('click', () => this._closePreviewTextOverlay(node));
+		header?.addEventListener('dblclick', () => this._closePreviewTextOverlay(node));
 
-		copyBtn?.addEventListener('click', () => {
+		copyBtn?.addEventListener('click', (e) => {
+			e.stopPropagation();
 			navigator.clipboard.writeText(text).then(() => {
 				copyBtn.textContent = '✓';
 				setTimeout(() => { copyBtn.textContent = '📋'; }, 1000);
 			});
 		});
 
-		// Drag to move - track relative offset from node
-		let isDragging = false;
-		let dragOffsetX = 0, dragOffsetY = 0;
-
-		header?.addEventListener('mousedown', (e) => {
-			isDragging = true;
-			const rect = overlay.getBoundingClientRect();
-			dragOffsetX = e.clientX - rect.left;
-			dragOffsetY = e.clientY - rect.top;
-			e.preventDefault();
-		});
-
-		const onMouseMove = (e) => {
-			if (!isDragging) return;
-			const containerRect = container.getBoundingClientRect();
-			const newLeft = e.clientX - containerRect.left - dragOffsetX;
-			const newTop = e.clientY - containerRect.top - dragOffsetY;
-			overlay.style.left = newLeft + 'px';
-			overlay.style.top = newTop + 'px';
-			// Store relative offset from node in world coordinates
-			const camera = this.camera;
-			const nodeScreenX = node.pos[0] * camera.scale + camera.x;
-			const nodeScreenY = node.pos[1] * camera.scale + camera.y;
-			overlay._relativeOffsetX = (newLeft - nodeScreenX) / camera.scale;
-			overlay._relativeOffsetY = (newTop - nodeScreenY) / camera.scale;
-			overlay._wasDragged = true;
-		};
-
-		const onMouseUp = () => { isDragging = false; };
-
-		document.addEventListener('mousemove', onMouseMove);
-		document.addEventListener('mouseup', onMouseUp);
-
-		// Store cleanup functions for later removal
-		overlay._cleanupDrag = () => {
-			document.removeEventListener('mousemove', onMouseMove);
-			document.removeEventListener('mouseup', onMouseUp);
-		};
-
-		// Resize
-		let isResizing = false;
-		let startWidth, startHeight, startX, startY;
-
-		resizeHandle?.addEventListener('mousedown', (e) => {
-			isResizing = true;
-			startWidth = overlay.offsetWidth;
-			startHeight = overlay.offsetHeight;
-			startX = e.clientX;
-			startY = e.clientY;
-			e.preventDefault();
-			e.stopPropagation();
-		});
-
-		const onResizeMove = (e) => {
-			if (!isResizing) return;
-			const newWidth = Math.max(200, startWidth + (e.clientX - startX));
-			const newHeight = Math.max(150, startHeight + (e.clientY - startY));
-			overlay.style.width = newWidth + 'px';
-			overlay.style.height = newHeight + 'px';
-		};
-
-		const onResizeUp = () => { isResizing = false; };
-
-		document.addEventListener('mousemove', onResizeMove);
-		document.addEventListener('mouseup', onResizeUp);
-
-		overlay._cleanupResize = () => {
-			document.removeEventListener('mousemove', onResizeMove);
-			document.removeEventListener('mouseup', onResizeUp);
-		};
-
-		// Position overlay relative to node
+		// Position overlay fixed over the node content area
 		this._updatePreviewTextOverlayPosition(node, overlay);
 
 		// Store reference
@@ -1032,34 +958,29 @@ class SchemaGraphApp {
 		if (!overlay) return;
 
 		const camera = this.camera;
-		const nodeScreenX = node.pos[0] * camera.scale + camera.x;
-		const nodeScreenY = node.pos[1] * camera.scale + camera.y;
-
-		if (overlay._wasDragged) {
-			// Use stored relative offset from node (in world coords, convert to screen)
-			const offsetScreenX = (overlay._relativeOffsetX || 0) * camera.scale;
-			const offsetScreenY = (overlay._relativeOffsetY || 0) * camera.scale;
-			overlay.style.left = (nodeScreenX + offsetScreenX) + 'px';
-			overlay.style.top = (nodeScreenY + offsetScreenY) + 'px';
+		// Align with the node's content area (below header + slots)
+		const bounds = node._previewBounds;
+		if (bounds) {
+			overlay.style.left = (bounds.x * camera.scale + camera.x) + 'px';
+			overlay.style.top = (bounds.y * camera.scale + camera.y) + 'px';
+			overlay.style.width = Math.max(120, bounds.w * camera.scale) + 'px';
+			overlay.style.height = Math.max(60, bounds.h * camera.scale) + 'px';
 		} else {
-			// Default position: centered over the node
-			const nodeScreenW = node.size[0] * camera.scale;
-			const nodeScreenH = node.size[1] * camera.scale;
-			const overlayWidth = overlay.offsetWidth || 400;
-			const overlayHeight = overlay.offsetHeight || 300;
-			overlay.style.left = (nodeScreenX + (nodeScreenW - overlayWidth) / 2) + 'px';
-			overlay.style.top = (nodeScreenY + (nodeScreenH - overlayHeight) / 2) + 'px';
-			if (!overlay.style.width) overlay.style.width = '400px';
-			if (!overlay.style.height) overlay.style.height = '300px';
+			// Fallback: cover the node area below header
+			const sx = node.pos[0] * camera.scale + camera.x;
+			const sy = node.pos[1] * camera.scale + camera.y + 30 * camera.scale;
+			const sw = node.size[0] * camera.scale;
+			const sh = node.size[1] * camera.scale - 30 * camera.scale;
+			overlay.style.left = sx + 'px';
+			overlay.style.top = sy + 'px';
+			overlay.style.width = Math.max(120, sw) + 'px';
+			overlay.style.height = Math.max(60, sh) + 'px';
 		}
 	}
 
 	_closePreviewTextOverlay(node) {
 		const overlay = this._previewTextOverlays?.get(node.id);
 		if (overlay) {
-			// Clean up event listeners
-			overlay._cleanupDrag?.();
-			overlay._cleanupResize?.();
 			overlay.remove();
 			this._previewTextOverlays.delete(node.id);
 		}
@@ -1767,21 +1688,24 @@ class SchemaGraphApp {
 				const wasExpanded = node.extra.previewExpanded;
 				node.extra.previewExpanded = !wasExpanded;
 
-				// Check if this is text-like content - show scrollable overlay
-				const previewData = this._getPreviewData(node);
-				const textTypes = ['text', 'json', 'list', 'dict', 'integer', 'float', 'boolean'];
-				const isTextType = previewData && textTypes.includes(previewData.type);
-
-				if (node.extra.previewExpanded && isTextType) {
-					// Show scrollable text overlay
-					this._createPreviewTextOverlay(node);
-				} else if (!node.extra.previewExpanded) {
-					// Close overlay if it exists
+				if (!node.extra.previewExpanded) {
+					// Collapsing — close overlay first
 					this._closePreviewTextOverlay(node);
 				}
 
+				// Resize node and redraw so _previewBounds is recalculated
 				this._recalculatePreviewNodeSize(node);
 				this.draw();
+
+				if (node.extra.previewExpanded) {
+					// Expanding — create overlay after draw so _previewBounds is fresh
+					const previewData = this._getPreviewData(node);
+					const textTypes = ['text', 'json', 'list', 'dict', 'integer', 'float', 'boolean'];
+					if (previewData && textTypes.includes(previewData.type)) {
+						this._createPreviewTextOverlay(node);
+					}
+				}
+
 				this.eventBus.emit('preview:modeToggled', {
 					nodeId: node.id,
 					expanded: node.extra.previewExpanded
@@ -5186,6 +5110,12 @@ class SchemaGraphApp {
 		this.ctx.roundRect(x, y, w, h, 4);
 		this.ctx.fill();
 
+		// Clip to content area so text doesn't overflow the node
+		this.ctx.save();
+		this.ctx.beginPath();
+		this.ctx.rect(x, y, w, h);
+		this.ctx.clip();
+
 		const textScale = this.getTextScale();
 
 		switch (data.type) {
@@ -5219,6 +5149,8 @@ class SchemaGraphApp {
 			default:
 				this._drawUnknownPreview(data, x, y, w, h, colors, textScale);
 		}
+
+		this.ctx.restore();
 	}
 
 	/**
@@ -5237,6 +5169,16 @@ class SchemaGraphApp {
 		this.ctx.beginPath();
 		this.ctx.roundRect(x, y, w, h, 4);
 		this.ctx.fill();
+
+		// If an HTML text overlay is active for this node, skip canvas text rendering
+		// to avoid showing two areas with duplicate content
+		if (this._previewTextOverlays?.has(node.id)) return;
+
+		// Clip to content area
+		this.ctx.save();
+		this.ctx.beginPath();
+		this.ctx.rect(x, y, w, h);
+		this.ctx.clip();
 
 		const textScale = this.getTextScale();
 
@@ -5268,6 +5210,8 @@ class SchemaGraphApp {
 			default:
 				this._drawUnknownPreview(data, x, y, w, h, colors, textScale, true);
 		}
+
+		this.ctx.restore();
 	}
 
 	/**
