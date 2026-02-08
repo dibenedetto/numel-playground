@@ -1,4 +1,5 @@
 // CodeMirror 6 bundle for SchemaGraph code editor
+// Exports are exposed as window.CodeEditor by webpack
 import { EditorView, basicSetup } from 'codemirror';
 import { EditorState } from '@codemirror/state';
 import { python } from '@codemirror/lang-python';
@@ -7,7 +8,7 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import { keymap } from '@codemirror/view';
 import { indentWithTab } from '@codemirror/commands';
 
-window.CodeEditor = {
+export {
 	EditorView,
 	EditorState,
 	basicSetup,
