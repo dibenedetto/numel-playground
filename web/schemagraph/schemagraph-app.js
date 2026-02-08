@@ -29,6 +29,7 @@ class SchemaGraphApp {
 		this.injectAnalyticsPanelHTML();
 		this.injectFeaturesPanelHTML();
 		this.injectTemplatePanelHTML();
+		this.injectGenerateWorkflowHTML();
 		this.injectMultiSlotUIStyles();
 		this.injectInteractiveStyles();
 		this.injectPreviewOverlayStyles();
@@ -373,7 +374,7 @@ class SchemaGraphApp {
 				<div class="sg-toolbar-divider" id="sg-toolbar-analytics-divider"></div>
 				<div class="sg-toolbar-section" id="sg-toolbar-schema"><span class="sg-toolbar-label">Schema</span><button id="sg-uploadSchemaBtn" class="sg-toolbar-btn sg-toolbar-btn-primary">📤 Upload</button><button id="sg-exportBtn" class="sg-toolbar-btn">Export Graph</button><button id="sg-importBtn" class="sg-toolbar-btn">Import Graph</button><button id="sg-exportConfigBtn" class="sg-toolbar-btn">Export Config</button><button id="sg-importConfigBtn" class="sg-toolbar-btn">Import Config</button></div>
 				<div class="sg-toolbar-divider" id="sg-toolbar-schema-divider"></div>
-				<div class="sg-toolbar-section" id="sg-toolbar-workflow"><span class="sg-toolbar-label">Workflow</span><button id="sg-exportWorkflowBtn" class="sg-toolbar-btn">Export Workflow</button><button id="sg-importWorkflowBtn" class="sg-toolbar-btn">Import Workflow</button></div>
+				<div class="sg-toolbar-section" id="sg-toolbar-workflow"><span class="sg-toolbar-label">Workflow</span><button id="sg-exportWorkflowBtn" class="sg-toolbar-btn">Export Workflow</button><button id="sg-importWorkflowBtn" class="sg-toolbar-btn">Import Workflow</button><button id="sg-generateWorkflowBtn" class="sg-toolbar-btn sg-toolbar-btn-primary">Generate</button></div>
 				<div class="sg-toolbar-divider" id="sg-toolbar-workflow-divider"></div>
 				<div class="sg-toolbar-section" id="sg-toolbar-templates"><span class="sg-toolbar-label">Templates</span><button id="sg-templatesBtn" class="sg-toolbar-btn">Templates</button></div>
 				<div class="sg-toolbar-divider" id="sg-toolbar-templates-divider"></div>
@@ -790,6 +791,195 @@ class SchemaGraphApp {
 		document.body.appendChild(panel);
 
 		document.getElementById('sg-templateCloseBtn').addEventListener('click', () => this.toggleTemplatePanel());
+	}
+
+	// === GENERATE WORKFLOW MODAL ===
+
+	injectGenerateWorkflowHTML() {
+		if (document.getElementById('sg-generateModal')) return;
+		const modal = document.createElement('div');
+		modal.id = 'sg-generateModal';
+		modal.className = 'sg-generate-modal';
+		modal.innerHTML = `
+			<div class="sg-generate-container">
+				<div class="sg-generate-header">
+					<span class="sg-generate-title">Generate Workflow</span>
+					<div class="sg-generate-config">
+						<select id="sg-generateProvider">
+							<option value="ollama">Ollama</option>
+							<option value="openai">OpenAI</option>
+							<option value="anthropic">Anthropic</option>
+						</select>
+						<input id="sg-generateModel" type="text" placeholder="model name" value="mistral">
+					</div>
+					<button id="sg-generateClose" class="sg-generate-close">\u2715</button>
+				</div>
+				<div class="sg-generate-body">
+					<div class="sg-generate-messages" id="sg-generateMessages"></div>
+					<div class="sg-generate-input-row">
+						<textarea id="sg-generatePrompt" rows="3" placeholder="Describe your workflow..."></textarea>
+						<button id="sg-generateBtn" class="sg-generate-btn">Generate</button>
+					</div>
+				</div>
+				<div class="sg-generate-preview" id="sg-generatePreview" style="display:none">
+					<div class="sg-generate-preview-header">Generated Workflow</div>
+					<pre id="sg-generatePreviewJson"></pre>
+					<div class="sg-generate-preview-actions">
+						<button id="sg-generateImport" class="sg-generate-btn">Import to Canvas</button>
+						<button id="sg-generateRetry" class="sg-generate-btn secondary">Retry</button>
+					</div>
+				</div>
+				<div class="sg-generate-status" id="sg-generateStatus"></div>
+			</div>`;
+		document.body.appendChild(modal);
+
+		// Wire close
+		document.getElementById('sg-generateClose').addEventListener('click', () => this._closeGenerateWorkflow());
+		modal.addEventListener('click', (e) => { if (e.target === modal) this._closeGenerateWorkflow(); });
+
+		// Wire generate button
+		document.getElementById('sg-generateBtn').addEventListener('click', () => this._handleGenerate());
+
+		// Wire import button
+		document.getElementById('sg-generateImport').addEventListener('click', () => this._handleGenerateImport());
+
+		// Wire retry button
+		document.getElementById('sg-generateRetry').addEventListener('click', () => this._handleGenerate());
+
+		// Enter key in textarea sends (Shift+Enter for newline)
+		document.getElementById('sg-generatePrompt').addEventListener('keydown', (e) => {
+			if (e.key === 'Enter' && !e.shiftKey) {
+				e.preventDefault();
+				this._handleGenerate();
+			}
+		});
+	}
+
+	showGenerateWorkflow() {
+		const modal = document.getElementById('sg-generateModal');
+		if (!modal) return;
+		modal.classList.add('show');
+		// Focus the prompt textarea
+		setTimeout(() => document.getElementById('sg-generatePrompt')?.focus(), 100);
+	}
+
+	_closeGenerateWorkflow() {
+		const modal = document.getElementById('sg-generateModal');
+		if (!modal) return;
+		modal.classList.remove('show');
+	}
+
+	_addGenerateMessage(role, content) {
+		const messagesEl = document.getElementById('sg-generateMessages');
+		if (!messagesEl) return;
+		const msg = document.createElement('div');
+		msg.className = `sg-generate-msg sg-generate-msg-${role}`;
+		const roleLabel = document.createElement('div');
+		roleLabel.className = 'sg-generate-msg-role';
+		roleLabel.textContent = role === 'user' ? 'You' : role === 'assistant' ? 'Assistant' : 'Error';
+		msg.appendChild(roleLabel);
+		const text = document.createElement('div');
+		text.textContent = content;
+		msg.appendChild(text);
+		messagesEl.appendChild(msg);
+		messagesEl.scrollTop = messagesEl.scrollHeight;
+	}
+
+	async _handleGenerate() {
+		const promptEl = document.getElementById('sg-generatePrompt');
+		const statusEl = document.getElementById('sg-generateStatus');
+		const generateBtn = document.getElementById('sg-generateBtn');
+		const previewEl = document.getElementById('sg-generatePreview');
+		const previewJsonEl = document.getElementById('sg-generatePreviewJson');
+		const providerEl = document.getElementById('sg-generateProvider');
+		const modelEl = document.getElementById('sg-generateModel');
+
+		const userText = promptEl?.value?.trim();
+		if (!userText) return;
+
+		// Add user message to chat
+		this._addGenerateMessage('user', userText);
+		promptEl.value = '';
+
+		// Initialize conversation history
+		this._generateHistory = this._generateHistory || [];
+		this._generateHistory.push({ role: 'user', content: userText });
+
+		// Show loading state
+		generateBtn.disabled = true;
+		generateBtn.textContent = 'Generating...';
+		statusEl.textContent = 'Sending to LLM...';
+		previewEl.style.display = 'none';
+
+		try {
+			const baseUrl = this._generateBaseUrl || '';
+			const resp = await fetch(baseUrl + '/generate-workflow', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					prompt: userText,
+					provider: providerEl?.value || 'ollama',
+					model: modelEl?.value || 'mistral',
+					temperature: 0.3,
+					max_tokens: 4096,
+					history: this._generateHistory.slice(0, -1) // Send history before current message
+				})
+			});
+
+			if (!resp.ok) {
+				const errText = await resp.text();
+				throw new Error(errText || `HTTP ${resp.status}`);
+			}
+
+			const data = await resp.json();
+			this._lastGeneratedWorkflow = data.workflow;
+
+			// Add assistant message
+			const summary = data.message || `Generated ${data.workflow?.nodes?.length || 0} nodes, ${data.workflow?.edges?.length || 0} edges`;
+			this._addGenerateMessage('assistant', summary);
+			this._generateHistory.push({ role: 'assistant', content: summary });
+
+			// Show preview
+			previewJsonEl.textContent = JSON.stringify(data.workflow, null, 2);
+			previewEl.style.display = 'block';
+			statusEl.textContent = summary;
+		} catch (err) {
+			this._addGenerateMessage('error', err.message);
+			statusEl.textContent = 'Generation failed';
+			// Remove the failed user message from history so retry is clean
+			this._generateHistory.pop();
+			console.error('[GenerateWorkflow] Error:', err);
+		} finally {
+			generateBtn.disabled = false;
+			generateBtn.textContent = 'Generate';
+		}
+	}
+
+	_handleGenerateImport() {
+		if (!this._lastGeneratedWorkflow) {
+			this.showError('No generated workflow to import');
+			return;
+		}
+
+		const schemas = this.graph.getRegisteredSchemas().filter(s => this.graph.isWorkflowSchema(s));
+		if (schemas.length === 0) {
+			this.showError('No workflow schema registered');
+			return;
+		}
+
+		try {
+			this.api.workflow.import(this._lastGeneratedWorkflow, schemas[0], {});
+			this.centerView();
+			this._closeGenerateWorkflow();
+
+			// Clear conversation state for next session
+			this._generateHistory = [];
+			document.getElementById('sg-generateMessages').innerHTML = '';
+			document.getElementById('sg-generatePreview').style.display = 'none';
+			document.getElementById('sg-generateStatus').textContent = '';
+		} catch (err) {
+			this.showError('Import failed: ' + err.message);
+		}
 	}
 
 	toggleTemplatePanel() {
@@ -7339,6 +7529,10 @@ class SchemaGraphApp {
 				setBaseUrl: (url) => { self._templateBaseUrl = url; },
 			},
 
+			generate: {
+				setBaseUrl: (url) => { self._generateBaseUrl = url; },
+			},
+
 			completeness: {
 				check: (nodeOrId) => {
 					const node = typeof nodeOrId === 'string' ? self.graph.getNodeById(nodeOrId) : nodeOrId;
@@ -8057,6 +8251,9 @@ class SchemaGraphApp {
 
 					// Templates
 					document.getElementById('sg-templatesBtn')?.addEventListener('click', () => self.toggleTemplatePanel());
+
+					// Generate Workflow
+					document.getElementById('sg-generateWorkflowBtn')?.addEventListener('click', () => self.showGenerateWorkflow());
 
 					// View
 					document.getElementById('sg-centerViewBtn')?.addEventListener('click', () => self.centerView());

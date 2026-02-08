@@ -335,9 +335,10 @@ async function connect() {
 		}
 		addLog('success', '✅ Schema registered');
 
-		// Set API base URLs for dynamic options and templates
+		// Set API base URLs for dynamic options, templates, and generate
 		schemaGraph.api.comboBox.setBaseUrl(serverUrl);
 		schemaGraph.api.templates.setBaseUrl(serverUrl);
+		schemaGraph.api.generate.setBaseUrl(serverUrl);
 
 		// Populate options panels now that schema is available
 		populateWorkflowOptionsPanel();
