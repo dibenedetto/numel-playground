@@ -20,7 +20,7 @@ from   utils     import get_now_str, get_timestamp_str, log_print, serialize_res
 from   events    import (
 	get_event_registry, init_event_registry, shutdown_event_registry,
 	TimerSourceConfig, FSWatchSourceConfig,
-	WebhookSourceConfig, BrowserSourceConfig
+	WebhookSourceConfig, BrowserSourceConfig, BrowserSource
 )
 
 # Tutorial extension (see docs/tutorial-extension.md)
@@ -683,6 +683,21 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 			}
 		except ValueError as e:
 			raise HTTPException(status_code=400, detail=str(e))
+
+	@app.post("/event-sources/browser/{source_id}/event")
+	async def receive_browser_event(source_id: str, data: dict):
+		"""Receive a browser media event (frame, audio chunk) from the frontend"""
+		registry = get_event_registry()
+		source = registry.get(source_id)
+		if not source:
+			raise HTTPException(status_code=404, detail=f"Source not found: {source_id}")
+		if not isinstance(source, BrowserSource):
+			raise HTTPException(status_code=400, detail=f"Source {source_id} is not a browser source")
+		if not source.is_running:
+			raise HTTPException(status_code=400, detail=f"Source {source_id} is not running")
+		client_id = data.pop("client_id", None)
+		await source.receive_event(data, client_id=client_id)
+		return {"status": "ok"}
 
 	@app.post("/event-sources/delete/{source_id}")
 	async def delete_event_source(source_id: str):
