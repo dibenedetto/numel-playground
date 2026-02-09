@@ -72,6 +72,23 @@
       },
       "created_at": "2026-02-06T13:43:40.614962",
       "updated_at": "2026-02-06T13:43:40.614962"
+    },
+    "src_7b8c4cb5": {
+      "config": {
+        "id": "src_7b8c4cb5",
+        "name": null,
+        "source_type": "browser",
+        "enabled": true,
+        "tags": [],
+        "device_type": "webcam",
+        "mode": "event",
+        "interval_ms": 1000,
+        "resolution": null,
+        "audio_format": null,
+        "source_id": "browser_6335k5li3"
+      },
+      "created_at": "2026-02-09T12:07:20.692245",
+      "updated_at": "2026-02-09T12:07:20.692245"
     }
   }
 }

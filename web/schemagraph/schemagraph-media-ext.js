@@ -35,6 +35,7 @@ class MediaOverlayManager {
 
 	createOverlay(node) {
 		const nodeId = node.id;
+		console.log(`[BrowserMedia] createOverlay for node ${nodeId}`);
 
 		if (this.overlays.has(nodeId)) {
 			this.nodeRefs.set(nodeId, node);
@@ -49,6 +50,7 @@ class MediaOverlayManager {
 
 		const container = this.app.canvas?.parentElement || document.body;
 		container.appendChild(overlay);
+		console.log(`[BrowserMedia] Overlay appended to`, container.tagName, 'at position', overlay.style.left, overlay.style.top);
 
 		this.overlays.set(nodeId, overlay);
 		this.nodeRefs.set(nodeId, node);
@@ -357,7 +359,14 @@ class MediaOverlayManager {
 	}
 
 	_getFieldValue(node, fieldName) {
-		// Read field value from node inputs
+		// Check inputMeta for actual field name (inputs use display names which may be prettified)
+		if (node.inputMeta && node.inputs) {
+			for (let i = 0; i < node.inputs.length; i++) {
+				const meta = node.inputMeta[i];
+				if (meta?.name === fieldName) return node.inputs[i].value;
+			}
+		}
+		// Fallback: direct name match on inputs
 		if (node.inputs) {
 			for (const inp of node.inputs) {
 				if (inp.name === fieldName) return inp.value;
@@ -412,6 +421,7 @@ class MediaOverlayManager {
 		overlay.style.top = `${overlayY}px`;
 		overlay.style.width = `${Math.max(overlayW, 80)}px`;
 		overlay.style.height = `${Math.max(overlayH, 60)}px`;
+		overlay.style.zIndex = this.Z_BASE;
 	}
 
 	removeOverlay(nodeId) {
@@ -459,6 +469,8 @@ class BrowserMediaExtension extends SchemaGraphExtension {
 	}
 
 	_setupEventListeners() {
+		console.log('[BrowserMedia] Setting up event listeners');
+
 		this.on('node:created', (e) => {
 			const node = e.node || this.graph.getNodeById(e.nodeId);
 			if (node) this._applyMediaToNode(node);
@@ -564,7 +576,10 @@ class BrowserMediaExtension extends SchemaGraphExtension {
 	}
 
 	_applyMediaToNode(node) {
-		if (!node || !this._isBrowserSource(node)) return;
+		if (!node) return;
+		if (!this._isBrowserSource(node)) return;
+
+		console.log(`[BrowserMedia] Applying media overlay to node ${node.id} (workflowType=${node.workflowType})`);
 
 		// Ensure node is large enough for the overlay
 		if (node.size[0] < 280) node.size[0] = 280;
