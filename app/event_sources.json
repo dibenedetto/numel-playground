@@ -219,6 +219,22 @@
       },
       "created_at": "2026-02-10T19:59:34.741478",
       "updated_at": "2026-02-10T19:59:34.741478"
+    },
+    "browser_yhgmj5qr7": {
+      "config": {
+        "id": "browser_yhgmj5qr7",
+        "name": null,
+        "source_type": "browser",
+        "enabled": true,
+        "tags": [],
+        "device_type": "webcam",
+        "mode": "event",
+        "interval_ms": 1000,
+        "resolution": null,
+        "audio_format": null
+      },
+      "created_at": "2026-02-10T20:05:53.221234",
+      "updated_at": "2026-02-10T20:05:53.221234"
     }
   }
 }

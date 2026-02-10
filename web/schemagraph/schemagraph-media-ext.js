@@ -259,14 +259,20 @@ class MediaOverlayManager {
 				// Push frame to node output so connected PreviewFlow nodes display it
 				this._pushToNodeOutput(node, data);
 
-				// Send to backend if source is registered
-				if (sourceId) {
+				// Send to backend if source is registered (serialized to avoid connection pileup)
+				if (sourceId && !this._sendingFrame?.get(nodeId)) {
+					this._sendingFrame = this._sendingFrame || new Map();
+					this._sendingFrame.set(nodeId, true);
 					const baseUrl = this._baseUrl || '';
 					fetch(`${baseUrl}/event-sources/browser/${sourceId}/event`, {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify({ ...data, client_id: `browser_${nodeId}` })
-					}).catch(() => {}); // fire-and-forget
+					}).then(() => {
+						this._sendingFrame.set(nodeId, false);
+					}).catch(() => {
+						this._sendingFrame.set(nodeId, false);
+					});
 				}
 			} catch (err) {
 				console.warn(`[BrowserMedia] Failed to capture for node ${nodeId}:`, err.message);
