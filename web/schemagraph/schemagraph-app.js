@@ -5668,6 +5668,15 @@ class SchemaGraphApp {
 	 * @returns {Object|null} Preview data or null
 	 */
 	_getPreviewData(node) {
+		// 0. Live frame from media extension (highest priority for live video)
+		if (node._liveFrameImg?.complete && node._liveFrameImg.naturalWidth > 0) {
+			return {
+				type: 'image',
+				value: node.previewData,
+				source: 'live'
+			};
+		}
+
 		// 1. Find the 'input' slot by name (not at fixed index due to inheritance)
 		const inputSlotIdx = this._findInputSlotByName(node, 'input');
 		if (inputSlotIdx >= 0) {
@@ -6035,7 +6044,12 @@ class SchemaGraphApp {
 				this._drawJsonPreviewSimple(data.value, x, y, w, h, colors, textScale);
 				break;
 			case 'image':
-				this._drawImagePreviewSimple(data.value, x, y, w, h, colors);
+				// Use live frame if available (set by media extensions for smooth video)
+				if (node._liveFrameImg?.complete && node._liveFrameImg.naturalWidth > 0) {
+					this._drawLoadedImage(node._liveFrameImg, x, y, w, h);
+				} else {
+					this._drawImagePreviewSimple(data.value, x, y, w, h, colors);
+				}
 				break;
 			case 'audio':
 				this._drawAudioPreviewSimple(data, x, y, w, h, colors, textScale);
@@ -6099,7 +6113,12 @@ class SchemaGraphApp {
 				this._drawJsonPreviewFull(data.value, x, y, w, h, colors, textScale);
 				break;
 			case 'image':
-				this._drawImagePreviewFull(data.value, x, y, w, h, colors);
+				// Use live frame if available (set by media extensions for smooth video)
+				if (node._liveFrameImg?.complete && node._liveFrameImg.naturalWidth > 0) {
+					this._drawLoadedImage(node._liveFrameImg, x, y, w, h);
+				} else {
+					this._drawImagePreviewFull(data.value, x, y, w, h, colors);
+				}
 				break;
 			case 'audio':
 				this._drawAudioPreviewFull(data, x, y, w, h, colors, textScale);
@@ -6296,6 +6315,15 @@ class SchemaGraphApp {
 	_drawImagePreviewFull(value, x, y, w, h, colors) {
 		// Same as simple but with larger area
 		this._drawImagePreviewSimple(value, x, y, w, h, colors);
+	}
+
+	_drawLoadedImage(img, x, y, w, h) {
+		const scale = Math.min((w - 4) / img.width, (h - 4) / img.height, 1);
+		const imgW = img.width * scale;
+		const imgH = img.height * scale;
+		const imgX = x + (w - imgW) / 2;
+		const imgY = y + (h - imgH) / 2;
+		this.ctx.drawImage(img, imgX, imgY, imgW, imgH);
 	}
 
 	_drawAudioPreviewSimple(data, x, y, w, h, colors, textScale) {

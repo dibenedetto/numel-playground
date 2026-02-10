@@ -89,6 +89,136 @@
       },
       "created_at": "2026-02-09T12:07:20.692245",
       "updated_at": "2026-02-09T12:07:20.692245"
+    },
+    "src_0575c325": {
+      "config": {
+        "id": "src_0575c325",
+        "name": null,
+        "source_type": "browser",
+        "enabled": true,
+        "tags": [],
+        "device_type": "webcam",
+        "mode": "event",
+        "interval_ms": 1000,
+        "resolution": null,
+        "audio_format": null,
+        "source_id": "browser_ic32o0ln6"
+      },
+      "created_at": "2026-02-10T13:09:30.227356",
+      "updated_at": "2026-02-10T13:09:30.227356"
+    },
+    "src_932e18c1": {
+      "config": {
+        "id": "src_932e18c1",
+        "name": null,
+        "source_type": "browser",
+        "enabled": true,
+        "tags": [],
+        "device_type": "webcam",
+        "mode": "event",
+        "interval_ms": 1000,
+        "resolution": null,
+        "audio_format": null,
+        "source_id": "browser_2cre7vawu"
+      },
+      "created_at": "2026-02-10T13:44:05.080701",
+      "updated_at": "2026-02-10T13:44:05.080701"
+    },
+    "browser_fran2v51k": {
+      "config": {
+        "id": "browser_fran2v51k",
+        "name": null,
+        "source_type": "browser",
+        "enabled": true,
+        "tags": [],
+        "device_type": "webcam",
+        "mode": "event",
+        "interval_ms": 1000,
+        "resolution": null,
+        "audio_format": null
+      },
+      "created_at": "2026-02-10T13:57:07.178595",
+      "updated_at": "2026-02-10T13:57:07.178595"
+    },
+    "browser_0t6grz6mu": {
+      "config": {
+        "id": "browser_0t6grz6mu",
+        "name": null,
+        "source_type": "browser",
+        "enabled": true,
+        "tags": [],
+        "device_type": "webcam",
+        "mode": "event",
+        "interval_ms": 1000,
+        "resolution": null,
+        "audio_format": null
+      },
+      "created_at": "2026-02-10T19:43:20.568067",
+      "updated_at": "2026-02-10T19:43:20.568067"
+    },
+    "browser_48pmdrjxh": {
+      "config": {
+        "id": "browser_48pmdrjxh",
+        "name": null,
+        "source_type": "browser",
+        "enabled": true,
+        "tags": [],
+        "device_type": "webcam",
+        "mode": "event",
+        "interval_ms": 1000,
+        "resolution": null,
+        "audio_format": null
+      },
+      "created_at": "2026-02-10T19:46:34.552885",
+      "updated_at": "2026-02-10T19:46:34.552885"
+    },
+    "browser_mhiitclz4": {
+      "config": {
+        "id": "browser_mhiitclz4",
+        "name": null,
+        "source_type": "browser",
+        "enabled": true,
+        "tags": [],
+        "device_type": "webcam",
+        "mode": "event",
+        "interval_ms": 1000,
+        "resolution": null,
+        "audio_format": null
+      },
+      "created_at": "2026-02-10T19:51:59.298094",
+      "updated_at": "2026-02-10T19:51:59.298094"
+    },
+    "browser_lthdczpyf": {
+      "config": {
+        "id": "browser_lthdczpyf",
+        "name": null,
+        "source_type": "browser",
+        "enabled": true,
+        "tags": [],
+        "device_type": "webcam",
+        "mode": "event",
+        "interval_ms": 1000,
+        "resolution": null,
+        "audio_format": null
+      },
+      "created_at": "2026-02-10T19:58:03.439499",
+      "updated_at": "2026-02-10T19:58:03.439499"
+    },
+    "browser_jhyhqryjl": {
+      "config": {
+        "id": "browser_jhyhqryjl",
+        "name": null,
+        "source_type": "browser",
+        "enabled": true,
+        "tags": [],
+        "device_type": "webcam",
+        "mode": "event",
+        "interval_ms": 1000,
+        "resolution": null,
+        "audio_format": null
+      },
+      "created_at": "2026-02-10T19:59:34.741478",
+      "updated_at": "2026-02-10T19:59:34.741478"
     }
   }
 }

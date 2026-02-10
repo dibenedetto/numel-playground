@@ -35,7 +35,6 @@ class MediaOverlayManager {
 
 	createOverlay(node) {
 		const nodeId = node.id;
-		console.log(`[BrowserMedia] createOverlay for node ${nodeId}`);
 
 		if (this.overlays.has(nodeId)) {
 			this.nodeRefs.set(nodeId, node);
@@ -50,7 +49,6 @@ class MediaOverlayManager {
 
 		const container = this.app.canvas?.parentElement || document.body;
 		container.appendChild(overlay);
-		console.log(`[BrowserMedia] Overlay appended to`, container.tagName, 'at position', overlay.style.left, overlay.style.top);
 
 		this.overlays.set(nodeId, overlay);
 		this.nodeRefs.set(nodeId, node);
@@ -240,10 +238,6 @@ class MediaOverlayManager {
 		}
 
 		const sourceId = node.extra?._browserSourceId;
-		if (!sourceId) {
-			console.log(`[BrowserMedia] No source registered for node ${nodeId}, preview only`);
-			return;
-		}
 
 		const timer = setInterval(async () => {
 			if (this.states.get(nodeId) !== MediaState.ACTIVE) {
@@ -262,14 +256,20 @@ class MediaOverlayManager {
 					if (!data) return;
 				}
 
-				const baseUrl = this._baseUrl || '';
-				await fetch(`${baseUrl}/event-sources/browser/${sourceId}/event`, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ ...data, client_id: `browser_${nodeId}` })
-				});
+				// Push frame to node output so connected PreviewFlow nodes display it
+				this._pushToNodeOutput(node, data);
+
+				// Send to backend if source is registered
+				if (sourceId) {
+					const baseUrl = this._baseUrl || '';
+					fetch(`${baseUrl}/event-sources/browser/${sourceId}/event`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ ...data, client_id: `browser_${nodeId}` })
+					}).catch(() => {}); // fire-and-forget
+				}
 			} catch (err) {
-				console.warn(`[BrowserMedia] Failed to send frame for node ${nodeId}:`, err.message);
+				console.warn(`[BrowserMedia] Failed to capture for node ${nodeId}:`, err.message);
 			}
 		}, intervalMs);
 
@@ -296,6 +296,70 @@ class MediaOverlayManager {
 			data: dataUrl,
 			timestamp: Date.now()
 		};
+	}
+
+	_pushToNodeOutput(node, data) {
+		const frameData = data.type === 'frame' ? data.data : data;
+		const graph = this.app?.graph;
+		if (!graph || !node.outputs) return;
+
+		// Set output slot value
+		for (let i = 0; i < node.outputs.length; i++) {
+			const meta = node.outputMeta?.[i];
+			const slotName = meta?.name || node.outputs[i]?.name;
+			if (slotName === 'output' || slotName === 'Output') {
+				node.outputs[i].value = frameData;
+				break;
+			}
+		}
+
+		// Push live frames to all downstream preview nodes (traverses through intermediate nodes)
+		this._pushToDownstreamPreviews(node, frameData, new Set());
+	}
+
+	_pushToDownstreamPreviews(node, frameData, visited, depth = 0) {
+		const graph = this.app?.graph;
+		if (!graph || visited.has(node.id) || depth > 10) return;
+		visited.add(node.id);
+
+		for (const output of (node.outputs || [])) {
+			for (const linkId of (output.links || [])) {
+				const link = graph.links[linkId];
+				if (!link) continue;
+				const target = graph.getNodeById(link.target_id);
+				if (!target) continue;
+
+				if (this.app._isPreviewFlowNode?.(target)) {
+					this._updateLivePreview(target, frameData);
+				} else {
+					// Traverse through intermediate nodes (e.g. EventListenerFlow)
+					this._pushToDownstreamPreviews(target, frameData, visited, depth + 1);
+				}
+			}
+		}
+	}
+
+	_updateLivePreview(previewNode, frameData) {
+		// Double-buffer: skip if previous frame is still loading
+		if (previewNode._framePending) return;
+
+		if (typeof frameData === 'string' && frameData.startsWith('data:image/')) {
+			previewNode._framePending = true;
+			const img = new Image();
+			img.onload = () => {
+				previewNode._liveFrameImg = img;
+				previewNode.previewData = frameData;
+				previewNode.previewType = 'image';
+				previewNode._framePending = false;
+				this.app?.draw?.();
+			};
+			img.onerror = () => { previewNode._framePending = false; };
+			img.src = frameData;
+		} else {
+			previewNode.previewData = frameData;
+			previewNode.previewType = null;
+			this.app?.draw?.();
+		}
 	}
 
 	_stopCapture(node) {
@@ -469,17 +533,19 @@ class BrowserMediaExtension extends SchemaGraphExtension {
 	}
 
 	_setupEventListeners() {
-		console.log('[BrowserMedia] Setting up event listeners');
 
 		this.on('node:created', (e) => {
 			const node = e.node || this.graph.getNodeById(e.nodeId);
 			if (node) this._applyMediaToNode(node);
 		});
 
-		this.on('node:removed', (e) => {
+		// App emits 'node:deleted', graph emits 'node:removed' — listen on both
+		const onNodeRemoved = (e) => {
 			const nodeId = e.nodeId || e.node?.id;
 			if (nodeId) this.overlayManager.removeOverlay(nodeId);
-		});
+		};
+		this.on('node:removed', onNodeRemoved);
+		this.on('node:deleted', onNodeRemoved);
 
 		this.on('graph:cleared', () => {
 			this.overlayManager.removeAllOverlays();
@@ -579,11 +645,11 @@ class BrowserMediaExtension extends SchemaGraphExtension {
 		if (!node) return;
 		if (!this._isBrowserSource(node)) return;
 
-		console.log(`[BrowserMedia] Applying media overlay to node ${node.id} (workflowType=${node.workflowType})`);
 
 		// Ensure node is large enough for the overlay
-		if (node.size[0] < 280) node.size[0] = 280;
-		if (node.size[1] < 320) node.size[1] = 320;
+		// BrowserSourceFlow has 7 inputs → slots take ~210px, so node needs to be tall
+		if (node.size[0] < 350) node.size[0] = 350;
+		if (node.size[1] < 520) node.size[1] = 520;
 
 		this.overlayManager.createOverlay(node);
 	}
@@ -619,7 +685,7 @@ class BrowserMediaExtension extends SchemaGraphExtension {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					source_id: sourceId,
+					id: sourceId,
 					device_type: deviceType,
 					mode: mode,
 					interval_ms: intervalMs,
@@ -637,12 +703,15 @@ class BrowserMediaExtension extends SchemaGraphExtension {
 			const data = await resp.json();
 			// Store source_id on node for capture loop
 			node.extra = node.extra || {};
-			node.extra._browserSourceId = data.source?.source_id || sourceId;
+			node.extra._browserSourceId = data.source?.id || sourceId;
 
 			// Start the source
-			await fetch(`${baseUrl}/event-sources/${node.extra._browserSourceId}/start`, { method: 'POST' });
+			const startResp = await fetch(`${baseUrl}/event-sources/${node.extra._browserSourceId}/start`, { method: 'POST' });
+			if (!startResp.ok) {
+				console.warn(`[BrowserMedia] Failed to start source: ${await startResp.text()}`);
+			}
 
-			console.log(`[BrowserMedia] Backend source registered: ${node.extra._browserSourceId}`);
+			console.log(`[BrowserMedia] Backend source registered and started: ${node.extra._browserSourceId}`);
 			return node.extra._browserSourceId;
 		} catch (err) {
 			console.error(`[BrowserMedia] Source registration failed:`, err);
