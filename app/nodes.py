@@ -1,12 +1,15 @@
 # nodes
 
-from jinja2   import Template
-from pydantic import BaseModel
-from typing   import Any, Callable, Dict, List, Optional
+import copy
 
 
-from schema   import DEFAULT_TRANSFORM_NODE_LANG, DEFAULT_TRANSFORM_NODE_SCRIPT, DEFAULT_TRANSFORM_NODE_CONTEXT, BaseType
-from events   import get_event_registry, TimerSourceConfig, FSWatchSourceConfig, WebhookSourceConfig, BrowserSourceConfig
+from   jinja2   import Template
+from   pydantic import BaseModel
+from   typing   import Any, Callable, Dict, List, Optional
+
+
+from   schema   import DEFAULT_TRANSFORM_NODE_LANG, DEFAULT_TRANSFORM_NODE_SCRIPT, BaseType
+from   events   import get_event_registry, TimerSourceConfig, FSWatchSourceConfig, WebhookSourceConfig, BrowserSourceConfig
 
 
 class NodeExecutionContext:
@@ -277,12 +280,15 @@ class WFMergeFlow(WFFlowType):
 class WFTransformFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()
-		
+
 		try:
-			lang   = context.inputs.get("lang"   , DEFAULT_TRANSFORM_NODE_LANG   )
-			script = context.inputs.get("script" , DEFAULT_TRANSFORM_NODE_SCRIPT )
-			ctx    = context.inputs.get("context", DEFAULT_TRANSFORM_NODE_CONTEXT)
+			lang   = context.inputs.get("lang"   , DEFAULT_TRANSFORM_NODE_LANG  )
+			script = context.inputs.get("script" , DEFAULT_TRANSFORM_NODE_SCRIPT)
+			ctx    = context.inputs.get("context", {})
 			input  = context.inputs.get("input"  , {})
+
+			if not isinstance(ctx, dict) or not isinstance(input, dict):
+				raise "Context and input must be dictionaries"
 
 			if lang == "python":
 				local_vars = {
@@ -297,13 +303,13 @@ class WFTransformFlow(WFFlowType):
 				template = Template(script)
 				output = template.render(input=input, **context.variables)
 			else:
-				output = input
+				output = copy.deepcopy(input)
 
 			result.outputs["output"] = output
 
 		except Exception as e:
 			result.success = False
-			result.error = str(e)
+			result.error   = str(e)
 
 		return result
 

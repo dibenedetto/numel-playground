@@ -251,7 +251,7 @@ class WorkflowVisualizer {
 			this.schemaGraph.api.view.center();
 		}
 
-		console.log(`✅ ${sync ? 'Synced' : 'Loaded'} workflow: ${this.currentWorkflowName}`);
+		console.log(`${sync ? '🔄 Synced' : '✅ Loaded'} workflow: ${this.currentWorkflowName}`);
 
 		return true;
 	}

@@ -676,9 +676,8 @@ class MergeFlow(FlowType):
 	output   : Annotated[Any                             , FieldRole.OUTPUT     ] = None
 
 
-DEFAULT_TRANSFORM_NODE_LANG    : str            = "python"
-DEFAULT_TRANSFORM_NODE_SCRIPT  : str            = "output = input"
-DEFAULT_TRANSFORM_NODE_CONTEXT : Dict[str, Any] = {}
+DEFAULT_TRANSFORM_NODE_LANG   : str = "python"
+DEFAULT_TRANSFORM_NODE_SCRIPT : str = "output = input"
 
 
 @node_info(
@@ -692,7 +691,7 @@ class TransformFlow(FlowType):
 	type    : Annotated[Literal["transform_flow"], FieldRole.CONSTANT] = "transform_flow"
 	lang    : Annotated[str                      , FieldRole.INPUT   ] = DEFAULT_TRANSFORM_NODE_LANG
 	script  : Annotated[str                      , FieldRole.INPUT   ] = Field(default=DEFAULT_TRANSFORM_NODE_SCRIPT, json_schema_extra={"editor": "code"})
-	context : Annotated[Dict[str, Any]           , FieldRole.INPUT   ] = DEFAULT_TRANSFORM_NODE_CONTEXT
+	context : Annotated[Dict[str, Any]           , FieldRole.INPUT   ] = None
 	input   : Annotated[Any                      , FieldRole.INPUT   ] = None
 	output  : Annotated[Any                      , FieldRole.OUTPUT  ] = None
 

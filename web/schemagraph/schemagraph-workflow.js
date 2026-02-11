@@ -1180,25 +1180,43 @@ class WorkflowImporter {
 	}
 
 	_findOutputSlot(node, slotName) {
+		if (!slotName && slotName !== 0) {
+			// Empty/missing slot name: default to first output
+			return node.outputs.length > 0 ? 0 : -1;
+		}
 		for (let i = 0; i < node.outputs.length; i++)
 			if (node.outputs[i].name === slotName) return i;
 		for (let i = 0; i < node.outputs.length; i++)
 			if (node.outputMeta?.[i]?.name === slotName) return i;
+		// Case-insensitive fallback
+		const lower = String(slotName).toLowerCase();
+		for (let i = 0; i < node.outputs.length; i++)
+			if (node.outputs[i].name?.toLowerCase() === lower || node.outputMeta?.[i]?.name?.toLowerCase() === lower) return i;
 		const idx = parseInt(slotName);
 		if (!isNaN(idx) && idx >= 0 && idx < node.outputs.length) return idx;
 		if (node.isNative && node.outputs.length > 0) return 0;
-		return -1;
+		// Last resort: return first output if available
+		return node.outputs.length > 0 ? 0 : -1;
 	}
 
 	_findInputSlot(node, slotName) {
+		if (!slotName && slotName !== 0) {
+			// Empty/missing slot name: default to first input (usually "input")
+			return node.inputs.length > 0 ? 0 : -1;
+		}
 		for (let i = 0; i < node.inputs.length; i++)
 			if (node.inputs[i].name === slotName) return i;
 		for (let i = 0; i < node.inputs.length; i++)
 			if (node.inputMeta?.[i]?.name === slotName) return i;
+		// Case-insensitive fallback
+		const lower = String(slotName).toLowerCase();
+		for (let i = 0; i < node.inputs.length; i++)
+			if (node.inputs[i].name?.toLowerCase() === lower || node.inputMeta?.[i]?.name?.toLowerCase() === lower) return i;
 		const idx = parseInt(slotName);
 		if (!isNaN(idx) && idx >= 0 && idx < node.inputs.length) return idx;
 		if (node.isNative && node.inputs.length > 0) return 0;
-		return -1;
+		// Last resort: return first input if available
+		return node.inputs.length > 0 ? 0 : -1;
 	}
 
 	_createStandardEdge(sourceNode, sourceSlotIdx, targetNode, targetSlotIdx, data, extra) {

@@ -1062,6 +1062,8 @@ Return ONLY valid JSON (no markdown, no explanation), in this format:
 
 	@app.post("/generate-workflow")
 	async def generate_workflow(request: GenerateWorkflowRequest):
+		nonlocal schema_code
+
 		try:
 			# Build node catalog from schema
 			node_catalog = _build_node_catalog(schema_code)
