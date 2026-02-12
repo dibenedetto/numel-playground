@@ -164,6 +164,12 @@ class AgentChatManager {
 	async _handleSend({ node, message }) {
 		const chatId = node.chatId;
 
+		// Intercept /gen command for workflow generation
+		const genMatch = message.match(/^\/gen\s+(.+)/s);
+		if (genMatch) {
+			return this._handleGenerate(node, genMatch[1].trim());
+		}
+
 		try {
 			// Ensure connected (lazy reconnect if dirty)
 			await this._ensureConnected(node);
@@ -348,6 +354,183 @@ class AgentChatManager {
 			}
 		}
 	}
+
+	// ================================================================
+	// /gen command — Workflow generation via chat
+	// ================================================================
+
+	async _handleGenerate(node, description) {
+		const api = this.app.api.chat;
+
+		try {
+			api.setState(node, ChatState.SENDING);
+
+			// Collect full agent subgraph config from connected nodes
+			const agentConfig = this._collectGenerationConfig(node);
+
+			const resp = await fetch(this.url + '/generate-workflow', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					prompt: description,
+					...agentConfig,
+				})
+			});
+
+			if (!resp.ok) {
+				const detail = await resp.json().catch(() => ({}));
+				throw new Error(detail.detail || `HTTP ${resp.status}`);
+			}
+
+			const data = await resp.json();
+
+			// Store workflow on node for later import
+			node._lastGeneratedWorkflow = data.workflow;
+
+			// Add assistant message with workflow metadata for Import button
+			const summary = data.message || 'Generated workflow';
+			api.addMessage(node, MessageRole.ASSISTANT, summary, {
+				workflow: data.workflow
+			});
+
+			api.setState(node, ChatState.READY);
+
+		} catch (err) {
+			api.setState(node, ChatState.ERROR, err.message);
+			api.addMessage(node, MessageRole.ERROR, `Generation failed: ${err.message}`);
+		}
+	}
+
+	// ================================================================
+	// Graph traversal helpers for config collection
+	// ================================================================
+
+	_getConnectedNode(node, slotName) {
+		const slotIdx = node.getInputSlotByName?.(slotName);
+		if (slotIdx == null || slotIdx < 0) return null;
+		const input = node.inputs?.[slotIdx];
+		if (!input?.link) return null;
+		const link = this.app.graph.links[input.link];
+		if (!link) return null;
+		return this.app.graph.getNodeById(link.origin_id);
+	}
+
+	_getConnectedMultiInputNodes(node, fieldName) {
+		const indices = node.multiInputSlots?.[fieldName];
+		if (!indices || indices.length === 0) return [];
+
+		const results = [];
+		for (const idx of indices) {
+			const multiEntry = node.multiInputs?.[idx];
+			if (!multiEntry?.links?.length) continue;
+			const linkId = multiEntry.links[0];
+			const link = this.app.graph.links[linkId];
+			if (!link) continue;
+			const connectedNode = this.app.graph.getNodeById(link.origin_id);
+			if (connectedNode) results.push(connectedNode);
+		}
+		return results;
+	}
+
+	_collectGenerationConfig(chatNode) {
+		const configNode = this._getConnectedNode(chatNode, 'config');
+		if (!configNode) return {};
+
+		const config = {};
+
+		// Backend
+		const backendNode = this._getConnectedNode(configNode, 'backend');
+		if (backendNode) {
+			const cf = backendNode.constantFields || {};
+			config.backend = { engine: cf.name || 'agno' };
+		}
+
+		// Model
+		const modelNode = this._getConnectedNode(configNode, 'model');
+		if (modelNode) {
+			const cf = modelNode.constantFields || {};
+			config.model = {
+				source:  cf.source  || 'ollama',
+				name:    cf.name    || 'mistral',
+				version: cf.version || '',
+			};
+		}
+
+		// Options
+		const optionsNode = this._getConnectedNode(configNode, 'options');
+		if (optionsNode) {
+			const cf = optionsNode.constantFields || {};
+			config.options = {
+				name:            cf.name            || null,
+				description:     cf.description     || null,
+				instructions:    cf.instructions    || null,
+				prompt_override: cf.prompt_override || null,
+				markdown:        cf.markdown === true || cf.markdown === 'true',
+			};
+		}
+
+		// Memory Manager
+		const memoryNode = this._getConnectedNode(configNode, 'memory_mgr');
+		if (memoryNode) {
+			const cf = memoryNode.constantFields || {};
+			config.memory = {
+				query:   cf.query   === true || cf.query   === 'true',
+				update:  cf.update  === true || cf.update  === 'true',
+				managed: cf.managed === true || cf.managed === 'true',
+				prompt:  cf.prompt  || null,
+			};
+		}
+
+		// Session Manager
+		const sessionNode = this._getConnectedNode(configNode, 'session_mgr');
+		if (sessionNode) {
+			const cf = sessionNode.constantFields || {};
+			config.session = {
+				query:        cf.query  === true || cf.query  === 'true',
+				update:       cf.update === true || cf.update === 'true',
+				history_size: parseInt(cf.history_size) || 10,
+				prompt:       cf.prompt || null,
+			};
+		}
+
+		// Tools (MULTI_INPUT)
+		const toolNodes = this._getConnectedMultiInputNodes(configNode, 'tools');
+		if (toolNodes.length > 0) {
+			config.tools = toolNodes.map(tn => {
+				const cf = tn.constantFields || {};
+				return { name: cf.name || '', args: cf.args || null };
+			}).filter(t => t.name);
+		}
+
+		// Knowledge Manager (with nested content_db / index_db)
+		const knowledgeNode = this._getConnectedNode(configNode, 'knowledge_mgr');
+		if (knowledgeNode) {
+			const cf = knowledgeNode.constantFields || {};
+			const knowledge = {
+				query:       cf.query === true || cf.query === 'true' || cf.query == null,
+				description: cf.description || null,
+				max_results: parseInt(cf.max_results) || 10,
+				urls:        cf.urls || null,
+			};
+
+			const contentDBNode = this._getConnectedNode(knowledgeNode, 'content_db');
+			if (contentDBNode) {
+				const cdb = contentDBNode.constantFields || {};
+				knowledge.content_db = { engine: cdb.engine || 'sqlite', url: cdb.url || '' };
+			}
+			const indexDBNode = this._getConnectedNode(knowledgeNode, 'index_db');
+			if (indexDBNode) {
+				const idb = indexDBNode.constantFields || {};
+				knowledge.index_db = { engine: idb.engine || 'lancedb', url: idb.url || '' };
+			}
+
+			config.knowledge = knowledge;
+		}
+
+		return config;
+	}
+
+	// ================================================================
 
 	disconnectNode(nodeId) {
 		const entry = this.handlers.get(nodeId);

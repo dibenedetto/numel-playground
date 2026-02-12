@@ -5,7 +5,7 @@ import json
 import os
 import re
 
-import httpx
+
 from   pathlib   import Path
 from   fastapi   import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, File, Form
 from   pydantic  import BaseModel
@@ -61,8 +61,15 @@ class TemplateRenameRequest(BaseModel):
 
 class GenerateWorkflowRequest(BaseModel):
 	prompt      : str
-	provider    : str = "ollama"
-	model       : str = "mistral"
+	# Agent subgraph config (each maps to a schema config type)
+	backend     : Optional[dict] = None   # BackendConfig fields {engine}
+	model       : Optional[dict] = None   # ModelConfig fields {source, name, version}
+	options     : Optional[dict] = None   # AgentOptionsConfig fields {name, description, instructions, prompt_override, markdown}
+	memory      : Optional[dict] = None   # MemoryManagerConfig fields {query, update, managed, prompt}
+	session     : Optional[dict] = None   # SessionManagerConfig fields {query, update, history_size, prompt}
+	tools       : Optional[List[dict]] = None  # List of ToolConfig fields [{name, args}]
+	knowledge   : Optional[dict] = None   # KnowledgeManagerConfig fields {query, description, max_results, urls, content_db, index_db}
+	# LLM params (separate from model config)
 	temperature : float = 0.3
 	max_tokens  : int = 4096
 	history     : Optional[List[dict]] = None
@@ -995,92 +1002,204 @@ Return ONLY valid JSON (no markdown, no explanation), in this format:
 				pass
 		raise ValueError("Could not extract valid JSON from LLM response")
 
-	async def _call_llm(provider: str, model: str, messages: list, temperature: float, max_tokens: int) -> str:
-		"""Call LLM provider and return the response text."""
-		async with httpx.AsyncClient(timeout=120.0) as client:
-			if provider == "ollama":
-				resp = await client.post(
-					"http://localhost:11434/api/chat",
-					json={
-						"model": model,
-						"messages": messages,
-						"stream": False,
-						"options": {"temperature": temperature, "num_predict": max_tokens}
-					}
-				)
-				resp.raise_for_status()
-				return resp.json()["message"]["content"]
+	_generation_cache = {"config_hash": None, "backend": None, "agent_index": None}
 
-			elif provider == "openai":
-				api_key = os.environ.get("OPENAI_API_KEY", "")
-				if not api_key:
-					raise ValueError("OPENAI_API_KEY environment variable not set")
-				resp = await client.post(
-					"https://api.openai.com/v1/chat/completions",
-					headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-					json={
-						"model": model,
-						"messages": messages,
-						"temperature": temperature,
-						"max_tokens": max_tokens
-					}
-				)
-				resp.raise_for_status()
-				return resp.json()["choices"][0]["message"]["content"]
+	def _build_generation_agent(request: GenerateWorkflowRequest, system_prompt: str):
+		"""Build an Agno agent subgraph from generation request config.
 
-			elif provider == "anthropic":
-				api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-				if not api_key:
-					raise ValueError("ANTHROPIC_API_KEY environment variable not set")
-				system_msg = ""
-				chat_msgs = []
-				for m in messages:
-					if m["role"] == "system":
-						system_msg = m["content"]
-					else:
-						chat_msgs.append(m)
-				resp = await client.post(
-					"https://api.anthropic.com/v1/messages",
-					headers={
-						"x-api-key": api_key,
-						"anthropic-version": "2023-06-01",
-						"Content-Type": "application/json"
-					},
-					json={
-						"model": model,
-						"system": system_msg,
-						"messages": chat_msgs,
-						"temperature": temperature,
-						"max_tokens": max_tokens
-					}
-				)
-				resp.raise_for_status()
-				return resp.json()["content"][0]["text"]
+		Constructs a Workflow graph with BackendConfig → ModelConfig → AgentOptionsConfig → AgentConfig
+		(plus optional MemoryManager, SessionManager, Tools, Knowledge) and builds it via build_backend_agno().
+		Results are cached and reused when the config hasn't changed.
+		"""
+		from schema import (
+			BackendConfig, ModelConfig, AgentOptionsConfig, AgentConfig,
+			MemoryManagerConfig, SessionManagerConfig, ToolConfig,
+			KnowledgeManagerConfig, ContentDBConfig, IndexDBConfig,
+			EmbeddingConfig, Edge, Workflow
+		)
+		from impl_agno import build_backend_agno
 
-			else:
-				raise ValueError(f"Unsupported provider: {provider}")
+		# Config hash for cache invalidation
+		config_hash = hash(json.dumps({
+			"backend": request.backend, "model": request.model, "options": request.options,
+			"memory": request.memory, "session": request.session, "tools": request.tools,
+			"knowledge": request.knowledge, "system_prompt": system_prompt,
+		}, sort_keys=True, default=str))
+
+		cache = _generation_cache
+		if cache["config_hash"] == config_hash and cache["backend"] is not None:
+			return cache["backend"], cache["agent_index"]
+
+		# Build nodes and edges for the agent subgraph
+		nodes = []
+		edges = []
+
+		# 0: BackendConfig (always present — field is 'name' in schema, 'engine' in frontend)
+		bcfg = request.backend or {}
+		nodes.append(BackendConfig(name=bcfg.get("engine", "agno")))
+		backend_idx = 0
+
+		# 1: ModelConfig (always present)
+		mcfg = request.model or {}
+		nodes.append(ModelConfig(
+			source  = mcfg.get("source", "ollama"),
+			name    = mcfg.get("name", "mistral"),
+			version = mcfg.get("version", ""),
+		))
+		model_idx = 1
+
+		# 2: AgentOptionsConfig (always present)
+		ocfg = request.options or {}
+		nodes.append(AgentOptionsConfig(
+			name            = ocfg.get("name", "Workflow Generator"),
+			description     = ocfg.get("description", None),
+			instructions    = ocfg.get("instructions", None),
+			prompt_override = ocfg.get("prompt_override", None) or system_prompt,
+			markdown        = ocfg.get("markdown", False),
+		))
+		options_idx = 2
+
+		next_idx = 3
+
+		# Optional: MemoryManagerConfig
+		memory_idx = None
+		if request.memory:
+			m = request.memory
+			nodes.append(MemoryManagerConfig(
+				query   = m.get("query", False),
+				update  = m.get("update", False),
+				managed = m.get("managed", False),
+				prompt  = m.get("prompt", None),
+			))
+			memory_idx = next_idx
+			edges.append(Edge(source=model_idx, target=memory_idx, source_slot="get", target_slot="model"))
+			next_idx += 1
+
+		# Optional: SessionManagerConfig
+		session_idx = None
+		if request.session:
+			s = request.session
+			nodes.append(SessionManagerConfig(
+				query        = s.get("query", False),
+				update       = s.get("update", False),
+				history_size = s.get("history_size", 10),
+				prompt       = s.get("prompt", None),
+			))
+			session_idx = next_idx
+			next_idx += 1
+
+		# Optional: ToolConfig[] (multiple)
+		tool_indices = []
+		if request.tools:
+			for t in request.tools:
+				nodes.append(ToolConfig(
+					name = t.get("name", ""),
+					args = t.get("args", None),
+				))
+				tool_indices.append(next_idx)
+				next_idx += 1
+
+		# Optional: KnowledgeManagerConfig (needs ContentDB + IndexDB + Embedding)
+		knowledge_idx = None
+		if request.knowledge:
+			k = request.knowledge
+			# EmbeddingConfig (uses same source as model)
+			nodes.append(EmbeddingConfig(
+				source = mcfg.get("source", "ollama"),
+				name   = mcfg.get("name", "mistral"),
+			))
+			embed_idx = next_idx
+			next_idx += 1
+			# ContentDBConfig
+			cdb = k.get("content_db", {})
+			nodes.append(ContentDBConfig(
+				engine = cdb.get("engine", "sqlite"),
+				url    = cdb.get("url", "storage/gen_content"),
+			))
+			cdb_idx = next_idx
+			next_idx += 1
+			# IndexDBConfig
+			idb = k.get("index_db", {})
+			nodes.append(IndexDBConfig(
+				engine = idb.get("engine", "lancedb"),
+				url    = idb.get("url", "storage/gen_index"),
+			))
+			idb_idx = next_idx
+			next_idx += 1
+			edges.append(Edge(source=embed_idx, target=idb_idx, source_slot="get", target_slot="embedding"))
+			# KnowledgeManagerConfig
+			nodes.append(KnowledgeManagerConfig(
+				query       = k.get("query", True),
+				description = k.get("description", None),
+				max_results = k.get("max_results", 10),
+				urls        = k.get("urls", None),
+			))
+			knowledge_idx = next_idx
+			next_idx += 1
+			edges.append(Edge(source=cdb_idx, target=knowledge_idx, source_slot="get", target_slot="content_db"))
+			edges.append(Edge(source=idb_idx, target=knowledge_idx, source_slot="get", target_slot="index_db"))
+
+		# AgentConfig (last node — connects to all above)
+		# For MULTI_INPUT tools, use string keys matching dotted edge slot convention
+		tool_keys = [str(i) for i in range(len(tool_indices))] if tool_indices else None
+		nodes.append(AgentConfig(
+			memory_mgr    = nodes[memory_idx]    if memory_idx    is not None else None,
+			session_mgr   = nodes[session_idx]   if session_idx   is not None else None,
+			tools         = tool_keys,
+			knowledge_mgr = nodes[knowledge_idx] if knowledge_idx is not None else None,
+		))
+		agent_idx = next_idx
+
+		# Core edges: backend, model, options → agent
+		edges.append(Edge(source=backend_idx, target=agent_idx, source_slot="get", target_slot="backend"))
+		edges.append(Edge(source=model_idx,   target=agent_idx, source_slot="get", target_slot="model"))
+		edges.append(Edge(source=options_idx,  target=agent_idx, source_slot="get", target_slot="options"))
+		if memory_idx is not None:
+			edges.append(Edge(source=memory_idx, target=agent_idx, source_slot="get", target_slot="memory_mgr"))
+		if session_idx is not None:
+			edges.append(Edge(source=session_idx, target=agent_idx, source_slot="get", target_slot="session_mgr"))
+		# Tools use dotted slot names for MULTI_INPUT: tools.0, tools.1, ...
+		for i, ti in enumerate(tool_indices):
+			edges.append(Edge(source=ti, target=agent_idx, source_slot="get", target_slot=f"tools.{i}"))
+		if knowledge_idx is not None:
+			edges.append(Edge(source=knowledge_idx, target=agent_idx, source_slot="get", target_slot="knowledge_mgr"))
+
+		workflow = Workflow(nodes=nodes, edges=edges)
+		workflow.link()
+		backend  = build_backend_agno(workflow)
+
+		cache.update({"config_hash": config_hash, "backend": backend, "agent_index": agent_idx})
+		return backend, agent_idx
 
 	@app.post("/generate-workflow")
 	async def generate_workflow(request: GenerateWorkflowRequest):
 		nonlocal schema_code
 
 		try:
-			# Build node catalog from schema
+			# Build node catalog and system prompt
 			node_catalog = _build_node_catalog(schema_code)
 			system_prompt = _GENERATE_SYSTEM_PROMPT.replace("{node_catalog}", node_catalog)
 
-			# Build messages
-			messages = [{"role": "system", "content": system_prompt}]
+			# Build user message with history context
+			user_message = ""
 			if request.history:
 				for msg in request.history:
-					messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
-			messages.append({"role": "user", "content": request.prompt})
+					role = msg.get("role", "user")
+					content = msg.get("content", "")
+					user_message += f"[{role}]: {content}\n\n"
+				user_message += f"[user]: {request.prompt}"
+			else:
+				user_message = request.prompt
 
-			# Call LLM
-			response_text = await _call_llm(
-				request.provider, request.model, messages,
-				request.temperature, request.max_tokens
-			)
+			# Build agent from full subgraph config
+			backend, agent_idx = _build_generation_agent(request, system_prompt)
+			agent_handle = backend.handles[agent_idx]
+
+			# Call the agent
+			result = await backend.run_agent(agent_handle, user_message)
+			response_text = result.get("content", "")
+			if not isinstance(response_text, str):
+				response_text = str(response_text)
 
 			# Extract and validate JSON
 			workflow = _extract_json_from_response(response_text)
@@ -1099,13 +1218,12 @@ Return ONLY valid JSON (no markdown, no explanation), in this format:
 				"message": f"Generated {node_count} nodes, {edge_count} edges"
 			}
 
-		except httpx.HTTPStatusError as e:
-			raise HTTPException(status_code=502, detail=f"LLM provider error: {e.response.text[:500]}")
 		except ValueError as e:
 			raise HTTPException(status_code=422, detail=str(e))
-		except httpx.ConnectError:
-			raise HTTPException(status_code=502, detail=f"Cannot connect to {request.provider}. Is it running?")
+		except ImportError as e:
+			raise HTTPException(status_code=502, detail=f"Model provider not available: {e}")
 		except Exception as e:
+			_generation_cache["backend"] = None
 			raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
 
 

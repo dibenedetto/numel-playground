@@ -111,7 +111,7 @@ class SchemaGraphApp {
 			metaInputSlot: 'meta',  // Default slot name for meta connection on data nodes
 			workflowOptions: null,          // Model name for workflow options (e.g., 'WorkflowOptions')
 			workflowExecutionOptions: null, // Model name for workflow execution options (e.g., 'WorkflowExecutionOptions')
-			previewSlotMap: {}              // Maps preview input slot names to output slot names (e.g., { 'input': 'get' })
+			previewSlotMap: {}              // Maps preview input slot names to output slot names (e.g., { 'input': 'output' })
 		};
 
 		// Set types: paired nodes that must be created/removed together with a loop-back edge
@@ -804,15 +804,91 @@ class SchemaGraphApp {
 			<div class="sg-generate-container">
 				<div class="sg-generate-header">
 					<span class="sg-generate-title">Generate Workflow</span>
-					<div class="sg-generate-config">
-						<select id="sg-generateProvider">
-							<option value="ollama">Ollama</option>
-							<option value="openai">OpenAI</option>
-							<option value="anthropic">Anthropic</option>
-						</select>
-						<input id="sg-generateModel" type="text" placeholder="model name" value="mistral">
-					</div>
 					<button id="sg-generateClose" class="sg-generate-close">\u2715</button>
+				</div>
+				<div class="sg-generate-agent-config">
+					<details class="sg-generate-section">
+						<summary>Backend</summary>
+						<div class="sg-generate-fields">
+							<label>Engine <input id="sg-genBackendEngine" type="text" value="agno"></label>
+						</div>
+					</details>
+					<details class="sg-generate-section" open>
+						<summary>Model</summary>
+						<div class="sg-generate-fields">
+							<label>Source <select id="sg-genModelSource">
+								<option value="ollama">Ollama</option>
+								<option value="openai">OpenAI</option>
+								<option value="anthropic">Anthropic</option>
+							</select></label>
+							<label>Name <input id="sg-genModelName" type="text" value="mistral"></label>
+							<label>Version <input id="sg-genModelVersion" type="text" placeholder="(optional)"></label>
+						</div>
+					</details>
+					<details class="sg-generate-section" open>
+						<summary>LLM Parameters</summary>
+						<div class="sg-generate-fields">
+							<label>Temperature <input id="sg-genTemperature" type="number" value="0.3" step="0.1" min="0" max="2"></label>
+							<label>Max Tokens <input id="sg-genMaxTokens" type="number" value="4096" step="256" min="256"></label>
+						</div>
+					</details>
+					<details class="sg-generate-section">
+						<summary>Options</summary>
+						<div class="sg-generate-fields">
+							<label>Name <input id="sg-genOptionsName" type="text" value="Workflow Generator"></label>
+							<label>Description <input id="sg-genOptionsDesc" type="text" placeholder="(optional)"></label>
+							<label>Instructions <textarea id="sg-genOptionsInstr" rows="2" placeholder="(optional)"></textarea></label>
+							<label>System Prompt Override <textarea id="sg-genOptionsSysPrompt" rows="2" placeholder="(auto-generated if empty)"></textarea></label>
+							<label><input id="sg-genOptionsMarkdown" type="checkbox"> Markdown output</label>
+						</div>
+					</details>
+					<details class="sg-generate-section">
+						<summary>Tools</summary>
+						<div class="sg-generate-fields" id="sg-genToolsList">
+							<button id="sg-genToolsAdd" class="sg-generate-btn secondary">+ Add Tool</button>
+						</div>
+					</details>
+					<details class="sg-generate-section">
+						<summary><label class="sg-generate-enable"><input id="sg-genMemEnabled" type="checkbox"> Memory Manager</label></summary>
+						<div class="sg-generate-fields">
+							<label><input id="sg-genMemQuery" type="checkbox"> Query memories</label>
+							<label><input id="sg-genMemUpdate" type="checkbox"> Update memories</label>
+							<label><input id="sg-genMemManaged" type="checkbox"> Managed (agentic)</label>
+							<label>Prompt <textarea id="sg-genMemPrompt" rows="2" placeholder="(optional)"></textarea></label>
+						</div>
+					</details>
+					<details class="sg-generate-section">
+						<summary><label class="sg-generate-enable"><input id="sg-genSessEnabled" type="checkbox"> Session Manager</label></summary>
+						<div class="sg-generate-fields">
+							<label><input id="sg-genSessQuery" type="checkbox"> Query sessions</label>
+							<label><input id="sg-genSessUpdate" type="checkbox"> Update sessions</label>
+							<label>History Size <input id="sg-genSessHistSize" type="number" value="10" min="1"></label>
+							<label>Prompt <textarea id="sg-genSessPrompt" rows="2" placeholder="(optional)"></textarea></label>
+						</div>
+					</details>
+					<details class="sg-generate-section">
+						<summary><label class="sg-generate-enable"><input id="sg-genKnowEnabled" type="checkbox"> Knowledge Manager</label></summary>
+						<div class="sg-generate-fields">
+							<label><input id="sg-genKnowQuery" type="checkbox"> Query knowledge</label>
+							<label>Description <input id="sg-genKnowDesc" type="text" placeholder="(optional)"></label>
+							<label>Max Results <input id="sg-genKnowMaxResults" type="number" value="10" min="1"></label>
+							<label>URLs <textarea id="sg-genKnowUrls" rows="2" placeholder="One URL per line (optional)"></textarea></label>
+							<details class="sg-generate-subsection">
+								<summary>Content DB</summary>
+								<div class="sg-generate-fields">
+									<label>Engine <input id="sg-genCdbEngine" type="text" value="sqlite"></label>
+									<label>URL <input id="sg-genCdbUrl" type="text" value="storage/gen_content"></label>
+								</div>
+							</details>
+							<details class="sg-generate-subsection">
+								<summary>Index DB</summary>
+								<div class="sg-generate-fields">
+									<label>Engine <input id="sg-genIdbEngine" type="text" value="lancedb"></label>
+									<label>URL <input id="sg-genIdbUrl" type="text" value="storage/gen_index"></label>
+								</div>
+							</details>
+						</div>
+					</details>
 				</div>
 				<div class="sg-generate-body">
 					<div class="sg-generate-messages" id="sg-generateMessages"></div>
@@ -853,6 +929,24 @@ class SchemaGraphApp {
 				this._handleGenerate();
 			}
 		});
+
+		// Prevent enable checkboxes in <summary> from toggling the <details>
+		for (const cb of modal.querySelectorAll('.sg-generate-enable input[type="checkbox"]')) {
+			cb.addEventListener('click', (e) => e.stopPropagation());
+		}
+
+		// Wire tool add button
+		document.getElementById('sg-genToolsAdd').addEventListener('click', () => {
+			const list = document.getElementById('sg-genToolsList');
+			const row = document.createElement('div');
+			row.className = 'sg-gen-tool-row';
+			row.innerHTML = `
+				<input class="sg-gen-tool-name" type="text" placeholder="Tool name (e.g., @web_search, @reasoning)">
+				<button class="sg-gen-tool-remove sg-generate-btn secondary">\u2715</button>
+			`;
+			list.insertBefore(row, document.getElementById('sg-genToolsAdd'));
+			row.querySelector('.sg-gen-tool-remove').addEventListener('click', () => row.remove());
+		});
 	}
 
 	showGenerateWorkflow() {
@@ -885,14 +979,72 @@ class SchemaGraphApp {
 		messagesEl.scrollTop = messagesEl.scrollHeight;
 	}
 
+	_collectAgentConfig() {
+		const get = (id) => document.getElementById(id);
+		const val = (id) => { const v = get(id)?.value?.trim(); return v || null; };
+		const chk = (id) => get(id)?.checked || false;
+		const num = (id, def) => parseInt(get(id)?.value) || def;
+
+		const config = {
+			backend: { engine: val('sg-genBackendEngine') || 'agno' },
+			model:   { source: val('sg-genModelSource') || 'ollama', name: val('sg-genModelName') || 'mistral', version: val('sg-genModelVersion') },
+			options: {
+				name: val('sg-genOptionsName'),
+				description: val('sg-genOptionsDesc'),
+				instructions: val('sg-genOptionsInstr') ? [val('sg-genOptionsInstr')] : null,
+				prompt_override: val('sg-genOptionsSysPrompt') || null,
+				markdown: chk('sg-genOptionsMarkdown'),
+			},
+			temperature: parseFloat(get('sg-genTemperature')?.value) || 0.3,
+			max_tokens:  num('sg-genMaxTokens', 4096),
+		};
+
+		// Memory (only include if enabled)
+		if (chk('sg-genMemEnabled')) {
+			config.memory = {
+				query: chk('sg-genMemQuery'), update: chk('sg-genMemUpdate'),
+				managed: chk('sg-genMemManaged'), prompt: val('sg-genMemPrompt'),
+			};
+		}
+
+		// Session (only include if enabled)
+		if (chk('sg-genSessEnabled')) {
+			config.session = {
+				query: chk('sg-genSessQuery'), update: chk('sg-genSessUpdate'),
+				history_size: num('sg-genSessHistSize', 10), prompt: val('sg-genSessPrompt'),
+			};
+		}
+
+		// Tools (collect from dynamic list)
+		const toolEls = document.querySelectorAll('.sg-gen-tool-row');
+		if (toolEls.length > 0) {
+			const tools = Array.from(toolEls)
+				.map(el => ({ name: el.querySelector('.sg-gen-tool-name')?.value?.trim() || '' }))
+				.filter(t => t.name);
+			if (tools.length > 0) config.tools = tools;
+		}
+
+		// Knowledge (only include if enabled)
+		if (chk('sg-genKnowEnabled')) {
+			const urls = val('sg-genKnowUrls');
+			config.knowledge = {
+				query: chk('sg-genKnowQuery'), description: val('sg-genKnowDesc'),
+				max_results: num('sg-genKnowMaxResults', 10),
+				urls: urls ? urls.split('\n').map(u => u.trim()).filter(u => u) : null,
+				content_db: { engine: val('sg-genCdbEngine') || 'sqlite', url: val('sg-genCdbUrl') || 'storage/gen_content' },
+				index_db:   { engine: val('sg-genIdbEngine') || 'lancedb', url: val('sg-genIdbUrl') || 'storage/gen_index' },
+			};
+		}
+
+		return config;
+	}
+
 	async _handleGenerate() {
 		const promptEl = document.getElementById('sg-generatePrompt');
 		const statusEl = document.getElementById('sg-generateStatus');
 		const generateBtn = document.getElementById('sg-generateBtn');
 		const previewEl = document.getElementById('sg-generatePreview');
 		const previewJsonEl = document.getElementById('sg-generatePreviewJson');
-		const providerEl = document.getElementById('sg-generateProvider');
-		const modelEl = document.getElementById('sg-generateModel');
 
 		const userText = promptEl?.value?.trim();
 		if (!userText) return;
@@ -908,21 +1060,19 @@ class SchemaGraphApp {
 		// Show loading state
 		generateBtn.disabled = true;
 		generateBtn.textContent = 'Generating...';
-		statusEl.textContent = 'Sending to LLM...';
+		statusEl.textContent = 'Sending to agent...';
 		previewEl.style.display = 'none';
 
 		try {
 			const baseUrl = this._generateBaseUrl || '';
+			const agentConfig = this._collectAgentConfig();
 			const resp = await fetch(baseUrl + '/generate-workflow', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
 					prompt: userText,
-					provider: providerEl?.value || 'ollama',
-					model: modelEl?.value || 'mistral',
-					temperature: 0.3,
-					max_tokens: 4096,
-					history: this._generateHistory.slice(0, -1) // Send history before current message
+					...agentConfig,
+					history: this._generateHistory.slice(0, -1),
 				})
 			});
 
@@ -6610,10 +6760,14 @@ class SchemaGraphApp {
 		// Remove original link
 		this.graph.removeLink(link.id);
 
-		// Find the input slot on the preview node (usually named 'input' or at index 0)
+		// Find the input slot on the preview node (named 'input')
 		const previewInputIdx = this._findInputSlotByName(preview, 'input') ?? 0;
-		// Find the output slot on the preview node (usually named 'get' for workflow nodes)
-		const previewOutputIdx = this._findOutputSlotByName(preview, 'get') ?? 0;
+		// Find the output slot using previewSlotMap config, falling back to 'output' then 'get'
+		const slotMap = this._schemaTypeRoles.previewSlotMap || {};
+		const outputSlotName = slotMap['input'] || 'output';
+		let previewOutputIdx = this._findOutputSlotByName(preview, outputSlotName);
+		if (previewOutputIdx < 0) previewOutputIdx = this._findOutputSlotByName(preview, 'output');
+		if (previewOutputIdx < 0) previewOutputIdx = this._findOutputSlotByName(preview, 'get') ?? 0;
 
 		// Create source -> preview link
 		const link1 = this.graph.addLink(

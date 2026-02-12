@@ -52,6 +52,7 @@ class BaseType(BaseModel):
 	type  : Annotated[Literal["base_type"]    , FieldRole.CONSTANT  ] = "base_type"
 	id    : Annotated[str                     , FieldRole.ANNOTATION] = Field(default_factory=generate_id)
 	extra : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT     ] = None
+	flow  : Annotated[Optional[Any]           , FieldRole.INPUT     ] = None
 
 	@property
 	def get(self) -> Annotated[BaseType, FieldRole.OUTPUT]:

@@ -62,8 +62,11 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 			item = Ollama(id=item_config.name)
 		elif item_config.source == "openai":
 			item = OpenAIChat(id=item_config.name)
+		elif item_config.source == "anthropic":
+			from agno.models.anthropic import Claude
+			item = Claude(id=item_config.name)
 		else:
-			raise ValueError(f"Unsupported Agno model")
+			raise ValueError(f"Unsupported Agno model source: {item_config.source}")
 		impl[index] = item
 
 

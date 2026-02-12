@@ -226,6 +226,17 @@ class ChatOverlayManager {
 		});
 
 		overlay.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
+
+		// Workflow import button delegation (for /gen results)
+		overlay.addEventListener('click', (e) => {
+			const importBtn = e.target.closest('.sg-chat-workflow-import-btn');
+			if (importBtn) {
+				e.stopPropagation();
+				const msgId = importBtn.dataset.msgId;
+				const currentNode = getNode();
+				if (currentNode) this._handleWorkflowImport(currentNode, msgId);
+			}
+		});
 	}
 
 	getNodeByChatId(chatId) {
@@ -462,13 +473,30 @@ class ChatOverlayManager {
 
 		const content = this._renderContent(msg.content);
 
+		// Workflow actions (for /gen results)
+		let actions = '';
+		if (msg.workflow) {
+			const jsonPreview = JSON.stringify(msg.workflow, null, 2)
+				.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+			actions = `
+				<div class="sg-chat-workflow-actions">
+					<button class="sg-chat-workflow-import-btn" data-msg-id="${msg.id}">Import to Canvas</button>
+					<details class="sg-chat-workflow-preview">
+						<summary>Preview JSON</summary>
+						<pre class="sg-chat-workflow-json">${jsonPreview}</pre>
+					</details>
+				</div>
+			`;
+		}
+
 		return `
-			<div class="sg-chat-msg ${roleClass}">
+			<div class="sg-chat-msg ${roleClass}" data-msg-id="${msg.id}">
 				<div class="sg-chat-msg-header">
 					<span class="sg-chat-msg-role">${this._getRoleName(msg.role)}</span>
 					${timestamp}
 				</div>
 				<div class="sg-chat-msg-content">${content}</div>
+				${actions}
 			</div>
 		`;
 	}
@@ -512,6 +540,25 @@ class ChatOverlayManager {
 		const overlay = this.overlays.get(chatId);
 		if (overlay) {
 			overlay.style.zIndex = this.Z_BASE;
+		}
+	}
+
+	_handleWorkflowImport(node, msgId) {
+		const msg = node.chatMessages.find(m => m.id === msgId);
+		if (!msg?.workflow) return;
+
+		const app = this.app;
+		const schemas = app.graph.getRegisteredSchemas().filter(s => app.graph.isWorkflowSchema(s));
+		if (schemas.length === 0) {
+			app.showError?.('No workflow schema registered');
+			return;
+		}
+
+		try {
+			app.api.workflow.import(msg.workflow, schemas[0], {});
+			app.centerView?.();
+		} catch (err) {
+			app.showError?.('Import failed: ' + err.message);
 		}
 	}
 }

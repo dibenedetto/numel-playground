@@ -13,7 +13,8 @@
       "Bash(conda run:*)",
       "Bash(dir:*)",
       "Bash(npm install:*)",
-      "Bash(npm run build:codemirror:*)"
+      "Bash(npm run build:codemirror:*)",
+      "Bash(pip show:*)"
     ]
   }
 }
