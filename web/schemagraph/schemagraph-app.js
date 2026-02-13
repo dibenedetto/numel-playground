@@ -5818,9 +5818,11 @@ class SchemaGraphApp {
 	 * @returns {Object|null} Preview data or null
 	 */
 	_getPreviewData(node) {
+		let result = null;
+
 		// 0. Live frame from media extension (highest priority for live video)
 		if (node._liveFrameImg?.complete && node._liveFrameImg.naturalWidth > 0) {
-			return {
+			result = {
 				type: 'image',
 				value: node.previewData,
 				source: 'live'
@@ -5828,37 +5830,42 @@ class SchemaGraphApp {
 		}
 
 		// 1. Find the 'input' slot by name (not at fixed index due to inheritance)
-		const inputSlotIdx = this._findInputSlotByName(node, 'input');
-		if (inputSlotIdx >= 0) {
-			const inputSlot = node.inputs?.[inputSlotIdx];
-			if (inputSlot?.link) {
-				const link = this.graph.links[inputSlot.link];
-				if (link) {
-					const sourceNode = this.graph.getNodeById(link.origin_id);
-					if (sourceNode) {
-						return this._extractPreviewDataFromNode(sourceNode, link.origin_slot);
+		if (!result) {
+			const inputSlotIdx = this._findInputSlotByName(node, 'input');
+			if (inputSlotIdx >= 0) {
+				const inputSlot = node.inputs?.[inputSlotIdx];
+				if (inputSlot?.link) {
+					const link = this.graph.links[inputSlot.link];
+					if (link) {
+						const sourceNode = this.graph.getNodeById(link.origin_id);
+						if (sourceNode) {
+							result = this._extractPreviewDataFromNode(sourceNode, link.origin_slot);
+						}
 					}
 				}
 			}
 		}
 
 		// 2. Fallback: check all input slots for any connection
-		for (let i = 0; i < (node.inputs?.length || 0); i++) {
-			const inputSlot = node.inputs[i];
-			if (inputSlot?.link) {
-				const link = this.graph.links[inputSlot.link];
-				if (link) {
-					const sourceNode = this.graph.getNodeById(link.origin_id);
-					if (sourceNode) {
-						return this._extractPreviewDataFromNode(sourceNode, link.origin_slot);
+		if (!result) {
+			for (let i = 0; i < (node.inputs?.length || 0); i++) {
+				const inputSlot = node.inputs[i];
+				if (inputSlot?.link) {
+					const link = this.graph.links[inputSlot.link];
+					if (link) {
+						const sourceNode = this.graph.getNodeById(link.origin_id);
+						if (sourceNode) {
+							result = this._extractPreviewDataFromNode(sourceNode, link.origin_slot);
+							if (result) break;
+						}
 					}
 				}
 			}
 		}
 
 		// 3. Check node's directly cached previewData (set by workflow execution)
-		if (node.previewData !== undefined && node.previewData !== null) {
-			return {
+		if (!result && node.previewData !== undefined && node.previewData !== null) {
+			result = {
 				type: node.previewType || this._guessTypeFromData(node.previewData),
 				value: node.previewData,
 				source: 'cached'
@@ -5866,11 +5873,22 @@ class SchemaGraphApp {
 		}
 
 		// 4. Check node.extra.previewData
-		if (node.extra?.previewData) {
-			return node.extra.previewData;
+		if (!result && node.extra?.previewData) {
+			result = node.extra.previewData;
 		}
 
-		return null;
+		// 5. Apply hint override if the node has a 'hint' slot set to a non-auto value
+		if (result) {
+			const hintIdx = this._findInputSlotByName(node, 'hint');
+			if (hintIdx >= 0) {
+				const hintValue = node.nativeInputs?.[hintIdx]?.value;
+				if (hintValue && hintValue !== 'auto') {
+					result.type = hintValue;
+				}
+			}
+		}
+
+		return result;
 	}
 
 	/**
@@ -6078,18 +6096,21 @@ class SchemaGraphApp {
 		if (mimeType.startsWith('text/')) return 'text';
 		if (mimeType === 'application/json') return 'json';
 		if (mimeType === 'application/pdf') return 'pdf';
+		if (mimeType.startsWith('model/')) return 'model3d';
 
 		const format = (meta.format || '').toLowerCase();
 		const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'];
 		const audioExts = ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'];
 		const videoExts = ['mp4', 'webm', 'mov', 'avi', 'mkv'];
 		const textExts = ['txt', 'md', 'csv', 'xml', 'html'];
+		const model3dExts = ['glb', 'gltf', 'obj', 'fbx', 'stl', '3ds'];
 
 		if (imageExts.includes(format)) return 'image';
 		if (audioExts.includes(format)) return 'audio';
 		if (videoExts.includes(format)) return 'video';
 		if (textExts.includes(format)) return 'text';
 		if (format === 'json') return 'json';
+		if (model3dExts.includes(format)) return 'model3d';
 
 		return 'unknown';
 	}
@@ -6106,6 +6127,7 @@ class SchemaGraphApp {
 		if (mimeType.startsWith('video/')) return 'video';
 		if (mimeType.startsWith('text/')) return 'text';
 		if (mimeType === 'application/json') return 'json';
+		if (mimeType.startsWith('model/')) return 'model3d';
 		return 'unknown';
 	}
 
@@ -6123,6 +6145,9 @@ class SchemaGraphApp {
 			if (data.startsWith('data:image/')) return 'image';
 			if (data.startsWith('data:audio/')) return 'audio';
 			if (data.startsWith('data:video/')) return 'video';
+			if (data.startsWith('data:model/')) return 'model3d';
+			// Check if it's a 3D model URL
+			if (/\.(glb|gltf)(\?|#|$)/i.test(data)) return 'model3d';
 			// Check if it's JSON
 			try {
 				const parsed = JSON.parse(data);
@@ -6207,6 +6232,9 @@ class SchemaGraphApp {
 			case 'video':
 				this._drawVideoPreviewSimple(data, x, y, w, h, colors, textScale);
 				break;
+			case 'model3d':
+				this._draw3DModelPlaceholder(x, y, w, h, colors, textScale);
+				break;
 			case 'node':
 				this._drawNodeReferencePreview(data.value, x, y, w, h, colors, textScale);
 				break;
@@ -6275,6 +6303,9 @@ class SchemaGraphApp {
 				break;
 			case 'video':
 				this._drawVideoPreviewFull(data, x, y, w, h, colors, textScale);
+				break;
+			case 'model3d':
+				this._draw3DModelPlaceholder(x, y, w, h, colors, textScale);
 				break;
 			default:
 				this._drawUnknownPreview(data, x, y, w, h, colors, textScale, true);
@@ -6572,6 +6603,47 @@ class SchemaGraphApp {
 		this.ctx.fillText(icon, x + w / 2, y + h / 2);
 	}
 
+	_draw3DModelPlaceholder(x, y, w, h, colors, textScale) {
+		const cx = x + w / 2;
+		const cy = y + h / 2 - 6;
+		const s = Math.min(w, h) * 0.2;
+		const ctx = this.ctx;
+		const off = s * 0.5;
+
+		// Wireframe cube
+		ctx.strokeStyle = colors.accentBlue || '#4a90d9';
+		ctx.lineWidth = 1.5;
+
+		// Front face
+		ctx.beginPath();
+		ctx.moveTo(cx - s, cy - s); ctx.lineTo(cx + s, cy - s);
+		ctx.lineTo(cx + s, cy + s); ctx.lineTo(cx - s, cy + s);
+		ctx.closePath();
+		ctx.stroke();
+
+		// Back face (offset)
+		ctx.beginPath();
+		ctx.moveTo(cx - s + off, cy - s - off); ctx.lineTo(cx + s + off, cy - s - off);
+		ctx.lineTo(cx + s + off, cy + s - off); ctx.lineTo(cx - s + off, cy + s - off);
+		ctx.closePath();
+		ctx.stroke();
+
+		// Connecting edges
+		ctx.beginPath();
+		ctx.moveTo(cx - s, cy - s); ctx.lineTo(cx - s + off, cy - s - off);
+		ctx.moveTo(cx + s, cy - s); ctx.lineTo(cx + s + off, cy - s - off);
+		ctx.moveTo(cx + s, cy + s); ctx.lineTo(cx + s + off, cy + s - off);
+		ctx.moveTo(cx - s, cy + s); ctx.lineTo(cx - s + off, cy + s - off);
+		ctx.stroke();
+
+		// Label
+		ctx.fillStyle = colors.textSecondary || 'rgba(255,255,255,0.6)';
+		ctx.font = (8 * textScale) + 'px Arial';
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'bottom';
+		ctx.fillText('3D Model', cx, y + h - 4);
+	}
+
 	/**
 	 * Recalculate PreviewFlow node size based on mode
 	 * @param {Object} node - The PreviewFlow node
@@ -6585,7 +6657,8 @@ class SchemaGraphApp {
 			switch (previewData.type) {
 				case 'image':
 				case 'video':
-					node.size = [400, 350];
+				case 'model3d':
+					node.size = [420, 380];
 					break;
 				case 'text':
 					// Calculate size based on text length

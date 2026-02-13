@@ -626,9 +626,10 @@ class SinkFlow(FlowType):
 	visible     = True
 )
 class PreviewFlow(FlowType):
-	type   : Annotated[Literal["preview_flow"], FieldRole.CONSTANT] = "preview_flow"
-	input  : Annotated[Any                    , FieldRole.INPUT   ] = None
-	output : Annotated[Any                    , FieldRole.OUTPUT  ] = None
+	type   : Annotated[Literal["preview_flow"]                                              , FieldRole.CONSTANT] = "preview_flow"
+	input  : Annotated[Any                                                                  , FieldRole.INPUT   ] = None
+	hint   : Annotated[Literal["auto", "text", "json", "image", "audio", "video", "model3d"], FieldRole.INPUT   ] = "auto"
+	output : Annotated[Any                                                                  , FieldRole.OUTPUT  ] = None
 
 
 @node_info(
