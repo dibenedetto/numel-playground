@@ -1171,6 +1171,14 @@ Return ONLY valid JSON (no markdown, no explanation), in this format:
 		cache.update({"config_hash": config_hash, "backend": backend, "agent_index": agent_idx})
 		return backend, agent_idx
 
+	@app.post("/generation-prompt")
+	async def get_generation_prompt():
+		"""Return the generation system prompt (node catalog + instructions) for chat-based /gen."""
+		nonlocal schema_code
+		node_catalog = _build_node_catalog(schema_code)
+		prompt = _GENERATE_SYSTEM_PROMPT.replace("{node_catalog}", node_catalog)
+		return {"prompt": prompt}
+
 	@app.post("/generate-workflow")
 	async def generate_workflow(request: GenerateWorkflowRequest):
 		nonlocal schema_code

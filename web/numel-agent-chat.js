@@ -333,7 +333,13 @@ class AgentChatManager {
 			},
 			onTextMessageEnd: () => {
 				const n = getNode();
-				if (n) api.endStreaming(n);
+				if (!n) return;
+				api.endStreaming(n);
+				// Post-process /gen responses to extract workflow JSON
+				if (n._pendingGeneration) {
+					n._pendingGeneration = false;
+					this._processGenerationResponse(n);
+				}
 			},
 			onTextMessageContent: (chunk) => {
 				const n = getNode();
@@ -356,178 +362,79 @@ class AgentChatManager {
 	}
 
 	// ================================================================
-	// /gen command — Workflow generation via chat
+	// /gen command — Workflow generation via the connected agent
 	// ================================================================
 
 	async _handleGenerate(node, description) {
 		const api = this.app.api.chat;
 
 		try {
-			api.setState(node, ChatState.SENDING);
+			// Connect to the same agent used for chat
+			await this._ensureConnected(node);
 
-			// Collect full agent subgraph config from connected nodes
-			const agentConfig = this._collectGenerationConfig(node);
-
-			const resp = await fetch(this.url + '/generate-workflow', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					prompt: description,
-					...agentConfig,
-				})
-			});
-
-			if (!resp.ok) {
-				const detail = await resp.json().catch(() => ({}));
-				throw new Error(detail.detail || `HTTP ${resp.status}`);
+			const entry = this.handlers.get(node.chatId);
+			if (!entry?.handler?.isConnected()) {
+				throw new Error('Not connected to agent');
 			}
 
-			const data = await resp.json();
+			api.setState(node, ChatState.SENDING);
 
-			// Store workflow on node for later import
-			node._lastGeneratedWorkflow = data.workflow;
+			// Fetch (cached) generation prompt with node catalog
+			const genPrompt = await this._getGenerationPrompt();
 
-			// Add assistant message with workflow metadata for Import button
-			const summary = data.message || 'Generated workflow';
-			api.addMessage(node, MessageRole.ASSISTANT, summary, {
-				workflow: data.workflow
-			});
+			// Mark node so callbacks know to post-process the response
+			node._pendingGeneration = true;
 
-			api.setState(node, ChatState.READY);
+			// Send augmented message through AGUI — the agent's own
+			// model, tools, memory, and knowledge are all available
+			const augmented = `${genPrompt}\n\n---\nGenerate a workflow for: ${description}`;
+			await entry.handler.send(augmented);
 
 		} catch (err) {
+			node._pendingGeneration = false;
 			api.setState(node, ChatState.ERROR, err.message);
 			api.addMessage(node, MessageRole.ERROR, `Generation failed: ${err.message}`);
 		}
 	}
 
-	// ================================================================
-	// Graph traversal helpers for config collection
-	// ================================================================
-
-	_getConnectedNode(node, slotName) {
-		const slotIdx = node.getInputSlotByName?.(slotName);
-		if (slotIdx == null || slotIdx < 0) return null;
-		const input = node.inputs?.[slotIdx];
-		if (!input?.link) return null;
-		const link = this.app.graph.links[input.link];
-		if (!link) return null;
-		return this.app.graph.getNodeById(link.origin_id);
+	async _getGenerationPrompt() {
+		if (this._cachedGenPrompt) return this._cachedGenPrompt;
+		const resp = await fetch(this.url + '/generation-prompt', { method: 'POST' });
+		if (!resp.ok) throw new Error('Failed to fetch generation prompt');
+		const data = await resp.json();
+		this._cachedGenPrompt = data.prompt;
+		return this._cachedGenPrompt;
 	}
 
-	_getConnectedMultiInputNodes(node, fieldName) {
-		const indices = node.multiInputSlots?.[fieldName];
-		if (!indices || indices.length === 0) return [];
+	_processGenerationResponse(node) {
+		const messages = node.chatMessages || [];
+		const lastAssistant = [...messages].reverse()
+			.find(m => m.role === MessageRole.ASSISTANT);
+		if (!lastAssistant) return;
 
-		const results = [];
-		for (const idx of indices) {
-			const multiEntry = node.multiInputs?.[idx];
-			if (!multiEntry?.links?.length) continue;
-			const linkId = multiEntry.links[0];
-			const link = this.app.graph.links[linkId];
-			if (!link) continue;
-			const connectedNode = this.app.graph.getNodeById(link.origin_id);
-			if (connectedNode) results.push(connectedNode);
+		const workflow = this._extractWorkflowJson(lastAssistant.content);
+		if (workflow && workflow.nodes) {
+			lastAssistant.workflow = workflow;
+			node._lastGeneratedWorkflow = workflow;
+			// Trigger re-render so the Import button appears
+			this.app.api.chat.updateLastMessage(node, lastAssistant.content, false);
 		}
-		return results;
 	}
 
-	_collectGenerationConfig(chatNode) {
-		const configNode = this._getConnectedNode(chatNode, 'config');
-		if (!configNode) return {};
-
-		const config = {};
-
-		// Backend
-		const backendNode = this._getConnectedNode(configNode, 'backend');
-		if (backendNode) {
-			const cf = backendNode.constantFields || {};
-			config.backend = { engine: cf.name || 'agno' };
+	_extractWorkflowJson(text) {
+		if (!text) return null;
+		text = text.trim();
+		try { return JSON.parse(text); } catch (e) { /* not raw JSON */ }
+		const blockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+		if (blockMatch) {
+			try { return JSON.parse(blockMatch[1].trim()); } catch (e) { /* bad block */ }
 		}
-
-		// Model
-		const modelNode = this._getConnectedNode(configNode, 'model');
-		if (modelNode) {
-			const cf = modelNode.constantFields || {};
-			config.model = {
-				source:  cf.source  || 'ollama',
-				name:    cf.name    || 'mistral',
-				version: cf.version || '',
-			};
+		const start = text.indexOf('{');
+		const end = text.lastIndexOf('}');
+		if (start !== -1 && end > start) {
+			try { return JSON.parse(text.substring(start, end + 1)); } catch (e) { /* no luck */ }
 		}
-
-		// Options
-		const optionsNode = this._getConnectedNode(configNode, 'options');
-		if (optionsNode) {
-			const cf = optionsNode.constantFields || {};
-			config.options = {
-				name:            cf.name            || null,
-				description:     cf.description     || null,
-				instructions:    cf.instructions    || null,
-				prompt_override: cf.prompt_override || null,
-				markdown:        cf.markdown === true || cf.markdown === 'true',
-			};
-		}
-
-		// Memory Manager
-		const memoryNode = this._getConnectedNode(configNode, 'memory_mgr');
-		if (memoryNode) {
-			const cf = memoryNode.constantFields || {};
-			config.memory = {
-				query:   cf.query   === true || cf.query   === 'true',
-				update:  cf.update  === true || cf.update  === 'true',
-				managed: cf.managed === true || cf.managed === 'true',
-				prompt:  cf.prompt  || null,
-			};
-		}
-
-		// Session Manager
-		const sessionNode = this._getConnectedNode(configNode, 'session_mgr');
-		if (sessionNode) {
-			const cf = sessionNode.constantFields || {};
-			config.session = {
-				query:        cf.query  === true || cf.query  === 'true',
-				update:       cf.update === true || cf.update === 'true',
-				history_size: parseInt(cf.history_size) || 10,
-				prompt:       cf.prompt || null,
-			};
-		}
-
-		// Tools (MULTI_INPUT)
-		const toolNodes = this._getConnectedMultiInputNodes(configNode, 'tools');
-		if (toolNodes.length > 0) {
-			config.tools = toolNodes.map(tn => {
-				const cf = tn.constantFields || {};
-				return { name: cf.name || '', args: cf.args || null };
-			}).filter(t => t.name);
-		}
-
-		// Knowledge Manager (with nested content_db / index_db)
-		const knowledgeNode = this._getConnectedNode(configNode, 'knowledge_mgr');
-		if (knowledgeNode) {
-			const cf = knowledgeNode.constantFields || {};
-			const knowledge = {
-				query:       cf.query === true || cf.query === 'true' || cf.query == null,
-				description: cf.description || null,
-				max_results: parseInt(cf.max_results) || 10,
-				urls:        cf.urls || null,
-			};
-
-			const contentDBNode = this._getConnectedNode(knowledgeNode, 'content_db');
-			if (contentDBNode) {
-				const cdb = contentDBNode.constantFields || {};
-				knowledge.content_db = { engine: cdb.engine || 'sqlite', url: cdb.url || '' };
-			}
-			const indexDBNode = this._getConnectedNode(knowledgeNode, 'index_db');
-			if (indexDBNode) {
-				const idb = indexDBNode.constantFields || {};
-				knowledge.index_db = { engine: idb.engine || 'lancedb', url: idb.url || '' };
-			}
-
-			config.knowledge = knowledge;
-		}
-
-		return config;
+		return null;
 	}
 
 	// ================================================================
