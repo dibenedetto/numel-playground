@@ -5657,10 +5657,11 @@ class SchemaGraphApp {
 		};
 		const headerColorStr = `rgb(${currentColor.r}, ${currentColor.g}, ${currentColor.b})`;
 
-		// Ensure minimum size based on preview mode
+		// Ensure minimum size based on preview mode (account for slot count for content area)
 		const isExpanded = node.extra?.previewExpanded ?? false;
+		const visSlots = Math.max(this._getVisibleSlotCount(node, false), this._getVisibleSlotCount(node, true));
 		const minW = isExpanded ? 280 : 200;
-		const minH = isExpanded ? 180 : 120;
+		const minH = isExpanded ? 180 : Math.max(120, 96 + visSlots * 25);
 		if (node.size[0] < minW) node.size[0] = minW;
 		if (node.size[1] < minH) node.size[1] = minH;
 
@@ -6657,6 +6658,8 @@ class SchemaGraphApp {
 			switch (previewData.type) {
 				case 'image':
 				case 'video':
+					node.size = [400, 350];
+					break;
 				case 'model3d':
 					node.size = [420, 380];
 					break;
@@ -6681,8 +6684,9 @@ class SchemaGraphApp {
 					node.size = [280, 200];
 			}
 		} else {
-			// Compact size
-			node.size = [200, 120];
+			// Compact size — account for visible slot count
+			const vis = Math.max(this._getVisibleSlotCount(node, false), this._getVisibleSlotCount(node, true));
+			node.size = [200, Math.max(120, 96 + vis * 25)];
 		}
 	}
 
