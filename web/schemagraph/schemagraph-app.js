@@ -5949,32 +5949,33 @@ class SchemaGraphApp {
 			};
 		}
 
-		// Try to get output data (runtime value)
-		const outputData = sourceNode.outputs?.[outputSlot]?.value;
-		if (outputData !== undefined) {
-			return {
-				type: this._guessTypeFromData(outputData),
-				value: outputData,
-				source: 'workflow'
-			};
+		// For flow nodes, onExecute() sets output slot value to the full config dict
+		// which is not the runtime result — skip slot value and rely on previewData
+		const isFlowNode = sourceNode.workflowType?.endsWith('_flow');
+		if (!isFlowNode) {
+			// Try to get output data (runtime value)
+			const outputData = sourceNode.outputs?.[outputSlot]?.value;
+			if (outputData !== undefined) {
+				return {
+					type: this._guessTypeFromData(outputData),
+					value: outputData,
+					source: 'workflow'
+				};
+			}
+
+			// Try to get output default value (from schema)
+			const outputDefault = sourceNode.outputs?.[outputSlot]?.defaultValue;
+			if (outputDefault !== undefined) {
+				return {
+					type: this._guessTypeFromData(outputDefault),
+					value: outputDefault,
+					source: 'default'
+				};
+			}
 		}
 
-		// Try to get output default value (from schema)
-		const outputDefault = sourceNode.outputs?.[outputSlot]?.defaultValue;
-		if (outputDefault !== undefined) {
-			return {
-				type: this._guessTypeFromData(outputDefault),
-				value: outputDefault,
-				source: 'default'
-			};
-		}
-
-		// Return basic info about the node
-		return {
-			type: 'node',
-			value: sourceNode.title || sourceNode.modelName,
-			source: 'reference'
-		};
+		// No concrete data available from this node
+		return null;
 	}
 
 	/**

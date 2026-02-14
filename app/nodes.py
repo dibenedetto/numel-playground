@@ -287,8 +287,8 @@ class WFTransformFlow(WFFlowType):
 			ctx    = context.inputs.get("context", {})
 			input  = context.inputs.get("input"  , {})
 
-			if not isinstance(ctx, dict) or not isinstance(input, dict):
-				raise "Context and input must be dictionaries"
+			# if not isinstance(ctx, dict) or not isinstance(input, dict):
+			# 	raise "Context and input must be dictionaries"
 
 			if lang == "python":
 				local_vars = {
@@ -298,7 +298,7 @@ class WFTransformFlow(WFFlowType):
 					"output"    : None,
 				}
 				exec(script, {"__builtins__": {}}, local_vars)
-				output = local_vars.get("output", input)
+				output = local_vars["output"]
 			elif lang == "jinja2":
 				template = Template(script)
 				output = template.render(input=input, **context.variables)

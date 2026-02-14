@@ -1333,26 +1333,30 @@ function updateConnectedPreviews(workflowNodeIdx, outputs) {
 	let needsRedraw = false;
 
 	// Check each output slot
-	for (const output of graphNode.outputs || []) {
+	for (let slotIdx = 0; slotIdx < (graphNode.outputs || []).length; slotIdx++) {
+		const output = graphNode.outputs[slotIdx];
 		for (const linkId of output.links || []) {
 			const link = graph.links[linkId];
 			if (!link) continue;
 
 			const targetNode = graph.getNodeById(link.target_id);
 			if (!isPreviewNode(targetNode)) continue;
-			
+
 			// Determine which output data to use
+			// Try outputMeta name (original field name) first, then display name
+			const metaName = graphNode.outputMeta?.[slotIdx]?.name;
 			const slotName = output.name;
 			let data;
-			
+
 			if (outputs && typeof outputs === 'object') {
-				// Try exact slot name first
-				if (slotName in outputs) {
+				if (metaName && metaName in outputs) {
+					data = outputs[metaName];
+				} else if (slotName in outputs) {
 					data = outputs[slotName];
-				} 
+				}
 				// Try base name for dotted slots
 				else {
-					const baseName = slotName.split('.')[0];
+					const baseName = (metaName || slotName).split('.')[0];
 					data = (baseName in outputs) ? outputs[baseName] : outputs;
 				}
 			} else {

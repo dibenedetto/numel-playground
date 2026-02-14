@@ -1183,7 +1183,7 @@ class WorkflowEngine:
 
 		try:
 			context = NodeExecutionContext()
-			context.inputs      = self._gather_inputs(edges, node_idx, node_outputs)
+			context.inputs      = self._gather_inputs(edges, node_idx, node_outputs, node_config)
 			context.variables   = variables
 			context.node_index  = node_idx
 			context.node_config = node_config
@@ -1205,10 +1205,23 @@ class WorkflowEngine:
 			return node_idx, result
 
 
-	def _gather_inputs(self, edges: List[Edge], node_idx: int, node_outputs: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
-		"""Gather input data from connected edges"""
-		inputs = {}
+	# Fields from base classes that should not be treated as data inputs
+	_BASE_FIELDS = frozenset({"type", "id", "extra", "flow"})
 
+	def _gather_inputs(self, edges: List[Edge], node_idx: int, node_outputs: Dict[int, Dict[str, Any]], node_config: Any = None) -> Dict[str, Any]:
+		"""Gather input data from node config (native values) and connected edges.
+		Edge-connected values override native values."""
+
+		# Seed with native field values from the node config
+		inputs = {}
+		if node_config is not None:
+			for key, val in node_config.dict().items():
+				if key in self._BASE_FIELDS:
+					continue
+				if val is not None:
+					inputs[key] = val
+
+		# Override with edge-connected values
 		for edge in edges:
 			if edge.target != node_idx:
 				continue
