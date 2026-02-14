@@ -1,0 +1,72 @@
+{
+  "options": {
+    "type": "workflow_options",
+    "name": "Tutorial 7: Preview and Media Types",
+    "description": "Demonstrates the Preview node displaying text, JSON, images, and using hint overrides."
+  },
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": { "name": "Start" }
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "output = 'Hello! This is plain text displayed in a Preview node.'",
+      "extra": { "name": "Text Output" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Text Preview" }
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "output = {\n    'name': 'Numel Playground',\n    'version': '1.0',\n    'features': ['workflows', 'agents', 'tools'],\n    'stats': {'nodes': 42, 'edges': 56}\n}",
+      "extra": { "name": "JSON Output" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "JSON Preview" }
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "import base64\n# 8x8 red square PNG\npng_hex = '89504e470d0a1a0a0000000d49484452000000080000000808020000004b6d29dc0000001b4944415478da62fccf40060e304041860144311802683a00008f840201eb3bb0710000000049454e44ae426082'\npng_bytes = bytes.fromhex(png_hex)\noutput = 'data:image/png;base64,' + base64.b64encode(png_bytes).decode()",
+      "extra": { "name": "Image Output" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Image Preview" }
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "output = {'message': 'This will be shown as plain text, not JSON', 'reason': 'The hint field overrides auto-detection'}",
+      "extra": { "name": "Dict as Text" }
+    },
+    {
+      "type": "preview_flow",
+      "hint": "text",
+      "extra": { "name": "Hint: Text" }
+    },
+    {
+      "type": "end_flow",
+      "extra": { "name": "End" }
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "source_slot": "output", "target_slot": "input" },
+    { "source": 1, "target": 2, "source_slot": "output", "target_slot": "input" },
+    { "source": 0, "target": 3, "source_slot": "output", "target_slot": "input" },
+    { "source": 3, "target": 4, "source_slot": "output", "target_slot": "input" },
+    { "source": 0, "target": 5, "source_slot": "output", "target_slot": "input" },
+    { "source": 5, "target": 6, "source_slot": "output", "target_slot": "input" },
+    { "source": 0, "target": 7, "source_slot": "output", "target_slot": "input" },
+    { "source": 7, "target": 8, "source_slot": "output", "target_slot": "input" },
+    { "source": 2, "target": 9, "source_slot": "output", "target_slot": "input" },
+    { "source": 4, "target": 9, "source_slot": "output", "target_slot": "input" },
+    { "source": 6, "target": 9, "source_slot": "output", "target_slot": "input" },
+    { "source": 8, "target": 9, "source_slot": "output", "target_slot": "input" }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "options": {
+    "type": "workflow_options",
+    "name": "Tutorial 5: Events and Timers",
+    "description": "Timer sources firing periodic events, caught by an event listener inside a loop."
+  },
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": { "name": "Start" }
+    },
+    {
+      "type": "timer_source_flow",
+      "source_id": "heartbeat",
+      "interval_ms": 2000,
+      "max_triggers": 5,
+      "immediate": true,
+      "extra": { "name": "Timer (2s)" }
+    },
+    {
+      "type": "loop_start_flow",
+      "condition": true,
+      "max_iter": 10,
+      "extra": { "name": "Loop Start" }
+    },
+    {
+      "type": "event_listener_flow",
+      "sources": ["heartbeat"],
+      "mode": "any",
+      "timeout_ms": 5000,
+      "extra": { "name": "Event Listener" }
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "evt = input if isinstance(input, dict) else {}\noutput = f\"Event #{evt.get('count', '?')} at {evt.get('elapsed_ms', '?')}ms\"",
+      "extra": { "name": "Format Event" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Event Preview" }
+    },
+    {
+      "type": "loop_end_flow",
+      "extra": { "name": "Loop End" }
+    },
+    {
+      "type": "end_flow",
+      "extra": { "name": "End" }
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "source_slot": "output", "target_slot": "input" },
+    { "source": 1, "target": 2, "source_slot": "output", "target_slot": "input" },
+    { "source": 2, "target": 3, "source_slot": "iteration", "target_slot": "input" },
+    { "source": 3, "target": 4, "source_slot": "event", "target_slot": "input" },
+    { "source": 4, "target": 5, "source_slot": "output", "target_slot": "input" },
+    { "source": 5, "target": 6, "source_slot": "output", "target_slot": "input" },
+    { "source": 6, "target": 7, "source_slot": "output", "target_slot": "input" },
+    { "source": 6, "target": 2, "source_slot": "output", "target_slot": "input", "loop": true }
+  ]
+}

@@ -1,0 +1,75 @@
+{
+  "options": {
+    "type": "workflow_options",
+    "name": "Tutorial 4: Loops and Iteration",
+    "description": "While loops with delay and for-each iteration over a list."
+  },
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": { "name": "Start" }
+    },
+    {
+      "type": "loop_start_flow",
+      "condition": true,
+      "max_iter": 5,
+      "extra": { "name": "While Loop (5x)" }
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "output = 'Tick #' + str(input)",
+      "extra": { "name": "Format Tick" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Loop Preview" }
+    },
+    {
+      "type": "delay_flow",
+      "duration_ms": 500,
+      "extra": { "name": "Delay 500ms" }
+    },
+    {
+      "type": "loop_end_flow",
+      "extra": { "name": "Loop End" }
+    },
+    {
+      "type": "for_each_start_flow",
+      "items": ["alpha", "beta", "gamma"],
+      "extra": { "name": "ForEach" }
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "output = 'Item: ' + str(input).upper()",
+      "extra": { "name": "Format Item" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Item Preview" }
+    },
+    {
+      "type": "for_each_end_flow",
+      "extra": { "name": "ForEach End" }
+    },
+    {
+      "type": "end_flow",
+      "extra": { "name": "End" }
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "source_slot": "output", "target_slot": "input" },
+    { "source": 1, "target": 2, "source_slot": "iteration", "target_slot": "input" },
+    { "source": 2, "target": 3, "source_slot": "output", "target_slot": "input" },
+    { "source": 3, "target": 4, "source_slot": "output", "target_slot": "input" },
+    { "source": 4, "target": 5, "source_slot": "output", "target_slot": "input" },
+    { "source": 5, "target": 6, "source_slot": "output", "target_slot": "input" },
+    { "source": 5, "target": 1, "source_slot": "output", "target_slot": "input", "loop": true },
+    { "source": 6, "target": 7, "source_slot": "current", "target_slot": "input" },
+    { "source": 7, "target": 8, "source_slot": "output", "target_slot": "input" },
+    { "source": 8, "target": 9, "source_slot": "output", "target_slot": "input" },
+    { "source": 9, "target": 10, "source_slot": "output", "target_slot": "input" },
+    { "source": 9, "target": 6, "source_slot": "output", "target_slot": "input", "loop": true }
+  ]
+}

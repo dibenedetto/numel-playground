@@ -1,0 +1,25 @@
+{
+  "options": {
+    "type": "workflow_options",
+    "name": "Tutorial 1: Hello Workflow",
+    "description": "The simplest workflow: Start, Preview, End."
+  },
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": { "name": "Start" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Preview" }
+    },
+    {
+      "type": "end_flow",
+      "extra": { "name": "End" }
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "source_slot": "output", "target_slot": "input" },
+    { "source": 1, "target": 2, "source_slot": "output", "target_slot": "input" }
+  ]
+}

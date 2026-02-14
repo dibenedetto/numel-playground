@@ -1,0 +1,33 @@
+{
+  "options": {
+    "type": "workflow_options",
+    "name": "Tutorial 2: Data Transformation",
+    "description": "Transform data with Python scripts using context and input."
+  },
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": { "name": "Start" }
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "output = {\n    \"message\": \"Hello from Numel!\",\n    \"tag_count\": len(context.get(\"tags\", [])),\n    \"tags\": context.get(\"tags\", [])\n}",
+      "context": { "tags": ["alpha", "beta", "gamma"] },
+      "extra": { "name": "Transform" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Result" }
+    },
+    {
+      "type": "end_flow",
+      "extra": { "name": "End" }
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "source_slot": "output", "target_slot": "flow" },
+    { "source": 1, "target": 2, "source_slot": "output", "target_slot": "input" },
+    { "source": 2, "target": 3, "source_slot": "output", "target_slot": "input" }
+  ]
+}

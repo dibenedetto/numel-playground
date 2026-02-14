@@ -1,0 +1,74 @@
+{
+  "options": {
+    "type": "workflow_options",
+    "name": "Tutorial 3: Routing and Merging",
+    "description": "Conditional routing with user input, branching, and merging."
+  },
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": { "name": "Start" }
+    },
+    {
+      "type": "user_input_flow",
+      "extra": { "name": "Ask User", "message": "Enter a message (try: 'help', 'buy', or anything else):" }
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "text = str(input).lower()\nif 'help' in text or 'broken' in text or 'error' in text:\n    target = 'support'\nelif 'buy' in text or 'price' in text or 'order' in text:\n    target = 'sales'\nelse:\n    target = 'default'\noutput = input",
+      "extra": { "name": "Classifier" }
+    },
+    {
+      "type": "route_flow",
+      "output": { "support": null, "sales": null },
+      "extra": { "name": "Route" }
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "output = 'Support: We will help with your issue: ' + str(input)",
+      "extra": { "name": "Support Branch" }
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "output = 'Sales: Thank you for your interest! Message: ' + str(input)",
+      "extra": { "name": "Sales Branch" }
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "output = 'General: Thanks for reaching out! You said: ' + str(input)",
+      "extra": { "name": "Default Branch" }
+    },
+    {
+      "type": "merge_flow",
+      "strategy": "first",
+      "input": { "from_support": null, "from_sales": null, "from_default": null },
+      "extra": { "name": "Merge" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Result" }
+    },
+    {
+      "type": "end_flow",
+      "extra": { "name": "End" }
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "source_slot": "output", "target_slot": "input" },
+    { "source": 1, "target": 2, "source_slot": "output", "target_slot": "input" },
+    { "source": 2, "target": 3, "source_slot": "output", "target_slot": "input" },
+    { "source": 2, "target": 3, "source_slot": "output", "target_slot": "target" },
+    { "source": 3, "target": 4, "source_slot": "output.support", "target_slot": "input" },
+    { "source": 3, "target": 5, "source_slot": "output.sales", "target_slot": "input" },
+    { "source": 3, "target": 6, "source_slot": "default", "target_slot": "input" },
+    { "source": 4, "target": 7, "source_slot": "output", "target_slot": "input.from_support" },
+    { "source": 5, "target": 7, "source_slot": "output", "target_slot": "input.from_sales" },
+    { "source": 6, "target": 7, "source_slot": "output", "target_slot": "input.from_default" },
+    { "source": 7, "target": 8, "source_slot": "output", "target_slot": "input" },
+    { "source": 8, "target": 9, "source_slot": "output", "target_slot": "input" }
+  ]
+}
