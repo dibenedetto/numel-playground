@@ -351,12 +351,14 @@ class WorkflowVisualizer {
 			'pending': '#4a5568',
 			'ready': '#3182ce',
 			'running': '#805ad5',
-			'waiting': '#d69e2e',  // Amber/orange for waiting state
+			'waiting': '#d69e2e',
 			'completed': '#38a169',
 			'failed': '#e53e3e',
 			'skipped': '#718096'
 		};
 
+		// Save original color before first execution override
+		if (!graphNode._originalColor) graphNode._originalColor = graphNode.color;
 		graphNode.color = colorMap[status] || graphNode.color;
 		graphNode.executionState = status;
 
@@ -404,8 +406,11 @@ class WorkflowVisualizer {
 		this._batchUpdate = true;
 		this.graphNodes.forEach((node, idx) => {
 			if (node) {
-				node.executionState = 'pending';
-				node.color = '#4a5568';
+				node.executionState = null;
+				if (node._originalColor) {
+					node.color = node._originalColor;
+					delete node._originalColor;
+				}
 			}
 		});
 		this._batchUpdate = false;

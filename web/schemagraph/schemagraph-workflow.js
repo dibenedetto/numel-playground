@@ -1345,7 +1345,7 @@ class WorkflowExporter {
 		}
 		if (node.title !== `${node.schemaName}.${node.modelName}`) nodeData.extra.title = node.title;
 		if (node.displayTitle) nodeData.extra.name = node.displayTitle;
-		if (node.color) nodeData.extra.color = node.color;
+		if (node._originalColor || node.color) nodeData.extra.color = node._originalColor || node.color;
 		if (Object.keys(nodeData.extra).length === 0) delete nodeData.extra;
 
 		if (node.annotations)
