@@ -30,6 +30,7 @@ class SchemaGraphApp {
 		this.injectFeaturesPanelHTML();
 		this.injectTemplatePanelHTML();
 		this.injectGenerateWorkflowHTML();
+		this.injectDocsPanelHTML();
 		this.injectMultiSlotUIStyles();
 		this.injectInteractiveStyles();
 		this.injectPreviewOverlayStyles();
@@ -378,6 +379,8 @@ class SchemaGraphApp {
 				<div class="sg-toolbar-divider" id="sg-toolbar-workflow-divider"></div>
 				<div class="sg-toolbar-section" id="sg-toolbar-templates"><span class="sg-toolbar-label">Templates</span><button id="sg-templatesBtn" class="sg-toolbar-btn">Templates</button></div>
 				<div class="sg-toolbar-divider" id="sg-toolbar-templates-divider"></div>
+				<div class="sg-toolbar-section" id="sg-toolbar-docs"><button id="sg-docsBtn" class="sg-toolbar-btn">📖 Tutorials</button></div>
+				<div class="sg-toolbar-divider" id="sg-toolbar-docs-divider"></div>
 				<div class="sg-toolbar-section" id="sg-toolbar-view"><span class="sg-toolbar-label">View</span><button id="sg-centerViewBtn" class="sg-toolbar-btn">🎯 Center</button></div>
 				<div class="sg-toolbar-divider" id="sg-toolbar-view-divider"></div>
 				<div class="sg-toolbar-section" id="sg-toolbar-layout"><span class="sg-toolbar-label">Layout</span><select id="sg-layoutSelect" class="sg-toolbar-select"><option value="">🔧 Layout...</option><option value="hierarchical-vertical">Hierarchical ↓</option><option value="hierarchical-horizontal">Hierarchical →</option><option value="force-directed">Force-Directed</option><option value="grid">Grid</option><option value="circular">Circular</option></select></div>
@@ -962,6 +965,239 @@ class SchemaGraphApp {
 		if (!modal) return;
 		modal.classList.remove('show');
 	}
+
+	// === DOCS / TUTORIALS PANEL ===
+
+	injectDocsPanelHTML() {
+		if (document.getElementById('sg-docsModal')) return;
+		const modal = document.createElement('div');
+		modal.id = 'sg-docsModal';
+		modal.className = 'sg-docs-modal';
+		modal.innerHTML = `
+			<div class="sg-docs-container">
+				<div class="sg-docs-header">
+					<span class="sg-docs-title">Tutorials</span>
+					<button id="sg-docsClose" class="sg-docs-close">\u2715</button>
+				</div>
+				<div class="sg-docs-layout">
+					<div class="sg-docs-sidebar" id="sg-docsSidebar"></div>
+					<div class="sg-docs-content" id="sg-docsContent">
+						<div class="sg-docs-empty">Select a document from the sidebar</div>
+					</div>
+				</div>
+			</div>`;
+		document.body.appendChild(modal);
+
+		document.getElementById('sg-docsClose').addEventListener('click', () => this._closeDocsPanel());
+		modal.addEventListener('click', (e) => { if (e.target === modal) this._closeDocsPanel(); });
+	}
+
+	_docsCache = null;
+	_docsContentCache = {};
+
+	async showDocsPanel() {
+		const modal = document.getElementById('sg-docsModal');
+		if (!modal) return;
+		modal.classList.add('show');
+
+		if (!this._docsCache) {
+			const sidebar = document.getElementById('sg-docsSidebar');
+			sidebar.innerHTML = '<div class="sg-docs-empty">Loading...</div>';
+			try {
+				const resp = await fetch((this._docsBaseUrl || '') + '/docs', { method: 'POST' });
+				this._docsCache = await resp.json();
+				this._renderDocsSidebar();
+			} catch (e) {
+				sidebar.innerHTML = `<div class="sg-docs-empty">Failed to load docs</div>`;
+			}
+		}
+	}
+
+	_closeDocsPanel() {
+		const modal = document.getElementById('sg-docsModal');
+		if (!modal) return;
+		modal.classList.remove('show');
+	}
+
+	_renderDocsSidebar() {
+		const sidebar = document.getElementById('sg-docsSidebar');
+		if (!sidebar || !this._docsCache) return;
+		sidebar.innerHTML = '';
+		for (const doc of this._docsCache) {
+			const item = document.createElement('div');
+			item.className = 'sg-docs-item';
+			item.dataset.filename = doc.filename;
+			item.innerHTML = `
+				<span class="sg-docs-item-title">${this._escapeHtml(doc.title)}</span>
+				${doc.hasWorkflow ? '<span class="sg-docs-item-badge">JSON</span>' : ''}
+			`;
+			item.addEventListener('click', () => this._loadDoc(doc.filename, doc.hasWorkflow));
+			sidebar.appendChild(item);
+		}
+	}
+
+	async _loadDoc(filename, hasWorkflow) {
+		// Update active state
+		for (const el of document.querySelectorAll('.sg-docs-item'))
+			el.classList.toggle('sg-docs-item-active', el.dataset.filename === filename);
+
+		const content = document.getElementById('sg-docsContent');
+		if (!content) return;
+
+		// Check cache
+		if (this._docsContentCache[filename]) {
+			content.innerHTML = this._docsContentCache[filename];
+			this._wireDocsImportButtons(content);
+			return;
+		}
+
+		content.innerHTML = '<div class="sg-docs-empty">Loading...</div>';
+
+		try {
+			const resp = await fetch((this._docsBaseUrl || '') + '/docs/file', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ filename })
+			});
+			const data = await resp.json();
+			let html = this._renderMarkdown(data.content || '');
+
+			// Add import button if workflow JSON exists
+			if (hasWorkflow) {
+				const jsonFile = filename.replace(/\.md$/, '.json');
+				html = `<button class="sg-docs-import-btn" data-json="${this._escapeHtml(jsonFile)}">Import to Canvas</button>\n` + html;
+			}
+
+			this._docsContentCache[filename] = html;
+			content.innerHTML = html;
+			this._wireDocsImportButtons(content);
+		} catch (e) {
+			content.innerHTML = `<div class="sg-docs-empty">Failed to load document</div>`;
+		}
+	}
+
+	_wireDocsImportButtons(container) {
+		for (const btn of container.querySelectorAll('.sg-docs-import-btn')) {
+			btn.addEventListener('click', (e) => {
+				e.stopPropagation();
+				this._importTutorialWorkflow(btn.dataset.json);
+			});
+		}
+		// Intercept clicks on internal .md links to load within the panel
+		for (const a of container.querySelectorAll('a[href$=".md"]')) {
+			a.addEventListener('click', (e) => {
+				e.preventDefault();
+				const filename = a.getAttribute('href').split('/').pop();
+				const doc = this._docsCache?.find(d => d.filename === filename);
+				if (doc) this._loadDoc(doc.filename, doc.hasWorkflow);
+			});
+		}
+	}
+
+	async _importTutorialWorkflow(jsonFilename) {
+		try {
+			const resp = await fetch((this._docsBaseUrl || '') + '/docs/file', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ filename: jsonFilename })
+			});
+			const workflow = await resp.json();
+
+			// Use the same import path as handleSingleImport
+			const schemas = this.graph.getRegisteredSchemas().filter(s => this.graph.isWorkflowSchema(s));
+			if (schemas.length === 0) { this.showError?.('No workflow schema registered'); return; }
+
+			this.api.graph.clear();
+			this.api.view.reset();
+			this.api.workflow.import(workflow, schemas[0], {});
+			this.centerView?.();
+
+			this._closeDocsPanel();
+
+			// Sync to backend if syncWorkflow is available
+			if (typeof syncWorkflow === 'function') {
+				const name = workflow?.options?.name || jsonFilename.replace('.json', '');
+				await syncWorkflow(workflow, name, true);
+			}
+		} catch (e) {
+			this.showError?.('Import failed: ' + e.message);
+		}
+	}
+
+	_renderMarkdown(md) {
+		// Escape HTML first
+		let html = this._escapeHtml(md);
+
+		// Code blocks (``` ... ```)
+		html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
+			`<pre><code class="language-${lang}">${code.trimEnd()}</code></pre>`
+		);
+
+		// Tables
+		html = html.replace(/((?:^\|.+\|$\n?)+)/gm, (block) => {
+			const rows = block.trim().split('\n').filter(r => r.trim());
+			if (rows.length < 2) return block;
+			// Check if second row is separator
+			const sep = rows[1];
+			if (!/^\|[\s\-:|]+\|$/.test(sep)) return block;
+			const parseRow = (r) => r.replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+			const headers = parseRow(rows[0]);
+			let t = '<table><thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+			for (let i = 2; i < rows.length; i++) {
+				const cells = parseRow(rows[i]);
+				t += '<tr>' + cells.map(c => `<td>${c}</td>`).join('') + '</tr>';
+			}
+			return t + '</tbody></table>';
+		});
+
+		// Headings
+		html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+		html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+		html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+		html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+		// Horizontal rules
+		html = html.replace(/^---+$/gm, '<hr>');
+
+		// Blockquotes
+		html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+
+		// Bold and italic
+		html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+		html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+		// Inline code (but not inside <pre>)
+		html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+		// Links [text](url)
+		html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+
+		// Unordered lists
+		html = html.replace(/((?:^- .+$\n?)+)/gm, (block) => {
+			const items = block.trim().split('\n').map(l => l.replace(/^- /, ''));
+			return '<ul>' + items.map(i => `<li>${i}</li>`).join('') + '</ul>';
+		});
+
+		// Ordered lists
+		html = html.replace(/((?:^\d+\. .+$\n?)+)/gm, (block) => {
+			const items = block.trim().split('\n').map(l => l.replace(/^\d+\. /, ''));
+			return '<ol>' + items.map(i => `<li>${i}</li>`).join('') + '</ol>';
+		});
+
+		// Paragraphs: wrap remaining bare lines
+		html = html.replace(/^(?!<[a-z/])((?:.+\n?)+)/gm, (block) => {
+			const trimmed = block.trim();
+			if (!trimmed) return '';
+			return `<p>${trimmed}</p>`;
+		});
+
+		// Clean up consecutive blockquotes
+		html = html.replace(/<\/blockquote>\n<blockquote>/g, '\n');
+
+		return html;
+	}
+
+	// === GENERATE WORKFLOW (continued) ===
 
 	_addGenerateMessage(role, content) {
 		const messagesEl = document.getElementById('sg-generateMessages');
@@ -7793,6 +8029,10 @@ class SchemaGraphApp {
 				setBaseUrl: (url) => { self._generateBaseUrl = url; },
 			},
 
+			docs: {
+				setBaseUrl: (url) => { self._docsBaseUrl = url; },
+			},
+
 			completeness: {
 				check: (nodeOrId) => {
 					const node = typeof nodeOrId === 'string' ? self.graph.getNodeById(nodeOrId) : nodeOrId;
@@ -8511,6 +8751,9 @@ class SchemaGraphApp {
 
 					// Templates
 					document.getElementById('sg-templatesBtn')?.addEventListener('click', () => self.toggleTemplatePanel());
+
+					// Tutorials / Docs
+					document.getElementById('sg-docsBtn')?.addEventListener('click', () => self.showDocsPanel());
 
 					// Generate Workflow
 					document.getElementById('sg-generateWorkflowBtn')?.addEventListener('click', () => self.showGenerateWorkflow());

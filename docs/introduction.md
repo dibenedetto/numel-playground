@@ -1,6 +1,6 @@
 # Numel Playground
 
-Numel Playground is a visual workflow editor for building and running agentic AI workflows. It combines an interactive node graph canvas with a Python backend powered by the Agno framework, enabling you to design, test, and execute complex data pipelines and AI agent configurations without writing boilerplate code.
+Numel Playground is a visual workflow editor for building and running agentic AI workflows. It combines an interactive node graph canvas with a framework-agnostic Python backend, enabling you to design, test, and execute complex data pipelines and AI agent configurations without writing boilerplate code.
 
 ## Architecture
 
@@ -32,7 +32,7 @@ Numel Playground is a visual workflow editor for building and running agentic AI
 
 ```bash
 cd app
-python api.py
+python app.py
 ```
 
 The server starts on port 8000 by default.

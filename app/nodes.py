@@ -181,13 +181,6 @@ class WFSinkFlow(WFFlowType):
 	pass
 
 
-# class WFPassthroughFlow(WFFlowType):
-# 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-# 		result = NodeExecutionResult()
-# 		result.outputs["output"] = context.inputs.get("input")
-# 		return result
-
-
 class WFPreviewFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = NodeExecutionResult()

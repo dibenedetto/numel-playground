@@ -2,7 +2,7 @@
   "options": {
     "type": "workflow_options",
     "name": "Tutorial 7: Preview and Media Types",
-    "description": "Demonstrates the Preview node displaying text, JSON, images, and using hint overrides."
+    "description": "Demonstrates the Preview node displaying text, JSON, images, hint overrides, and browser media capture (webcam, microphone, screen)."
   },
   "nodes": [
     {
@@ -51,6 +51,64 @@
       "extra": { "name": "Hint: Text" }
     },
     {
+      "type": "browser_source_flow",
+      "source_id": "webcam_src",
+      "device_type": "webcam",
+      "mode": "event",
+      "interval_ms": 3000,
+      "extra": { "name": "Webcam Capture" }
+    },
+    {
+      "type": "event_listener_flow",
+      "sources": ["webcam_src"],
+      "mode": "any",
+      "timeout_ms": 10000,
+      "extra": { "name": "Webcam Listener" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Webcam Preview" }
+    },
+    {
+      "type": "browser_source_flow",
+      "source_id": "mic_src",
+      "device_type": "microphone",
+      "mode": "event",
+      "interval_ms": 5000,
+      "audio_format": "wav",
+      "extra": { "name": "Mic Capture" }
+    },
+    {
+      "type": "event_listener_flow",
+      "sources": ["mic_src"],
+      "mode": "any",
+      "timeout_ms": 10000,
+      "extra": { "name": "Mic Listener" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Audio Preview" }
+    },
+    {
+      "type": "browser_source_flow",
+      "source_id": "screen_src",
+      "device_type": "screen",
+      "mode": "event",
+      "interval_ms": 3000,
+      "extra": { "name": "Screen Capture" }
+    },
+    {
+      "type": "event_listener_flow",
+      "sources": ["screen_src"],
+      "mode": "any",
+      "timeout_ms": 10000,
+      "extra": { "name": "Screen Listener" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Screen Preview" }
+    },
+    {
       "type": "end_flow",
       "extra": { "name": "End" }
     }
@@ -64,9 +122,21 @@
     { "source": 5, "target": 6, "source_slot": "output", "target_slot": "input" },
     { "source": 0, "target": 7, "source_slot": "output", "target_slot": "input" },
     { "source": 7, "target": 8, "source_slot": "output", "target_slot": "input" },
-    { "source": 2, "target": 9, "source_slot": "output", "target_slot": "input" },
-    { "source": 4, "target": 9, "source_slot": "output", "target_slot": "input" },
-    { "source": 6, "target": 9, "source_slot": "output", "target_slot": "input" },
-    { "source": 8, "target": 9, "source_slot": "output", "target_slot": "input" }
+    { "source": 0, "target": 9, "source_slot": "output", "target_slot": "input" },
+    { "source": 9, "target": 10, "source_slot": "output", "target_slot": "input" },
+    { "source": 10, "target": 11, "source_slot": "event", "target_slot": "input" },
+    { "source": 0, "target": 12, "source_slot": "output", "target_slot": "input" },
+    { "source": 12, "target": 13, "source_slot": "output", "target_slot": "input" },
+    { "source": 13, "target": 14, "source_slot": "event", "target_slot": "input" },
+    { "source": 0, "target": 15, "source_slot": "output", "target_slot": "input" },
+    { "source": 15, "target": 16, "source_slot": "output", "target_slot": "input" },
+    { "source": 16, "target": 17, "source_slot": "event", "target_slot": "input" },
+    { "source": 2, "target": 18, "source_slot": "output", "target_slot": "input" },
+    { "source": 4, "target": 18, "source_slot": "output", "target_slot": "input" },
+    { "source": 6, "target": 18, "source_slot": "output", "target_slot": "input" },
+    { "source": 8, "target": 18, "source_slot": "output", "target_slot": "input" },
+    { "source": 11, "target": 18, "source_slot": "output", "target_slot": "input" },
+    { "source": 14, "target": 18, "source_slot": "output", "target_slot": "input" },
+    { "source": 17, "target": 18, "source_slot": "output", "target_slot": "input" }
   ]
 }

@@ -1235,4 +1235,43 @@ Return ONLY valid JSON (no markdown, no explanation), in this format:
 			raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
 
 
+	# ── Docs / tutorials ──────────────────────────────────────────────
+
+	_docs_dir = Path(__file__).resolve().parent.parent / "docs"
+
+	@app.post("/docs")
+	async def list_docs():
+		"""Return the list of available documentation files."""
+		if not _docs_dir.is_dir():
+			return []
+		items = []
+		for md in sorted(_docs_dir.glob("*.md")):
+			title = md.stem
+			try:
+				first_line = md.read_text(encoding="utf-8", errors="replace").split("\n", 1)[0]
+				if first_line.startswith("# "):
+					title = first_line[2:].strip()
+			except Exception:
+				pass
+			has_workflow = (md.with_suffix(".json")).is_file()
+			items.append({"filename": md.name, "title": title, "hasWorkflow": has_workflow})
+		return items
+
+	class DocRequest(BaseModel):
+		filename: str
+
+	@app.post("/docs/file")
+	async def get_doc(req: DocRequest):
+		"""Return the contents of a documentation file (.md or .json)."""
+		filename = req.filename
+		if ".." in filename or "/" in filename or "\\" in filename:
+			raise HTTPException(status_code=400, detail="Invalid filename")
+		path = _docs_dir / filename
+		if not path.suffix in (".md", ".json") or not path.is_file():
+			raise HTTPException(status_code=404, detail="File not found")
+		content = path.read_text(encoding="utf-8", errors="replace")
+		if path.suffix == ".json":
+			return json.loads(content)
+		return {"filename": filename, "content": content}
+
 	log_print("✅ Workflow API endpoints registered")
