@@ -995,6 +995,13 @@ class SchemaGraphApp {
 	_docsCache = null;
 	_docsContentCache = {};
 
+	_getDocsBaseUrl() {
+		if (this._docsBaseUrl) return this._docsBaseUrl;
+		// Fall back to server URL input if not yet connected
+		const input = document.getElementById('serverUrl');
+		return input?.value?.trim() || '';
+	}
+
 	async showDocsPanel() {
 		const modal = document.getElementById('sg-docsModal');
 		if (!modal) return;
@@ -1002,9 +1009,14 @@ class SchemaGraphApp {
 
 		if (!this._docsCache) {
 			const sidebar = document.getElementById('sg-docsSidebar');
+			const baseUrl = this._getDocsBaseUrl();
+			if (!baseUrl) {
+				sidebar.innerHTML = '<div class="sg-docs-empty">Connect to a server first</div>';
+				return;
+			}
 			sidebar.innerHTML = '<div class="sg-docs-empty">Loading...</div>';
 			try {
-				const resp = await fetch((this._docsBaseUrl || '') + '/docs', { method: 'POST' });
+				const resp = await fetch(baseUrl + '/docs', { method: 'POST' });
 				this._docsCache = await resp.json();
 				this._renderDocsSidebar();
 			} catch (e) {
@@ -1054,7 +1066,7 @@ class SchemaGraphApp {
 		content.innerHTML = '<div class="sg-docs-empty">Loading...</div>';
 
 		try {
-			const resp = await fetch((this._docsBaseUrl || '') + '/docs/file', {
+			const resp = await fetch(this._getDocsBaseUrl() + '/docs/file', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ filename })
@@ -1096,7 +1108,7 @@ class SchemaGraphApp {
 
 	async _importTutorialWorkflow(jsonFilename) {
 		try {
-			const resp = await fetch((this._docsBaseUrl || '') + '/docs/file', {
+			const resp = await fetch(this._getDocsBaseUrl() + '/docs/file', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ filename: jsonFilename })
