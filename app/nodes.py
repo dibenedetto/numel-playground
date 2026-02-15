@@ -290,7 +290,8 @@ class WFTransformFlow(WFFlowType):
 					"input"     : input,
 					"output"    : None,
 				}
-				exec(script, {"__builtins__": {}}, local_vars)
+				# exec(script, {"__builtins__": __builtins__}, local_vars)
+				exec(script, None, local_vars)
 				output = local_vars["output"]
 			elif lang == "jinja2":
 				template = Template(script)

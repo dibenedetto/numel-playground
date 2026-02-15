@@ -16,7 +16,7 @@
     {
       "type": "transform_flow",
       "lang": "python",
-      "script": "text = str(input).lower()\nif 'help' in text or 'broken' in text or 'error' in text:\n    target = 'support'\nelif 'buy' in text or 'price' in text or 'order' in text:\n    target = 'sales'\nelse:\n    target = 'default'\noutput = input",
+      "script": "text = str(input).lower()\nif 'help' in text or 'broken' in text or 'error' in text:\n    output = 'support'\nelif 'buy' in text or 'price' in text or 'order' in text:\n    output = 'sales'\nelse:\n    output = 'default'",
       "extra": { "name": "Classifier" }
     },
     {
@@ -60,7 +60,7 @@
   "edges": [
     { "source": 0, "target": 1, "source_slot": "output", "target_slot": "input" },
     { "source": 1, "target": 2, "source_slot": "output", "target_slot": "input" },
-    { "source": 2, "target": 3, "source_slot": "output", "target_slot": "input" },
+    { "source": 1, "target": 3, "source_slot": "output", "target_slot": "input" },
     { "source": 2, "target": 3, "source_slot": "output", "target_slot": "target" },
     { "source": 3, "target": 4, "source_slot": "output.support", "target_slot": "input" },
     { "source": 3, "target": 5, "source_slot": "output.sales", "target_slot": "input" },

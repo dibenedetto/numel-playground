@@ -1126,10 +1126,16 @@ class SchemaGraphApp {
 
 			this._closeDocsPanel();
 
-			// Sync to backend if syncWorkflow is available
+			// Sync to backend — pass null so syncWorkflow exports from the
+			// graph (which produces a valid Workflow structure) instead of
+			// sending the raw tutorial JSON that may lack required fields.
 			if (typeof syncWorkflow === 'function') {
-				const name = workflow?.options?.name || jsonFilename.replace('.json', '');
-				await syncWorkflow(workflow, name, true);
+				try {
+					const name = workflow?.options?.name || jsonFilename.replace('.json', '');
+					await syncWorkflow(null, name, true);
+				} catch (syncErr) {
+					console.warn('Tutorial sync to backend failed (workflow is loaded on canvas):', syncErr);
+				}
 			}
 		} catch (e) {
 			this.showError?.('Import failed: ' + e.message);

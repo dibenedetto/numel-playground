@@ -52,7 +52,6 @@ class BaseType(BaseModel):
 	type  : Annotated[Literal["base_type"]    , FieldRole.CONSTANT  ] = "base_type"
 	id    : Annotated[str                     , FieldRole.ANNOTATION] = Field(default_factory=generate_id)
 	extra : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT     ] = None
-	flow  : Annotated[Optional[Any]           , FieldRole.INPUT     ] = None
 
 	@property
 	def get(self) -> Annotated[BaseType, FieldRole.OUTPUT]:
@@ -579,7 +578,9 @@ class AgentConfig(ConfigType):
 
 @node_info(visible=False)
 class FlowType(BaseType):
-	type : Annotated[Literal["flow_type"], FieldRole.CONSTANT] = "flow_type"
+	type     : Annotated[Literal["flow_type"], FieldRole.CONSTANT] = "flow_type"
+	flow_in  : Annotated[Optional[Any]       , FieldRole.INPUT   ] = None
+	flow_out : Annotated[Optional[Any]       , FieldRole.OUTPUT  ] = None
 
 
 @node_info(
@@ -696,19 +697,6 @@ class TransformFlow(FlowType):
 	context : Annotated[Optional[Dict[str, Any]] , FieldRole.INPUT   ] = None
 	input   : Annotated[Optional[Any]            , FieldRole.INPUT   ] = None
 	output  : Annotated[Any                      , FieldRole.OUTPUT  ] = None
-
-
-@node_info(
-	title       = "User Input",
-	description = "Asks user for input during workflow execution",
-	icon        = "👤",
-	section     = "Workflow",
-	visible     = True
-)
-class UserInputFlow(FlowType):
-	type    : Annotated[Literal["user_input_flow"], FieldRole.CONSTANT] = "user_input_flow"
-	query   : Annotated[Any                       , FieldRole.INPUT   ] = None
-	content : Annotated[Any                       , FieldRole.OUTPUT  ] = None
 
 
 DEFAULT_TOOL_NODE_ARGS : Dict[str, Any] = {}
@@ -1102,6 +1090,19 @@ class BrowserSourceFlow(FlowType):
 @node_info(visible=False)
 class InteractiveType(BaseType):
 	type : Annotated[Literal["interactive_type"], FieldRole.CONSTANT] = "interactive_type"
+
+
+@node_info(
+	title       = "User Input",
+	description = "Asks user for input during workflow execution",
+	icon        = "👤",
+	section     = "Interactive",
+	visible     = True
+)
+class UserInputFlow(InteractiveType):
+	type    : Annotated[Literal["user_input_flow"], FieldRole.CONSTANT] = "user_input_flow"
+	query   : Annotated[Optional[Any]             , FieldRole.INPUT   ] = None
+	content : Annotated[Optional[Any]             , FieldRole.OUTPUT  ] = None
 
 
 @node_button(
