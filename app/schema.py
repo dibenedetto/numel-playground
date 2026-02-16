@@ -1092,6 +1092,9 @@ class InteractiveType(BaseType):
 	type : Annotated[Literal["interactive_type"], FieldRole.CONSTANT] = "interactive_type"
 
 
+DEFAULT_USER_INPUT_QUERY : str = "Please provide input for the workflow to continue."
+
+
 @node_info(
 	title       = "User Input",
 	description = "Asks user for input during workflow execution",
@@ -1099,10 +1102,10 @@ class InteractiveType(BaseType):
 	section     = "Interactive",
 	visible     = True
 )
-class UserInputFlow(InteractiveType):
+class UserInputFlow(FlowType):
 	type    : Annotated[Literal["user_input_flow"], FieldRole.CONSTANT] = "user_input_flow"
-	query   : Annotated[Optional[Any]             , FieldRole.INPUT   ] = None
-	content : Annotated[Optional[Any]             , FieldRole.OUTPUT  ] = None
+	query   : Annotated[Optional[Any]             , FieldRole.INPUT   ] = DEFAULT_USER_INPUT_QUERY
+	message : Annotated[Optional[Any]             , FieldRole.OUTPUT  ] = None
 
 
 @node_button(

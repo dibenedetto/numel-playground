@@ -1188,7 +1188,7 @@ class WorkflowEngine:
 			context.node_index  = node_idx
 			context.node_config = node_config
 
-			if node_type == "user_input_node":
+			if node_type == "user_input_flow":
 				result = await self._handle_user_input(node_idx, node, context, state, input_timeout)
 			else:
 				result = await node.execute(context)
