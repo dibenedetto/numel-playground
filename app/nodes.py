@@ -528,70 +528,6 @@ class WFContinueFlow(WFFlowType):
 # EVENT/TRIGGER FLOW NODES
 # =============================================================================
 
-class WFTimerFlow(WFFlowType):
-	"""
-	Timer node executor.
-
-	Returns a wait signal that tells the engine to pause for the interval,
-	then resume execution. The engine handles the actual timing.
-	"""
-	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
-
-		# Get configuration from node or inputs
-		interval_ms = context.inputs.get("interval_ms")
-		if interval_ms is None:
-			interval_ms = getattr(self.config, 'interval_ms', 1000)
-
-		max_triggers = context.inputs.get("max_triggers")
-		if max_triggers is None:
-			max_triggers = getattr(self.config, 'max_triggers', -1)
-
-		# Get current state from context (injected by engine on resume)
-		count = context.variables.get("_timer_count", 0)
-		elapsed_ms = context.variables.get("_timer_elapsed", 0)
-		is_resume = context.variables.get("_timer_resume", False)
-
-		if is_resume:
-			# This is a resume after waiting - increment and continue
-			count += 1
-			elapsed_ms += interval_ms
-
-			result.outputs["count"] = count
-			result.outputs["elapsed_ms"] = elapsed_ms
-			result.outputs["output"] = context.inputs.get("input")
-
-			# Check if we should stop
-			if max_triggers > 0 and count >= max_triggers:
-				# Timer exhausted, continue normally
-				result.outputs["_timer_done"] = True
-			else:
-				# Signal to wait again
-				result.wait_signal = {
-					"wait_type": "timer",
-					"duration_ms": interval_ms,
-					"count": count,
-					"elapsed_ms": elapsed_ms,
-					"max_count": max_triggers
-				}
-		else:
-			# First execution - start the timer
-			result.outputs["count"] = 0
-			result.outputs["elapsed_ms"] = 0
-			result.outputs["output"] = context.inputs.get("input")
-
-			# Signal to wait for interval
-			result.wait_signal = {
-				"wait_type": "timer",
-				"duration_ms": interval_ms,
-				"count": 0,
-				"elapsed_ms": 0,
-				"max_count": max_triggers
-			}
-
-		return result
-
-
 class WFGateFlow(WFFlowType):
 	"""
 	Gate/Accumulator node executor.
@@ -748,7 +684,7 @@ class WFTimerSourceFlow(WFFlowType):
 			else:
 				await registry.register(config)
 
-			result.outputs["output"] = source_id
+			result.outputs["registered_id"] = source_id
 		except Exception as e:
 			result.success = False
 			result.error = str(e)
@@ -784,7 +720,7 @@ class WFFSWatchSourceFlow(WFFlowType):
 			else:
 				await registry.register(config)
 
-			result.outputs["output"] = source_id
+			result.outputs["registered_id"] = source_id
 		except Exception as e:
 			result.success = False
 			result.error = str(e)
@@ -816,7 +752,7 @@ class WFWebhookSourceFlow(WFFlowType):
 			else:
 				await registry.register(config)
 
-			result.outputs["output"] = source_id
+			result.outputs["registered_id"] = source_id
 		except Exception as e:
 			result.success = False
 			result.error = str(e)
@@ -847,7 +783,7 @@ class WFBrowserSourceFlow(WFFlowType):
 			else:
 				await registry.register(config)
 
-			result.outputs["output"] = source_id
+			result.outputs["registered_id"] = source_id
 		except Exception as e:
 			result.success = False
 			result.error = str(e)
@@ -911,7 +847,6 @@ class WFEventListenerFlow(WFFlowType):
 			result.outputs["source_id"] = source_id
 			result.outputs["events"] = all_events if all_events else None
 			result.outputs["timed_out"] = timed_out
-			result.outputs["output"] = context.inputs.get("input")
 
 			# Clear state for next iteration (if in a loop)
 			context.variables[resume_key] = False
@@ -921,7 +856,6 @@ class WFEventListenerFlow(WFFlowType):
 			context.variables[timeout_key] = False
 		else:
 			# First execution - signal to wait for events
-			result.outputs["output"] = context.inputs.get("input")
 			result.wait_signal = {
 				"wait_type": "event_listener",
 				"sources": sources,
@@ -1024,7 +958,6 @@ _NODE_TYPES = {
 	"continue_flow"            : WFContinueFlow,
 
 	# Event/Trigger nodes
-	"timer_flow"               : WFTimerFlow,
 	"gate_flow"                : WFGateFlow,
 	"delay_flow"               : WFDelayFlow,
 	"event_listener_flow"      : WFEventListenerFlow,

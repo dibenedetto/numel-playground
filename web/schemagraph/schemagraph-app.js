@@ -1108,14 +1108,17 @@ class SchemaGraphApp {
 
 	async _importTutorialWorkflow(jsonFilename) {
 		try {
-			const resp = await fetch(this._getDocsBaseUrl() + '/docs/file', {
+			const baseUrl = this._getDocsBaseUrl();
+			if (!baseUrl) { this.showError?.('No server URL configured'); return; }
+
+			const resp = await fetch(baseUrl + '/docs/file', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ filename: jsonFilename })
 			});
+			if (!resp.ok) { this.showError?.('Failed to fetch tutorial: ' + resp.status); return; }
 			const workflow = await resp.json();
 
-			// Use the same import path as handleSingleImport
 			const schemas = this.graph.getRegisteredSchemas().filter(s => this.graph.isWorkflowSchema(s));
 			if (schemas.length === 0) { this.showError?.('No workflow schema registered'); return; }
 
@@ -1123,6 +1126,7 @@ class SchemaGraphApp {
 			this.api.view.reset();
 			this.api.workflow.import(workflow, schemas[0], {});
 			this.centerView?.();
+			this.draw();
 
 			this._closeDocsPanel();
 
