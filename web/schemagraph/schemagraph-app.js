@@ -3695,8 +3695,8 @@ class SchemaGraphApp {
 				if (dotIdx === -1) continue;
 				const key = metaName.substring(dotIdx + 1);
 				const hasConnection = node.multiInputs?.[idx]?.links?.length > 0;
-				// Place at beginning of field name (left side, just after the pin)
-				buttons.push({ fieldName, type: 'input', slotIdx: idx, key, x: node.pos[0] + 8, y: slotY - 5, w: 10, h: 10, hasConnection });
+				// Place at end of input field (right side, away from the slot name)
+				buttons.push({ fieldName, type: 'input', slotIdx: idx, key, x: node.pos[0] + node.size[0] / 2 - 12, y: slotY - 5, w: 10, h: 10, hasConnection });
 			}
 		}
 		for (const [fieldName, indices] of Object.entries(node.multiOutputSlots || {})) {
@@ -3710,8 +3710,8 @@ class SchemaGraphApp {
 				if (dotIdx === -1) continue;
 				const key = metaName.substring(dotIdx + 1);
 				const hasConnection = node.outputs[idx]?.links?.length > 0;
-				// Place at end of field name (right side, just before the pin)
-				buttons.push({ fieldName, type: 'output', slotIdx: idx, key, x: node.pos[0] + node.size[0] - 18, y: slotY - 5, w: 10, h: 10, hasConnection });
+				// Place at beginning of output field (left side, away from the slot name)
+				buttons.push({ fieldName, type: 'output', slotIdx: idx, key, x: node.pos[0] + node.size[0] / 2 + 2, y: slotY - 5, w: 10, h: 10, hasConnection });
 			}
 		}
 		return buttons;

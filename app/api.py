@@ -197,15 +197,20 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 	@app.post("/add")
 	async def add_workflow(request: WorkflowUploadRequest):
 		nonlocal manager
-		name = await manager.add(request.workflow, request.name)
-		impl = await manager.impl(name)
-		wf   = impl["workflow"].model_dump() if impl else None
-		result = {
-			"name"     : name,
-			"workflow" : wf,
-			"status"   : "added" if name else "failed",
-		}
-		return result
+		try:
+			name = await manager.add(request.workflow, request.name)
+			impl = await manager.impl(name)
+			wf   = impl["workflow"].model_dump() if impl else None
+			result = {
+				"name"     : name,
+				"workflow" : wf,
+				"status"   : "added" if name else "failed",
+			}
+			return result
+		except Exception as e:
+			import traceback
+			log_print(f"[API] /add error: {e}\n{traceback.format_exc()}")
+			raise HTTPException(status_code=500, detail=str(e))
 
 
 	@app.post("/remove")

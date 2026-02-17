@@ -1323,9 +1323,19 @@ class WorkflowExporter {
 			for (const key in node.constantFields)
 				if (key !== 'type') nodeData[key] = node.constantFields[key];
 
-		// Multi-input/output sub-slot keys are carried by edges (dotted slot names)
-		// and reconstructed on import — don't include in node data to avoid
-		// Pydantic validation errors (null placeholders aren't valid model instances).
+		// Multi-input sub-slot keys are NOT exported (null placeholders cause Pydantic
+		// validation errors) — they are reconstructed on import from dotted edge slots.
+		// Multi-output sub-slot keys ARE exported (they define routing structure).
+		for (const [baseName, slotIndices] of Object.entries(node.multiOutputSlots || {})) {
+			const dict = {};
+			for (const idx of slotIndices) {
+				const n = node.outputMeta?.[idx]?.name || node.outputs[idx]?.name;
+				if (!n) continue;
+				const d = n.indexOf('.');
+				if (d !== -1) dict[n.substring(d + 1)] = null;
+			}
+			if (Object.keys(dict).length > 0) nodeData[baseName] = dict;
+		}
 
 		for (let i = 0; i < node.inputs.length; i++) {
 			const input = node.inputs[i];

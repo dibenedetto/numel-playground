@@ -1293,7 +1293,13 @@ class Workflow(ComponentType):
 			src_base, *src_parts = edge.source_slot.split(".")
 			src_value = getattr(source_node, src_base)
 			if src_parts:
-				src_value = src_value[src_parts[0]]
+				if src_value is None:
+					src_value = {}
+					setattr(source_node, src_base, src_value)
+				# Ensure the sub-key exists in the dict (needed for routing)
+				if src_parts[0] not in src_value:
+					src_value[src_parts[0]] = None
+				src_value = src_value.get(src_parts[0])
 
 			dst_base, *dst_parts = edge.target_slot.split(".")
 			if dst_parts:
