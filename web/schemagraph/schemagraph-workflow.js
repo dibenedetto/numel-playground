@@ -1024,6 +1024,25 @@ class WorkflowImporter {
 			models: schema.parsed, fieldRoles: schema.fieldRoles, defaults: schema.defaults
 		}, schemaName) : null;
 
+		// Pre-scan edges to inject multi-input sub-slot keys into node data.
+		// Edges with dotted target_slot like "tools.list_dir" need the target node's
+		// data to include { tools: { list_dir: null } } so the factory creates sub-slots.
+		if (workflowData.edges) {
+			for (const edge of workflowData.edges) {
+				const slot = edge.target_slot;
+				if (!slot || !slot.includes('.')) continue;
+				const dotIdx = slot.indexOf('.');
+				const fieldName = slot.substring(0, dotIdx);
+				const subKey = slot.substring(dotIdx + 1);
+				const nd = workflowData.nodes[edge.target];
+				if (!nd) continue;
+				if (!nd[fieldName]) nd[fieldName] = {};
+				if (typeof nd[fieldName] === 'object' && !Array.isArray(nd[fieldName])) {
+					nd[fieldName][subKey] = nd[fieldName][subKey] ?? null;
+				}
+			}
+		}
+
 		const createdNodes = [];
 		for (let i = 0; i < workflowData.nodes.length; i++) {
 			const nodeData = workflowData.nodes[i];
@@ -1304,22 +1323,9 @@ class WorkflowExporter {
 			for (const key in node.constantFields)
 				if (key !== 'type') nodeData[key] = node.constantFields[key];
 
-		for (const [baseName, slotIndices] of Object.entries(node.multiInputSlots || {})) {
-			const keys = slotIndices.map(idx => {
-				const n = node.inputMeta?.[idx]?.name || node.inputs[idx].name;
-				const d = n.indexOf('.');
-				return d !== -1 ? n.substring(d + 1) : null;
-			}).filter(Boolean);
-			if (keys.length > 0) nodeData[baseName] = keys;
-		}
-		for (const [baseName, slotIndices] of Object.entries(node.multiOutputSlots || {})) {
-			const keys = slotIndices.map(idx => {
-				const n = node.outputMeta?.[idx]?.name || node.outputs[idx].name;
-				const d = n.indexOf('.');
-				return d !== -1 ? n.substring(d + 1) : null;
-			}).filter(Boolean);
-			if (keys.length > 0) nodeData[baseName] = keys;
-		}
+		// Multi-input/output sub-slot keys are carried by edges (dotted slot names)
+		// and reconstructed on import — don't include in node data to avoid
+		// Pydantic validation errors (null placeholders aren't valid model instances).
 
 		for (let i = 0; i < node.inputs.length; i++) {
 			const input = node.inputs[i];

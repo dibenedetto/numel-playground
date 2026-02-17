@@ -9,6 +9,7 @@ import tempfile
 from   importlib                       import import_module
 from   fastapi                         import FastAPI
 from   typing                          import Any, Dict, List, Tuple
+from   utils                           import log_print
 
 
 from   agno.agent                      import Agent
@@ -190,13 +191,15 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 				item = DuckDuckGoTools(fixed_max_results=max_results)
 		else:
 			module_path, func_name = item_config.name.rsplit(".", 1)
-			md = import_module(module_path)
-			fn = getattr(md, func_name)
-			if not fn:
-				raise ValueError(f"Agno tool not found")
-			item = fn
-		if not item:
-			raise ValueError(f"Unsupported Agno tool")
+			try:
+				md = import_module(module_path)
+				fn = getattr(md, func_name, None)
+				if not fn:
+					log_print(f"⚠️  Agno tool function not found: {item_config.name}")
+				else:
+					item = fn
+			except (ImportError, ModuleNotFoundError) as e:
+				log_print(f"⚠️  Agno tool module not found: {module_path} ({e})")
 		impl[index] = item
 
 
@@ -211,28 +214,31 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "agent_config", "Invalid Agno agent"
 
+		node_links = links[index]
+
 		if True:
-			model = impl[links[index]["model"]] if item_config.model is not None else None
+			model = impl[node_links["model"]] if "model" in node_links else None
 			if model is None:
 				raise ValueError(f"Agno agent model is required")
 
 		if True:
-			options = impl[links[index]["options"]] if item_config.options is not None else AgentOptionsConfig()
+			options = impl[node_links["options"]] if "options" in node_links else AgentOptionsConfig()
 
 		if True:
-			content_db = impl[links[index]["content_db"]] if item_config.content_db is not None else None
+			content_db = impl[node_links["content_db"]] if "content_db" in node_links else None
 
 		tools = None
-		if item_config.tools:
-			tools = [impl[links[index]["tools"][i]] for i in item_config.tools]
+		tools_links = node_links.get("tools")
+		if isinstance(tools_links, dict) and tools_links:
+			tools = [impl[src] for src in tools_links.values() if impl[src] is not None]
 
 		if True:
 			enable_agentic_memory   = False
 			enable_user_memories    = False
 			add_memories_to_context = False
 			memory_mgr              = None
-			if item_config.memory_mgr is not None:
-				memory_mgr_index        = links[index]["memory_mgr"]
+			if "memory_mgr" in node_links:
+				memory_mgr_index        = node_links["memory_mgr"]
 				memory_mgr_config       = workflow.nodes[memory_mgr_index]
 				enable_agentic_memory   = memory_mgr_config.managed
 				add_memories_to_context = memory_mgr_config.query
@@ -243,13 +249,13 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 			search_session_history  = False
 			num_history_sessions    = None
 			session_summary_manager = None
-			if item_config.session_mgr is not None:
-				session_mgr_index      = links[index]["session_mgr"]
+			if "session_mgr" in node_links:
+				session_mgr_index      = node_links["session_mgr"]
 				session_mgr_config     = workflow.nodes[session_mgr_index]
 				search_session_history = session_mgr_config.query
 				num_history_sessions   = session_mgr_config.history_size
-				if session_mgr_config.model is not None or session_mgr_config.prompt:
-					session_mgr_model = impl[links[session_mgr_index]["model"]] if session_mgr_config.model is not None else None
+				if "model" in links[session_mgr_index] or session_mgr_config.prompt:
+					session_mgr_model = impl[links[session_mgr_index]["model"]] if "model" in links[session_mgr_index] else None
 					session_summary_manager = SessionSummaryManager(
 						model                  = session_mgr_model,
 						session_summary_prompt = session_mgr_config.prompt,
@@ -333,7 +339,15 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 
 	links = [dict() for _ in range(len(workflow.nodes))]
 	for edge in workflow.edges:
-		links[edge.target][edge.target_slot] = edge.source
+		slot = edge.target_slot
+		if '.' in slot:
+			# Dotted slots like "tools.list_dir" → nested dict: links[target]["tools"]["list_dir"] = source
+			field, sub = slot.split('.', 1)
+			if field not in links[edge.target]:
+				links[edge.target][field] = {}
+			links[edge.target][field][sub] = edge.source
+		else:
+			links[edge.target][slot] = edge.source
 
 	impl = [None] * len(workflow.nodes)
 

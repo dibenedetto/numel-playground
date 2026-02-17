@@ -812,10 +812,15 @@ class WFEventListenerFlow(WFFlowType):
 				sources.append(value)
 		if not sources:
 			src = context.inputs.get("sources")
-			if isinstance(src, list):    sources = src
+			if isinstance(src, dict):    sources = [v for v in src.values() if isinstance(v, str) and v]
+			elif isinstance(src, list):  sources = src
 			elif isinstance(src, str) and src: sources = [src]
 		if not sources:
-			sources = getattr(self.config, 'sources', None) or []
+			src = getattr(self.config, 'sources', None)
+			if isinstance(src, dict):    sources = [v for v in src.values() if isinstance(v, str) and v]
+			elif isinstance(src, list):  sources = src
+			elif isinstance(src, str) and src: sources = [src]
+			else: sources = []
 
 		mode = context.inputs.get("mode")
 		if not mode:

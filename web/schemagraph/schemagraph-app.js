@@ -1125,6 +1125,7 @@ class SchemaGraphApp {
 			this.api.graph.clear();
 			this.api.view.reset();
 			this.api.workflow.import(workflow, schemas[0], {});
+			this.eventBus.emit('workflow:loaded', {});
 			this.centerView?.();
 			this.draw();
 

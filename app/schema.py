@@ -569,7 +569,7 @@ class AgentConfig(ConfigType):
 	memory_mgr    : Annotated[Optional[MemoryManagerConfig]                      , FieldRole.INPUT      ] = None
 	session_mgr   : Annotated[Optional[SessionManagerConfig]                     , FieldRole.INPUT      ] = None
 	knowledge_mgr : Annotated[Optional[KnowledgeManagerConfig]                   , FieldRole.INPUT      ] = None
-	tools         : Annotated[Optional[Union[List[str], Dict[str, ToolConfig]]]  , FieldRole.MULTI_INPUT] = None
+	tools         : Annotated[Optional[Dict[str, ToolConfig]]                   , FieldRole.MULTI_INPUT] = None
 
 	@property
 	def get(self) -> Annotated[AgentConfig, FieldRole.OUTPUT]:
@@ -957,7 +957,7 @@ class EventListenerFlow(FlowType):
 	The node blocks workflow execution until an event is received.
 	"""
 	type        : Annotated[Literal["event_listener_flow"], FieldRole.CONSTANT   ] = "event_listener_flow"
-	sources     : Annotated[List[str]                     , FieldRole.MULTI_INPUT] = None   # Source IDs (multi-input from source nodes)
+	sources     : Annotated[Optional[Dict[str, Any]]        , FieldRole.MULTI_INPUT] = None   # Source IDs (multi-input from source nodes)
 	mode        : Annotated[Literal["any", "all", "race"] , FieldRole.INPUT      ] = "any"
 	timeout_ms  : Annotated[Optional[int]                 , FieldRole.INPUT      ] = None   # None = no timeout
 	# Outputs
@@ -989,7 +989,7 @@ class TimerSourceFlow(FlowType):
 	interval_ms    : Annotated[int                         , FieldRole.INPUT   ] = DEFAULT_TIMER_INTERVAL_MS
 	max_triggers   : Annotated[int                         , FieldRole.INPUT   ] = DEFAULT_TIMER_MAX_TRIGGERS
 	immediate      : Annotated[bool                        , FieldRole.INPUT   ] = False
-	registered_id  : Annotated[str                         , FieldRole.OUTPUT  ] = None
+	registered_id  : Annotated[Optional[str]                , FieldRole.OUTPUT  ] = None
 
 
 @node_info(
@@ -1008,7 +1008,7 @@ class FSWatchSourceFlow(FlowType):
 	patterns       : Annotated[Optional[str]                 , FieldRole.INPUT   ] = "*"
 	events         : Annotated[Optional[str]                 , FieldRole.INPUT   ] = "created,modified,deleted,moved"
 	debounce_ms    : Annotated[int                           , FieldRole.INPUT   ] = 100
-	registered_id  : Annotated[str                           , FieldRole.OUTPUT  ] = None
+	registered_id  : Annotated[Optional[str]                  , FieldRole.OUTPUT  ] = None
 
 
 @node_info(
@@ -1025,7 +1025,7 @@ class WebhookSourceFlow(FlowType):
 	endpoint       : Annotated[str                           , FieldRole.INPUT   ] = "/hook/default"
 	methods        : Annotated[Optional[str]                 , FieldRole.INPUT   ] = "POST"
 	secret         : Annotated[Optional[str]                 , FieldRole.INPUT   ] = None
-	registered_id  : Annotated[str                           , FieldRole.OUTPUT  ] = None
+	registered_id  : Annotated[Optional[str]                  , FieldRole.OUTPUT  ] = None
 
 
 @node_info(
@@ -1045,7 +1045,7 @@ class BrowserSourceFlow(FlowType):
 	interval_ms    : Annotated[int                                        , FieldRole.INPUT   ] = 1000
 	resolution     : Annotated[Optional[str]                              , FieldRole.INPUT   ] = None
 	audio_format   : Annotated[Optional[str]                              , FieldRole.INPUT   ] = None
-	registered_id  : Annotated[str                                        , FieldRole.OUTPUT  ] = None
+	registered_id  : Annotated[Optional[str]                               , FieldRole.OUTPUT  ] = None
 
 
 # =============================================================================
@@ -1298,6 +1298,9 @@ class Workflow(ComponentType):
 			dst_base, *dst_parts = edge.target_slot.split(".")
 			if dst_parts:
 				dst_field = getattr(target_node, dst_base)
+				if dst_field is None:
+					dst_field = {}
+					setattr(target_node, dst_base, dst_field)
 				dst_field[dst_parts[0]] = src_value
 			else:
 				setattr(target_node, dst_base, src_value)

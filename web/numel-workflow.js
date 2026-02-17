@@ -26,7 +26,9 @@ class WorkflowClient {
 			body: body ? JSON.stringify(body) : null
 		});
 		if (!response.ok) {
-			throw new Error(`${endpoint} failed: ${response.statusText}`);
+			let detail = response.statusText;
+			try { const err = await response.json(); detail = JSON.stringify(err.detail || err, null, 2); } catch {}
+			throw new Error(`${endpoint} failed: ${detail}`);
 		}
 		return response.json();
 	}

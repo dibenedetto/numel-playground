@@ -18,12 +18,12 @@
     },
     {
       "type": "tool_config",
-      "name": "app.tools.list_directory",
+      "name": "tools.list_directory",
       "extra": { "name": "Tool: List Dir" }
     },
     {
       "type": "tool_config",
-      "name": "app.tools.read_file",
+      "name": "tools.read_file",
       "extra": { "name": "Tool: Read File" }
     },
     {
@@ -41,16 +41,8 @@
       "extra": { "name": "Agent Config" }
     },
     {
-      "type": "start_flow",
-      "extra": { "name": "Start" }
-    },
-    {
       "type": "agent_chat",
       "extra": { "name": "Agent Chat" }
-    },
-    {
-      "type": "end_flow",
-      "extra": { "name": "End" }
     }
   ],
   "edges": [
@@ -59,8 +51,6 @@
     { "source": 2, "target": 5, "source_slot": "get", "target_slot": "tools.list_dir" },
     { "source": 3, "target": 5, "source_slot": "get", "target_slot": "tools.read_file" },
     { "source": 4, "target": 5, "source_slot": "get", "target_slot": "options" },
-    { "source": 6, "target": 7, "source_slot": "output", "target_slot": "input" },
-    { "source": 5, "target": 7, "source_slot": "get", "target_slot": "config" },
-    { "source": 7, "target": 8, "source_slot": "output", "target_slot": "input" }
+    { "source": 5, "target": 6, "source_slot": "get", "target_slot": "config" }
   ]
 }

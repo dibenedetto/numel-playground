@@ -685,40 +685,16 @@ class ChatExtension extends SchemaGraphExtension {
 		for (const node of this.graph.nodes) {
 			const schemaName = node.schemaName;
 			const modelName = node.modelName;
+			if (!schemaName || !modelName) continue;
+			const chatConfig = this.schemaChats[schemaName]?.[modelName];
+			if (!chatConfig) continue;
 
-			if (schemaName && modelName) {
-				const chatConfig = this.schemaChats[schemaName]?.[modelName];
-
-				if (chatConfig) {
-					try {
-						// If node is marked as chat, ensure it's properly initialized
-						if (node.isChat) {
-							// If chatId is missing but node was marked as chat, reinitialize
-							if (!node.chatId && node.extra?.chat_id) {
-								Object.assign(node, ChatNodeMixin);
-								node.chatId = node.extra.chat_id;
-								// Restore other properties if they're missing
-								if (!node.chatConfig) {
-									node.chatConfig = chatConfig;
-								}
-							}
-
-							// Check if overlay exists
-							const chatId = node.chatId || node.extra?.chat_id;
-							if (chatId) {
-								const hasOverlay = this.overlayManager.overlays.has(chatId);
-								if (!hasOverlay) {
-									this.overlayManager.createOverlay(node);
-								}
-							}
-						} else {
-							// Node doesn't have chat yet, apply it
-							this._applyChatToNode(node);
-						}
-					} catch (err) {
-						console.error(`[ChatExtension] Error processing chat for node ${node.id}:`, err);
-					}
-				}
+			try {
+				// Always do full (re)initialization — _applyChatToNode and
+				// createOverlay are both safe to call repeatedly.
+				this._applyChatToNode(node);
+			} catch (err) {
+				console.error(`[ChatExtension] Error processing chat for node ${node.id}:`, err);
 			}
 		}
 	}
