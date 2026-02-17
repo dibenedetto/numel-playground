@@ -1042,7 +1042,29 @@ class WorkflowEngine:
 									)
 
 								# Normal dependency propagation
-								for dep_idx in dependents[node_idx]:
+								# For route nodes, only propagate to the selected branch
+								allowed_deps = dependents[node_idx]
+								if result.next_target is not None:
+									target_key = result.next_target
+									allowed_deps = set()
+									skipped_deps = set()
+									for edge in active_edges:
+										if edge.source != node_idx or getattr(edge, 'loop', False):
+											continue
+										slot = edge.source_slot or ""
+										# Match: exact slot name, dotted prefix (output.support), or "default"
+										if slot == target_key or slot.split(".")[-1] == target_key:
+											allowed_deps.add(edge.target)
+										else:
+											skipped_deps.add(edge.target)
+									# Skip non-selected branches so they don't block downstream
+									for skip_idx in skipped_deps - allowed_deps:
+										if skip_idx in pending:
+											completed.add(skip_idx)
+											pending.discard(skip_idx)
+											node_outputs[skip_idx] = {}
+
+								for dep_idx in allowed_deps:
 									if dep_idx not in completed and dep_idx not in running:
 										if dependencies[dep_idx].issubset(completed):
 											pending.discard(dep_idx)
