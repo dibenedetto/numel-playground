@@ -1,5 +1,17 @@
 # app
 
+import warnings
+
+# Suppress harmless UnsupportedFieldAttributeWarning spam emitted by agno's
+# internal Pydantic models (alias/validation_alias on union members).
+# These originate in pydantic._internal._generate_schema — not our code.
+warnings.filterwarnings(
+	"ignore",
+	message = r".*attribute.*has no effect in the context it was used.*",
+	module  = r"pydantic.*",
+)
+
+
 import argparse
 import asyncio
 import uvicorn

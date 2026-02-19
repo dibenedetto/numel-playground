@@ -884,49 +884,119 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 	# === Text-to-Workflow Generation API ===
 
-	def _build_node_catalog(code: str) -> str:
-		"""Parse schema source code to build a compact node catalog for the LLM."""
+	def _parse_nodeinfo_metadata(code: str) -> dict:
+		"""Parse @node_info decorators from schema source. Returns {ClassName: {title,desc,section,visible}}."""
 		lines = code.split('\n')
-		catalog = []
-		current_class = None
-		current_type_val = None
-		fields = []
+		meta = {}
+		i = 0
+		while i < len(lines):
+			s = lines[i].strip()
+			if s.startswith('@node_info('):
+				# Collect full decorator across lines (track paren depth)
+				text  = s
+				depth = s.count('(') - s.count(')')
+				j     = i + 1
+				while depth > 0 and j < len(lines):
+					ns     = lines[j].strip()
+					text  += ' ' + ns
+					depth += ns.count('(') - ns.count(')')
+					j     += 1
+				# Look ahead past other decorators to find the class
+				while j < len(lines):
+					ns = lines[j].strip()
+					cm = re.match(r'class\s+(\w+)', ns)
+					if cm:
+						cname   = cm.group(1)
+						title_m = re.search(r'title\s*=\s*"([^"]+)"', text) or re.search(r"title\s*=\s*'([^']+)'", text)
+						desc_m  = re.search(r'description\s*=\s*"([^"]+)"', text) or re.search(r"description\s*=\s*'([^']+)'", text)
+						sect_m  = re.search(r'section\s*=\s*"([^"]+)"', text) or re.search(r"section\s*=\s*'([^']+)'", text)
+						vis_m   = re.search(r'visible\s*=\s*(True|False)', text)
+						meta[cname] = {
+							'title':   title_m.group(1) if title_m else cname,
+							'desc':    desc_m.group(1)  if desc_m  else '',
+							'section': sect_m.group(1)  if sect_m  else 'Misc',
+							'visible': not (vis_m and vis_m.group(1) == 'False'),
+						}
+						break
+					elif ns and not ns.startswith(('@', '#', '"""', "'''")):
+						break
+					j += 1
+			i += 1
+		return meta
+
+	def _build_node_catalog(code: str) -> str:
+		"""Parse schema source code to build a detailed node catalog for the LLM."""
+		node_meta = _parse_nodeinfo_metadata(code)
+		lines     = code.split('\n')
+
+		# ── Per-class field parsing ────────────────────────────────────────────
+		nodes              = {}   # {ClassName: {type_val, fields, docstring}}
+		current_class      = None
+		current_type       = None
+		current_fields     = []
+		current_docstring  = None
+		expecting_docstring = False
+
+		def _flush():
+			nonlocal current_class, current_type, current_fields, current_docstring, expecting_docstring
+			if current_class and current_type:
+				nodes[current_class] = {
+					'type':      current_type,
+					'fields':    list(current_fields),
+					'docstring': current_docstring,
+				}
+			current_class       = None
+			current_type        = None
+			current_fields      = []
+			current_docstring   = None
+			expecting_docstring = False
 
 		for line in lines:
-			stripped = line.strip()
-			# Detect class definition
-			class_match = re.match(r'^class\s+(\w+)\s*\(', stripped)
-			if class_match:
-				# Flush previous class
-				if current_class and current_type_val and fields:
-					inputs = [f for f in fields if f[2] in ('INPUT', 'MULTI_INPUT')]
-					outputs = [f for f in fields if f[2] in ('OUTPUT', 'MULTI_OUTPUT')]
-					parts = [f'{current_class}: type="{current_type_val}"']
-					if inputs:
-						parts.append('inputs: [' + ', '.join(f'{f[0]}:{f[1]}' for f in inputs) + ']')
-					if outputs:
-						parts.append('outputs: [' + ', '.join(f'{f[0]}:{f[1]}' for f in outputs) + ']')
-					catalog.append(', '.join(parts))
-				current_class = class_match.group(1)
-				current_type_val = None
-				fields = []
+			s = line.strip()
+
+			# New class
+			cm = re.match(r'^class\s+(\w+)\s*\(', s)
+			if cm:
+				_flush()
+				current_class       = cm.group(1)
+				expecting_docstring = True
 				continue
 
 			if not current_class:
 				continue
 
-			# Parse field lines like: name : Annotated[Type, FieldRole.ROLE] = default
-			field_match = re.match(r'^(\w+)\s*:\s*Annotated\[(.+?),\s*FieldRole\.(\w+)', stripped)
-			if field_match:
-				fname = field_match.group(1)
-				ftype = field_match.group(2).strip()
-				frole = field_match.group(3)
+			# Class docstring — first non-empty, non-comment statement inside the class body
+			if expecting_docstring:
+				if s.startswith(('"""', "'''")):
+					q       = '"""' if s.startswith('"""') else "'''"
+					content = s[len(q):]
+					if q in content:
+						current_docstring = content[:content.index(q)].strip()
+					else:
+						current_docstring = content.strip()  # first line of multi-line
+					expecting_docstring = False
+					continue
+				elif s and not s.startswith('#'):
+					expecting_docstring = False
+				# fall through to field parsing
 
-				# Extract type value from Literal
+			# @property get → OUTPUT slot
+			pm = re.match(r'^def get\(self\)\s*->\s*Annotated\[(.+?),\s*FieldRole\.(OUTPUT)\]', s)
+			if pm:
+				ftype = pm.group(1).strip()
+				ftype = re.sub(r'^Optional\[(.+)\]$', r'\1', ftype)
+				current_fields.append(('get', ftype, 'OUTPUT', None))
+				continue
+
+			# Annotated field
+			fm = re.match(r'^(\w+)\s*:\s*Annotated\[(.+?),\s*FieldRole\.(\w+)', s)
+			if fm:
+				fname, ftype, frole = fm.group(1), fm.group(2).strip(), fm.group(3)
+
 				if frole == 'CONSTANT' and 'Literal[' in ftype:
-					lit_match = re.search(r'Literal\["([^"]+)"\]', ftype)
-					if lit_match:
-						current_type_val = lit_match.group(1)
+					lm = re.search(r'Literal\["([^"]+)"\]', ftype)
+					if lm:
+						current_type = lm.group(1)
 					continue
 
 				if frole == 'ANNOTATION':
@@ -934,53 +1004,192 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 				# Simplify type names
 				ftype = re.sub(r'^Optional\[(.+)\]$', r'\1', ftype)
-				ftype = ftype.replace('Dict[str, Any]', 'Dict').replace('List[str]', 'List')
-				ftype = ftype.replace('Union[List, Dict]', 'Dict|List')
-				ftype = ftype.replace('Union[int, str]', 'int|str')
-				ftype = ftype.replace('Union[List[str], Dict[str, Any]]', 'Dict|List')
+				ftype = (ftype
+					.replace('Dict[str, Any]',              'dict')
+					.replace('Dict[Union[int, str], str]',  'dict')
+					.replace('List[str]',                   'list[str]')
+					.replace('List[Any]',                   'list')
+					.replace('List[int]',                   'list[int]')
+					.replace('Union[List, Dict]',           'dict|list')
+					.replace('Union[int, str]',             'int|str')
+					.replace('Union[List[str], Dict[str, Any]]', 'dict|list')
+					.replace('Any',                         'any')
+				)
 
-				fields.append((fname, ftype, frole))
+				# Extract simple literal defaults (skip DEFAULT_* and Field(...))
+				fdefault = None
+				dm = re.search(r'\]\s*=\s*(.+?)(?:\s*#.*)?$', s)
+				if dm:
+					dval = dm.group(1).strip()
+					if not dval.startswith('DEFAULT_') and not dval.startswith('Field(') and dval != 'None':
+						if re.match(r'^["\'\d]', dval) or dval in ('True', 'False'):
+							fdefault = dval
 
-		# Flush last class
-		if current_class and current_type_val and fields:
-			inputs = [f for f in fields if f[2] in ('INPUT', 'MULTI_INPUT')]
-			outputs = [f for f in fields if f[2] in ('OUTPUT', 'MULTI_OUTPUT')]
-			parts = [f'{current_class}: type="{current_type_val}"']
-			if inputs:
-				parts.append('inputs: [' + ', '.join(f'{f[0]}:{f[1]}' for f in inputs) + ']')
-			if outputs:
-				parts.append('outputs: [' + ', '.join(f'{f[0]}:{f[1]}' for f in outputs) + ']')
-			catalog.append(', '.join(parts))
+				current_fields.append((fname, ftype, frole, fdefault))
 
-		return '\n'.join(catalog)
+		_flush()
 
-	_GENERATE_SYSTEM_PROMPT = """You generate workflow JSON for a visual node editor.
+		# ── Section grouping and formatting ───────────────────────────────────
+		section_order = [
+			'Endpoints', 'Native Types', 'Data Sources',
+			'Configurations', 'Workflow', 'Loops', 'Event Sources',
+			'Interactive', 'Tutorial',
+		]
+		section_labels = {
+			'Endpoints':      '─── Endpoint Nodes',
+			'Native Types':   '─── Native Value Nodes',
+			'Data Sources':   '─── Data Source Nodes',
+			'Configurations': '─── Config Nodes  (output themselves via "get"; connect with source_slot="get")',
+			'Workflow':       '─── Flow Nodes',
+			'Loops':          '─── Loop Nodes',
+			'Event Sources':  '─── Event Source Nodes',
+			'Interactive':    '─── Interactive Nodes',
+			'Tutorial':       '─── Extension/Tutorial Nodes',
+		}
 
-## Available Node Types
-{node_catalog}
+		by_section = {s: [] for s in section_order}
+		for cname, info in nodes.items():
+			m = node_meta.get(cname, {})
+			if not m.get('visible', True):
+				continue
+			sect = m.get('section', 'Other')
+			by_section.setdefault(sect, []).append((cname, info, m))
 
-## Output Format
-Return ONLY valid JSON (no markdown, no explanation), in this format:
-{{
+		def fmt_f(name, typ, dflt):
+			s = f'{name}({typ})'
+			if dflt is not None:
+				s += f'={dflt}'
+			return s
+
+		out_lines = []
+		for sect in section_order:
+			entries = by_section.get(sect, [])
+			if not entries:
+				continue
+			out_lines.append(section_labels.get(sect, f'─── {sect}'))
+			for cname, info, m in entries:
+				type_val    = info['type']
+				fields      = info['fields']
+				desc        = m.get('desc', '')
+				in_f   = [(n,t,r,d) for n,t,r,d in fields if r == 'INPUT']
+				min_f  = [(n,t,r,d) for n,t,r,d in fields if r == 'MULTI_INPUT']
+				out_f  = [(n,t,r,d) for n,t,r,d in fields if r == 'OUTPUT']
+				mout_f = [(n,t,r,d) for n,t,r,d in fields if r == 'MULTI_OUTPUT']
+
+				header = type_val
+				if desc:
+					header += f' – {desc}'
+				out_lines.append(header)
+				doc = info.get('docstring', '')
+				if doc:
+					out_lines.append(f'  doc: {doc}')
+				if in_f:
+					out_lines.append('  in:       ' + ', '.join(fmt_f(n,t,d) for n,t,_,d in in_f))
+				for n, *_ in min_f:
+					out_lines.append(f'  multi-in: {n} – each branch via separate edge with target_slot="{n}.<key>"')
+				if out_f:
+					out_lines.append('  out:      ' + ', '.join(fmt_f(n,t,d) for n,t,_,d in out_f))
+				for n, *_ in mout_f:
+					out_lines.append(f'  multi-out:{n} – declare in JSON as "{n}": {{"key": null, ...}}; edge source_slot="{n}.<key>"')
+				out_lines.append('')
+
+		return '\n'.join(out_lines)
+
+	_GENERATE_SYSTEM_PROMPT = """You generate workflow JSON for a visual node-graph AI workflow editor.
+
+## Runtime Model
+A workflow is a directed acyclic graph executed node-by-node in topological order:
+- Execution begins at `start_flow` (always index 0) and ends at `end_flow` or `sink_flow`.
+- Each node reads from its INPUT slots (wired by edges or set inline in JSON).
+- Each node writes to its OUTPUT slots at runtime; downstream nodes consume them via edges.
+- Config nodes (backend_config, model_config, etc.) store configuration and expose it through a `get` output slot. Wire them to flow nodes using source_slot="get".
+- Data flows as: start_flow.output → [transform/agent/route nodes] → end_flow.input.
+
+## Slot Types
+- INPUT       – value consumed by the node; set inline in JSON if not connected via edge.
+- OUTPUT      – value produced at runtime; referenced as source_slot in outgoing edges.
+- MULTI_INPUT – a named set of sub-inputs. Each sub-input is a separate edge with a dotted
+                target_slot, e.g. target_slot="tools.list_dir". Never include these keys inline
+                in node JSON (null placeholders cause validation errors).
+- MULTI_OUTPUT – named sub-outputs for conditional routing. Declare sub-keys inline in node
+                JSON as a dict with null values, e.g. "output": {"support": null, "sales": null}.
+                Each branch connects via a dotted source_slot, e.g. source_slot="output.support".
+
+## JSON Format
+Return ONLY valid JSON with no markdown fences or explanation:
+{
   "type": "workflow",
   "nodes": [
-    {{"type": "node_type_snake_case", "field_name": "value", ...}},
-    ...
+    {
+      "type": "node_type_snake_case",
+      "field": value,
+      "output": {"branch_a": null, "branch_b": null},
+      "extra": {"pos": [x, y], "size": [w, h], "name": "Display label"}
+    }
   ],
   "edges": [
-    {{"type": "edge", "source": 0, "target": 1, "source_slot": "output_field_name", "target_slot": "input_field_name"}},
-    ...
+    {
+      "type": "edge",
+      "source": 0,
+      "target": 1,
+      "source_slot": "output_field_name",
+      "target_slot": "input_field_name"
+    }
   ]
-}}
+}
+
+Field semantics:
+- nodes[i].type        – snake_case type string matching the catalog entry.
+- nodes[i].<field>     – INPUT field value; omit if default is acceptable.
+- nodes[i].<field>     – MULTI_OUTPUT field: dict of {key: null} declaring route names.
+- nodes[i].extra       – optional display metadata (pos, size, name, color); safe to omit.
+- edges[*].source      – 0-based index of the source node in the nodes array.
+- edges[*].target      – 0-based index of the target node in the nodes array.
+- edges[*].source_slot – OUTPUT field name on source node (or "output.key" for MULTI_OUTPUT).
+- edges[*].target_slot – INPUT field name on target node (or "tools.key" for MULTI_INPUT).
+
+## Common Patterns
+
+### Agent subgraph
+Wire: backend_config → agent_config.backend
+      model_config   → agent_config.model
+      agent_options_config → agent_config.options
+      agent_config   → agent_flow.config  (or agent_chat.config for interactive)
+Tool nodes connect via dotted target_slot: tools.tool_a, tools.tool_b → agent_config.tools.*
+
+### Conditional routing (route_flow)
+Declare outputs in JSON: "output": {"branch_a": null, "branch_b": null}
+Edge from upstream: source_slot="output" → route_flow.target (string deciding the branch)
+Edges from route_flow: source_slot="output.branch_a" → downstream_node.input
+
+### Fan-in merging (merge_flow)
+Set strategy: "first" | "last" | "concat" | "all"
+Each branch: source_slot="output" → merge_flow, target_slot="input.branch_name" (dotted)
+Result: merge_flow.output → downstream
+
+### Loops
+loop_start_flow.condition (bool) controls iteration. Connect body nodes between
+loop_start_flow and loop_end_flow. loop_start_flow.iteration outputs current count.
+For lists: for_each_start_flow.items → body → for_each_end_flow; current item on .current output.
+
+### Event-driven workflows
+Register a source: timer_source_flow or webhook_source_flow → registered_id output.
+Listen: registered_id → event_listener_flow, target_slot="sources.<key>" (dotted MULTI_INPUT).
+event_listener_flow.event carries the received event payload.
 
 ## Rules
-- Always start with a start_flow node (index 0) and end with an end_flow or sink_flow node
-- Connect nodes via edges: source/target are node indices (0-based), source_slot/target_slot are field names
-- Only use node types from the catalog above
-- For TransformFlow, set lang="python" and write the script in the "script" field
-- source_slot must be an output field name, target_slot must be an input field name
-- Return ONLY the JSON object, nothing else
-"""
+1. Always place start_flow at index 0. Always end with end_flow or sink_flow.
+2. source_slot must be an OUTPUT or MULTI_OUTPUT field name on the source node.
+3. target_slot must be an INPUT or MULTI_INPUT field name on the target node.
+4. MULTI_OUTPUT: declare sub-keys in node JSON as {"field": {"key": null}}; use dotted source_slot.
+5. MULTI_INPUT: use dotted target_slot only; never include sub-keys inline in node JSON.
+6. transform_flow: set lang="python"; write Python that assigns to the `output` variable.
+7. Config nodes wire via source_slot="get" to the matching input field on a flow node.
+8. Omit node fields that keep their default values to keep JSON concise.
+9. Return ONLY the JSON object, nothing else.
+
+## Available Node Types
+{node_catalog}"""
 
 	def _extract_json_from_response(text: str) -> dict:
 		"""Extract JSON from LLM response, handling markdown code blocks."""
@@ -1010,7 +1219,7 @@ Return ONLY valid JSON (no markdown, no explanation), in this format:
 	_generation_cache = {"config_hash": None, "backend": None, "agent_index": None}
 
 	def _build_generation_agent(request: GenerateWorkflowRequest, system_prompt: str):
-		"""Build an Agno agent subgraph from generation request config.
+		"""Build an AI agent subgraph from generation request config.
 
 		Constructs a Workflow graph with BackendConfig → ModelConfig → AgentOptionsConfig → AgentConfig
 		(plus optional MemoryManager, SessionManager, Tools, Knowledge) and builds it via build_backend_agno().

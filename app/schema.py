@@ -130,6 +130,7 @@ class NativeType(BaseType):
 	visible     = True
 )
 class NativeBoolean(NativeType):
+	"""Constant boolean value. Set value=true|false. Wire get→any bool input."""
 	type  : Annotated[Literal["native_boolean"], FieldRole.CONSTANT] = "native_boolean"
 	value : Annotated[bool                     , FieldRole.INPUT   ] = False
 
@@ -146,6 +147,7 @@ class NativeBoolean(NativeType):
 	visible     = True
 )
 class NativeInteger(NativeType):
+	"""Constant integer value. Set value to any integer. Wire get→any int input."""
 	type  : Annotated[Literal["native_integer"], FieldRole.CONSTANT] = "native_integer"
 	value : Annotated[int                      , FieldRole.INPUT   ] = 0
 
@@ -162,6 +164,7 @@ class NativeInteger(NativeType):
 	visible     = True
 )
 class NativeReal(NativeType):
+	"""Constant floating-point value. Set value to any number. Wire get→any float input."""
 	type  : Annotated[Literal["native_real"], FieldRole.CONSTANT] = "native_real"
 	value : Annotated[float                 , FieldRole.INPUT   ] = 0.0
 
@@ -178,6 +181,7 @@ class NativeReal(NativeType):
 	visible     = True
 )
 class NativeString(NativeType):
+	"""Constant string value. Set value to any text. Wire get→any string input."""
 	type  : Annotated[Literal["native_string"], FieldRole.CONSTANT] = "native_string"
 	value : Annotated[str                     , FieldRole.INPUT   ] = ""
 
@@ -194,6 +198,7 @@ class NativeString(NativeType):
 	visible     = True
 )
 class NativeList(NativeType):
+	"""Constant list value. Set value to a JSON array. Wire get→any list input."""
 	type  : Annotated[Literal["native_list"], FieldRole.CONSTANT] = "native_list"
 	value : Annotated[List[Any]             , FieldRole.INPUT   ] = []
 
@@ -210,6 +215,7 @@ class NativeList(NativeType):
 	visible     = True
 )
 class NativeDictionary(NativeType):
+	"""Constant dict value. Set value to a JSON object. Wire get→any dict input."""
 	type  : Annotated[Literal["native_dictionary"], FieldRole.CONSTANT] = "native_dictionary"
 	value : Annotated[Dict[str, Any]              , FieldRole.INPUT   ] = {}
 
@@ -282,6 +288,7 @@ DEFAULT_BACKEND_FALLBACK : bool = False
 	visible     = True
 )
 class BackendConfig(ConfigType):
+	"""AI backend engine config. Set name='agno' (default and only supported engine). Wire get→agent_config.backend."""
 	type     : Annotated[Literal["backend_config"], FieldRole.CONSTANT] = "backend_config"
 	name     : Annotated[str                      , FieldRole.INPUT   ] = DEFAULT_BACKEND_NAME
 	version  : Annotated[Optional[str]            , FieldRole.INPUT   ] = DEFAULT_BACKEND_VERSION
@@ -306,6 +313,7 @@ DEFAULT_MODEL_FALLBACK : bool = False
 	visible     = True
 )
 class ModelConfig(ConfigType):
+	"""Language model reference. Set source (ollama/openai/anthropic/groq/google) and name. Wire get→agent_config.model or memory_manager_config.model."""
 	type     : Annotated[Literal["model_config"], FieldRole.CONSTANT] = "model_config"
 	source   : Annotated[str                    , FieldRole.INPUT   ] = Field(default=DEFAULT_MODEL_SOURCE, json_schema_extra={"options_source": "model_sources"})
 	name     : Annotated[str                    , FieldRole.INPUT   ] = Field(default=DEFAULT_MODEL_NAME, json_schema_extra={"options_source": "model_names"})
@@ -331,6 +339,7 @@ DEFAULT_EMBEDDING_FALLBACK : bool = False
 	visible     = True
 )
 class EmbeddingConfig(ConfigType):
+	"""Embedding model reference for vector search. Set source+name matching your model provider. Wire get→index_db_config.embedding."""
 	type     : Annotated[Literal["embedding_config"], FieldRole.CONSTANT] = "embedding_config"
 	source   : Annotated[str                        , FieldRole.INPUT   ] = Field(default=DEFAULT_EMBEDDING_SOURCE, json_schema_extra={"options_source": "model_sources"})
 	name     : Annotated[str                        , FieldRole.INPUT   ] = Field(default=DEFAULT_EMBEDDING_NAME, json_schema_extra={"options_source": "model_names"})
@@ -359,6 +368,7 @@ DEFAULT_CONTENT_DB_FALLBACK             : bool = False
 	visible     = True
 )
 class ContentDBConfig(ConfigType):
+	"""Raw document content database (SQLite by default). Set engine and url (storage path). Wire get→knowledge_manager_config.content_db."""
 	type                 : Annotated[Literal["content_db_config"], FieldRole.CONSTANT  ] = "content_db_config"
 	interactable         : Annotated[bool                        , FieldRole.ANNOTATION] = DEFAULT_EDGE_PREVIEW
 	engine               : Annotated[str                         , FieldRole.INPUT     ] = DEFAULT_CONTENT_DB_ENGINE
@@ -388,6 +398,7 @@ DEFAULT_INDEX_DB_FALLBACK    : bool = False
 	visible     = True
 )
 class IndexDBConfig(ConfigType):
+	"""Vector index database for semantic search (lancedb by default). Requires embedding_config. Wire get→knowledge_manager_config.index_db."""
 	type        : Annotated[Literal["index_db_config"], FieldRole.CONSTANT] = "index_db_config"
 	engine      : Annotated[str                       , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_ENGINE
 	url         : Annotated[str                       , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_URL
@@ -415,6 +426,7 @@ DEFAULT_MEMORY_MANAGER_PROMPT  : str  = None
 	visible     = True
 )
 class MemoryManagerConfig(ConfigType):
+	"""Agent long-term memory across conversations. Set query=true to retrieve, update=true to store. Wire get→agent_config.memory_mgr."""
 	type    : Annotated[Literal["memory_manager_config"], FieldRole.CONSTANT] = "memory_manager_config"
 	query   : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_QUERY
 	update  : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_UPDATE
@@ -443,6 +455,7 @@ DEFAULT_SESSION_MANAGER_PROMPT       : str  = None
 	visible     = True
 )
 class SessionManagerConfig(ConfigType):
+	"""Chat history manager for multi-turn conversations. Set history_size for context window. Wire get→agent_config.session_mgr."""
 	type         : Annotated[Literal["session_manager_config"], FieldRole.CONSTANT] = "session_manager_config"
 	query        : Annotated[bool                             , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_QUERY
 	update       : Annotated[bool                             , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_UPDATE
@@ -491,6 +504,7 @@ DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS : int  = 10
 	visible     = True
 )
 class KnowledgeManagerConfig(ConfigType):
+	"""RAG knowledge store combining content_db and index_db. Requires both DBs wired. Set query=true to enable retrieval. Wire get→agent_config.knowledge_mgr."""
 	type        : Annotated[Literal["knowledge_manager_config"], FieldRole.CONSTANT] = "knowledge_manager_config"
 	query       : Annotated[bool                               , FieldRole.INPUT   ] = DEFAULT_KNOWLEDGE_MANAGER_QUERY
 	description : Annotated[Optional[str]                      , FieldRole.INPUT   ] = None
@@ -517,6 +531,7 @@ DEFAULT_TOOL_FALLBACK               : bool = False
 	visible     = True
 )
 class ToolConfig(ConfigType):
+	"""External tool/function for agents. Set name to Python import path (e.g. 'tools.list_directory'). Wire get→agent_config.tools.<key> via MULTI_INPUT edge (target_slot='tools.<key>')."""
 	type     : Annotated[Literal["tool_config"]  , FieldRole.CONSTANT] = "tool_config"
 	name     : Annotated[str                     , FieldRole.INPUT   ] = ""
 	args     : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
@@ -542,6 +557,7 @@ DEFAULT_AGENT_OPTIONS_MARKDOWN        : bool = True
 	visible     = True
 )
 class AgentOptionsConfig(OptionsType):
+	"""Agent personality and prompt configuration. Set name, description, instructions (list of strings), or prompt_override (full system prompt). Wire get→agent_config.options."""
 	type            : Annotated[Literal["agent_options_config"], FieldRole.CONSTANT] = "agent_options_config"
 	instructions    : Annotated[Optional[List[str]]            , FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_INSTRUCTIONS
 	prompt_override : Annotated[Optional[str]                  , FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_PROMPT_OVERRIDE
@@ -560,6 +576,7 @@ class AgentOptionsConfig(OptionsType):
 	visible     = True
 )
 class AgentConfig(ConfigType):
+	"""Complete agent definition combining backend, model, options, and optional tools/memory/knowledge. Wire get→agent_flow.config or agent_chat.config."""
 	type          : Annotated[Literal["agent_config"]                            , FieldRole.CONSTANT   ] = "agent_config"
 	port          : Annotated[Optional[int]                                      , FieldRole.ANNOTATION ] = None
 	options       : Annotated[Optional[AgentOptionsConfig]                       , FieldRole.INPUT      ] = None
@@ -591,6 +608,7 @@ class FlowType(BaseType):
 	visible     = True
 )
 class StartFlow(FlowType):
+	"""Required workflow entry point. Always place at index 0. Outputs initial workflow variables as a dict on 'output'."""
 	type   : Annotated[Literal["start_flow"], FieldRole.CONSTANT] = "start_flow"
 	output : Annotated[Any                  , FieldRole.OUTPUT  ] = None
 
@@ -603,6 +621,7 @@ class StartFlow(FlowType):
 	visible     = True
 )
 class EndFlow(FlowType):
+	"""Successful workflow termination. Connect final data value to 'input'."""
 	type  : Annotated[Literal["end_flow"], FieldRole.CONSTANT] = "end_flow"
 	input : Annotated[Any                , FieldRole.INPUT   ] = None
 
@@ -615,6 +634,7 @@ class EndFlow(FlowType):
 	visible     = True
 )
 class SinkFlow(FlowType):
+	"""Workflow dead end — discards its input. Use to terminate branches that produce no result."""
 	type  : Annotated[Literal["sink_flow"], FieldRole.CONSTANT] = "sink_flow"
 	input : Annotated[Any                 , FieldRole.INPUT   ] = None
 
@@ -627,6 +647,7 @@ class SinkFlow(FlowType):
 	visible     = True
 )
 class PreviewFlow(FlowType):
+	"""Passthrough node with UI data preview. Set hint to control rendering (auto/text/json/image/audio/video). Data passes unchanged to 'output'."""
 	type   : Annotated[Literal["preview_flow"]                                              , FieldRole.CONSTANT] = "preview_flow"
 	input  : Annotated[Any                                                                  , FieldRole.INPUT   ] = None
 	hint   : Annotated[Literal["auto", "text", "json", "image", "audio", "video", "model3d"], FieldRole.INPUT   ] = "auto"
@@ -641,6 +662,7 @@ class PreviewFlow(FlowType):
 	visible     = True
 )
 class RouteFlow(FlowType):
+	"""Conditional routing to named output branches. Declare outputs in JSON as "output":{"branch_a":null,"branch_b":null}. At runtime, target(str) selects the branch; unmatched input falls to 'default' output."""
 	type    : Annotated[Literal["route_flow"]           , FieldRole.CONSTANT    ] = "route_flow"
 	target  : Annotated[Union[int, str]                 , FieldRole.INPUT       ] = None
 	input   : Annotated[Any                             , FieldRole.INPUT       ] = None
@@ -656,6 +678,7 @@ class RouteFlow(FlowType):
 	visible     = True
 )
 class CombineFlow(FlowType):
+	"""Map named inputs to named outputs via a mapping dict. Both input and output are MULTI slots. mapping={src_key: dst_key}."""
 	type    : Annotated[Literal["combine_flow"]         , FieldRole.CONSTANT    ] = "combine_flow"
 	mapping : Annotated[Dict[Union[int, str], str]      , FieldRole.INPUT       ] = None
 	input   : Annotated[Union[List[str], Dict[str, Any]], FieldRole.MULTI_INPUT ] = None
@@ -673,6 +696,7 @@ DEFAULT_MERGE_NODE_STRATEGY : str = "first"
 	visible     = True
 )
 class MergeFlow(FlowType):
+	"""Collect multiple branches into one output. strategy: first (first non-None), last, concat (join strings/lists), all (return list). Connect branches via MULTI_INPUT dotted edges (target_slot='input.<branch>')."""
 	type     : Annotated[Literal["merge_flow"]           , FieldRole.CONSTANT   ] = "merge_flow"
 	strategy : Annotated[str                             , FieldRole.INPUT      ] = DEFAULT_MERGE_NODE_STRATEGY
 	input    : Annotated[Union[List[str], Dict[str, Any]], FieldRole.MULTI_INPUT] = None
@@ -691,6 +715,7 @@ DEFAULT_TRANSFORM_NODE_SCRIPT : str = "output = input"
 	visible     = True
 )
 class TransformFlow(FlowType):
+	"""Script-based data transform. Set lang='python' and write Python; assign result to `output` variable. Access input via `input`, workflow state via `variables`, extra context via `context`."""
 	type    : Annotated[Literal["transform_flow"], FieldRole.CONSTANT] = "transform_flow"
 	lang    : Annotated[str                      , FieldRole.INPUT   ] = DEFAULT_TRANSFORM_NODE_LANG
 	script  : Annotated[str                      , FieldRole.INPUT   ] = Field(default=DEFAULT_TRANSFORM_NODE_SCRIPT, json_schema_extra={"editor": "code"})
@@ -710,6 +735,7 @@ DEFAULT_TOOL_NODE_ARGS : Dict[str, Any] = {}
 	visible     = True
 )
 class ToolFlow(FlowType):
+	"""Execute a tool within the flow graph. Wire tool_config→config. Input data is passed to the tool; result appears on 'output'."""
 	type   : Annotated[Literal["tool_flow"], FieldRole.CONSTANT] = "tool_flow"
 	config : Annotated[ToolConfig          , FieldRole.INPUT   ] = None
 	args   : Annotated[Dict[str, Any]      , FieldRole.INPUT   ] = DEFAULT_TOOL_NODE_ARGS
@@ -725,6 +751,7 @@ class ToolFlow(FlowType):
 	visible     = True
 )
 class AgentFlow(FlowType):
+	"""Execute one agent turn within the flow graph. Wire agent_config→config. Text/dict input; LLM response dict on 'output'."""
 	type   : Annotated[Literal["agent_flow"], FieldRole.CONSTANT] = "agent_flow"
 	config : Annotated[AgentConfig          , FieldRole.INPUT   ] = None
 	input  : Annotated[Any                  , FieldRole.INPUT   ] = None
@@ -1069,6 +1096,7 @@ DEFAULT_USER_INPUT_QUERY : str = "Please provide input for the workflow to conti
 	visible     = True
 )
 class UserInputFlow(FlowType):
+	"""Pause workflow and request user input. Set query for the prompt shown to the user. User's response appears on 'message' output."""
 	type    : Annotated[Literal["user_input_flow"], FieldRole.CONSTANT] = "user_input_flow"
 	query   : Annotated[Optional[Any]             , FieldRole.INPUT   ] = DEFAULT_USER_INPUT_QUERY
 	message : Annotated[Optional[Any]             , FieldRole.OUTPUT  ] = None
@@ -1088,6 +1116,7 @@ class UserInputFlow(FlowType):
 	visible     = True
 )
 class ToolCall(InteractiveType):
+	"""Interactive tool execution UI panel. Wire tool_config→config; optional args override. Result shown on 'result' output."""
 	type   : Annotated[Literal["tool_call"]    , FieldRole.CONSTANT] = "tool_call"
 	config : Annotated[ToolConfig              , FieldRole.INPUT   ] = None
 	args   : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
@@ -1112,6 +1141,7 @@ class ToolCall(InteractiveType):
 	visible     = True
 )
 class AgentChat(InteractiveType):
+	"""Interactive chat UI for conversing with an agent. Wire agent_config→config. Supports streaming responses. Use system_prompt to override agent prompt for this chat."""
 	type          : Annotated[Literal["agent_chat"], FieldRole.CONSTANT] = "agent_chat"
 	config        : Annotated[AgentConfig          , FieldRole.INPUT   ] = None
 	system_prompt : Annotated[Optional[str]        , FieldRole.INPUT   ] = None
