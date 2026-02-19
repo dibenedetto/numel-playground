@@ -248,6 +248,7 @@ class TensorType(BaseType):
 	visible     = True
 )
 class DataTensor(TensorType):
+	"""Generic data tensor value. Set dtype (e.g., 'float32'), shape (list of ints), and data (nested list matching shape). Wire get→any tensor input."""
 	type : Annotated[Literal["data_tensor"], FieldRole.CONSTANT] = "data_tensor"
 
 
@@ -984,7 +985,7 @@ class EventListenerFlow(FlowType):
 	The node blocks workflow execution until an event is received.
 	"""
 	type        : Annotated[Literal["event_listener_flow"], FieldRole.CONSTANT   ] = "event_listener_flow"
-	sources     : Annotated[Optional[Dict[str, Any]]        , FieldRole.MULTI_INPUT] = None   # Source IDs (multi-input from source nodes)
+	sources     : Annotated[Optional[Dict[str, Any]]      , FieldRole.MULTI_INPUT] = None   # Source IDs (multi-input from source nodes)
 	mode        : Annotated[Literal["any", "all", "race"] , FieldRole.INPUT      ] = "any"
 	timeout_ms  : Annotated[Optional[int]                 , FieldRole.INPUT      ] = None   # None = no timeout
 	# Outputs
