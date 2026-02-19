@@ -59,17 +59,17 @@
     }
   ],
   "edges": [
-    { "source": 0, "target": 1, "source_slot": "output", "target_slot": "input" },
+    { "source": 0, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in" },
     { "source": 1, "target": 2, "source_slot": "iteration", "target_slot": "input" },
-    { "source": 2, "target": 3, "source_slot": "output", "target_slot": "input" },
-    { "source": 3, "target": 4, "source_slot": "output", "target_slot": "input" },
-    { "source": 4, "target": 5, "source_slot": "output", "target_slot": "input" },
-    { "source": 5, "target": 6, "source_slot": "output", "target_slot": "input" },
-    { "source": 5, "target": 1, "source_slot": "output", "target_slot": "input", "loop": true },
+    { "source": 2, "target": 3, "source_slot": "output", "target_slot": "flow_in" },
+    { "source": 3, "target": 4, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 4, "target": 5, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 5, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true },
+    { "source": 5, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in" },
     { "source": 6, "target": 7, "source_slot": "current", "target_slot": "input" },
     { "source": 7, "target": 8, "source_slot": "output", "target_slot": "input" },
-    { "source": 8, "target": 9, "source_slot": "output", "target_slot": "input" },
-    { "source": 9, "target": 10, "source_slot": "output", "target_slot": "input" },
-    { "source": 9, "target": 6, "source_slot": "output", "target_slot": "input", "loop": true }
+    { "source": 8, "target": 9, "source_slot": "output", "target_slot": "flow_in" },
+    { "source": 9, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true },
+    { "source": 9, "target": 10, "source_slot": "flow_out", "target_slot": "flow_in" }
   ]
 }

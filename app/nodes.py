@@ -75,47 +75,19 @@ class WFNativeDictionary(WFNativeType):
 	pass
 
 
-class WFContentType(WFBaseType):
+class WFTensorType(WFBaseType):
 	pass
 
 
-class WFBinaryContent(WFContentType):
+class WFDataTensor(WFTensorType):
 	pass
-
-
-class WFTextContent(WFContentType):
-	pass
-
-
-class WFDocumentContent(WFContentType):
-	pass
-
-
-class WFImageContent(WFContentType):
-	pass
-
-
-class WFAudioContent(WFContentType):
-	pass
-
-
-class WFVideoContent(WFContentType):
-	pass
-
-
-# class WFModel3DContent(WFContentType):
-# 	pass
 
 
 class WFConfigType(WFBaseType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
-		result.outputs["get"] = self.config
+		result = await super().execute(context)
+		result.outputs["config"] = self.config
 		return result
-
-
-class WFInfoConfig(WFConfigType):
-	pass
 
 
 class WFBackendConfig(WFConfigType):
@@ -163,13 +135,16 @@ class WFAgentConfig(WFConfigType):
 
 
 class WFFlowType(WFBaseType):
-	pass
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		result.outputs["flow_out"] = context.variables.copy()
+		return result
 
 
 class WFStartFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
-		result.outputs["output"] = context.variables.copy()
+		result = await super().execute(context)
+		result.outputs["flow_out"] = context.inputs.get("flow_in")
 		return result
 
 
@@ -182,16 +157,13 @@ class WFSinkFlow(WFFlowType):
 
 
 class WFPreviewFlow(WFFlowType):
-	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
-		result.outputs["output"] = context.inputs.get("input")
-		return result
+	pass
 
 
 class WFRouteFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
-		
+		result = await super().execute(context)
+
 		try:
 			target  = context.inputs.get("target")
 			outputs = self.config.output or {}
@@ -211,8 +183,8 @@ class WFRouteFlow(WFFlowType):
 
 class WFCombineFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
-		
+		result = await super().execute(context)
+
 		try:
 			inputs = {}
 			for key, value in context.inputs.items():
@@ -235,7 +207,7 @@ class WFCombineFlow(WFFlowType):
 
 class WFMergeFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 
 		try:
 			strategy = context.inputs.get("strategy", "first")
@@ -272,7 +244,7 @@ class WFMergeFlow(WFFlowType):
 
 class WFTransformFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 
 		try:
 			lang   = context.inputs.get("lang"   , DEFAULT_TRANSFORM_NODE_LANG  )
@@ -310,7 +282,7 @@ class WFTransformFlow(WFFlowType):
 
 class WFUserInputFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 		result.outputs["content"] = {
 			"awaiting_input": True,
 		}
@@ -325,7 +297,7 @@ class WFToolFlow(WFFlowType):
 
 
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 
 		try:
 			args  = context.inputs.get("args" , {})
@@ -355,10 +327,10 @@ class WFAgentFlow(WFFlowType):
 
 
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 
 		try:
-			request = context.inputs.get("input", "")
+			request = context.inputs.get("request", "")
 			if isinstance(request, dict):
 				message = request.get("message") or request.get("text") or request.get("value") or request.get("data") or request.get("input") or str(request)
 			else:
@@ -369,7 +341,7 @@ class WFAgentFlow(WFFlowType):
 			else:
 				response = {"error": "No agent configured"}
 
-			result.outputs["output"] = {
+			result.outputs["response"] = {
 				"request"  : request,
 				"response" : response,
 			}
@@ -399,7 +371,7 @@ class WFLoopStartFlow(WFFlowType):
 	- Loop body reset
 	"""
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 
 		# Get iteration from engine-injected context
 		iteration = context.variables.get("_loop_iteration", 0)
@@ -420,7 +392,7 @@ class WFLoopEndFlow(WFFlowType):
 	3. Reset loop body nodes if continuing
 	"""
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 
 		# Pass through input to output
 		result.outputs["output"] = context.inputs.get("input")
@@ -441,7 +413,7 @@ class WFForEachStartFlow(WFFlowType):
 	- Loop continuation
 	"""
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 
 		# Get items from edge input or fall back to node's items field
 		items = context.inputs.get("items")
@@ -481,7 +453,7 @@ class WFForEachEndFlow(WFFlowType):
 	Similar to LoopEnd but for ForEach loops.
 	"""
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 
 		result.outputs["output"] = context.inputs.get("input")
 		result.outputs["_loop_signal"] = "for_each_end"
@@ -496,7 +468,7 @@ class WFBreakFlow(WFFlowType):
 	Signals the engine to exit the current loop immediately.
 	"""
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 
 		# Signal break to the engine
 		result.outputs["_loop_signal"] = "break"
@@ -511,7 +483,7 @@ class WFContinueFlow(WFFlowType):
 	Signals the engine to skip to the next iteration.
 	"""
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 
 		# Signal continue to the engine
 		result.outputs["_loop_signal"] = "continue"
@@ -536,7 +508,7 @@ class WFGateFlow(WFFlowType):
 	State is scoped per-node using node_index to avoid conflicts between multiple gates.
 	"""
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 
 		# Get configuration
 		threshold = context.inputs.get("threshold")
@@ -619,7 +591,7 @@ class WFDelayFlow(WFFlowType):
 	Uses node-scoped resume flag to properly handle loop iterations.
 	"""
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 
 		# Get duration from node or inputs
 		duration_ms = context.inputs.get("duration_ms")
@@ -666,7 +638,7 @@ def _src_get(ctx, key, config, default=None):
 class WFTimerSourceFlow(WFFlowType):
 	"""Timer Source node executor - registers a timer event source."""
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 		try:
 			source_id    = _src_get(context, "source_id", self.config) or f"wf_timer_{context.node_index}"
 			name         = _src_get(context, "name", self.config) or source_id
@@ -694,7 +666,7 @@ class WFTimerSourceFlow(WFFlowType):
 class WFFSWatchSourceFlow(WFFlowType):
 	"""FS Watch Source node executor - registers a filesystem watcher event source."""
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 		try:
 			source_id   = _src_get(context, "source_id", self.config) or f"wf_fswatch_{context.node_index}"
 			name        = _src_get(context, "name", self.config) or source_id
@@ -730,7 +702,7 @@ class WFFSWatchSourceFlow(WFFlowType):
 class WFWebhookSourceFlow(WFFlowType):
 	"""Webhook Source node executor - registers a webhook event source."""
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 		try:
 			source_id = _src_get(context, "source_id", self.config) or f"wf_webhook_{context.node_index}"
 			name      = _src_get(context, "name", self.config) or source_id
@@ -762,7 +734,7 @@ class WFWebhookSourceFlow(WFFlowType):
 class WFBrowserSourceFlow(WFFlowType):
 	"""Browser Source node executor - registers a browser media event source."""
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 		try:
 			source_id    = _src_get(context, "source_id", self.config) or f"wf_browser_{context.node_index}"
 			name         = _src_get(context, "name", self.config) or source_id
@@ -803,7 +775,7 @@ class WFEventListenerFlow(WFFlowType):
 	processes the received event.
 	"""
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
-		result = NodeExecutionResult()
+		result = await super().execute(context)
 
 		# Gather sources from MULTI_INPUT dotted keys (sources.timer_1, sources.timer_2, ...)
 		sources = []
@@ -906,14 +878,6 @@ class ImplementedBackend(BaseModel):
 	list_contents   : Callable
 
 
-# _NODE_CLASSES = [
-# 	WFNativeBoolean, WFNativeInteger, WFNativeReal, WFNativeString, WFNativeList, WFNativeDictionary,
-# 	WFTextContent, WFDocumentContent, WFImageContent, WFAudioContent, WFVideoContent, # WFModel3DContent,
-# 	WFInfoConfig, WFBackendConfig, WFModelConfig, WFEmbeddingConfig, WFContentDBConfig, WFIndexDBConfig, WFMemoryManagerConfig, WFSessionManagerConfig, WFKnowledgeManagerConfig, WFToolConfig, WFAgentOptionsConfig, WFAgentConfig,
-# 	WFStartFlow, WFEndFlow, WFSinkFlow, WFPassthroughFlow, WFRouteFlow, WFCombineFlow, WFMergeFlow, WFTransformFlow, WFUserInputFlow, WFToolFlow, WFAgentFlow,
-# ]
-
-
 _NODE_TYPES = {
 	"native_boolean"           : WFNativeBoolean,
 	"native_integer"           : WFNativeInteger,
@@ -922,14 +886,8 @@ _NODE_TYPES = {
 	"native_list"              : WFNativeList,
 	"native_dictionary"        : WFNativeDictionary,
 
-	"text_content"             : WFTextContent,
-	"document_content"         : WFDocumentContent,
-	"image_content"            : WFImageContent,
-	"audio_content"            : WFAudioContent,
-	"video_content"            : WFVideoContent,
-	# "model3d_content"          : WFModel3DContent,
+	"data_tensor"              : WFDataTensor,
 
-	"info_config"              : WFInfoConfig,
 	"backend_config"           : WFBackendConfig,
 	"model_config"             : WFModelConfig,
 	"embedding_config"         : WFEmbeddingConfig,

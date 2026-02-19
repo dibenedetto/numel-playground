@@ -26,8 +26,8 @@
     }
   ],
   "edges": [
-    { "source": 0, "target": 1, "source_slot": "output", "target_slot": "flow" },
-    { "source": 1, "target": 2, "source_slot": "output", "target_slot": "input" },
-    { "source": 2, "target": 3, "source_slot": "output", "target_slot": "input" }
+    { "source": 0, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 1, "target": 2, "source_slot": "output", "target_slot": "flow_in" },
+    { "source": 2, "target": 3, "source_slot": "flow_out", "target_slot": "flow_in" }
   ]
 }

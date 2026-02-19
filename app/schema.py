@@ -53,18 +53,33 @@ class BaseType(BaseModel):
 	id    : Annotated[str                     , FieldRole.ANNOTATION] = Field(default_factory=generate_id)
 	extra : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT     ] = None
 
-	@property
-	def get(self) -> Annotated[BaseType, FieldRole.OUTPUT]:
-		return self
+	# @property
+	# def get(self) -> Annotated[BaseType, FieldRole.OUTPUT]:
+	# 	return self
 
 
 @node_info(visible=False)
 class ComponentType(BaseModel):
 	type : Annotated[Literal["component_type"], FieldRole.CONSTANT] = "component_type"
 
-	@property
-	def get(self) -> Annotated[ComponentType, FieldRole.OUTPUT]:
-		return self
+	# @property
+	# def get(self) -> Annotated[ComponentType, FieldRole.OUTPUT]:
+	# 	return self
+
+
+@node_info(visible=False)
+class Edge(ComponentType):
+	type        : Annotated[Literal["edge"], FieldRole.CONSTANT  ] = "edge"
+	preview     : Annotated[bool           , FieldRole.ANNOTATION] = False  # Whether to show a preview of the data flowing through this edge in the UI
+	loop        : Annotated[bool           , FieldRole.ANNOTATION] = False  # True for loop-back edges (visual hint)
+	source      : Annotated[int            , FieldRole.INPUT     ] = None
+	target      : Annotated[int            , FieldRole.INPUT     ] = None
+	source_slot : Annotated[str            , FieldRole.INPUT     ] = None
+	target_slot : Annotated[str            , FieldRole.INPUT     ] = None
+
+	# @property
+	# def get(self) -> Annotated[Edge, FieldRole.OUTPUT]:
+	# 	return self
 
 
 @node_info(
@@ -90,36 +105,18 @@ class SourceMeta(ComponentType):
 	frames      : Annotated[Optional[int  ]       , FieldRole.INPUT   ] = None
 
 	@property
-	def get(self) -> Annotated[SourceMeta, FieldRole.OUTPUT]:
-		return self
-
-
-DEFAULT_EDGE_PREVIEW : bool = False
-
-
-@node_info(visible=False)
-class Edge(ComponentType):
-	type        : Annotated[Literal["edge"], FieldRole.CONSTANT  ] = "edge"
-	preview     : Annotated[bool           , FieldRole.ANNOTATION] = DEFAULT_EDGE_PREVIEW
-	loop        : Annotated[bool           , FieldRole.ANNOTATION] = False  # True for loop-back edges (visual hint)
-	source      : Annotated[int            , FieldRole.INPUT     ] = None
-	target      : Annotated[int            , FieldRole.INPUT     ] = None
-	source_slot : Annotated[str            , FieldRole.INPUT     ] = None
-	target_slot : Annotated[str            , FieldRole.INPUT     ] = None
-
-	@property
-	def get(self) -> Annotated[Edge, FieldRole.OUTPUT]:
+	def reference(self) -> Annotated[SourceMeta, FieldRole.OUTPUT]:
 		return self
 
 
 @node_info(visible=False)
 class NativeType(BaseType):
-	type  : Annotated[Literal["native_type"], FieldRole.CONSTANT] = "native_type"
-	value : Annotated[Any                   , FieldRole.INPUT   ] = None
+	type : Annotated[Literal["native_type"], FieldRole.CONSTANT] = "native_type"
+	raw  : Annotated[Any                   , FieldRole.INPUT   ] = None
 
 	@property
-	def get(self) -> Annotated[Any, FieldRole.OUTPUT]:
-		return self.value
+	def value(self) -> Annotated[Any, FieldRole.OUTPUT]:
+		return self.raw
 
 
 @node_info(
@@ -131,12 +128,12 @@ class NativeType(BaseType):
 )
 class NativeBoolean(NativeType):
 	"""Constant boolean value. Set value=true|false. Wire get→any bool input."""
-	type  : Annotated[Literal["native_boolean"], FieldRole.CONSTANT] = "native_boolean"
-	value : Annotated[bool                     , FieldRole.INPUT   ] = False
+	type : Annotated[Literal["native_boolean"], FieldRole.CONSTANT] = "native_boolean"
+	raw  : Annotated[bool                     , FieldRole.INPUT   ] = False
 
 	@property
-	def get(self) -> Annotated[bool, FieldRole.OUTPUT]:
-		return self.value
+	def value(self) -> Annotated[bool, FieldRole.OUTPUT]:
+		return self.raw
 
 
 @node_info(
@@ -148,12 +145,12 @@ class NativeBoolean(NativeType):
 )
 class NativeInteger(NativeType):
 	"""Constant integer value. Set value to any integer. Wire get→any int input."""
-	type  : Annotated[Literal["native_integer"], FieldRole.CONSTANT] = "native_integer"
-	value : Annotated[int                      , FieldRole.INPUT   ] = 0
+	type : Annotated[Literal["native_integer"], FieldRole.CONSTANT] = "native_integer"
+	raw  : Annotated[int                      , FieldRole.INPUT   ] = 0
 
 	@property
-	def get(self) -> Annotated[int, FieldRole.OUTPUT]:
-		return self.value
+	def value(self) -> Annotated[int, FieldRole.OUTPUT]:
+		return self.raw
 
 
 @node_info(
@@ -165,12 +162,12 @@ class NativeInteger(NativeType):
 )
 class NativeReal(NativeType):
 	"""Constant floating-point value. Set value to any number. Wire get→any float input."""
-	type  : Annotated[Literal["native_real"], FieldRole.CONSTANT] = "native_real"
-	value : Annotated[float                 , FieldRole.INPUT   ] = 0.0
+	type : Annotated[Literal["native_real"], FieldRole.CONSTANT] = "native_real"
+	raw  : Annotated[float                 , FieldRole.INPUT   ] = 0.0
 
 	@property
-	def get(self) -> Annotated[float, FieldRole.OUTPUT]:
-		return self.value
+	def value(self) -> Annotated[float, FieldRole.OUTPUT]:
+		return self.raw
 
 
 @node_info(
@@ -182,12 +179,12 @@ class NativeReal(NativeType):
 )
 class NativeString(NativeType):
 	"""Constant string value. Set value to any text. Wire get→any string input."""
-	type  : Annotated[Literal["native_string"], FieldRole.CONSTANT] = "native_string"
-	value : Annotated[str                     , FieldRole.INPUT   ] = ""
+	type : Annotated[Literal["native_string"], FieldRole.CONSTANT] = "native_string"
+	raw  : Annotated[str                     , FieldRole.INPUT   ] = ""
 
 	@property
-	def get(self) -> Annotated[str, FieldRole.OUTPUT]:
-		return self.value
+	def value(self) -> Annotated[str, FieldRole.OUTPUT]:
+		return self.raw
 
 
 @node_info(
@@ -199,12 +196,12 @@ class NativeString(NativeType):
 )
 class NativeList(NativeType):
 	"""Constant list value. Set value to a JSON array. Wire get→any list input."""
-	type  : Annotated[Literal["native_list"], FieldRole.CONSTANT] = "native_list"
-	value : Annotated[List[Any]             , FieldRole.INPUT   ] = []
+	type : Annotated[Literal["native_list"], FieldRole.CONSTANT] = "native_list"
+	raw  : Annotated[List[Any]             , FieldRole.INPUT   ] = []
 
 	@property
-	def get(self) -> Annotated[List[Any], FieldRole.OUTPUT]:
-		return self.value
+	def value(self) -> Annotated[List[Any], FieldRole.OUTPUT]:
+		return self.raw
 
 
 @node_info(
@@ -216,12 +213,12 @@ class NativeList(NativeType):
 )
 class NativeDictionary(NativeType):
 	"""Constant dict value. Set value to a JSON object. Wire get→any dict input."""
-	type  : Annotated[Literal["native_dictionary"], FieldRole.CONSTANT] = "native_dictionary"
-	value : Annotated[Dict[str, Any]              , FieldRole.INPUT   ] = {}
+	type : Annotated[Literal["native_dictionary"], FieldRole.CONSTANT] = "native_dictionary"
+	raw  : Annotated[Dict[str, Any]              , FieldRole.INPUT   ] = {}
 
 	@property
-	def get(self) -> Annotated[Dict[str, Any], FieldRole.OUTPUT]:
-		return self.value
+	def value(self) -> Annotated[Dict[str, Any], FieldRole.OUTPUT]:
+		return self.raw
 
 
 DEFAULT_TENSOR_DTYPE  : str  = "float32"
@@ -236,7 +233,7 @@ class TensorType(BaseType):
 	data   : Annotated[Any                   , FieldRole.INPUT   ] = []
 
 	@property
-	def get(self) -> Annotated[Any, FieldRole.OUTPUT]:
+	def tensor(self) -> Annotated[Any, FieldRole.OUTPUT]:
 		return self.data
 
 
@@ -257,7 +254,7 @@ class ConfigType(BaseType):
 	type : Annotated[Literal["config_type"], FieldRole.CONSTANT] = "config_type"
 
 	@property
-	def get(self) -> Annotated[ConfigType, FieldRole.OUTPUT]:
+	def config(self) -> Annotated[ConfigType, FieldRole.OUTPUT]:
 		return self
 
 
@@ -272,7 +269,7 @@ class OptionsType(BaseType):
 	description : Annotated[Optional[str]          , FieldRole.INPUT   ] = DEFAULT_OPTIONS_DESCRIPTION
 
 	@property
-	def get(self) -> Annotated[OptionsType, FieldRole.OUTPUT]:
+	def options(self) -> Annotated[OptionsType, FieldRole.OUTPUT]:
 		return self
 
 
@@ -296,7 +293,7 @@ class BackendConfig(ConfigType):
 	fallback : Annotated[bool                     , FieldRole.INPUT   ] = DEFAULT_BACKEND_FALLBACK
 
 	@property
-	def get(self) -> Annotated[BackendConfig, FieldRole.OUTPUT]:
+	def config(self) -> Annotated[BackendConfig, FieldRole.OUTPUT]:
 		return self
 
 
@@ -322,7 +319,7 @@ class ModelConfig(ConfigType):
 	fallback : Annotated[bool                   , FieldRole.INPUT   ] = DEFAULT_MODEL_FALLBACK
 
 	@property
-	def get(self) -> Annotated[ModelConfig, FieldRole.OUTPUT]:
+	def config(self) -> Annotated[ModelConfig, FieldRole.OUTPUT]:
 		return self
 
 
@@ -348,7 +345,7 @@ class EmbeddingConfig(ConfigType):
 	fallback : Annotated[bool                       , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_FALLBACK
 
 	@property
-	def get(self) -> Annotated[EmbeddingConfig, FieldRole.OUTPUT]:
+	def config(self) -> Annotated[EmbeddingConfig, FieldRole.OUTPUT]:
 		return self
 
 
@@ -371,7 +368,6 @@ DEFAULT_CONTENT_DB_FALLBACK             : bool = False
 class ContentDBConfig(ConfigType):
 	"""Raw document content database (SQLite by default). Set engine and url (storage path). Wire get→knowledge_manager_config.content_db."""
 	type                 : Annotated[Literal["content_db_config"], FieldRole.CONSTANT  ] = "content_db_config"
-	interactable         : Annotated[bool                        , FieldRole.ANNOTATION] = DEFAULT_EDGE_PREVIEW
 	engine               : Annotated[str                         , FieldRole.INPUT     ] = DEFAULT_CONTENT_DB_ENGINE
 	url                  : Annotated[str                         , FieldRole.INPUT     ] = DEFAULT_CONTENT_DB_URL
 	memory_table_name    : Annotated[str                         , FieldRole.INPUT     ] = DEFAULT_CONTENT_DB_MEMORY_TABLE_NAME
@@ -380,7 +376,7 @@ class ContentDBConfig(ConfigType):
 	fallback             : Annotated[bool                        , FieldRole.INPUT     ] = DEFAULT_CONTENT_DB_FALLBACK
 
 	@property
-	def get(self) -> Annotated[ContentDBConfig, FieldRole.OUTPUT]:
+	def config(self) -> Annotated[ContentDBConfig, FieldRole.OUTPUT]:
 		return self
 
 
@@ -409,7 +405,7 @@ class IndexDBConfig(ConfigType):
 	fallback    : Annotated[bool                      , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_FALLBACK
 
 	@property
-	def get(self) -> Annotated[IndexDBConfig, FieldRole.OUTPUT]:
+	def config(self) -> Annotated[IndexDBConfig, FieldRole.OUTPUT]:
 		return self
 
 
@@ -437,7 +433,7 @@ class MemoryManagerConfig(ConfigType):
 	prompt  : Annotated[Optional[str]                   , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_PROMPT
 
 	@property
-	def get(self) -> Annotated[MemoryManagerConfig, FieldRole.OUTPUT]:
+	def config(self) -> Annotated[MemoryManagerConfig, FieldRole.OUTPUT]:
 		return self
 
 
@@ -465,7 +461,7 @@ class SessionManagerConfig(ConfigType):
 	prompt       : Annotated[Optional[str]                    , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_PROMPT
 
 	@property
-	def get(self) -> Annotated[SessionManagerConfig, FieldRole.OUTPUT]:
+	def config(self) -> Annotated[SessionManagerConfig, FieldRole.OUTPUT]:
 		return self
 
 
@@ -516,7 +512,7 @@ class KnowledgeManagerConfig(ConfigType):
 	urls        : Annotated[Optional[List[str]]                , FieldRole.INPUT   ] = None
 
 	@property
-	def get(self) -> Annotated[KnowledgeManagerConfig, FieldRole.OUTPUT]:
+	def config(self) -> Annotated[KnowledgeManagerConfig, FieldRole.OUTPUT]:
 		return self
 
 
@@ -541,7 +537,7 @@ class ToolConfig(ConfigType):
 	fallback : Annotated[bool                    , FieldRole.INPUT   ] = DEFAULT_TOOL_FALLBACK
 
 	@property
-	def get(self) -> Annotated[ToolConfig, FieldRole.OUTPUT]:
+	def config(self) -> Annotated[ToolConfig, FieldRole.OUTPUT]:
 		return self
 
 
@@ -565,7 +561,7 @@ class AgentOptionsConfig(OptionsType):
 	markdown        : Annotated[bool                           , FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_MARKDOWN
 
 	@property
-	def get(self) -> Annotated[AgentOptionsConfig, FieldRole.OUTPUT]:
+	def options(self) -> Annotated[AgentOptionsConfig, FieldRole.OUTPUT]:
 		return self
 
 
@@ -590,7 +586,7 @@ class AgentConfig(ConfigType):
 	tools         : Annotated[Optional[Dict[str, ToolConfig]]                   , FieldRole.MULTI_INPUT] = None
 
 	@property
-	def get(self) -> Annotated[AgentConfig, FieldRole.OUTPUT]:
+	def config(self) -> Annotated[AgentConfig, FieldRole.OUTPUT]:
 		return self
 
 
@@ -609,9 +605,8 @@ class FlowType(BaseType):
 	visible     = True
 )
 class StartFlow(FlowType):
-	"""Required workflow entry point. Always place at index 0. Outputs initial workflow variables as a dict on 'output'."""
-	type   : Annotated[Literal["start_flow"], FieldRole.CONSTANT] = "start_flow"
-	output : Annotated[Any                  , FieldRole.OUTPUT  ] = None
+	"""Required workflow entry point. Always place at index 0. Outputs initial workflow variables as a dict on 'flow_out'."""
+	type : Annotated[Literal["start_flow"], FieldRole.CONSTANT] = "start_flow"
 
 
 @node_info(
@@ -622,9 +617,8 @@ class StartFlow(FlowType):
 	visible     = True
 )
 class EndFlow(FlowType):
-	"""Successful workflow termination. Connect final data value to 'input'."""
-	type  : Annotated[Literal["end_flow"], FieldRole.CONSTANT] = "end_flow"
-	input : Annotated[Any                , FieldRole.INPUT   ] = None
+	"""Successful workflow termination. Connect final data value to 'flow_in'."""
+	type : Annotated[Literal["end_flow"], FieldRole.CONSTANT] = "end_flow"
 
 
 @node_info(
@@ -636,8 +630,7 @@ class EndFlow(FlowType):
 )
 class SinkFlow(FlowType):
 	"""Workflow dead end — discards its input. Use to terminate branches that produce no result."""
-	type  : Annotated[Literal["sink_flow"], FieldRole.CONSTANT] = "sink_flow"
-	input : Annotated[Any                 , FieldRole.INPUT   ] = None
+	type : Annotated[Literal["sink_flow"], FieldRole.CONSTANT] = "sink_flow"
 
 
 @node_info(
@@ -650,9 +643,7 @@ class SinkFlow(FlowType):
 class PreviewFlow(FlowType):
 	"""Passthrough node with UI data preview. Set hint to control rendering (auto/text/json/image/audio/video). Data passes unchanged to 'output'."""
 	type   : Annotated[Literal["preview_flow"]                                              , FieldRole.CONSTANT] = "preview_flow"
-	input  : Annotated[Any                                                                  , FieldRole.INPUT   ] = None
 	hint   : Annotated[Literal["auto", "text", "json", "image", "audio", "video", "model3d"], FieldRole.INPUT   ] = "auto"
-	output : Annotated[Any                                                                  , FieldRole.OUTPUT  ] = None
 
 
 @node_info(
@@ -666,9 +657,9 @@ class RouteFlow(FlowType):
 	"""Conditional routing to named output branches. Declare outputs in JSON as "output":{"branch_a":null,"branch_b":null}. At runtime, target(str) selects the branch; unmatched input falls to 'default' output."""
 	type    : Annotated[Literal["route_flow"]           , FieldRole.CONSTANT    ] = "route_flow"
 	target  : Annotated[Union[int, str]                 , FieldRole.INPUT       ] = None
-	input   : Annotated[Any                             , FieldRole.INPUT       ] = None
+	input   : Annotated[Optional[Any]                   , FieldRole.INPUT       ] = None
 	output  : Annotated[Union[List[str], Dict[str, Any]], FieldRole.MULTI_OUTPUT] = None
-	default : Annotated[Any                             , FieldRole.OUTPUT      ] = None
+	default : Annotated[Optional[Any]                   , FieldRole.OUTPUT      ] = None
 
 
 @node_info(
@@ -752,11 +743,11 @@ class ToolFlow(FlowType):
 	visible     = True
 )
 class AgentFlow(FlowType):
-	"""Execute one agent turn within the flow graph. Wire agent_config→config. Text/dict input; LLM response dict on 'output'."""
-	type   : Annotated[Literal["agent_flow"], FieldRole.CONSTANT] = "agent_flow"
-	config : Annotated[AgentConfig          , FieldRole.INPUT   ] = None
-	input  : Annotated[Any                  , FieldRole.INPUT   ] = None
-	output : Annotated[Any                  , FieldRole.OUTPUT  ] = None
+	"""Execute one agent turn within the flow graph. Wire agent_config→config. Text/dict on 'request'; LLM response dict on 'response'."""
+	type     : Annotated[Literal["agent_flow"], FieldRole.CONSTANT] = "agent_flow"
+	config   : Annotated[AgentConfig          , FieldRole.INPUT   ] = None
+	request  : Annotated[Any                  , FieldRole.INPUT   ] = None
+	response : Annotated[Any                  , FieldRole.OUTPUT  ] = None
 
 
 # =============================================================================
@@ -810,9 +801,7 @@ class LoopEndFlow(FlowType):
 	3. If condition is still True, resets all loop body nodes and re-executes
 	4. If condition is False, execution continues past this LoopEnd
 	"""
-	type   : Annotated[Literal["loop_end_flow"], FieldRole.CONSTANT] = "loop_end_flow"
-	input  : Annotated[Any                     , FieldRole.INPUT   ] = None
-	output : Annotated[Any                     , FieldRole.OUTPUT  ] = None
+	type : Annotated[Literal["loop_end_flow"], FieldRole.CONSTANT] = "loop_end_flow"
 
 
 @node_info(
@@ -851,9 +840,7 @@ class ForEachEndFlow(FlowType):
 	"""
 	For Each End node - ends a For Each loop iteration.
 	"""
-	type   : Annotated[Literal["for_each_end_flow"], FieldRole.CONSTANT] = "for_each_end_flow"
-	input  : Annotated[Any                         , FieldRole.INPUT   ] = None
-	output : Annotated[Any                         , FieldRole.OUTPUT  ] = None
+	type : Annotated[Literal["for_each_end_flow"], FieldRole.CONSTANT] = "for_each_end_flow"
 
 
 @node_info(
@@ -872,8 +859,7 @@ class BreakFlow(FlowType):
 	2. Mark the loop as complete
 	3. Continue execution after the LoopEnd/ForEachEnd
 	"""
-	type  : Annotated[Literal["break_flow"], FieldRole.CONSTANT] = "break_flow"
-	input : Annotated[Any                  , FieldRole.INPUT   ] = None
+	type : Annotated[Literal["break_flow"], FieldRole.CONSTANT] = "break_flow"
 
 
 @node_info(
@@ -890,10 +876,9 @@ class ContinueFlow(FlowType):
 	When executed, signals the engine to:
 	1. Stop the current iteration immediately
 	2. Skip any remaining nodes in the loop body
-	3. Return to the LoopStart/ForEach for the next iteration
+	3. Return to the LoopStart/ForEachStart for the next iteration
 	"""
-	type  : Annotated[Literal["continue_flow"], FieldRole.CONSTANT] = "continue_flow"
-	input : Annotated[Any                     , FieldRole.INPUT   ] = None
+	type : Annotated[Literal["continue_flow"], FieldRole.CONSTANT] = "continue_flow"
 
 
 # =============================================================================
@@ -942,6 +927,9 @@ class GateFlow(FlowType):
 	output        : Annotated[Any                 , FieldRole.OUTPUT  ] = None
 
 
+DEFAULT_DELAY_DURATION_MS : int  = 1000
+
+
 @node_info(
 	title       = "Delay",
 	description = "Pauses execution for specified duration, then continues.",
@@ -956,8 +944,8 @@ class DelayFlow(FlowType):
 	Unlike Timer, Delay executes only once and passes through data.
 	"""
 	type          : Annotated[Literal["delay_flow"], FieldRole.CONSTANT] = "delay_flow"
-	input         : Annotated[Any                  , FieldRole.INPUT   ] = None
-	duration_ms   : Annotated[int                  , FieldRole.INPUT   ] = 1000
+	duration_ms   : Annotated[int                  , FieldRole.INPUT   ] = DEFAULT_DELAY_DURATION_MS
+	input         : Annotated[Optional[Any]        , FieldRole.INPUT   ] = None
 	output        : Annotated[Any                  , FieldRole.OUTPUT  ] = None
 
 

@@ -3,7 +3,7 @@
    ======================================================================== */
 
 const WORKFLOW_SCHEMA_NAME    = "Workflow";
-const DEFAULT_WORKFLOW_LAYOUT = 'hierarchical-vertical';
+const DEFAULT_WORKFLOW_LAYOUT = 'hierarchical-horizontal';
 
 // ========================================================================
 // WorkflowClient - Backend Communication

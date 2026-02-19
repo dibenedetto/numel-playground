@@ -58,7 +58,7 @@
     }
   ],
   "edges": [
-    { "source": 0, "target": 1, "source_slot": "output", "target_slot": "flow_in" },
+    { "source": 0, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in" },
     { "source": 1, "target": 2, "source_slot": "message", "target_slot": "input" },
     { "source": 1, "target": 3, "source_slot": "message", "target_slot": "input" },
     { "source": 2, "target": 3, "source_slot": "output", "target_slot": "target" },
@@ -68,7 +68,7 @@
     { "source": 4, "target": 7, "source_slot": "output", "target_slot": "input.from_support" },
     { "source": 5, "target": 7, "source_slot": "output", "target_slot": "input.from_sales" },
     { "source": 6, "target": 7, "source_slot": "output", "target_slot": "input.from_default" },
-    { "source": 7, "target": 8, "source_slot": "output", "target_slot": "input" },
-    { "source": 8, "target": 9, "source_slot": "output", "target_slot": "input" }
+    { "source": 7, "target": 8, "source_slot": "output", "target_slot": "flow_in" },
+    { "source": 8, "target": 9, "source_slot": "flow_out", "target_slot": "flow_in" }
   ]
 }

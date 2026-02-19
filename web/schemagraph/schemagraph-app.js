@@ -383,7 +383,7 @@ class SchemaGraphApp {
 				<div class="sg-toolbar-divider" id="sg-toolbar-docs-divider"></div>
 				<div class="sg-toolbar-section" id="sg-toolbar-view"><span class="sg-toolbar-label">View</span><button id="sg-centerViewBtn" class="sg-toolbar-btn">🎯 Center</button></div>
 				<div class="sg-toolbar-divider" id="sg-toolbar-view-divider"></div>
-				<div class="sg-toolbar-section" id="sg-toolbar-layout"><span class="sg-toolbar-label">Layout</span><select id="sg-layoutSelect" class="sg-toolbar-select"><option value="">🔧 Layout...</option><option value="hierarchical-vertical">Hierarchical ↓</option><option value="hierarchical-horizontal">Hierarchical →</option><option value="force-directed">Force-Directed</option><option value="grid">Grid</option><option value="circular">Circular</option></select></div>
+				<div class="sg-toolbar-section" id="sg-toolbar-layout"><span class="sg-toolbar-label">Layout</span><select id="sg-layoutSelect" class="sg-toolbar-select"><option value="">🔧 Layout...</option><option value="hierarchical-horizontal">Hierarchical →</option><option value="hierarchical-vertical">Hierarchical ↓</option><option value="force-directed">Force-Directed</option><option value="grid">Grid</option><option value="circular">Circular</option></select></div>
 				<div class="sg-toolbar-divider" id="sg-toolbar-layout-divider"></div>
 				<div class="sg-toolbar-section" id="sg-toolbar-style"><span class="sg-toolbar-label">Style</span><select id="sg-drawingStyleSelect" class="sg-toolbar-select"><option value="default">🎨 Default</option><option value="minimal">✨ Minimal</option><option value="blueprint">📐 Blueprint</option><option value="neon">💫 Neon</option><option value="organic">🌿 Organic</option><option value="wireframe">📊 Wireframe</option></select><button id="sg-textScalingToggle" class="sg-toolbar-btn sg-toolbar-btn-toggle"><span class="sg-toolbar-toggle-label" id="sg-textScalingLabel">Text: Fixed</span></button><button id="sg-themeBtn" class="sg-toolbar-btn">🎨 Theme</button></div>
 				<div class="sg-toolbar-divider" id="sg-toolbar-style-divider"></div>
@@ -4128,8 +4128,8 @@ class SchemaGraphApp {
 	applyLayout(layoutType) {
 		if (this.graph.nodes.length === 0) return;
 		switch (layoutType) {
-			case 'hierarchical-vertical': this.applyHierarchicalLayout(true); break;
-			case 'hierarchical-horizontal': this.applyHierarchicalLayout(false); break;
+			case 'hierarchical-horizontal': this.applyHierarchicalLayout(true); break;
+			case 'hierarchical-vertical': this.applyHierarchicalLayout(false); break;
 			case 'force-directed': this.applyForceDirectedLayout(); break;
 			case 'grid': this.applyGridLayout(); break;
 			case 'circular': this.applyCircularLayout(); break;
@@ -4139,7 +4139,7 @@ class SchemaGraphApp {
 		this.centerView();
 	}
 
-	applyHierarchicalLayout(vertical = false) {
+	applyHierarchicalLayout(horizontal = false) {
 		const rootNodes = this.graph.nodes.filter(n => !n.inputs.some(inp => inp.link) || n.isRootType);
 		if (rootNodes.length === 0) rootNodes.push(...this.graph.nodes);
 		const layers = [], processedNodes = new Set();
@@ -4170,7 +4170,7 @@ class SchemaGraphApp {
 		for (let i = 0; i < layers.length; i++) {
 			for (let j = 0; j < layers[i].length; j++) {
 				const node = layers[i][j];
-				if (vertical) { node.pos[0] = 100 + i * 300; node.pos[1] = 100 + j * 150 - (layers[i].length * 150) / 2; }
+				if (horizontal) { node.pos[0] = 100 + i * 300; node.pos[1] = 100 + j * 150 - (layers[i].length * 150) / 2; }
 				else { node.pos[0] = 100 + j * 250 - (layers[i].length * 250) / 2; node.pos[1] = 100 + i * 200; }
 			}
 		}
