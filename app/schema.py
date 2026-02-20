@@ -1061,7 +1061,7 @@ class BrowserSourceFlow(FlowType):
 	interval_ms    : Annotated[int                                        , FieldRole.INPUT   ] = 1000
 	resolution     : Annotated[Optional[str]                              , FieldRole.INPUT   ] = None
 	audio_format   : Annotated[Optional[str]                              , FieldRole.INPUT   ] = None
-	registered_id  : Annotated[Optional[str]                               , FieldRole.OUTPUT  ] = None
+	registered_id  : Annotated[Optional[str]                              , FieldRole.OUTPUT  ] = None
 
 
 # =============================================================================

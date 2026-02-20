@@ -40,8 +40,19 @@ DEFAULT_APP_SEED : int = 777
 DEFAULT_APP_PORT : int = 8000
 
 
+def _asyncio_exception_handler(loop, context):
+	# Suppress harmless ConnectionResetError noise from Windows asyncio Proactor
+	# transport when the browser closes a fetch connection before the server finishes.
+	# (WinError 10054 — WSAECONNRESET — in _ProactorBasePipeTransport._call_connection_lost)
+	if isinstance(context.get('exception'), ConnectionResetError):
+		return
+	loop.default_exception_handler(context)
+
+
 async def run_server(args: Any):
 	log_print("Server starting...")
+
+	asyncio.get_event_loop().set_exception_handler(_asyncio_exception_handler)
 
 	if args.seed != 0:
 		seed_everything(args.seed)

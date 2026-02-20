@@ -685,8 +685,14 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 	@app.post("/event-sources/browser")
 	async def create_browser_source(config: BrowserSourceConfig):
-		"""Create a new browser event source (webcam, microphone, etc.)"""
+		"""Create or update a browser event source (webcam, microphone, etc.)"""
 		registry = get_event_registry()
+		if registry.get(config.id):
+			source = await registry.update(config.id, config)
+			return {
+				"status": "updated",
+				"source": source.get_status()
+			}
 		try:
 			source = await registry.register(config)
 			return {

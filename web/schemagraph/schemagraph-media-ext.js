@@ -429,17 +429,18 @@ class MediaOverlayManager {
 	}
 
 	_getFieldValue(node, fieldName) {
-		// Check inputMeta for actual field name (inputs use display names which may be prettified)
+		// Native input values are stored in nativeInputs[i].value, not inputs[i].value.
+		// Check inputMeta for actual field name (inputs use display names which may be prettified).
 		if (node.inputMeta && node.inputs) {
 			for (let i = 0; i < node.inputs.length; i++) {
 				const meta = node.inputMeta[i];
-				if (meta?.name === fieldName) return node.inputs[i].value;
+				if (meta?.name === fieldName) return node.nativeInputs?.[i]?.value ?? node.inputs[i]?.value;
 			}
 		}
 		// Fallback: direct name match on inputs
 		if (node.inputs) {
-			for (const inp of node.inputs) {
-				if (inp.name === fieldName) return inp.value;
+			for (let i = 0; i < node.inputs.length; i++) {
+				if (node.inputs[i].name === fieldName) return node.nativeInputs?.[i]?.value ?? node.inputs[i]?.value;
 			}
 		}
 		// Fallback to properties

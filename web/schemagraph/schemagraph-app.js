@@ -2330,6 +2330,7 @@ class SchemaGraphApp {
 					if (this._isFieldHidden(node, j, true)) continue;
 					const slotY = node.pos[1] + 30 + visIdx * 25;
 					if (Math.sqrt(Math.pow(wx - (node.pos[0] + node.size[0]), 2) + Math.pow(wy - slotY, 2)) < 10) {
+						if (this._isMultiBaseOutputSlot(node, j)) { visIdx++; continue; }
 						this.connecting = { node, slot: j, isOutput: true };
 						this.canvas.classList.add('connecting');
 						return;
@@ -2344,6 +2345,7 @@ class SchemaGraphApp {
 					if (this._isFieldHidden(node, j, false)) continue;
 					const slotY = node.pos[1] + 30 + visIdx * 25;
 					if (Math.sqrt(Math.pow(wx - node.pos[0], 2) + Math.pow(wy - slotY, 2)) < 10) {
+						if (this._isMultiBaseInputSlot(node, j)) { visIdx++; continue; }
 						if (!node.multiInputs?.[j] && node.inputs[j].link && this._features.linkDeletion) this.removeLink(node.inputs[j].link, node, j);
 						this.connecting = { node, slot: j, isOutput: false };
 						this.canvas.classList.add('connecting');
@@ -2621,6 +2623,7 @@ class SchemaGraphApp {
 						if (this._isFieldHidden(node, j, false)) continue;
 						const slotY = node.pos[1] + 30 + visIdx * 25;
 						if (Math.sqrt(Math.pow(wx - node.pos[0], 2) + Math.pow(wy - slotY, 2)) < 15 && node !== this.connecting.node) {
+							if (this._isMultiBaseInputSlot(node, j)) break;
 							if (!this.isSlotCompatible(node, j, false)) { this.showError('Type mismatch'); break; }
 							if (node.multiInputs?.[j]) {
 								const linkId = ++this.graph.last_link_id;
@@ -2644,6 +2647,7 @@ class SchemaGraphApp {
 						if (this._isFieldHidden(node, j, true)) continue;
 						const slotY = node.pos[1] + 30 + visIdx * 25;
 						if (Math.sqrt(Math.pow(wx - (node.pos[0] + node.size[0]), 2) + Math.pow(wy - slotY, 2)) < 15 && node !== this.connecting.node) {
+							if (this._isMultiBaseOutputSlot(node, j)) break;
 							if (!this.isSlotCompatible(node, j, true)) { this.showError('Type mismatch'); break; }
 							if (this.connecting.node.multiInputs?.[this.connecting.slot]) {
 								const linkId = ++this.graph.last_link_id;
@@ -3485,6 +3489,22 @@ class SchemaGraphApp {
 		if (!this.connecting || node === this.connecting.node) return false;
 		if (this.connecting.isOutput && !isOutput) return this.graph._areTypesCompatible(this.connecting.node.outputs[this.connecting.slot].type, node.inputs[slotIdx].type);
 		if (!this.connecting.isOutput && isOutput) return this.graph._areTypesCompatible(node.outputs[slotIdx].type, this.connecting.node.inputs[this.connecting.slot].type);
+		return false;
+	}
+
+	_isMultiBaseInputSlot(node, slotIdx) {
+		if (!node.multiInputSlots) return false;
+		for (const indices of Object.values(node.multiInputSlots)) {
+			if (indices[0] === slotIdx) return true;
+		}
+		return false;
+	}
+
+	_isMultiBaseOutputSlot(node, slotIdx) {
+		if (!node.multiOutputSlots) return false;
+		for (const indices of Object.values(node.multiOutputSlots)) {
+			if (indices[0] === slotIdx) return true;
+		}
 		return false;
 	}
 

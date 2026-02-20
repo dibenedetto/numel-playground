@@ -13,12 +13,12 @@
         "immediate": true
       },
       "created_at": "2026-02-15T18:43:41.086125",
-      "updated_at": "2026-02-19T18:38:45.121320"
+      "updated_at": "2026-02-20T12:12:07.723811"
     },
     "webcam_src": {
       "config": {
         "id": "webcam_src",
-        "name": "webcam_src",
+        "name": null,
         "source_type": "browser",
         "enabled": true,
         "tags": [],
@@ -29,12 +29,12 @@
         "audio_format": null
       },
       "created_at": "2026-02-17T19:41:27.511259",
-      "updated_at": "2026-02-17T19:41:27.511259"
+      "updated_at": "2026-02-20T12:29:40.027012"
     },
     "mic_src": {
       "config": {
         "id": "mic_src",
-        "name": "mic_src",
+        "name": null,
         "source_type": "browser",
         "enabled": true,
         "tags": [],
@@ -45,12 +45,12 @@
         "audio_format": "wav"
       },
       "created_at": "2026-02-17T19:41:27.528258",
-      "updated_at": "2026-02-17T19:41:27.528258"
+      "updated_at": "2026-02-20T12:29:33.327055"
     },
     "screen_src": {
       "config": {
         "id": "screen_src",
-        "name": "screen_src",
+        "name": null,
         "source_type": "browser",
         "enabled": true,
         "tags": [],
@@ -61,7 +61,55 @@
         "audio_format": null
       },
       "created_at": "2026-02-17T19:41:27.543567",
-      "updated_at": "2026-02-17T19:41:27.543567"
+      "updated_at": "2026-02-20T12:29:29.028852"
+    },
+    "browser_awpte9fco": {
+      "config": {
+        "id": "browser_awpte9fco",
+        "name": null,
+        "source_type": "browser",
+        "enabled": true,
+        "tags": [],
+        "device_type": "webcam",
+        "mode": "event",
+        "interval_ms": 1000,
+        "resolution": null,
+        "audio_format": null
+      },
+      "created_at": "2026-02-20T12:15:59.354531",
+      "updated_at": "2026-02-20T12:15:59.354531"
+    },
+    "browser_4q9qu70ek": {
+      "config": {
+        "id": "browser_4q9qu70ek",
+        "name": null,
+        "source_type": "browser",
+        "enabled": true,
+        "tags": [],
+        "device_type": "webcam",
+        "mode": "event",
+        "interval_ms": 1000,
+        "resolution": null,
+        "audio_format": null
+      },
+      "created_at": "2026-02-20T12:17:08.978151",
+      "updated_at": "2026-02-20T12:17:08.978151"
+    },
+    "browser_ujsnlhg84": {
+      "config": {
+        "id": "browser_ujsnlhg84",
+        "name": null,
+        "source_type": "browser",
+        "enabled": true,
+        "tags": [],
+        "device_type": "webcam",
+        "mode": "event",
+        "interval_ms": 1000,
+        "resolution": null,
+        "audio_format": null
+      },
+      "created_at": "2026-02-20T12:17:16.595025",
+      "updated_at": "2026-02-20T12:17:16.595025"
     }
   }
 }

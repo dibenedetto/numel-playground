@@ -135,8 +135,8 @@
     { "source": 4, "target": 18, "source_slot": "output", "target_slot": "input" },
     { "source": 6, "target": 18, "source_slot": "output", "target_slot": "input" },
     { "source": 8, "target": 18, "source_slot": "output", "target_slot": "input" },
-    { "source": 11, "target": 18, "source_slot": "output", "target_slot": "input" },
-    { "source": 14, "target": 18, "source_slot": "output", "target_slot": "input" },
-    { "source": 17, "target": 18, "source_slot": "output", "target_slot": "input" }
+    { "source": 11, "target": 18, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 14, "target": 18, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 17, "target": 18, "source_slot": "flow_out", "target_slot": "flow_in" }
   ]
 }
