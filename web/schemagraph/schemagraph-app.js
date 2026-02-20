@@ -506,6 +506,12 @@ class SchemaGraphApp {
 			if (el) el.checked = checked;
 		}
 
+		// Extension feature: media preview only when workflow is running
+		const mediaPreviewEl = document.getElementById('sg-feature-mediapreviewrunning');
+		if (mediaPreviewEl) {
+			mediaPreviewEl.checked = this.api?.browserMedia?.getLivePreviewOnlyWhenRunning?.() ?? true;
+		}
+
 		// Advanced (individual) checkboxes - map each feature flag to its checkbox
 		for (const [feature, enabled] of Object.entries(this._features)) {
 			const el = document.getElementById('sg-feature-adv-' + feature);
@@ -608,6 +614,11 @@ class SchemaGraphApp {
 						<input type="checkbox" id="sg-feature-prettyfieldnames" checked>
 						<span class="sg-toolbar-toggle-slider"></span>
 						<span class="sg-toolbar-toggle-text">Pretty Names</span>
+					</label>
+					<label class="sg-toolbar-toggle-switch" title="Only push live media frames to Preview nodes while a workflow is running">
+						<input type="checkbox" id="sg-feature-mediapreviewrunning" checked>
+						<span class="sg-toolbar-toggle-slider"></span>
+						<span class="sg-toolbar-toggle-text">Media Preview: Running Only</span>
 					</label>
 				</div>
 			</div>
@@ -5292,7 +5303,7 @@ class SchemaGraphApp {
 
 		// 3. Connect meta to data node (if both exist)
 		if (metaNode && roles.metaInputSlot) {
-			const metaOutputIdx = this._findOutputSlotByName(metaNode, 'get') ?? 0;
+			const metaOutputIdx = this._findOutputSlotByName(metaNode, 'reference') ?? 0;
 			const dataMetaInputIdx = this._findInputSlotByName(dataNode, roles.metaInputSlot);
 			if (metaOutputIdx >= 0 && dataMetaInputIdx >= 0) {
 				this.graph.connect(metaNode, metaOutputIdx, dataNode, dataMetaInputIdx);
@@ -5304,12 +5315,12 @@ class SchemaGraphApp {
 			previewNode = this.graph.createNode(previewNodeType);
 			if (previewNode) {
 				// Find correct slot indices - 'get' is typically the last output on workflow nodes
-				let dataOutputIdx = this._findOutputSlotByName(dataNode, 'get');
+				let dataOutputIdx = this._findOutputSlotByName(dataNode, 'tensor');
 				if (dataOutputIdx < 0) {
 					// Fallback: use last output slot (usually 'get' property)
 					dataOutputIdx = (dataNode.outputs?.length || 1) - 1;
 				}
-				let previewInputIdx = this._findInputSlotByName(previewNode, 'input');
+				let previewInputIdx = this._findInputSlotByName(previewNode, 'flow_in');
 				if (previewInputIdx < 0) {
 					// Fallback: try first non-extra input or just use index 1
 					previewInputIdx = this._findInputSlotByName(previewNode, 'extra') >= 0 ? 1 : 0;
@@ -8904,6 +8915,9 @@ class SchemaGraphApp {
 					document.getElementById('sg-feature-prettyfieldnames')?.addEventListener('change', (e) => {
 						self.api.features.set({ prettyFieldNames: e.target.checked });
 						self.draw();
+					});
+					document.getElementById('sg-feature-mediapreviewrunning')?.addEventListener('change', (e) => {
+						self.api.browserMedia?.setLivePreviewOnlyWhenRunning?.(e.target.checked);
 					});
 
 					// Features panel toggle (show/hide with animation)

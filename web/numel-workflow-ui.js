@@ -105,7 +105,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			metaInputSlot            : "meta",
 			workflowOptions          : "WorkflowOptions",
 			workflowExecutionOptions : "WorkflowExecutionOptions",
-			previewSlotMap           : { "input": "output" },  // Maps preview input->output slots for link preservation
+			previewSlotMap           : { "flow_in": "flow_out" },
 			hiddenFields             : ["extra"],
 			pairedNodes              : [
 				["loop_start_flow"    , "loop_end_flow"    ],
@@ -468,40 +468,44 @@ function setupClientEvents() {
 		$('execId').textContent = event.execution_id.substring(0, 8) + '...';
 		enableStart(false);
 		visualizer?.clearNodeStates();
-		
+
 		// LOCK GRAPH during execution
 		schemaGraph.api.lock.lock('Workflow running');
-		
+		schemaGraph.eventBus.emit('workflow:started', event);
+
 		addLog('info', `▶️ Workflow started`);
 	});
 
 	client.on('workflow.completed', (event) => {
 		setExecStatus('completed', 'Completed');
 		enableStart(true);
-		
+
 		// UNLOCK GRAPH after completion
 		schemaGraph.api.lock.unlock();
-		
+		schemaGraph.eventBus.emit('workflow:completed', event);
+
 		addLog('success', `✅ Workflow completed`);
 	});
 
 	client.on('workflow.failed', (event) => {
 		setExecStatus('failed', 'Failed');
 		enableStart(true);
-		
+
 		// UNLOCK GRAPH after failure
 		schemaGraph.api.lock.unlock();
-		
+		schemaGraph.eventBus.emit('workflow:failed', event);
+
 		addLog('error', `❌ Workflow failed: ${event.error || 'Unknown error'}`);
 	});
 
 	client.on('workflow.cancelled', (event) => {
 		setExecStatus('idle', 'Cancelled');
 		enableStart(true);
-		
+
 		// UNLOCK GRAPH after cancellation
 		schemaGraph.api.lock.unlock();
-		
+		schemaGraph.eventBus.emit('workflow:cancelled', event);
+
 		addLog('warning', `⏹️ Workflow cancelled`);
 	});
 

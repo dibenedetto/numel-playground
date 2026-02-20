@@ -319,9 +319,12 @@ class EventSourceRegistry:
 					subscriptions.remove(sub)
 					break
 
-			# Auto-stop if no more subscribers
+			# Auto-stop if no more subscribers.
+			# Browser sources are kept alive between workflow runs so the browser
+			# overlay can keep capturing without interruption.
 			if source.subscriber_count == 0 and source.is_running:
-				await source.stop()
+				if not isinstance(source.config, BrowserSourceConfig):
+					await source.stop()
 
 	async def unsubscribe_all(self, subscriber_id: str):
 		"""Unsubscribe a subscriber from all sources"""

@@ -268,8 +268,11 @@ class MediaOverlayManager {
 						method: 'POST',
 						headers: { 'Content-Type': 'application/json' },
 						body: JSON.stringify({ ...data, client_id: `browser_${nodeId}` })
-					}).then(() => {
+					}).then(resp => {
 						this._sendingFrame.set(nodeId, false);
+						// Backend returns 400 when the source is no longer running (workflow finished).
+						// Stop the capture loop so we don't keep spamming errors.
+						if (resp.status === 400) this._stopCapture(this.nodeRefs.get(nodeId) || node);
 					}).catch(() => {
 						this._sendingFrame.set(nodeId, false);
 					});
@@ -319,8 +322,12 @@ class MediaOverlayManager {
 			}
 		}
 
-		// Push live frames to all downstream preview nodes (traverses through intermediate nodes)
-		this._pushToDownstreamPreviews(node, frameData, new Set());
+		// Push live frames to all downstream preview nodes (traverses through intermediate nodes).
+		// Gated by livePreviewOnlyWhenRunning feature flag.
+		const ext = this.app?.extensions?.get?.('browser-media');
+		if (!ext || !ext._livePreviewOnlyWhenRunning || ext._workflowRunning) {
+			this._pushToDownstreamPreviews(node, frameData, new Set());
+		}
 	}
 
 	_pushToDownstreamPreviews(node, frameData, visited, depth = 0) {
@@ -385,7 +392,7 @@ class MediaOverlayManager {
 			this.captureTimers.delete(nodeId);
 		}
 
-		// Cleanup audio context
+		// Cleanup audio context and clear canvas
 		const audio = this.audioCtx.get(nodeId);
 		if (audio) {
 			audio.source.disconnect();
@@ -393,10 +400,15 @@ class MediaOverlayManager {
 			this.audioCtx.delete(nodeId);
 		}
 
-		// Clear video element
+		// Clear video element or audio canvas
 		const overlay = this.overlays.get(nodeId);
 		const video = overlay?.querySelector('.sg-media-video');
 		if (video) video.srcObject = null;
+		const audioCanvas = overlay?.querySelector('.sg-media-audio-canvas');
+		if (audioCanvas) {
+			const ctx = audioCanvas.getContext('2d');
+			ctx.clearRect(0, 0, audioCanvas.width, audioCanvas.height);
+		}
 
 		this._setState(nodeId, MediaState.IDLE);
 		console.log(`[BrowserMedia] Capture stopped for node ${nodeId}`);
@@ -533,6 +545,9 @@ class BrowserMediaExtension extends SchemaGraphExtension {
 		this.overlayManager = new MediaOverlayManager(app, this.eventBus);
 		// Wire the registration callback so overlay manager can auto-register backend sources
 		this.overlayManager._registerSourceCallback = (node) => this._registerBackendSource(node);
+		// When true, live preview updates are suppressed while no workflow is running.
+		this._livePreviewOnlyWhenRunning = true;
+		this._workflowRunning = false;
 	}
 
 	_registerNodeTypes() {
@@ -540,6 +555,12 @@ class BrowserMediaExtension extends SchemaGraphExtension {
 	}
 
 	_setupEventListeners() {
+
+		// Track workflow running state for live-preview gating
+		this.on('workflow:started',   () => { this._workflowRunning = true;  });
+		this.on('workflow:completed', () => { this._workflowRunning = false; });
+		this.on('workflow:failed',    () => { this._workflowRunning = false; });
+		this.on('workflow:cancelled', () => { this._workflowRunning = false; });
 
 		this.on('node:created', (e) => {
 			const node = e.node || this.graph.getNodeById(e.nodeId);
@@ -640,7 +661,11 @@ class BrowserMediaExtension extends SchemaGraphExtension {
 					return self._registerBackendSource(node);
 				}
 				return null;
-			}
+			},
+			// Feature toggle: when true, live preview updates are suppressed while
+			// no workflow is running. Default: true.
+			getLivePreviewOnlyWhenRunning: () => self._livePreviewOnlyWhenRunning,
+			setLivePreviewOnlyWhenRunning: (value) => { self._livePreviewOnlyWhenRunning = !!value; },
 		};
 	}
 

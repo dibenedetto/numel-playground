@@ -18,7 +18,7 @@
     "webcam_src": {
       "config": {
         "id": "webcam_src",
-        "name": null,
+        "name": "webcam_src",
         "source_type": "browser",
         "enabled": true,
         "tags": [],
@@ -29,12 +29,12 @@
         "audio_format": null
       },
       "created_at": "2026-02-17T19:41:27.511259",
-      "updated_at": "2026-02-20T12:29:40.027012"
+      "updated_at": "2026-02-20T12:55:18.400287"
     },
     "mic_src": {
       "config": {
         "id": "mic_src",
-        "name": null,
+        "name": "mic_src",
         "source_type": "browser",
         "enabled": true,
         "tags": [],
@@ -45,7 +45,7 @@
         "audio_format": "wav"
       },
       "created_at": "2026-02-17T19:41:27.528258",
-      "updated_at": "2026-02-20T12:29:33.327055"
+      "updated_at": "2026-02-20T12:55:18.414397"
     },
     "screen_src": {
       "config": {
@@ -61,7 +61,7 @@
         "audio_format": null
       },
       "created_at": "2026-02-17T19:41:27.543567",
-      "updated_at": "2026-02-20T12:29:29.028852"
+      "updated_at": "2026-02-20T12:56:16.825444"
     },
     "browser_awpte9fco": {
       "config": {
