@@ -891,7 +891,7 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 	# === Text-to-Workflow Generation API ===
 
 	def _parse_nodeinfo_metadata(code: str) -> dict:
-		"""Parse @node_info decorators from schema source. Returns {ClassName: {title,desc,section,visible}}."""
+		"""Parse @node_info decorators from schema source. Returns {ClassName: {title,desc,section,visible,icon}}."""
 		lines = code.split('\n')
 		meta = {}
 		i = 0
@@ -917,11 +917,13 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 						desc_m  = re.search(r'description\s*=\s*"([^"]+)"', text) or re.search(r"description\s*=\s*'([^']+)'", text)
 						sect_m  = re.search(r'section\s*=\s*"([^"]+)"', text) or re.search(r"section\s*=\s*'([^']+)'", text)
 						vis_m   = re.search(r'visible\s*=\s*(True|False)', text)
+						icon_m  = re.search(r'icon\s*=\s*"([^"]+)"', text) or re.search(r"icon\s*=\s*'([^']+)'", text)
 						meta[cname] = {
 							'title':   title_m.group(1) if title_m else cname,
 							'desc':    desc_m.group(1)  if desc_m  else '',
 							'section': sect_m.group(1)  if sect_m  else 'Misc',
 							'visible': not (vis_m and vis_m.group(1) == 'False'),
+							'icon':    icon_m.group(1)  if icon_m  else '',
 						}
 						break
 					elif ns and not ns.startswith(('@', '#', '"""', "'''")):
@@ -935,72 +937,171 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		node_meta = _parse_nodeinfo_metadata(code)
 		lines     = code.split('\n')
 
+		# ── Pre-parse DEFAULT_* constant values ───────────────────────────────
+		defaults_map: dict = {}
+		for line in lines:
+			dm = re.match(r'^DEFAULT_(\w+)\s*:\s*\w+\s*=\s*(.+?)(?:\s*#.*)?$', line.strip())
+			if dm:
+				defaults_map[f'DEFAULT_{dm.group(1)}'] = dm.group(2).strip()
+
+		# ── Type simplification helpers ────────────────────────────────────────
+		def _simplify_type(ftype: str) -> str:
+			ftype = re.sub(r'^Optional\[(.+)\]$', r'\1', ftype.strip())
+			# Literal[...] → show all options as "a"|"b"|...
+			lit_m = re.match(r'^Literal\[(.+)\]$', ftype)
+			if lit_m:
+				raw_opts = lit_m.group(1)
+				opts = [o.strip().strip('"').strip("'") for o in raw_opts.split(',')]
+				return '|'.join(f'"{o}"' for o in opts if o)
+			return (ftype
+				.replace('Dict[str, Any]',               'dict')
+				.replace('Dict[Union[int, str], str]',   'dict')
+				.replace('List[str]',                    'list[str]')
+				.replace('List[Any]',                    'list')
+				.replace('List[int]',                    'list[int]')
+				.replace('Union[List, Dict]',            'dict|list')
+				.replace('Union[int, str]',              'int|str')
+				.replace('Union[List[str], Dict[str, Any]]', 'dict|list')
+				.replace('Any',                          'any')
+			)
+
+		def _multi_item_type(ftype_raw: str) -> str:
+			"""Extract item type T from Dict[str, T] for MULTI_INPUT/OUTPUT."""
+			m = re.match(r'(?:Optional\[)?Dict\[(?:str|Union\[int,\s*str\]),\s*(.+?)\]', ftype_raw.strip())
+			return m.group(1).strip() if m else ''
+
+		def _resolve_default(raw: str):
+			raw = raw.strip()
+			if raw == 'None':
+				return None
+			# Field(default=...) — extract the default= argument
+			fd_m = re.search(r'Field\(default\s*=\s*([^,\)]+)', raw)
+			if fd_m:
+				inner = fd_m.group(1).strip()
+				return _resolve_default(inner)
+			# Resolve DEFAULT_* reference
+			if raw.startswith('DEFAULT_'):
+				val = defaults_map.get(raw)
+				if val is None:
+					return None
+				# val may itself be a quoted string; strip outer quotes for display
+				return val
+			if raw in ('True', 'False') or re.match(r'^["\'\d]', raw):
+				return raw
+			return None
+
 		# ── Per-class field parsing ────────────────────────────────────────────
-		nodes              = {}   # {ClassName: {type_val, fields, docstring}}
-		current_class      = None
-		current_type       = None
-		current_fields     = []
-		current_docstring  = None
-		expecting_docstring = False
+		# Field tuple: (name, display_type, role, default, item_type)
+		# item_type is only set for MULTI_INPUT/OUTPUT; others use ''
+		nodes         = {}   # {ClassName: {type_val, fields, docstring, parent}}
+		current_class  = None
+		current_parent = None
+		current_type   = None
+		current_fields: list = []
+		current_docstring    = None
+		in_docstring         = False
+		docstring_lines: list = []
+		docstring_quote      = None
+		expecting_doc        = False
+		in_property          = False
 
 		def _flush():
-			nonlocal current_class, current_type, current_fields, current_docstring, expecting_docstring
+			nonlocal current_class, current_parent, current_type, current_fields
+			nonlocal current_docstring, in_docstring, docstring_lines, docstring_quote
+			nonlocal expecting_doc, in_property
 			if current_class and current_type:
 				nodes[current_class] = {
 					'type':      current_type,
 					'fields':    list(current_fields),
 					'docstring': current_docstring,
+					'parent':    current_parent,
 				}
-			current_class       = None
-			current_type        = None
-			current_fields      = []
-			current_docstring   = None
-			expecting_docstring = False
+			current_class     = None
+			current_parent    = None
+			current_type      = None
+			current_fields    = []
+			current_docstring = None
+			in_docstring      = False
+			docstring_lines   = []
+			docstring_quote   = None
+			expecting_doc     = False
+			in_property       = False
 
 		for line in lines:
 			s = line.strip()
 
 			# New class
-			cm = re.match(r'^class\s+(\w+)\s*\(', s)
+			cm = re.match(r'^class\s+(\w+)\s*\((\w+)', s)
 			if cm:
 				_flush()
-				current_class       = cm.group(1)
-				expecting_docstring = True
+				current_class  = cm.group(1)
+				current_parent = cm.group(2)
+				expecting_doc  = True
 				continue
 
 			if not current_class:
 				continue
 
-			# Class docstring — first non-empty, non-comment statement inside the class body
-			if expecting_docstring:
+			# ── Multi-line docstring continuation ─────────────────────────────
+			if in_docstring:
+				if docstring_quote in s:
+					idx  = s.index(docstring_quote)
+					tail = s[:idx].strip()
+					if tail:
+						docstring_lines.append(tail)
+					current_docstring = ' '.join(docstring_lines)
+					in_docstring = False
+				else:
+					if s:
+						docstring_lines.append(s)
+				continue
+
+			# ── Class docstring ────────────────────────────────────────────────
+			if expecting_doc:
 				if s.startswith(('"""', "'''")):
 					q       = '"""' if s.startswith('"""') else "'''"
 					content = s[len(q):]
 					if q in content:
+						# Single-line docstring
 						current_docstring = content[:content.index(q)].strip()
+						expecting_doc = False
 					else:
-						current_docstring = content.strip()  # first line of multi-line
-					expecting_docstring = False
+						# Multi-line docstring — collect until closing quote
+						docstring_lines = [content.strip()] if content.strip() else []
+						docstring_quote = q
+						in_docstring    = True
+						expecting_doc   = False
 					continue
 				elif s and not s.startswith('#'):
-					expecting_docstring = False
+					expecting_doc = False
 				# fall through to field parsing
 
-			# @property get → OUTPUT slot
-			pm = re.match(r'^def get\(self\)\s*->\s*Annotated\[(.+?),\s*FieldRole\.(OUTPUT)\]', s)
-			if pm:
-				ftype = pm.group(1).strip()
-				ftype = re.sub(r'^Optional\[(.+)\]$', r'\1', ftype)
-				current_fields.append(('get', ftype, 'OUTPUT', None))
+			# ── @property decorator ────────────────────────────────────────────
+			if s == '@property':
+				in_property = True
 				continue
 
-			# Annotated field
+			# ── @property OUTPUT slot (any def name, not just 'get') ───────────
+			pm = re.match(r'^def (\w+)\(self\)\s*->\s*Annotated\[(.+?),\s*FieldRole\.(OUTPUT)\]', s)
+			if pm and in_property:
+				fname = pm.group(1)
+				ftype = re.sub(r'^Optional\[(.+)\]$', r'\1', pm.group(2).strip())
+				current_fields.append((fname, _simplify_type(ftype), 'OUTPUT', None, ''))
+				in_property = False
+				continue
+
+			# Reset in_property if something else appears between @property and def
+			if in_property and s and not s.startswith(('#', 'def', '@')):
+				in_property = False
+
+			# ── Annotated field ────────────────────────────────────────────────
 			fm = re.match(r'^(\w+)\s*:\s*Annotated\[(.+?),\s*FieldRole\.(\w+)', s)
 			if fm:
-				fname, ftype, frole = fm.group(1), fm.group(2).strip(), fm.group(3)
+				fname, ftype_raw, frole = fm.group(1), fm.group(2).strip(), fm.group(3)
+				in_property = False
 
-				if frole == 'CONSTANT' and 'Literal[' in ftype:
-					lm = re.search(r'Literal\["([^"]+)"\]', ftype)
+				if frole == 'CONSTANT' and 'Literal[' in ftype_raw:
+					lm = re.search(r'Literal\["([^"]+)"\]', ftype_raw)
 					if lm:
 						current_type = lm.group(1)
 					continue
@@ -1008,32 +1109,47 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 				if frole == 'ANNOTATION':
 					continue
 
-				# Simplify type names
-				ftype = re.sub(r'^Optional\[(.+)\]$', r'\1', ftype)
-				ftype = (ftype
-					.replace('Dict[str, Any]',              'dict')
-					.replace('Dict[Union[int, str], str]',  'dict')
-					.replace('List[str]',                   'list[str]')
-					.replace('List[Any]',                   'list')
-					.replace('List[int]',                   'list[int]')
-					.replace('Union[List, Dict]',           'dict|list')
-					.replace('Union[int, str]',             'int|str')
-					.replace('Union[List[str], Dict[str, Any]]', 'dict|list')
-					.replace('Any',                         'any')
-				)
+				# Determine display type and item type
+				if frole in ('MULTI_INPUT', 'MULTI_OUTPUT'):
+					item_t  = _multi_item_type(ftype_raw)
+					disp_t  = _simplify_type(ftype_raw)
+				else:
+					item_t = ''
+					disp_t = _simplify_type(ftype_raw)
 
-				# Extract simple literal defaults (skip DEFAULT_* and Field(...))
+				# Resolve default value
 				fdefault = None
 				dm = re.search(r'\]\s*=\s*(.+?)(?:\s*#.*)?$', s)
 				if dm:
-					dval = dm.group(1).strip()
-					if not dval.startswith('DEFAULT_') and not dval.startswith('Field(') and dval != 'None':
-						if re.match(r'^["\'\d]', dval) or dval in ('True', 'False'):
-							fdefault = dval
+					fdefault = _resolve_default(dm.group(1).strip())
 
-				current_fields.append((fname, ftype, frole, fdefault))
+				current_fields.append((fname, disp_t, frole, fdefault, item_t))
 
 		_flush()
+
+		# ── Inherit parent fields ──────────────────────────────────────────────
+		# Fields declared on invisible base classes (FlowType, NativeType, etc.)
+		# must be propagated to their visible children.
+		# Blacklist: base-plumbing fields not useful for LLM wiring.
+		_INHERIT_BLACKLIST = {'extra', 'id', 'raw'}
+
+		def _get_all_fields(cname: str, visited=None) -> list:
+			"""Return all fields (own + inherited) for a class, deduplicated by name."""
+			if visited is None:
+				visited = set()
+			if cname in visited:
+				return []
+			visited.add(cname)
+			info   = nodes.get(cname, {})
+			own    = info.get('fields', [])   # own fields always included (no blacklist)
+			parent = info.get('parent')
+			if not parent or parent not in nodes:
+				return own
+			parent_fields = _get_all_fields(parent, visited)
+			own_names     = {f[0] for f in own}
+			# Blacklist applies only to *inherited* plumbing fields, never to own redeclarations
+			inherited     = [f for f in parent_fields if f[0] not in own_names and f[0] not in _INHERIT_BLACKLIST]
+			return inherited + own   # parent fields first, own last (own overrides)
 
 		# ── Section grouping and formatting ───────────────────────────────────
 		section_order = [
@@ -1043,9 +1159,9 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		]
 		section_labels = {
 			'Endpoints':      '─── Endpoint Nodes',
-			'Native Types':   '─── Native Value Nodes',
+			'Native Types':   '─── Native Value Nodes  (output their value on the "value" slot)',
 			'Data Sources':   '─── Data Source Nodes',
-			'Configurations': '─── Config Nodes  (output themselves via "get"; connect with source_slot="get")',
+			'Configurations': '─── Config Nodes  (wire using source_slot matching the "out:" slot name)',
 			'Workflow':       '─── Flow Nodes',
 			'Loops':          '─── Loop Nodes',
 			'Event Sources':  '─── Event Source Nodes',
@@ -1053,7 +1169,7 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 			'Tutorial':       '─── Extension/Tutorial Nodes',
 		}
 
-		by_section = {s: [] for s in section_order}
+		by_section: dict = {s: [] for s in section_order}
 		for cname, info in nodes.items():
 			m = node_meta.get(cname, {})
 			if not m.get('visible', True):
@@ -1061,7 +1177,7 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 			sect = m.get('section', 'Other')
 			by_section.setdefault(sect, []).append((cname, info, m))
 
-		def fmt_f(name, typ, dflt):
+		def fmt_f(name: str, typ: str, dflt) -> str:
 			s = f'{name}({typ})'
 			if dflt is not None:
 				s += f'={dflt}'
@@ -1074,29 +1190,34 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 				continue
 			out_lines.append(section_labels.get(sect, f'─── {sect}'))
 			for cname, info, m in entries:
-				type_val    = info['type']
-				fields      = info['fields']
-				desc        = m.get('desc', '')
-				in_f   = [(n,t,r,d) for n,t,r,d in fields if r == 'INPUT']
-				min_f  = [(n,t,r,d) for n,t,r,d in fields if r == 'MULTI_INPUT']
-				out_f  = [(n,t,r,d) for n,t,r,d in fields if r == 'OUTPUT']
-				mout_f = [(n,t,r,d) for n,t,r,d in fields if r == 'MULTI_OUTPUT']
+				type_val = info['type']
+				all_fields = _get_all_fields(cname)
+				desc = m.get('desc', '')
+				icon = m.get('icon', '')
 
-				header = type_val
+				in_f   = [f for f in all_fields if f[2] == 'INPUT']
+				min_f  = [f for f in all_fields if f[2] == 'MULTI_INPUT']
+				out_f  = [f for f in all_fields if f[2] == 'OUTPUT']
+				mout_f = [f for f in all_fields if f[2] == 'MULTI_OUTPUT']
+
+				header = (f'{icon} ' if icon else '') + type_val
 				if desc:
 					header += f' – {desc}'
 				out_lines.append(header)
+
 				doc = info.get('docstring', '')
 				if doc:
 					out_lines.append(f'  doc: {doc}')
 				if in_f:
-					out_lines.append('  in:       ' + ', '.join(fmt_f(n,t,d) for n,t,_,d in in_f))
-				for n, *_ in min_f:
-					out_lines.append(f'  multi-in: {n} – each branch via separate edge with target_slot="{n}.<key>"')
+					out_lines.append('  in:  ' + ', '.join(fmt_f(f[0], f[1], f[3]) for f in in_f))
+				for f in min_f:
+					item_hint = f'(item:{f[4]})' if f[4] else ''
+					out_lines.append(f'  multi-in: {f[0]}{item_hint} – each branch via separate edge with target_slot="{f[0]}.<key>"')
 				if out_f:
-					out_lines.append('  out:      ' + ', '.join(fmt_f(n,t,d) for n,t,_,d in out_f))
-				for n, *_ in mout_f:
-					out_lines.append(f'  multi-out:{n} – declare in JSON as "{n}": {{"key": null, ...}}; edge source_slot="{n}.<key>"')
+					out_lines.append('  out: ' + ', '.join(fmt_f(f[0], f[1], f[3]) for f in out_f))
+				for f in mout_f:
+					item_hint = f'(item:{f[4]})' if f[4] else ''
+					out_lines.append(f'  multi-out: {f[0]}{item_hint} – declare in JSON as "{f[0]}": {{"key": null, ...}}; edge source_slot="{f[0]}.<key>"')
 				out_lines.append('')
 
 		return '\n'.join(out_lines)
@@ -1108,8 +1229,10 @@ A workflow is a directed acyclic graph executed node-by-node in topological orde
 - Execution begins at `start_flow` (always index 0) and ends at `end_flow` or `sink_flow`.
 - Each node reads from its INPUT slots (wired by edges or set inline in JSON).
 - Each node writes to its OUTPUT slots at runtime; downstream nodes consume them via edges.
-- Config nodes (backend_config, model_config, etc.) store configuration and expose it through a `get` output slot. Wire them to flow nodes using source_slot="get".
-- Data flows as: start_flow.output → [transform/agent/route nodes] → end_flow.input.
+- Config nodes (backend_config, model_config, etc.) each expose their value through a named
+  output slot shown in the catalog as "out:". Use that slot name as source_slot when wiring.
+  Example: model_config exposes slot "config"; wire with source_slot="config".
+- Data flows as: start_flow.flow_out → [transform/agent/route nodes] → end_flow.flow_in.
 
 ## Slot Types
 - INPUT       – value consumed by the node; set inline in JSON if not connected via edge.
@@ -1157,21 +1280,21 @@ Field semantics:
 ## Common Patterns
 
 ### Agent subgraph
-Wire: backend_config → agent_config.backend
-      model_config   → agent_config.model
-      agent_options_config → agent_config.options
-      agent_config   → agent_flow.config  (or agent_chat.config for interactive)
-Tool nodes connect via dotted target_slot: tools.tool_a, tools.tool_b → agent_config.tools.*
+backend_config.config  → agent_config.backend   (source_slot="config")
+model_config.config    → agent_config.model      (source_slot="config")
+agent_options_config.options → agent_config.options  (source_slot="options")
+agent_config.config    → agent_flow.config       (source_slot="config")
+Tool nodes connect via dotted target_slot: target_slot="tools.tool_a" → agent_config
 
 ### Conditional routing (route_flow)
 Declare outputs in JSON: "output": {"branch_a": null, "branch_b": null}
-Edge from upstream: source_slot="output" → route_flow.target (string deciding the branch)
-Edges from route_flow: source_slot="output.branch_a" → downstream_node.input
+Edge from upstream: source_slot="flow_out" → route_flow.target (string deciding the branch)
+Edges from route_flow: source_slot="output.branch_a" → downstream_node.flow_in
 
 ### Fan-in merging (merge_flow)
 Set strategy: "first" | "last" | "concat" | "all"
-Each branch: source_slot="output" → merge_flow, target_slot="input.branch_name" (dotted)
-Result: merge_flow.output → downstream
+Each branch: source_slot="flow_out" → merge_flow, target_slot="input.branch_name" (dotted)
+Result: merge_flow.output → downstream.flow_in
 
 ### Loops
 loop_start_flow.condition (bool) controls iteration. Connect body nodes between
@@ -1185,12 +1308,12 @@ event_listener_flow.event carries the received event payload.
 
 ## Rules
 1. Always place start_flow at index 0. Always end with end_flow or sink_flow.
-2. source_slot must be an OUTPUT or MULTI_OUTPUT field name on the source node.
-3. target_slot must be an INPUT or MULTI_INPUT field name on the target node.
+2. source_slot must be an OUTPUT or MULTI_OUTPUT field name shown in the catalog "out:" line.
+3. target_slot must be an INPUT or MULTI_INPUT field name shown in the catalog "in:" line.
 4. MULTI_OUTPUT: declare sub-keys in node JSON as {"field": {"key": null}}; use dotted source_slot.
 5. MULTI_INPUT: use dotted target_slot only; never include sub-keys inline in node JSON.
 6. transform_flow: set lang="python"; write Python that assigns to the `output` variable.
-7. Config nodes wire via source_slot="get" to the matching input field on a flow node.
+7. Config nodes: use source_slot matching their "out:" slot (e.g. "config" for model_config).
 8. Omit node fields that keep their default values to keep JSON concise.
 9. Return ONLY the JSON object, nothing else.
 
