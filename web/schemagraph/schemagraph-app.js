@@ -176,6 +176,7 @@ class SchemaGraphApp {
 			hiddenFields: true,  // Hide fields listed in _hiddenFieldNames from nodes
 			prettyFieldNames: true,  // Convert snake_case/camelCase field names to Title Case
 			loopEdgeOrthogonal: true,  // Use orthogonal routing for loop-back edges
+			autoLayoutOnImport: true,  // Auto-apply hierarchical layout when loaded workflow has no saved positions
 			// Node types
 			nativeTypes: true
 		};
@@ -498,7 +499,8 @@ class SchemaGraphApp {
 			'sg-feature-previewflash': this._features.previewFlash,
 			'sg-feature-lockoverlay': this._features.lockOverlay,
 			'sg-feature-hiddenfields': this._features.hiddenFields,
-			'sg-feature-prettyfieldnames': this._features.prettyFieldNames
+			'sg-feature-prettyfieldnames': this._features.prettyFieldNames,
+			'sg-feature-autolayoutonimport': this._features.autoLayoutOnImport
 		};
 
 		for (const [id, checked] of Object.entries(basicCheckboxMap)) {
@@ -619,6 +621,11 @@ class SchemaGraphApp {
 						<input type="checkbox" id="sg-feature-mediapreviewrunning" checked>
 						<span class="sg-toolbar-toggle-slider"></span>
 						<span class="sg-toolbar-toggle-text">Media Preview: Running Only</span>
+					</label>
+					<label class="sg-toolbar-toggle-switch" title="Automatically apply hierarchical horizontal layout when a loaded workflow has no saved node positions">
+						<input type="checkbox" id="sg-feature-autolayoutonimport" checked>
+						<span class="sg-toolbar-toggle-slider"></span>
+						<span class="sg-toolbar-toggle-text">Auto Layout</span>
 					</label>
 				</div>
 			</div>
@@ -1136,6 +1143,19 @@ class SchemaGraphApp {
 			this.api.graph.clear();
 			this.api.view.reset();
 			this.api.workflow.import(workflow, schemas[0], {});
+
+			// Apply auto-layout when the feature is enabled and the workflow has no meaningful
+			// saved positions (treat all-[0,0] as unset). Must happen BEFORE the sync so the
+			// export captures proper layout positions for future restores.
+			if (this._features?.autoLayoutOnImport) {
+				const hasPositions = workflow.nodes?.some(n => {
+					if (!n.extra?.pos) return false;
+					const [x, y] = n.extra.pos;
+					return x !== 0 || y !== 0;
+				});
+				if (!hasPositions) this.applyLayout('hierarchical-horizontal');
+			}
+
 			this.eventBus.emit('workflow:loaded', {});
 			this.centerView?.();
 			this.draw();
@@ -8918,6 +8938,9 @@ class SchemaGraphApp {
 					});
 					document.getElementById('sg-feature-mediapreviewrunning')?.addEventListener('change', (e) => {
 						self.api.browserMedia?.setLivePreviewOnlyWhenRunning?.(e.target.checked);
+					});
+					document.getElementById('sg-feature-autolayoutonimport')?.addEventListener('change', (e) => {
+						self.api.features.set({ autoLayoutOnImport: e.target.checked });
 					});
 
 					// Features panel toggle (show/hide with animation)

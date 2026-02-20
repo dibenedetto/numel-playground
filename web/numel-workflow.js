@@ -166,6 +166,11 @@ class WorkflowVisualizer {
 		this.currentWorkflowName = null;
 		this.graphNodes = [];
 		this.isReady = false;
+		this.defaultLayout = DEFAULT_WORKFLOW_LAYOUT;
+	}
+
+	configure(options = {}) {
+		if (options.defaultLayout !== undefined) this.defaultLayout = options.defaultLayout;
 	}
 
 	// --- Schema Registration ---
@@ -214,7 +219,8 @@ class WorkflowVisualizer {
 	
 	// --- Workflow Loading ---
 
-	loadWorkflow(workflow, name = null, layout = DEFAULT_WORKFLOW_LAYOUT, sync = false) {
+	loadWorkflow(workflow, name = null, layout = undefined, sync = false) {
+		if (layout === undefined) layout = this.defaultLayout;
 		if (!this.isReady) {
 			console.error('Schema not registered');
 			return false;
@@ -243,15 +249,23 @@ class WorkflowVisualizer {
 			}
 		});
 
-		// Apply layout
-		// setTimeout(() => {
-		// 	this.schemaGraph.api.layout.apply(layout);
-		// 	setTimeout(() => this.schemaGraph.api.view.center(), 50);
-		// }, 0);
-		if (layout) {
-			this.schemaGraph.api.layout.apply(layout);
-			this.schemaGraph.api.view.center();
+		// Apply layout.
+		// When autoLayoutOnImport is enabled: apply defaultLayout unless the workflow
+		// has at least one node with a non-zero saved position (treat all-[0,0] as unset).
+		// When the feature is disabled: fall back to the caller-supplied layout arg.
+		let effectiveLayout = layout;
+		if (this.schemaGraph._features?.autoLayoutOnImport) {
+			const hasPositions = workflow.nodes?.some(n => {
+				if (!n.extra?.pos) return false;
+				const [x, y] = n.extra.pos;
+				return x !== 0 || y !== 0;
+			});
+			effectiveLayout = hasPositions ? null : this.defaultLayout;
 		}
+		if (effectiveLayout) {
+			this.schemaGraph.api.layout.apply(effectiveLayout);
+		}
+		this.schemaGraph.api.view.center();
 
 		console.log(`${sync ? '🔄 Synced' : '✅ Loaded'} workflow: ${this.currentWorkflowName}`);
 

@@ -27,11 +27,11 @@ Options ──┘         ^
               Start ─┘──> End
 ```
 
-Import `tutorial-06-agent.json` as a starting point, or build your own agent configuration.
+Import `tutorial-08-generate.json` as a starting point, or build your own agent configuration.
 
 ## Using /gen
 
-1. **Start the workflow** so the Agent Chat becomes active.
+1. **Import** `tutorial-08-generate.json`
 2. In the chat input, type:
 
    ```

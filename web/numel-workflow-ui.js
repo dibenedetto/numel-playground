@@ -200,6 +200,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	// Create visualizer
 	visualizer = new WorkflowVisualizer(schemaGraph);
+	visualizer.configure({
+		defaultLayout: 'hierarchical-horizontal',
+	});
 
 	// Setup event listeners
 	setupEventListeners();
@@ -713,7 +716,7 @@ async function syncWorkflow(workflow = null, name = null, force = false) {
 			
 			// Reload entire workflow from backend
 			if (response.workflow) {
-				const layout = workflowEmpty ? null : DEFAULT_WORKFLOW_LAYOUT;
+				const layout = workflowEmpty ? null : visualizer.defaultLayout;
 				visualizer.loadWorkflow(response.workflow, response.name, layout, true);
 			}
 			
