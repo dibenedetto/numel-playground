@@ -139,46 +139,18 @@ class WorkflowEngine:
 			elif node_type == 'end_flow':
 				end_indices.append(i)
 
-		# Validate Start node count
+		# Validate Start node count (missing start/end is a warning, not an error;
+		# the engine seeds execution from any flow node with no incoming edges)
 		if len(start_indices) == 0:
-			errors.append("Workflow requires a Start node")
+			warnings.append("No Start node — execution begins from flow nodes with no incoming edges")
 		elif len(start_indices) > 1:
 			errors.append(f"Workflow can only have one Start node (found {len(start_indices)})")
 
 		# Validate End node count
 		if len(end_indices) == 0:
-			errors.append("Workflow requires an End node")
+			warnings.append("No End node — execution halts when no more flow nodes are ready")
 		elif len(end_indices) > 1:
 			errors.append(f"Workflow can only have one End node (found {len(end_indices)})")
-
-		# Validate path from Start to End (only if both exist and are unique)
-		if len(start_indices) == 1 and len(end_indices) == 1:
-			start_idx = start_indices[0]
-			end_idx   = end_indices[0]
-
-			# Build adjacency list
-			adjacency: Dict[int, Set[int]] = defaultdict(set)
-			for edge in edges:
-				adjacency[edge.source].add(edge.target)
-
-			# BFS from Start to End
-			visited = set()
-			queue   = [start_idx]
-			visited.add(start_idx)
-			found_path = False
-
-			while queue:
-				current = queue.pop(0)
-				if current == end_idx:
-					found_path = True
-					break
-				for neighbor in adjacency[current]:
-					if neighbor not in visited:
-						visited.add(neighbor)
-						queue.append(neighbor)
-
-			if not found_path:
-				errors.append("No path exists from Start to End node")
 
 		# Check for disconnected flow nodes (warning)
 		connected_nodes: Set[int] = set()

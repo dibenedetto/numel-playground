@@ -177,6 +177,7 @@ class SchemaGraphApp {
 			prettyFieldNames: true,  // Convert snake_case/camelCase field names to Title Case
 			loopEdgeOrthogonal: true,  // Use orthogonal routing for loop-back edges
 			autoLayoutOnImport: true,  // Auto-apply hierarchical layout when loaded workflow has no saved positions
+			implicitStartEnd: false,  // Strip start/end/sink on import; visually mark entry/exit nodes instead
 			// Node types
 			nativeTypes: true
 		};
@@ -500,7 +501,8 @@ class SchemaGraphApp {
 			'sg-feature-lockoverlay': this._features.lockOverlay,
 			'sg-feature-hiddenfields': this._features.hiddenFields,
 			'sg-feature-prettyfieldnames': this._features.prettyFieldNames,
-			'sg-feature-autolayoutonimport': this._features.autoLayoutOnImport
+			'sg-feature-autolayoutonimport': this._features.autoLayoutOnImport,
+			'sg-feature-implicitstartend': this._features.implicitStartEnd
 		};
 
 		for (const [id, checked] of Object.entries(basicCheckboxMap)) {
@@ -626,6 +628,11 @@ class SchemaGraphApp {
 						<input type="checkbox" id="sg-feature-autolayoutonimport" checked>
 						<span class="sg-toolbar-toggle-slider"></span>
 						<span class="sg-toolbar-toggle-text">Auto Layout</span>
+					</label>
+					<label class="sg-toolbar-toggle-switch" title="Strip Start/End/Sink nodes on import; visually mark entry and exit flow nodes with badges instead">
+						<input type="checkbox" id="sg-feature-implicitstartend">
+						<span class="sg-toolbar-toggle-slider"></span>
+						<span class="sg-toolbar-toggle-text">Implicit Start/End</span>
 					</label>
 				</div>
 			</div>
@@ -1142,13 +1149,17 @@ class SchemaGraphApp {
 
 			this.api.graph.clear();
 			this.api.view.reset();
-			this.api.workflow.import(workflow, schemas[0], {});
+			let importWorkflow = workflow;
+			if (this._features?.implicitStartEnd && typeof _stripBookendNodes === 'function') {
+				importWorkflow = _stripBookendNodes(workflow);
+			}
+			this.api.workflow.import(importWorkflow, schemas[0], {});
 
 			// Apply auto-layout when the feature is enabled and the workflow has no meaningful
 			// saved positions (treat all-[0,0] as unset). Must happen BEFORE the sync so the
 			// export captures proper layout positions for future restores.
 			if (this._features?.autoLayoutOnImport) {
-				const hasPositions = workflow.nodes?.some(n => {
+				const hasPositions = importWorkflow.nodes?.some(n => {
 					if (!n.extra?.pos) return false;
 					const [x, y] = n.extra.pos;
 					return x !== 0 || y !== 0;
@@ -1156,9 +1167,9 @@ class SchemaGraphApp {
 				if (!hasPositions) this.applyLayout('hierarchical-horizontal');
 			}
 
+			this._updateImplicitRoles();
 			this.eventBus.emit('workflow:loaded', {});
 			this.centerView?.();
-			this.draw();
 
 			this._closeDocsPanel();
 
@@ -1900,9 +1911,9 @@ class SchemaGraphApp {
 			}
 			this.draw();
 		});
-		this.eventBus.on('node:deleted', () => { this.ui?.update?.schemaList?.(); this.draw(); });
-		this.eventBus.on('link:created', () => this.draw());
-		this.eventBus.on('link:deleted', () => this.draw());
+		this.eventBus.on('node:deleted', () => { this.ui?.update?.schemaList?.(); this._updateImplicitRoles(); });
+		this.eventBus.on('link:created', () => this._updateImplicitRoles());
+		this.eventBus.on('link:deleted', () => this._updateImplicitRoles());
 		this.eventBus.on('schema:registered', () => { this.ui?.update?.schemaList?.(); this.ui?.update?.nodeTypesList?.(); this.draw(); });
 		this.eventBus.on('schema:removed', () => { this.ui?.update?.schemaList?.(); this.ui?.update?.nodeTypesList?.(); this.draw(); });
 
@@ -3198,11 +3209,13 @@ class SchemaGraphApp {
 				const sections = {};
 				const defaultSection = 'General';
 
+				const _BOOKEND_MODELS = new Set(['StartFlow', 'EndFlow', 'SinkFlow']);
 				for (const type in this.graph.nodeTypes) {
 					if (!type.startsWith(schemaName + '.')) continue;
 					const modelName = type.split('.')[1];
 					const info = decorators[modelName]?.info;
 					if (info?.visible === false) continue;
+					if (this._features.implicitStartEnd && _BOOKEND_MODELS.has(modelName)) continue;
 					const section = info?.section || defaultSection;
 					if (!sections[section]) sections[section] = [];
 					sections[section].push({ type, modelName, info, isRoot: schemaInfo.rootType === modelName });
@@ -4671,6 +4684,9 @@ class SchemaGraphApp {
 		if (this._features.completenessIndicators) {
 			this._drawCompletenessIndicator(node, colors);
 		}
+		if (this._features.implicitStartEnd) {
+			this._drawImplicitRoleBadge(node, colors);
+		}
 
 		const worldMouse = this.screenToWorld(this.mousePos[0], this.mousePos[1]);
 		{ let vi = 0; for (let j = 0; j < node.inputs.length; j++) { if (!this._isFieldHidden(node, j, false)) this.drawInputSlot(node, j, x, y, w, worldMouse, colors, textScale, style, vi++); } }
@@ -5890,28 +5906,30 @@ class SchemaGraphApp {
 		const errors = [];
 		const warnings = [];
 
-		// Check Start node
+		// Check Start/End nodes (skipped when implicitStartEnd feature is on)
 		const startCount = this._countStartNodes();
-		if (startCount === 0) {
-			errors.push('Workflow requires a Start node');
-		} else if (startCount > 1) {
-			errors.push('Workflow can only have one Start node');
-		}
-
-		// Check End node
-		const endCount = this._countEndNodes();
-		if (endCount === 0) {
-			errors.push('Workflow requires an End node');
-		} else if (endCount > 1) {
-			errors.push('Workflow can only have one End node');
-		}
-
-		// Check path if both nodes exist
-		if (startCount === 1 && endCount === 1) {
-			const pathResult = this._validateStartToEndPath();
-			if (!pathResult.valid) {
-				errors.push(pathResult.reason);
+		const endCount   = this._countEndNodes();
+		if (!this._features?.implicitStartEnd) {
+			if (startCount === 0) {
+				errors.push('Workflow requires a Start node');
+			} else if (startCount > 1) {
+				errors.push('Workflow can only have one Start node');
 			}
+			if (endCount === 0) {
+				errors.push('Workflow requires an End node');
+			} else if (endCount > 1) {
+				errors.push('Workflow can only have one End node');
+			}
+			if (startCount === 1 && endCount === 1) {
+				const pathResult = this._validateStartToEndPath();
+				if (!pathResult.valid) {
+					errors.push(pathResult.reason);
+				}
+			}
+		} else {
+			// With implicitStartEnd: multiple start/end nodes are still an error
+			if (startCount > 1) errors.push('Workflow can only have one Start node');
+			if (endCount   > 1) errors.push('Workflow can only have one End node');
 		}
 
 		// Check for disconnected nodes (warning, not error)
@@ -7306,6 +7324,52 @@ class SchemaGraphApp {
 	}
 
 	// ========================================================================
+	// IMPLICIT START / END ROLES
+	// ========================================================================
+
+	_updateImplicitRoles() {
+		const nodes = this.graph.nodes;
+		const links = this.graph.links || {};
+
+		// Clear all roles first
+		for (const n of nodes) n._implicitRole = null;
+
+		if (!this._features.implicitStartEnd) { this.draw(); return; }
+
+		// workflowType is the Python type constant e.g. 'start_flow', 'agent_flow'
+		const BOOKEND = new Set(['start_flow', 'end_flow', 'sink_flow']);
+
+		// FlowType nodes have model names ending with 'Flow' (StartFlow, AgentFlow, etc.)
+		const isFlow = n => n?.modelName?.endsWith('Flow');
+
+		// Build id→node map for quick lookup
+		const nodeById = new Map();
+		for (const n of nodes) nodeById.set(n.id, n);
+
+		const hasIn  = new Set();  // node IDs that have an incoming flow edge
+		const hasOut = new Set();  // node IDs that have an outgoing flow edge
+
+		for (const linkId in links) {
+			const link = links[linkId];
+			const src  = nodeById.get(link.origin_id);
+			const tgt  = nodeById.get(link.target_id);
+			if (isFlow(src) && isFlow(tgt)) {
+				hasOut.add(link.origin_id);
+				hasIn.add(link.target_id);
+			}
+		}
+
+		for (const n of nodes) {
+			if (!isFlow(n) || BOOKEND.has(n.workflowType)) continue;
+			const isSrc  = !hasIn.has(n.id);
+			const isSink = !hasOut.has(n.id);
+			n._implicitRole = isSrc && isSink ? 'both' : isSrc ? 'source' : isSink ? 'sink' : null;
+		}
+
+		this.draw();
+	}
+
+	// ========================================================================
 	// COMPLETENESS CHECKING
 	// ========================================================================
 
@@ -7683,6 +7747,34 @@ class SchemaGraphApp {
 			ctx.textBaseline = 'middle';
 			ctx.fillText(!selfComplete ? '!' : '⋯', badgeX, badgeY + 7);
 		}
+	}
+
+	_drawImplicitRoleBadge(node, colors) {
+		if (!node._implicitRole) return;
+		const ctx       = this.ctx;
+		const x         = node.pos[0];
+		const y         = node.pos[1];
+		const textScale = this.getTextScale();
+		// Left side of header, vertically centred in the 26 px header band
+		const bx = x + 9;
+		const by = y + 13;
+		const r  = 6;
+
+		const [fill, glyph] =
+			node._implicitRole === 'source' ? ['#2e7d57', '▶'] :
+			node._implicitRole === 'sink'   ? ['#8b3a3a', '■'] :
+			                                  ['#4a6fa5', '◆'];  // 'both' — isolated
+
+		ctx.fillStyle = fill;
+		ctx.beginPath();
+		ctx.arc(bx, by, r, 0, Math.PI * 2);
+		ctx.fill();
+
+		ctx.fillStyle = '#fff';
+		ctx.font = `bold ${8 * textScale}px sans-serif`;
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		ctx.fillText(glyph, bx, by);
 	}
 
 	_drawExecutionSpinner(cx, cy, r, colors) {
@@ -8941,6 +9033,10 @@ class SchemaGraphApp {
 					});
 					document.getElementById('sg-feature-autolayoutonimport')?.addEventListener('change', (e) => {
 						self.api.features.set({ autoLayoutOnImport: e.target.checked });
+					});
+					document.getElementById('sg-feature-implicitstartend')?.addEventListener('change', (e) => {
+						self.api.features.set({ implicitStartEnd: e.target.checked });
+						self._updateImplicitRoles();
 					});
 
 					// Features panel toggle (show/hide with animation)

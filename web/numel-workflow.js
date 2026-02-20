@@ -5,6 +5,32 @@
 const WORKFLOW_SCHEMA_NAME    = "Workflow";
 const DEFAULT_WORKFLOW_LAYOUT = 'hierarchical-horizontal';
 
+// ─── Implicit Start/End helper ────────────────────────────────────────────────
+// Strip start_flow / end_flow / sink_flow nodes and remap edge indices.
+// Called by loadWorkflow when the implicitStartEnd feature is enabled.
+function _stripBookendNodes(workflow) {
+	const STRIP   = new Set(['start_flow', 'end_flow', 'sink_flow']);
+	const nodes   = workflow.nodes || [];
+	const edges   = workflow.edges || [];
+	const removed = new Set(nodes.map((n, i) => STRIP.has(n.type) ? i : -1).filter(i => i >= 0));
+	if (removed.size === 0) return workflow;
+
+	// Build old-index → new-index map (-1 = removed)
+	let shift = 0;
+	const remap = nodes.map((_, i) => {
+		if (removed.has(i)) { shift++; return -1; }
+		return i - shift;
+	});
+
+	return {
+		...workflow,
+		nodes: nodes.filter((_, i) => !removed.has(i)),
+		edges: edges
+			.filter(e => remap[e.source] >= 0 && remap[e.target] >= 0)
+			.map(e => ({ ...e, source: remap[e.source], target: remap[e.target] })),
+	};
+}
+
 // ========================================================================
 // WorkflowClient - Backend Communication
 // ========================================================================
@@ -231,6 +257,9 @@ class WorkflowVisualizer {
 		}
 
 		this.currentWorkflow = JSON.parse(JSON.stringify(workflow));
+		if (this.schemaGraph._features?.implicitStartEnd) {
+			this.currentWorkflow = _stripBookendNodes(this.currentWorkflow);
+		}
 		this.currentWorkflowName = name || workflow.options?.name || 'Untitled';
 
 		this.schemaGraph.api.graph.clear();
@@ -266,6 +295,9 @@ class WorkflowVisualizer {
 			this.schemaGraph.api.layout.apply(effectiveLayout);
 		}
 		this.schemaGraph.api.view.center();
+
+		// Update implicit role badges after the full graph is loaded
+		this.schemaGraph._updateImplicitRoles?.();
 
 		console.log(`${sync ? '🔄 Synced' : '✅ Loaded'} workflow: ${this.currentWorkflowName}`);
 
