@@ -91,18 +91,18 @@ class Edge(ComponentType):
 )
 class SourceMeta(ComponentType):
 	type        : Annotated[Literal["source_meta"], FieldRole.CONSTANT] = "source_meta"
-	name        : Annotated[Optional[str  ]       , FieldRole.INPUT   ] = None
-	description : Annotated[Optional[str  ]       , FieldRole.INPUT   ] = None
-	source      : Annotated[Optional[str  ]       , FieldRole.INPUT   ] = None
-	mime_type   : Annotated[Optional[str  ]       , FieldRole.INPUT   ] = None
-	format      : Annotated[Optional[str  ]       , FieldRole.INPUT   ] = None
-	streamable  : Annotated[Optional[bool ]       , FieldRole.INPUT   ] = None
-	size        : Annotated[Optional[int  ]       , FieldRole.INPUT   ] = None
-	duration    : Annotated[Optional[float]       , FieldRole.INPUT   ] = None
-	sampling    : Annotated[Optional[float]       , FieldRole.INPUT   ] = None
-	rate        : Annotated[Optional[float]       , FieldRole.INPUT   ] = None
-	encoding    : Annotated[Optional[str  ]       , FieldRole.INPUT   ] = None
-	frames      : Annotated[Optional[int  ]       , FieldRole.INPUT   ] = None
+	name        : Annotated[Optional[str  ]       , FieldRole.INPUT   ] = Field(default=None,  description="Human-readable name for the data source")
+	description : Annotated[Optional[str  ]       , FieldRole.INPUT   ] = Field(default=None,  description="Short text description of the source content")
+	source      : Annotated[Optional[str  ]       , FieldRole.INPUT   ] = Field(default=None,  description="Origin URI or identifier (e.g. file path, URL, database key)")
+	mime_type   : Annotated[Optional[str  ]       , FieldRole.INPUT   ] = Field(default=None,  description="MIME type of the content (e.g. 'image/png', 'audio/wav')")
+	format      : Annotated[Optional[str  ]       , FieldRole.INPUT   ] = Field(default=None,  description="Codec or data format identifier (e.g. 'mp3', 'h264')")
+	streamable  : Annotated[Optional[bool ]       , FieldRole.INPUT   ] = Field(default=None,  description="Whether the source supports streaming delivery")
+	size        : Annotated[Optional[int  ]       , FieldRole.INPUT   ] = Field(default=None,  description="Size of the source data in bytes")
+	duration    : Annotated[Optional[float]       , FieldRole.INPUT   ] = Field(default=None,  description="Duration in seconds for audio or video sources")
+	sampling    : Annotated[Optional[float]       , FieldRole.INPUT   ] = Field(default=None,  description="Sample rate or sampling frequency (e.g. 44100 for audio)")
+	rate        : Annotated[Optional[float]       , FieldRole.INPUT   ] = Field(default=None,  description="Frame rate or data rate (e.g. 30 fps for video)")
+	encoding    : Annotated[Optional[str  ]       , FieldRole.INPUT   ] = Field(default=None,  description="Character or binary encoding (e.g. 'utf-8', 'base64')")
+	frames      : Annotated[Optional[int  ]       , FieldRole.INPUT   ] = Field(default=None,  description="Total number of frames for video or animation sources")
 
 	@property
 	def reference(self) -> Annotated[SourceMeta, FieldRole.OUTPUT]:
@@ -129,7 +129,7 @@ class NativeType(BaseType):
 class NativeBoolean(NativeType):
 	"""Constant boolean value. Set value=true|false. Wire get→any bool input."""
 	type : Annotated[Literal["native_boolean"], FieldRole.CONSTANT] = "native_boolean"
-	raw  : Annotated[bool                     , FieldRole.INPUT   ] = False
+	raw  : Annotated[bool                     , FieldRole.INPUT   ] = Field(default=False, description="The constant boolean value (true or false)")
 
 	@property
 	def value(self) -> Annotated[bool, FieldRole.OUTPUT]:
@@ -146,7 +146,7 @@ class NativeBoolean(NativeType):
 class NativeInteger(NativeType):
 	"""Constant integer value. Set value to any integer. Wire get→any int input."""
 	type : Annotated[Literal["native_integer"], FieldRole.CONSTANT] = "native_integer"
-	raw  : Annotated[int                      , FieldRole.INPUT   ] = 0
+	raw  : Annotated[int                      , FieldRole.INPUT   ] = Field(default=0, description="The constant integer value")
 
 	@property
 	def value(self) -> Annotated[int, FieldRole.OUTPUT]:
@@ -163,7 +163,7 @@ class NativeInteger(NativeType):
 class NativeReal(NativeType):
 	"""Constant floating-point value. Set value to any number. Wire get→any float input."""
 	type : Annotated[Literal["native_real"], FieldRole.CONSTANT] = "native_real"
-	raw  : Annotated[float                 , FieldRole.INPUT   ] = 0.0
+	raw  : Annotated[float                 , FieldRole.INPUT   ] = Field(default=0.0, description="The constant floating-point value")
 
 	@property
 	def value(self) -> Annotated[float, FieldRole.OUTPUT]:
@@ -180,7 +180,7 @@ class NativeReal(NativeType):
 class NativeString(NativeType):
 	"""Constant string value. Set value to any text. Wire get→any string input."""
 	type : Annotated[Literal["native_string"], FieldRole.CONSTANT] = "native_string"
-	raw  : Annotated[str                     , FieldRole.INPUT   ] = ""
+	raw  : Annotated[str                     , FieldRole.INPUT   ] = Field(default="", description="The constant string value")
 
 	@property
 	def value(self) -> Annotated[str, FieldRole.OUTPUT]:
@@ -197,7 +197,7 @@ class NativeString(NativeType):
 class NativeList(NativeType):
 	"""Constant list value. Set value to a JSON array. Wire get→any list input."""
 	type : Annotated[Literal["native_list"], FieldRole.CONSTANT] = "native_list"
-	raw  : Annotated[List[Any]             , FieldRole.INPUT   ] = []
+	raw  : Annotated[List[Any]             , FieldRole.INPUT   ] = Field(default=[], description="The constant list value (JSON array)")
 
 	@property
 	def value(self) -> Annotated[List[Any], FieldRole.OUTPUT]:
@@ -214,7 +214,7 @@ class NativeList(NativeType):
 class NativeDictionary(NativeType):
 	"""Constant dict value. Set value to a JSON object. Wire get→any dict input."""
 	type : Annotated[Literal["native_dictionary"], FieldRole.CONSTANT] = "native_dictionary"
-	raw  : Annotated[Dict[str, Any]              , FieldRole.INPUT   ] = {}
+	raw  : Annotated[Dict[str, Any]              , FieldRole.INPUT   ] = Field(default={}, description="The constant dictionary value (JSON object)")
 
 	@property
 	def value(self) -> Annotated[Dict[str, Any], FieldRole.OUTPUT]:
@@ -227,10 +227,10 @@ DEFAULT_TENSOR_DTYPE  : str  = "float32"
 @node_info(visible=False)
 class TensorType(BaseType):
 	type   : Annotated[Literal["tensor_type"], FieldRole.CONSTANT] = "tensor_type"
-	meta   : Annotated[Optional[SourceMeta]  , FieldRole.INPUT   ] = None
-	dtype  : Annotated[str                   , FieldRole.INPUT   ] = DEFAULT_TENSOR_DTYPE
-	shape  : Annotated[List[int]             , FieldRole.INPUT   ] = []
-	data   : Annotated[Any                   , FieldRole.INPUT   ] = []
+	meta   : Annotated[Optional[SourceMeta]  , FieldRole.INPUT   ] = Field(default=None, description="Optional source metadata describing the tensor origin and properties")
+	dtype  : Annotated[str                   , FieldRole.INPUT   ] = Field(default=DEFAULT_TENSOR_DTYPE, description="Data type of tensor elements (e.g. 'float32', 'int8', 'uint8')")
+	shape  : Annotated[List[int]             , FieldRole.INPUT   ] = Field(default=[], description="Tensor dimensions as a list of integers (e.g. [batch, height, width, channels])")
+	data   : Annotated[Any                   , FieldRole.INPUT   ] = Field(default=[], description="Nested list of values matching the declared shape")
 
 	@property
 	def tensor(self) -> Annotated[Any, FieldRole.OUTPUT]:
@@ -265,8 +265,8 @@ DEFAULT_OPTIONS_DESCRIPTION : str  = None
 @node_info(visible=False)
 class OptionsType(BaseType):
 	type        : Annotated[Literal["options_type"], FieldRole.CONSTANT] = "options_type"
-	name        : Annotated[Optional[str]          , FieldRole.INPUT   ] = DEFAULT_OPTIONS_NAME
-	description : Annotated[Optional[str]          , FieldRole.INPUT   ] = DEFAULT_OPTIONS_DESCRIPTION
+	name        : Annotated[Optional[str]          , FieldRole.INPUT   ] = Field(default=DEFAULT_OPTIONS_NAME, description="Display name or identifier for this options configuration")
+	description : Annotated[Optional[str]          , FieldRole.INPUT   ] = Field(default=DEFAULT_OPTIONS_DESCRIPTION, description="Optional description of the purpose of this options block")
 
 	@property
 	def options(self) -> Annotated[OptionsType, FieldRole.OUTPUT]:
@@ -288,9 +288,9 @@ DEFAULT_BACKEND_FALLBACK : bool = False
 class BackendConfig(ConfigType):
 	"""AI backend engine config. Set name='agno' (default and only supported engine). Wire get→agent_config.backend."""
 	type     : Annotated[Literal["backend_config"], FieldRole.CONSTANT] = "backend_config"
-	name     : Annotated[str                      , FieldRole.INPUT   ] = DEFAULT_BACKEND_NAME
-	version  : Annotated[Optional[str]            , FieldRole.INPUT   ] = DEFAULT_BACKEND_VERSION
-	fallback : Annotated[bool                     , FieldRole.INPUT   ] = DEFAULT_BACKEND_FALLBACK
+	name     : Annotated[str                      , FieldRole.INPUT   ] = Field(default=DEFAULT_BACKEND_NAME,     description="Backend engine name; currently only 'agno' is supported")
+	version  : Annotated[Optional[str]            , FieldRole.INPUT   ] = Field(default=DEFAULT_BACKEND_VERSION,  description="Optional engine version string; leave empty for latest")
+	fallback : Annotated[bool                     , FieldRole.INPUT   ] = Field(default=DEFAULT_BACKEND_FALLBACK, description="If true, skip this backend silently when unavailable instead of raising an error")
 
 	@property
 	def config(self) -> Annotated[BackendConfig, FieldRole.OUTPUT]:
@@ -313,10 +313,10 @@ DEFAULT_MODEL_FALLBACK : bool = False
 class ModelConfig(ConfigType):
 	"""Language model reference. Set source (ollama/openai/anthropic/groq/google) and name. Wire get→agent_config.model or memory_manager_config.model."""
 	type     : Annotated[Literal["model_config"], FieldRole.CONSTANT] = "model_config"
-	source   : Annotated[str                    , FieldRole.INPUT   ] = Field(default=DEFAULT_MODEL_SOURCE, json_schema_extra={"options_source": "model_sources"})
-	name     : Annotated[str                    , FieldRole.INPUT   ] = Field(default=DEFAULT_MODEL_NAME, json_schema_extra={"options_source": "model_names"})
-	version  : Annotated[Optional[str]          , FieldRole.INPUT   ] = DEFAULT_MODEL_VERSION
-	fallback : Annotated[bool                   , FieldRole.INPUT   ] = DEFAULT_MODEL_FALLBACK
+	source   : Annotated[str                    , FieldRole.INPUT   ] = Field(default=DEFAULT_MODEL_SOURCE,   json_schema_extra={"options_source": "model_sources"}, description="LLM provider (e.g. 'ollama', 'openai', 'anthropic', 'groq', 'google')")
+	name     : Annotated[str                    , FieldRole.INPUT   ] = Field(default=DEFAULT_MODEL_NAME,    json_schema_extra={"options_source": "model_names"},   description="Model identifier as recognized by the provider (e.g. 'mistral', 'gpt-4o', 'claude-sonnet-4-6')")
+	version  : Annotated[Optional[str]          , FieldRole.INPUT   ] = Field(default=DEFAULT_MODEL_VERSION,  description="Optional model version string; leave empty for provider default")
+	fallback : Annotated[bool                   , FieldRole.INPUT   ] = Field(default=DEFAULT_MODEL_FALLBACK, description="If true, skip this model config silently when unavailable")
 
 	@property
 	def config(self) -> Annotated[ModelConfig, FieldRole.OUTPUT]:
@@ -339,10 +339,10 @@ DEFAULT_EMBEDDING_FALLBACK : bool = False
 class EmbeddingConfig(ConfigType):
 	"""Embedding model reference for vector search. Set source+name matching your model provider. Wire get→index_db_config.embedding."""
 	type     : Annotated[Literal["embedding_config"], FieldRole.CONSTANT] = "embedding_config"
-	source   : Annotated[str                        , FieldRole.INPUT   ] = Field(default=DEFAULT_EMBEDDING_SOURCE, json_schema_extra={"options_source": "model_sources"})
-	name     : Annotated[str                        , FieldRole.INPUT   ] = Field(default=DEFAULT_EMBEDDING_NAME, json_schema_extra={"options_source": "model_names"})
-	version  : Annotated[Optional[str]              , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_VERSION
-	fallback : Annotated[bool                       , FieldRole.INPUT   ] = DEFAULT_EMBEDDING_FALLBACK
+	source   : Annotated[str                        , FieldRole.INPUT   ] = Field(default=DEFAULT_EMBEDDING_SOURCE,   json_schema_extra={"options_source": "model_sources"}, description="Embedding provider (e.g. 'ollama', 'openai', 'anthropic', 'groq', 'google')")
+	name     : Annotated[str                        , FieldRole.INPUT   ] = Field(default=DEFAULT_EMBEDDING_NAME,    json_schema_extra={"options_source": "model_names"},   description="Embedding model identifier (e.g. 'nomic-embed-text', 'text-embedding-3-small')")
+	version  : Annotated[Optional[str]              , FieldRole.INPUT   ] = Field(default=DEFAULT_EMBEDDING_VERSION,  description="Optional model version string; leave empty for provider default")
+	fallback : Annotated[bool                       , FieldRole.INPUT   ] = Field(default=DEFAULT_EMBEDDING_FALLBACK, description="If true, skip this embedding config silently when unavailable")
 
 	@property
 	def config(self) -> Annotated[EmbeddingConfig, FieldRole.OUTPUT]:
@@ -368,12 +368,12 @@ DEFAULT_CONTENT_DB_FALLBACK             : bool = False
 class ContentDBConfig(ConfigType):
 	"""Raw document content database (SQLite by default). Set engine and url (storage path). Wire get→knowledge_manager_config.content_db."""
 	type                 : Annotated[Literal["content_db_config"], FieldRole.CONSTANT  ] = "content_db_config"
-	engine               : Annotated[str                         , FieldRole.INPUT     ] = DEFAULT_CONTENT_DB_ENGINE
-	url                  : Annotated[str                         , FieldRole.INPUT     ] = DEFAULT_CONTENT_DB_URL
-	memory_table_name    : Annotated[str                         , FieldRole.INPUT     ] = DEFAULT_CONTENT_DB_MEMORY_TABLE_NAME
-	session_table_name   : Annotated[str                         , FieldRole.INPUT     ] = DEFAULT_CONTENT_DB_SESSION_TABLE_NAME
-	knowledge_table_name : Annotated[str                         , FieldRole.INPUT     ] = DEFAULT_CONTENT_DB_KNOWLEDGE_TABLE_NAME
-	fallback             : Annotated[bool                        , FieldRole.INPUT     ] = DEFAULT_CONTENT_DB_FALLBACK
+	engine               : Annotated[str                         , FieldRole.INPUT     ] = Field(default=DEFAULT_CONTENT_DB_ENGINE,               description="Storage engine type; currently 'sqlite' is supported")
+	url                  : Annotated[str                         , FieldRole.INPUT     ] = Field(default=DEFAULT_CONTENT_DB_URL,                  description="File path or connection URL for the database (e.g. 'storage/content')")
+	memory_table_name    : Annotated[str                         , FieldRole.INPUT     ] = Field(default=DEFAULT_CONTENT_DB_MEMORY_TABLE_NAME,    description="Table name used to store long-term agent memory records")
+	session_table_name   : Annotated[str                         , FieldRole.INPUT     ] = Field(default=DEFAULT_CONTENT_DB_SESSION_TABLE_NAME,   description="Table name used to store per-conversation session history")
+	knowledge_table_name : Annotated[str                         , FieldRole.INPUT     ] = Field(default=DEFAULT_CONTENT_DB_KNOWLEDGE_TABLE_NAME, description="Table name used to store knowledge base documents for RAG")
+	fallback             : Annotated[bool                        , FieldRole.INPUT     ] = Field(default=DEFAULT_CONTENT_DB_FALLBACK,             description="If true, skip this DB config silently when unavailable")
 
 	@property
 	def config(self) -> Annotated[ContentDBConfig, FieldRole.OUTPUT]:
@@ -397,12 +397,12 @@ DEFAULT_INDEX_DB_FALLBACK    : bool = False
 class IndexDBConfig(ConfigType):
 	"""Vector index database for semantic search (lancedb by default). Requires embedding_config. Wire get→knowledge_manager_config.index_db."""
 	type        : Annotated[Literal["index_db_config"], FieldRole.CONSTANT] = "index_db_config"
-	engine      : Annotated[str                       , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_ENGINE
-	url         : Annotated[str                       , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_URL
-	embedding   : Annotated[EmbeddingConfig           , FieldRole.INPUT   ] = None
-	search_type : Annotated[str                       , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_SEARCH_TYPE
-	table_name  : Annotated[str                       , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_TABLE_NAME
-	fallback    : Annotated[bool                      , FieldRole.INPUT   ] = DEFAULT_INDEX_DB_FALLBACK
+	engine      : Annotated[str                       , FieldRole.INPUT   ] = Field(default=DEFAULT_INDEX_DB_ENGINE,      description="Vector database engine; currently 'lancedb' is supported")
+	url         : Annotated[str                       , FieldRole.INPUT   ] = Field(default=DEFAULT_INDEX_DB_URL,         description="File path or connection URL for the vector database (e.g. 'storage/index')")
+	embedding   : Annotated[EmbeddingConfig           , FieldRole.INPUT   ] = Field(default=None,                        description="EmbeddingConfig providing the model used to vectorize documents and queries")
+	search_type : Annotated[str                       , FieldRole.INPUT   ] = Field(default=DEFAULT_INDEX_DB_SEARCH_TYPE, description="Search strategy — 'hybrid' combines vector similarity with keyword search")
+	table_name  : Annotated[str                       , FieldRole.INPUT   ] = Field(default=DEFAULT_INDEX_DB_TABLE_NAME,  description="Table (collection) name within the vector database")
+	fallback    : Annotated[bool                      , FieldRole.INPUT   ] = Field(default=DEFAULT_INDEX_DB_FALLBACK,    description="If true, skip this DB config silently when unavailable")
 
 	@property
 	def config(self) -> Annotated[IndexDBConfig, FieldRole.OUTPUT]:
@@ -425,12 +425,11 @@ DEFAULT_MEMORY_MANAGER_PROMPT  : str  = None
 class MemoryManagerConfig(ConfigType):
 	"""Agent long-term memory across conversations. Set query=true to retrieve, update=true to store. Wire get→agent_config.memory_mgr."""
 	type    : Annotated[Literal["memory_manager_config"], FieldRole.CONSTANT] = "memory_manager_config"
-	query   : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_QUERY
-	update  : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_UPDATE
-	managed : Annotated[bool                            , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_MANAGED
-	# model   : Annotated[Optional[ModelConfig]           , FieldRole.INPUT   ] = Field(default=None, title="Model Source", description="Source of language model (e.g., 'ollama', 'openai')")
-	model   : Annotated[Optional[ModelConfig]           , FieldRole.INPUT   ] = None
-	prompt  : Annotated[Optional[str]                   , FieldRole.INPUT   ] = DEFAULT_MEMORY_MANAGER_PROMPT
+	query   : Annotated[bool                            , FieldRole.INPUT   ] = Field(default=DEFAULT_MEMORY_MANAGER_QUERY,   description="If true, retrieve relevant memories before each agent response")
+	update  : Annotated[bool                            , FieldRole.INPUT   ] = Field(default=DEFAULT_MEMORY_MANAGER_UPDATE,  description="If true, store new information as memories after each agent exchange")
+	managed : Annotated[bool                            , FieldRole.INPUT   ] = Field(default=DEFAULT_MEMORY_MANAGER_MANAGED, description="If true, the backend manages memory consolidation automatically")
+	model   : Annotated[Optional[ModelConfig]           , FieldRole.INPUT   ] = Field(default=None,                          description="Optional language model used for memory summarization and extraction")
+	prompt  : Annotated[Optional[str]                   , FieldRole.INPUT   ] = Field(default=DEFAULT_MEMORY_MANAGER_PROMPT,  description="Optional custom system prompt override for the memory manager")
 
 	@property
 	def config(self) -> Annotated[MemoryManagerConfig, FieldRole.OUTPUT]:
@@ -454,11 +453,11 @@ DEFAULT_SESSION_MANAGER_PROMPT       : str  = None
 class SessionManagerConfig(ConfigType):
 	"""Chat history manager for multi-turn conversations. Set history_size for context window. Wire get→agent_config.session_mgr."""
 	type         : Annotated[Literal["session_manager_config"], FieldRole.CONSTANT] = "session_manager_config"
-	query        : Annotated[bool                             , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_QUERY
-	update       : Annotated[bool                             , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_UPDATE
-	history_size : Annotated[int                              , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_HISTORY_SIZE
-	model        : Annotated[Optional[ModelConfig]            , FieldRole.INPUT   ] = None
-	prompt       : Annotated[Optional[str]                    , FieldRole.INPUT   ] = DEFAULT_SESSION_MANAGER_PROMPT
+	query        : Annotated[bool                             , FieldRole.INPUT   ] = Field(default=DEFAULT_SESSION_MANAGER_QUERY,        description="If true, include conversation history in each agent request")
+	update       : Annotated[bool                             , FieldRole.INPUT   ] = Field(default=DEFAULT_SESSION_MANAGER_UPDATE,       description="If true, append each exchange to the persisted session history")
+	history_size : Annotated[int                              , FieldRole.INPUT   ] = Field(default=DEFAULT_SESSION_MANAGER_HISTORY_SIZE, description="Maximum number of past exchanges included as context (sliding window)")
+	model        : Annotated[Optional[ModelConfig]            , FieldRole.INPUT   ] = Field(default=None,                                description="Optional language model used for history summarization when history is long")
+	prompt       : Annotated[Optional[str]                    , FieldRole.INPUT   ] = Field(default=DEFAULT_SESSION_MANAGER_PROMPT,       description="Optional custom system prompt override for the session manager")
 
 	@property
 	def config(self) -> Annotated[SessionManagerConfig, FieldRole.OUTPUT]:
@@ -503,13 +502,13 @@ DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS : int  = 10
 class KnowledgeManagerConfig(ConfigType):
 	"""RAG knowledge store combining content_db and index_db. Requires both DBs wired. Set query=true to enable retrieval. Wire get→agent_config.knowledge_mgr."""
 	type        : Annotated[Literal["knowledge_manager_config"], FieldRole.CONSTANT] = "knowledge_manager_config"
-	query       : Annotated[bool                               , FieldRole.INPUT   ] = DEFAULT_KNOWLEDGE_MANAGER_QUERY
-	description : Annotated[Optional[str]                      , FieldRole.INPUT   ] = None
+	query       : Annotated[bool                               , FieldRole.INPUT   ] = Field(default=DEFAULT_KNOWLEDGE_MANAGER_QUERY,       description="If true, perform RAG retrieval to augment the agent's context on each request")
+	description : Annotated[Optional[str]                      , FieldRole.INPUT   ] = Field(default=None,                                  description="Short description of this knowledge base, used to guide the agent's retrieval")
 	# content_db  : Annotated[Optional[ContentDBConfig]          , FieldRole.INPUT   ] = None
-	content_db  : Annotated[ContentDBConfig                    , FieldRole.INPUT   ] = None
-	index_db    : Annotated[IndexDBConfig                      , FieldRole.INPUT   ] = None
-	max_results : Annotated[int                                , FieldRole.INPUT   ] = DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS
-	urls        : Annotated[Optional[List[str]]                , FieldRole.INPUT   ] = None
+	content_db  : Annotated[ContentDBConfig                    , FieldRole.INPUT   ] = Field(default=None,                                  description="ContentDBConfig providing the raw document storage backend")
+	index_db    : Annotated[IndexDBConfig                      , FieldRole.INPUT   ] = Field(default=None,                                  description="IndexDBConfig providing the vector index for semantic search")
+	max_results : Annotated[int                                , FieldRole.INPUT   ] = Field(default=DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS, description="Maximum number of documents to retrieve per query")
+	urls        : Annotated[Optional[List[str]]                , FieldRole.INPUT   ] = Field(default=None,                                  description="Optional list of URLs to seed the knowledge base with on startup")
 
 	@property
 	def config(self) -> Annotated[KnowledgeManagerConfig, FieldRole.OUTPUT]:
@@ -530,11 +529,11 @@ DEFAULT_TOOL_FALLBACK               : bool = False
 class ToolConfig(ConfigType):
 	"""External tool/function for agents. Set name to Python import path (e.g. 'tools.list_directory'). Wire get→agent_config.tools.<key> via MULTI_INPUT edge (target_slot='tools.<key>')."""
 	type     : Annotated[Literal["tool_config"]  , FieldRole.CONSTANT] = "tool_config"
-	name     : Annotated[str                     , FieldRole.INPUT   ] = ""
-	args     : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
-	lang     : Annotated[Optional[str]           , FieldRole.INPUT   ] = None
-	script   : Annotated[Optional[str]           , FieldRole.INPUT   ] = None
-	fallback : Annotated[bool                    , FieldRole.INPUT   ] = DEFAULT_TOOL_FALLBACK
+	name     : Annotated[str                     , FieldRole.INPUT   ] = Field(default="",   description="Python import path to the tool function (e.g. 'tools.search_web', 'tools.list_directory')")
+	args     : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = Field(default=None, description="Optional default arguments passed to the tool; merged with any runtime arguments")
+	lang     : Annotated[Optional[str]           , FieldRole.INPUT   ] = Field(default=None, description="Scripting language for inline script tools (e.g. 'python'); leave None when using name")
+	script   : Annotated[Optional[str]           , FieldRole.INPUT   ] = Field(default=None, description="Inline script body when lang is set; the return value or last expression becomes the result")
+	fallback : Annotated[bool                    , FieldRole.INPUT   ] = Field(default=DEFAULT_TOOL_FALLBACK, description="If true, skip this tool silently when unavailable instead of raising an error")
 
 	@property
 	def config(self) -> Annotated[ToolConfig, FieldRole.OUTPUT]:
@@ -556,9 +555,9 @@ DEFAULT_AGENT_OPTIONS_MARKDOWN        : bool = True
 class AgentOptionsConfig(OptionsType):
 	"""Agent personality and prompt configuration. Set name, description, instructions (list of strings), or prompt_override (full system prompt). Wire get→agent_config.options."""
 	type            : Annotated[Literal["agent_options_config"], FieldRole.CONSTANT] = "agent_options_config"
-	instructions    : Annotated[Optional[List[str]]            , FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_INSTRUCTIONS
-	prompt_override : Annotated[Optional[str]                  , FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_PROMPT_OVERRIDE
-	markdown        : Annotated[bool                           , FieldRole.INPUT   ] = DEFAULT_AGENT_OPTIONS_MARKDOWN
+	instructions    : Annotated[Optional[List[str]]            , FieldRole.INPUT   ] = Field(default=DEFAULT_AGENT_OPTIONS_INSTRUCTIONS,    description="List of instruction strings appended to the agent system prompt (one per line)")
+	prompt_override : Annotated[Optional[str]                  , FieldRole.INPUT   ] = Field(default=DEFAULT_AGENT_OPTIONS_PROMPT_OVERRIDE, description="Full system prompt text; when set, replaces all default instructions entirely")
+	markdown        : Annotated[bool                           , FieldRole.INPUT   ] = Field(default=DEFAULT_AGENT_OPTIONS_MARKDOWN,        description="If true, instruct the agent to format its responses using Markdown")
 
 	@property
 	def options(self) -> Annotated[AgentOptionsConfig, FieldRole.OUTPUT]:
@@ -574,16 +573,16 @@ class AgentOptionsConfig(OptionsType):
 )
 class AgentConfig(ConfigType):
 	"""Complete agent definition combining backend, model, options, and optional tools/memory/knowledge. Wire get→agent_flow.config or agent_chat.config."""
-	type          : Annotated[Literal["agent_config"]                            , FieldRole.CONSTANT   ] = "agent_config"
-	port          : Annotated[Optional[int]                                      , FieldRole.ANNOTATION ] = None
-	options       : Annotated[Optional[AgentOptionsConfig]                       , FieldRole.INPUT      ] = None
-	backend       : Annotated[BackendConfig                                      , FieldRole.INPUT      ] = None
-	model         : Annotated[ModelConfig                                        , FieldRole.INPUT      ] = None
-	content_db    : Annotated[Optional[ContentDBConfig]                          , FieldRole.INPUT      ] = None
-	memory_mgr    : Annotated[Optional[MemoryManagerConfig]                      , FieldRole.INPUT      ] = None
-	session_mgr   : Annotated[Optional[SessionManagerConfig]                     , FieldRole.INPUT      ] = None
-	knowledge_mgr : Annotated[Optional[KnowledgeManagerConfig]                   , FieldRole.INPUT      ] = None
-	tools         : Annotated[Optional[Dict[str, ToolConfig]]                   , FieldRole.MULTI_INPUT] = None
+	type          : Annotated[Literal["agent_config"]                           , FieldRole.CONSTANT   ] = "agent_config"
+	port          : Annotated[Optional[int]                                     , FieldRole.ANNOTATION ] = None
+	options       : Annotated[Optional[AgentOptionsConfig]                      , FieldRole.INPUT      ] = Field(default=None, description="AgentOptionsConfig defining the agent persona, instructions, and system prompt")
+	backend       : Annotated[BackendConfig                                     , FieldRole.INPUT      ] = Field(default=None, description="BackendConfig specifying which AI engine to use (e.g. 'agno')")
+	model         : Annotated[ModelConfig                                       , FieldRole.INPUT      ] = Field(default=None, description="ModelConfig specifying the language model provider and name")
+	content_db    : Annotated[Optional[ContentDBConfig]                         , FieldRole.INPUT      ] = Field(default=None, description="Optional ContentDBConfig for direct database access (bypasses the knowledge manager)")
+	memory_mgr    : Annotated[Optional[MemoryManagerConfig]                     , FieldRole.INPUT      ] = Field(default=None, description="Optional MemoryManagerConfig for long-term memory persistence across sessions")
+	session_mgr   : Annotated[Optional[SessionManagerConfig]                    , FieldRole.INPUT      ] = Field(default=None, description="Optional SessionManagerConfig for per-conversation history management")
+	knowledge_mgr : Annotated[Optional[KnowledgeManagerConfig]                  , FieldRole.INPUT      ] = Field(default=None, description="Optional KnowledgeManagerConfig enabling RAG retrieval from a document store")
+	tools         : Annotated[Optional[Dict[str, ToolConfig]]                   , FieldRole.MULTI_INPUT] = Field(default=None, description="Dict of ToolConfig nodes; each key becomes a callable tool name available to the agent")
 
 	@property
 	def config(self) -> Annotated[AgentConfig, FieldRole.OUTPUT]:
@@ -593,8 +592,8 @@ class AgentConfig(ConfigType):
 @node_info(visible=False)
 class FlowType(BaseType):
 	type     : Annotated[Literal["flow_type"], FieldRole.CONSTANT] = "flow_type"
-	flow_in  : Annotated[Optional[Any]       , FieldRole.INPUT   ] = None
-	flow_out : Annotated[Optional[Any]       , FieldRole.OUTPUT  ] = None
+	flow_in  : Annotated[Optional[Any]       , FieldRole.INPUT   ] = Field(default=None, description="Receives the execution token from the upstream flow node; connect from the previous node's flow_out")
+	flow_out : Annotated[Optional[Any]       , FieldRole.OUTPUT  ] = Field(default=None, description="Passes the execution token to the next downstream flow node; connect to the next node's flow_in")
 
 
 @node_info(
@@ -643,7 +642,7 @@ class SinkFlow(FlowType):
 class PreviewFlow(FlowType):
 	"""Passthrough node with UI data preview. Set hint to control rendering (auto/text/json/image/audio/video). Data passes unchanged to 'output'."""
 	type   : Annotated[Literal["preview_flow"]                                              , FieldRole.CONSTANT] = "preview_flow"
-	hint   : Annotated[Literal["auto", "text", "json", "image", "audio", "video", "model3d"], FieldRole.INPUT   ] = "auto"
+	hint   : Annotated[Literal["auto", "text", "json", "image", "audio", "video", "model3d"], FieldRole.INPUT   ] = Field(default="auto", description="Rendering hint for the UI preview panel — controls how the incoming data is visualized")
 
 
 @node_info(
@@ -656,10 +655,10 @@ class PreviewFlow(FlowType):
 class RouteFlow(FlowType):
 	"""Conditional routing to named output branches. Declare outputs in JSON as "output":{"branch_a":null,"branch_b":null}. At runtime, target(str) selects the branch; unmatched input falls to 'default' output."""
 	type    : Annotated[Literal["route_flow"]           , FieldRole.CONSTANT    ] = "route_flow"
-	target  : Annotated[Union[int, str]                 , FieldRole.INPUT       ] = None
-	input   : Annotated[Optional[Any]                   , FieldRole.INPUT       ] = None
-	output  : Annotated[Union[List[str], Dict[str, Any]], FieldRole.MULTI_OUTPUT] = None
-	default : Annotated[Optional[Any]                   , FieldRole.OUTPUT      ] = None
+	target  : Annotated[Union[int, str]                 , FieldRole.INPUT       ] = Field(default=None, description="Branch key or index to route to; unmatched values pass through to the 'default' output")
+	input   : Annotated[Optional[Any]                   , FieldRole.INPUT       ] = Field(default=None, description="Data value to forward to the selected output branch")
+	output  : Annotated[Union[List[str], Dict[str, Any]], FieldRole.MULTI_OUTPUT] = Field(default=None, description="Named output branches — declare as JSON dict with null values (e.g. {branch_a: null, branch_b: null})")
+	default : Annotated[Optional[Any]                   , FieldRole.OUTPUT      ] = Field(default=None, description="Fallback output when target does not match any declared branch key")
 
 
 @node_info(
@@ -672,9 +671,9 @@ class RouteFlow(FlowType):
 class CombineFlow(FlowType):
 	"""Map named inputs to named outputs via a mapping dict. Both input and output are MULTI slots. mapping={src_key: dst_key}."""
 	type    : Annotated[Literal["combine_flow"]         , FieldRole.CONSTANT    ] = "combine_flow"
-	mapping : Annotated[Dict[Union[int, str], str]      , FieldRole.INPUT       ] = None
-	input   : Annotated[Union[List[str], Dict[str, Any]], FieldRole.MULTI_INPUT ] = None
-	output  : Annotated[Union[List[str], Dict[str, Any]], FieldRole.MULTI_OUTPUT] = None
+	mapping : Annotated[Dict[Union[int, str], str]      , FieldRole.INPUT       ] = Field(default=None, description="Dict mapping input branch keys to output branch keys (e.g. {src: dst})")
+	input   : Annotated[Union[List[str], Dict[str, Any]], FieldRole.MULTI_INPUT ] = Field(default=None, description="Named input branches — connect via dotted edges (target_slot='input.<key>')")
+	output  : Annotated[Union[List[str], Dict[str, Any]], FieldRole.MULTI_OUTPUT] = Field(default=None, description="Named output branches — declare as JSON object and connect via dotted edges")
 
 
 DEFAULT_MERGE_NODE_STRATEGY : str = "first"
@@ -690,9 +689,9 @@ DEFAULT_MERGE_NODE_STRATEGY : str = "first"
 class MergeFlow(FlowType):
 	"""Collect multiple branches into one output. strategy: first (first non-None), last, concat (join strings/lists), all (return list). Connect branches via MULTI_INPUT dotted edges (target_slot='input.<branch>')."""
 	type     : Annotated[Literal["merge_flow"]           , FieldRole.CONSTANT   ] = "merge_flow"
-	strategy : Annotated[str                             , FieldRole.INPUT      ] = DEFAULT_MERGE_NODE_STRATEGY
-	input    : Annotated[Union[List[str], Dict[str, Any]], FieldRole.MULTI_INPUT] = None
-	output   : Annotated[Any                             , FieldRole.OUTPUT     ] = None
+	strategy : Annotated[str                             , FieldRole.INPUT      ] = Field(default=DEFAULT_MERGE_NODE_STRATEGY, description="Merge strategy — 'first' (first non-None), 'last', 'concat' (join strings/lists), 'all' (return list)")
+	input    : Annotated[Union[List[str], Dict[str, Any]], FieldRole.MULTI_INPUT] = Field(default=None,                       description="Named input branches to merge — connect via dotted edges (target_slot='input.<key>')")
+	output   : Annotated[Any                             , FieldRole.OUTPUT     ] = Field(default=None,                       description="Merged result passed downstream according to the selected strategy")
 
 
 DEFAULT_TRANSFORM_NODE_LANG   : str = "python"
@@ -709,11 +708,11 @@ DEFAULT_TRANSFORM_NODE_SCRIPT : str = "output = input"
 class TransformFlow(FlowType):
 	"""Script-based data transform. Set lang='python' and write Python; assign result to `output` variable. Access input via `input`, workflow state via `variables`, extra context via `context`."""
 	type    : Annotated[Literal["transform_flow"], FieldRole.CONSTANT] = "transform_flow"
-	lang    : Annotated[str                      , FieldRole.INPUT   ] = DEFAULT_TRANSFORM_NODE_LANG
-	script  : Annotated[str                      , FieldRole.INPUT   ] = Field(default=DEFAULT_TRANSFORM_NODE_SCRIPT, json_schema_extra={"editor": "code"})
-	context : Annotated[Optional[Dict[str, Any]] , FieldRole.INPUT   ] = None
-	input   : Annotated[Optional[Any]            , FieldRole.INPUT   ] = None
-	output  : Annotated[Any                      , FieldRole.OUTPUT  ] = None
+	lang    : Annotated[str                      , FieldRole.INPUT   ] = Field(default=DEFAULT_TRANSFORM_NODE_LANG,   description="Scripting language for the transform; currently only 'python' is supported")
+	script  : Annotated[str                      , FieldRole.INPUT   ] = Field(default=DEFAULT_TRANSFORM_NODE_SCRIPT, json_schema_extra={"editor": "code"}, description="Python code to execute; assign `output` to produce a result; read `input`, `variables`, `context`")
+	context : Annotated[Optional[Dict[str, Any]] , FieldRole.INPUT   ] = Field(default=None,                         description="Optional extra dict injected into the script scope as the `context` variable")
+	input   : Annotated[Optional[Any]            , FieldRole.INPUT   ] = Field(default=None,                         description="Data passed into the script as the `input` variable")
+	output  : Annotated[Any                      , FieldRole.OUTPUT  ] = Field(default=None,                         description="Result produced by the script (the value assigned to `output` inside the script)")
 
 
 DEFAULT_TOOL_NODE_ARGS : Dict[str, Any] = {}
@@ -729,10 +728,10 @@ DEFAULT_TOOL_NODE_ARGS : Dict[str, Any] = {}
 class ToolFlow(FlowType):
 	"""Execute a tool within the flow graph. Wire tool_config→config. Input data is passed to the tool; result appears on 'output'."""
 	type   : Annotated[Literal["tool_flow"], FieldRole.CONSTANT] = "tool_flow"
-	config : Annotated[ToolConfig          , FieldRole.INPUT   ] = None
-	args   : Annotated[Dict[str, Any]      , FieldRole.INPUT   ] = DEFAULT_TOOL_NODE_ARGS
-	input  : Annotated[Any                 , FieldRole.INPUT   ] = None
-	output : Annotated[Any                 , FieldRole.OUTPUT  ] = None
+	config : Annotated[ToolConfig          , FieldRole.INPUT   ] = Field(default=None,                 description="ToolConfig describing which tool to invoke; wire from a tool_config node")
+	args   : Annotated[Dict[str, Any]      , FieldRole.INPUT   ] = Field(default=DEFAULT_TOOL_NODE_ARGS, description="Optional runtime argument overrides merged with the tool's default arguments")
+	input  : Annotated[Any                 , FieldRole.INPUT   ] = Field(default=None,                 description="Primary data passed to the tool as its main input")
+	output : Annotated[Any                 , FieldRole.OUTPUT  ] = Field(default=None,                 description="Result returned by the tool after execution")
 
 
 @node_info(
@@ -745,9 +744,9 @@ class ToolFlow(FlowType):
 class AgentFlow(FlowType):
 	"""Execute one agent turn within the flow graph. Wire agent_config→config. Text/dict on 'request'; LLM response dict on 'response'."""
 	type     : Annotated[Literal["agent_flow"], FieldRole.CONSTANT] = "agent_flow"
-	config   : Annotated[AgentConfig          , FieldRole.INPUT   ] = None
-	request  : Annotated[Any                  , FieldRole.INPUT   ] = None
-	response : Annotated[Any                  , FieldRole.OUTPUT  ] = None
+	config   : Annotated[AgentConfig          , FieldRole.INPUT   ] = Field(default=None, description="AgentConfig describing the agent to invoke; wire from an agent_config node")
+	request  : Annotated[Any                  , FieldRole.INPUT   ] = Field(default=None, description="Text or dict sent as the user message to the agent for this turn")
+	response : Annotated[Any                  , FieldRole.OUTPUT  ] = Field(default=None, description="Dict containing the agent's response content and metadata")
 
 
 # =============================================================================
@@ -777,10 +776,10 @@ class LoopStartFlow(FlowType):
 	3. Executes all nodes in the loop body
 	4. When LoopEnd is reached, returns here for next iteration
 	"""
-	type          : Annotated[Literal["loop_start_flow"], FieldRole.CONSTANT] = "loop_start_flow"
-	condition     : Annotated[bool                      , FieldRole.INPUT   ] = True
-	max_iter      : Annotated[int                       , FieldRole.INPUT   ] = DEFAULT_LOOP_MAX_ITERATIONS
-	iteration     : Annotated[int                       , FieldRole.OUTPUT  ] = 0
+	type      : Annotated[Literal["loop_start_flow"], FieldRole.CONSTANT] = "loop_start_flow"
+	condition : Annotated[bool                      , FieldRole.INPUT   ] = Field(default=True,                        description="Loop continuation condition; evaluated before each iteration — loop stops when False")
+	max_iter  : Annotated[int                       , FieldRole.INPUT   ] = Field(default=DEFAULT_LOOP_MAX_ITERATIONS, description="Safety cap on the number of iterations to prevent infinite loops")
+	iteration : Annotated[int                       , FieldRole.OUTPUT  ] = Field(default=0,                           description="Current iteration counter, starting at 0 and incrementing each loop cycle")
 
 
 @node_info(
@@ -824,9 +823,9 @@ class ForEachStartFlow(FlowType):
 	4. Moves to the next item
 	"""
 	type    : Annotated[Literal["for_each_start_flow"], FieldRole.CONSTANT] = "for_each_start_flow"
-	items   : Annotated[List[Any]                     , FieldRole.INPUT   ] = None
-	current : Annotated[Any                           , FieldRole.OUTPUT  ] = None
-	index   : Annotated[int                           , FieldRole.OUTPUT  ] = 0
+	items   : Annotated[List[Any]                     , FieldRole.INPUT   ] = Field(default=None, description="List to iterate over; the loop body executes once for each element")
+	current : Annotated[Any                           , FieldRole.OUTPUT  ] = Field(default=None, description="The current item in the iteration, updated on each loop cycle")
+	index   : Annotated[int                           , FieldRole.OUTPUT  ] = Field(default=0,    description="Zero-based index of the current item within the list")
 
 
 @node_info(
@@ -917,14 +916,14 @@ class GateFlow(FlowType):
 	- Conditional: trigger only when custom condition met
 	"""
 	type          : Annotated[Literal["gate_flow"], FieldRole.CONSTANT] = "gate_flow"
-	input         : Annotated[Any                 , FieldRole.INPUT   ] = None
-	threshold     : Annotated[int                 , FieldRole.INPUT   ] = DEFAULT_GATE_THRESHOLD
-	condition     : Annotated[Optional[str]       , FieldRole.INPUT   ] = None  # Python expression
-	reset_on_fire : Annotated[bool                , FieldRole.INPUT   ] = DEFAULT_GATE_RESET
-	count         : Annotated[int                 , FieldRole.OUTPUT  ] = 0
-	accumulated   : Annotated[List[Any]           , FieldRole.OUTPUT  ] = None
-	triggered     : Annotated[bool                , FieldRole.OUTPUT  ] = False
-	output        : Annotated[Any                 , FieldRole.OUTPUT  ] = None
+	input         : Annotated[Any                 , FieldRole.INPUT   ] = Field(default=None,                  description="Data to accumulate; each execution adds this value to the internal buffer")
+	threshold     : Annotated[int                 , FieldRole.INPUT   ] = Field(default=DEFAULT_GATE_THRESHOLD, description="Number of inputs that must arrive before the gate fires and passes data downstream")
+	condition     : Annotated[Optional[str]       , FieldRole.INPUT   ] = Field(default=None,                  description="Optional Python expression evaluated on each input; gate fires immediately when True")  # Python expression
+	reset_on_fire : Annotated[bool                , FieldRole.INPUT   ] = Field(default=DEFAULT_GATE_RESET,    description="If true, reset the counter and accumulated buffer after the gate fires")
+	count         : Annotated[int                 , FieldRole.OUTPUT  ] = Field(default=0,                     description="Number of inputs received since the last reset")
+	accumulated   : Annotated[List[Any]           , FieldRole.OUTPUT  ] = Field(default=None,                  description="List of all input values accumulated since the last reset")
+	triggered     : Annotated[bool                , FieldRole.OUTPUT  ] = Field(default=False,                 description="True on the execution step when the gate fires; False otherwise")
+	output        : Annotated[Any                 , FieldRole.OUTPUT  ] = Field(default=None,                  description="The latest input value passed downstream when the gate fires")
 
 
 DEFAULT_DELAY_DURATION_MS : int  = 1000
@@ -943,10 +942,10 @@ class DelayFlow(FlowType):
 
 	Unlike Timer, Delay executes only once and passes through data.
 	"""
-	type          : Annotated[Literal["delay_flow"], FieldRole.CONSTANT] = "delay_flow"
-	duration_ms   : Annotated[int                  , FieldRole.INPUT   ] = DEFAULT_DELAY_DURATION_MS
-	input         : Annotated[Optional[Any]        , FieldRole.INPUT   ] = None
-	output        : Annotated[Any                  , FieldRole.OUTPUT  ] = None
+	type        : Annotated[Literal["delay_flow"], FieldRole.CONSTANT] = "delay_flow"
+	duration_ms : Annotated[int                  , FieldRole.INPUT   ] = Field(default=DEFAULT_DELAY_DURATION_MS, description="Pause duration in milliseconds before passing data to the next node")
+	input       : Annotated[Optional[Any]        , FieldRole.INPUT   ] = Field(default=None,                     description="Data to pass through unchanged after the delay expires")
+	output      : Annotated[Any                  , FieldRole.OUTPUT  ] = Field(default=None,                     description="Input data forwarded downstream after the delay")
 
 
 # =============================================================================
@@ -972,15 +971,15 @@ class EventListenerFlow(FlowType):
 
 	The node blocks workflow execution until an event is received.
 	"""
-	type        : Annotated[Literal["event_listener_flow"], FieldRole.CONSTANT   ] = "event_listener_flow"
-	sources     : Annotated[Optional[Dict[str, Any]]      , FieldRole.MULTI_INPUT] = None   # Source IDs (multi-input from source nodes)
-	mode        : Annotated[Literal["any", "all", "race"] , FieldRole.INPUT      ] = "any"
-	timeout_ms  : Annotated[Optional[int]                 , FieldRole.INPUT      ] = None   # None = no timeout
+	type       : Annotated[Literal["event_listener_flow"], FieldRole.CONSTANT   ] = "event_listener_flow"
+	sources    : Annotated[Optional[Dict[str, Any]]      , FieldRole.MULTI_INPUT] = Field(default=None,   description="Dict of registered source IDs to listen to — wire from source node 'registered_id' outputs")  # Source IDs (multi-input from source nodes)
+	mode       : Annotated[Literal["any", "all", "race"] , FieldRole.INPUT      ] = Field(default="any",  description="Trigger mode — 'any' fires on first source, 'all' waits for all sources, 'race' fires then resets")
+	timeout_ms : Annotated[Optional[int]                 , FieldRole.INPUT      ] = Field(default=None,   description="Maximum wait time in milliseconds; None means wait indefinitely for an event")  # None = no timeout
 	# Outputs
-	event       : Annotated[Any                           , FieldRole.OUTPUT     ] = None   # The event data
-	source_id   : Annotated[Optional[str]                 , FieldRole.OUTPUT     ] = None   # Which source triggered
-	events      : Annotated[Optional[Dict[str, Any]]      , FieldRole.OUTPUT     ] = None   # All events (for 'all' mode)
-	timed_out   : Annotated[bool                          , FieldRole.OUTPUT     ] = False  # True if timeout occurred
+	event      : Annotated[Any                           , FieldRole.OUTPUT     ] = Field(default=None,   description="The event data payload received from the triggering source")
+	source_id  : Annotated[Optional[str]                 , FieldRole.OUTPUT     ] = Field(default=None,   description="ID of the event source that triggered this listener")
+	events     : Annotated[Optional[Dict[str, Any]]      , FieldRole.OUTPUT     ] = Field(default=None,   description="Dict of all received events keyed by source ID (populated in 'all' mode)")
+	timed_out  : Annotated[bool                          , FieldRole.OUTPUT     ] = Field(default=False,  description="True if the listener exited because the timeout elapsed rather than receiving an event")
 
 
 # =============================================================================
@@ -1000,12 +999,12 @@ DEFAULT_TIMER_MAX_TRIGGERS  : int  = -1      # -1 = infinite
 )
 class TimerSourceFlow(FlowType):
 	"""Timer Source node - creates/registers a timer event source."""
-	type           : Annotated[Literal["timer_source_flow"], FieldRole.CONSTANT] = "timer_source_flow"
-	source_id      : Annotated[Optional[str]               , FieldRole.INPUT   ] = None
-	interval_ms    : Annotated[int                         , FieldRole.INPUT   ] = DEFAULT_TIMER_INTERVAL_MS
-	max_triggers   : Annotated[int                         , FieldRole.INPUT   ] = DEFAULT_TIMER_MAX_TRIGGERS
-	immediate      : Annotated[bool                        , FieldRole.INPUT   ] = False
-	registered_id  : Annotated[Optional[str]                , FieldRole.OUTPUT  ] = None
+	type          : Annotated[Literal["timer_source_flow"], FieldRole.CONSTANT] = "timer_source_flow"
+	source_id     : Annotated[Optional[str]               , FieldRole.INPUT   ] = Field(default=None,                         description="Optional stable identifier for this timer; auto-generated if not set")
+	interval_ms   : Annotated[int                         , FieldRole.INPUT   ] = Field(default=DEFAULT_TIMER_INTERVAL_MS,    description="Time between timer events in milliseconds (e.g. 1000 = once per second)")
+	max_triggers  : Annotated[int                         , FieldRole.INPUT   ] = Field(default=DEFAULT_TIMER_MAX_TRIGGERS,   description="Maximum number of times the timer fires before stopping (-1 = unlimited)")
+	immediate     : Annotated[bool                        , FieldRole.INPUT   ] = Field(default=False,                        description="If true, fire one event immediately before starting the regular interval")
+	registered_id : Annotated[Optional[str]               , FieldRole.OUTPUT  ] = Field(default=None,                        description="The ID assigned to this timer source after registration; wire to event_listener.sources")
 
 
 @node_info(
@@ -1017,14 +1016,14 @@ class TimerSourceFlow(FlowType):
 )
 class FSWatchSourceFlow(FlowType):
 	"""FS Watch Source node - watches filesystem paths for changes."""
-	type           : Annotated[Literal["fswatch_source_flow"], FieldRole.CONSTANT] = "fswatch_source_flow"
-	source_id      : Annotated[Optional[str]                 , FieldRole.INPUT   ] = None
-	path           : Annotated[str                           , FieldRole.INPUT   ] = "."
-	recursive      : Annotated[bool                          , FieldRole.INPUT   ] = True
-	patterns       : Annotated[Optional[str]                 , FieldRole.INPUT   ] = "*"
-	events         : Annotated[Optional[str]                 , FieldRole.INPUT   ] = "created,modified,deleted,moved"
-	debounce_ms    : Annotated[int                           , FieldRole.INPUT   ] = 100
-	registered_id  : Annotated[Optional[str]                  , FieldRole.OUTPUT  ] = None
+	type          : Annotated[Literal["fswatch_source_flow"], FieldRole.CONSTANT] = "fswatch_source_flow"
+	source_id     : Annotated[Optional[str]                 , FieldRole.INPUT   ] = Field(default=None,       description="Optional stable identifier for this watcher; auto-generated if not set")
+	path          : Annotated[str                           , FieldRole.INPUT   ] = Field(default=".",        description="File system path to watch for changes (file or directory)")
+	recursive     : Annotated[bool                          , FieldRole.INPUT   ] = Field(default=True,       description="If true, watch all subdirectories recursively under the given path")
+	patterns      : Annotated[Optional[str]                 , FieldRole.INPUT   ] = Field(default="*",        description="Comma-separated glob patterns to filter file events (e.g. '*.py,*.json')")
+	events        : Annotated[Optional[str]                 , FieldRole.INPUT   ] = Field(default="created,modified,deleted,moved", description="Comma-separated event types to watch for: created, modified, deleted, moved")
+	debounce_ms   : Annotated[int                           , FieldRole.INPUT   ] = Field(default=100,        description="Milliseconds to wait after the last change before emitting an event (reduces noise)")
+	registered_id : Annotated[Optional[str]                 , FieldRole.OUTPUT  ] = Field(default=None,       description="The ID assigned to this watcher after registration; wire to event_listener.sources")
 
 
 @node_info(
@@ -1036,12 +1035,12 @@ class FSWatchSourceFlow(FlowType):
 )
 class WebhookSourceFlow(FlowType):
 	"""Webhook Source node - receives HTTP webhook events."""
-	type           : Annotated[Literal["webhook_source_flow"], FieldRole.CONSTANT] = "webhook_source_flow"
-	source_id      : Annotated[Optional[str]                 , FieldRole.INPUT   ] = None
-	endpoint       : Annotated[str                           , FieldRole.INPUT   ] = "/hook/default"
-	methods        : Annotated[Optional[str]                 , FieldRole.INPUT   ] = "POST"
-	secret         : Annotated[Optional[str]                 , FieldRole.INPUT   ] = None
-	registered_id  : Annotated[Optional[str]                  , FieldRole.OUTPUT  ] = None
+	type          : Annotated[Literal["webhook_source_flow"], FieldRole.CONSTANT] = "webhook_source_flow"
+	source_id     : Annotated[Optional[str]                 , FieldRole.INPUT   ] = Field(default=None,             description="Optional stable identifier for this webhook; auto-generated if not set")
+	endpoint      : Annotated[str                           , FieldRole.INPUT   ] = Field(default="/hook/default",  description="URL path at which this webhook listens for incoming HTTP requests (e.g. '/hook/my-event')")
+	methods       : Annotated[Optional[str]                 , FieldRole.INPUT   ] = Field(default="POST",           description="Comma-separated HTTP methods accepted by this webhook (e.g. 'POST,GET')")
+	secret        : Annotated[Optional[str]                 , FieldRole.INPUT   ] = Field(default=None,             description="Optional secret token used to validate incoming webhook request signatures")
+	registered_id : Annotated[Optional[str]                 , FieldRole.OUTPUT  ] = Field(default=None,             description="The ID assigned to this webhook after registration; wire to event_listener.sources")
 
 
 @node_info(
@@ -1054,14 +1053,14 @@ class WebhookSourceFlow(FlowType):
 )
 class BrowserSourceFlow(FlowType):
 	"""Browser Source node - captures browser media events."""
-	type           : Annotated[Literal["browser_source_flow"]             , FieldRole.CONSTANT] = "browser_source_flow"
-	source_id      : Annotated[Optional[str]                              , FieldRole.INPUT   ] = None
-	device_type    : Annotated[Literal["webcam", "microphone", "screen"]  , FieldRole.INPUT   ] = "webcam"
-	mode           : Annotated[Literal["stream", "event"]                 , FieldRole.INPUT   ] = "event"
-	interval_ms    : Annotated[int                                        , FieldRole.INPUT   ] = 1000
-	resolution     : Annotated[Optional[str]                              , FieldRole.INPUT   ] = None
-	audio_format   : Annotated[Optional[str]                              , FieldRole.INPUT   ] = None
-	registered_id  : Annotated[Optional[str]                              , FieldRole.OUTPUT  ] = None
+	type          : Annotated[Literal["browser_source_flow"]             , FieldRole.CONSTANT] = "browser_source_flow"
+	source_id     : Annotated[Optional[str]                              , FieldRole.INPUT   ] = Field(default=None,       description="Optional stable identifier for this browser source; auto-generated if not set")
+	device_type   : Annotated[Literal["webcam", "microphone", "screen"]  , FieldRole.INPUT   ] = Field(default="webcam",   description="Media device to capture from — 'webcam' for video, 'microphone' for audio, 'screen' for screen capture")
+	mode          : Annotated[Literal["stream", "event"]                 , FieldRole.INPUT   ] = Field(default="event",    description="Capture mode — 'stream' for continuous data delivery, 'event' for periodic snapshots")
+	interval_ms   : Annotated[int                                        , FieldRole.INPUT   ] = Field(default=1000,       description="Milliseconds between capture snapshots when mode is 'event'")
+	resolution    : Annotated[Optional[str]                              , FieldRole.INPUT   ] = Field(default=None,       description="Optional resolution string for video sources (e.g. '1280x720', '1920x1080')")
+	audio_format  : Annotated[Optional[str]                              , FieldRole.INPUT   ] = Field(default=None,       description="Optional audio encoding format for microphone sources (e.g. 'wav', 'opus')")
+	registered_id : Annotated[Optional[str]                              , FieldRole.OUTPUT  ] = Field(default=None,       description="The ID assigned to this browser source after registration; wire to event_listener.sources")
 
 
 # =============================================================================
@@ -1087,8 +1086,8 @@ DEFAULT_USER_INPUT_QUERY : str = "Please provide input for the workflow to conti
 class UserInputFlow(FlowType):
 	"""Pause workflow and request user input. Set query for the prompt shown to the user. User's response appears on 'message' output."""
 	type    : Annotated[Literal["user_input_flow"], FieldRole.CONSTANT] = "user_input_flow"
-	query   : Annotated[Optional[Any]             , FieldRole.INPUT   ] = DEFAULT_USER_INPUT_QUERY
-	message : Annotated[Optional[Any]             , FieldRole.OUTPUT  ] = None
+	query   : Annotated[Optional[Any]             , FieldRole.INPUT   ] = Field(default=DEFAULT_USER_INPUT_QUERY, description="Prompt text or rich content displayed to the user when the workflow pauses for input")
+	message : Annotated[Optional[Any]             , FieldRole.OUTPUT  ] = Field(default=None,                     description="The user's response text or data, available downstream after the user submits input")
 
 
 @node_button(
@@ -1107,9 +1106,9 @@ class UserInputFlow(FlowType):
 class ToolCall(InteractiveType):
 	"""Interactive tool execution UI panel. Wire tool_config→config; optional args override. Result shown on 'result' output."""
 	type   : Annotated[Literal["tool_call"]    , FieldRole.CONSTANT] = "tool_call"
-	config : Annotated[ToolConfig              , FieldRole.INPUT   ] = None
-	args   : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = None
-	result : Annotated[Any                     , FieldRole.OUTPUT  ] = None
+	config : Annotated[ToolConfig              , FieldRole.INPUT   ] = Field(default=None, description="ToolConfig describing which tool to invoke; wire from a tool_config node")
+	args   : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = Field(default=None, description="Optional argument overrides for this interactive invocation")
+	result : Annotated[Any                     , FieldRole.OUTPUT  ] = Field(default=None, description="The tool's return value after the user triggers execution")
 
 
 @node_chat(
@@ -1132,8 +1131,8 @@ class ToolCall(InteractiveType):
 class AgentChat(InteractiveType):
 	"""Interactive chat UI for conversing with an agent. Wire agent_config→config. Supports streaming responses. Use system_prompt to override agent prompt for this chat."""
 	type          : Annotated[Literal["agent_chat"], FieldRole.CONSTANT] = "agent_chat"
-	config        : Annotated[AgentConfig          , FieldRole.INPUT   ] = None
-	system_prompt : Annotated[Optional[str]        , FieldRole.INPUT   ] = None
+	config        : Annotated[AgentConfig          , FieldRole.INPUT   ] = Field(default=None, description="AgentConfig defining the agent to converse with; wire from an agent_config node")
+	system_prompt : Annotated[Optional[str]        , FieldRole.INPUT   ] = Field(default=None, description="Optional system prompt override applied to this chat session only")
 	# response      : Annotated[Any                  , FieldRole.OUTPUT  ] = None
 	# chat          : Annotated[Any                  , FieldRole.OUTPUT  ] = None
 
@@ -1173,8 +1172,8 @@ class AgentChat(InteractiveType):
 class Counter(InteractiveType):
 	"""Tutorial: A Counter node demonstrating basic interactivity."""
 	type  : Annotated[Literal["counter"], FieldRole.CONSTANT] = "counter"
-	step  : Annotated[int               , FieldRole.INPUT   ] = 1
-	value : Annotated[int               , FieldRole.OUTPUT  ] = 0
+	step  : Annotated[int               , FieldRole.INPUT   ] = Field(default=1, description="Amount added or subtracted on each Increment or Decrement button press")
+	value : Annotated[int               , FieldRole.OUTPUT  ] = Field(default=0, description="Current counter value; wire to any integer input downstream")
 
 # =============================================================================
 # END TUTORIAL
@@ -1255,9 +1254,9 @@ DEFAULT_WORKFLOW_USER_INPUT_TIMEOUT : float = 300.0
 @node_info(visible=False)
 class WorkflowExecutionOptions(OptionsType):
 	type               : Annotated[Literal["workflow_execution_options"], FieldRole.CONSTANT] = "workflow_execution_options"
-	exec_delay         : Annotated[Optional[float]                      , FieldRole.INPUT   ] = DEFAULT_WORKFLOW_EXEC_DELAY
-	node_delay         : Annotated[Optional[float]                      , FieldRole.INPUT   ] = DEFAULT_WORKFLOW_NODE_DELAY
-	user_input_timeout : Annotated[Optional[float]                      , FieldRole.INPUT   ] = DEFAULT_WORKFLOW_USER_INPUT_TIMEOUT
+	exec_delay         : Annotated[Optional[float]                      , FieldRole.INPUT   ] = Field(default=DEFAULT_WORKFLOW_EXEC_DELAY,         description="Seconds to pause between each workflow execution cycle (throttles the main loop)")
+	node_delay         : Annotated[Optional[float]                      , FieldRole.INPUT   ] = Field(default=DEFAULT_WORKFLOW_NODE_DELAY,         description="Seconds to pause after each individual node execution completes")
+	user_input_timeout : Annotated[Optional[float]                      , FieldRole.INPUT   ] = Field(default=DEFAULT_WORKFLOW_USER_INPUT_TIMEOUT, description="Maximum seconds to wait for user input before the workflow times out")
 
 	@property
 	def get(self) -> Annotated[WorkflowExecutionOptions, FieldRole.OUTPUT]:
@@ -1270,7 +1269,7 @@ DEFAULT_WORKFLOW_OPTIONS_SEED : int = 777
 @node_info(visible=False)
 class WorkflowOptions(OptionsType):
 	type : Annotated[Literal["workflow_options"], FieldRole.CONSTANT] = "workflow_options"
-	seed : Annotated[int                        , FieldRole.INPUT   ] = DEFAULT_WORKFLOW_OPTIONS_SEED
+	seed : Annotated[int                        , FieldRole.INPUT   ] = Field(default=DEFAULT_WORKFLOW_OPTIONS_SEED, description="Random seed for reproducibility across workflow runs")
 
 	@property
 	def get(self) -> Annotated[WorkflowOptions, FieldRole.OUTPUT]:

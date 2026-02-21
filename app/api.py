@@ -783,7 +783,7 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		return ["ollama", "openai", "anthropic", "groq", "google"]
 
 	def _get_model_names(context=None):
-		return ["mistral", "llama3", "gpt-4o", "claude-sonnet", "gemini-pro"]
+		return ["qwen3.5:cloud", "mistral", "llama3", "gpt-4o", "claude-sonnet", "gemini-pro"]
 
 	register_options_provider("model_sources", _get_model_sources)
 	register_options_provider("model_names", _get_model_names)
@@ -990,9 +990,17 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 				return raw
 			return None
 
+		def _extract_description(rhs: str) -> str:
+			"""Extract description= from a Field(...) RHS string."""
+			m = re.search(r'description\s*=\s*"([^"]*)"', rhs)
+			if not m:
+				m = re.search(r"description\s*=\s*'([^']*)'" , rhs)
+			return m.group(1) if m else ''
+
 		# ── Per-class field parsing ────────────────────────────────────────────
-		# Field tuple: (name, display_type, role, default, item_type)
+		# Field tuple: (name, display_type, role, default, item_type, description)
 		# item_type is only set for MULTI_INPUT/OUTPUT; others use ''
+		# description extracted from Field(description="..."); empty string if absent
 		nodes         = {}   # {ClassName: {type_val, fields, docstring, parent}}
 		current_class  = None
 		current_parent = None
@@ -1086,7 +1094,7 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 			if pm and in_property:
 				fname = pm.group(1)
 				ftype = re.sub(r'^Optional\[(.+)\]$', r'\1', pm.group(2).strip())
-				current_fields.append((fname, _simplify_type(ftype), 'OUTPUT', None, ''))
+				current_fields.append((fname, _simplify_type(ftype), 'OUTPUT', None, '', ''))
 				in_property = False
 				continue
 
@@ -1117,13 +1125,16 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 					item_t = ''
 					disp_t = _simplify_type(ftype_raw)
 
-				# Resolve default value
+				# Resolve default value and description
 				fdefault = None
+				fdesc    = ''
 				dm = re.search(r'\]\s*=\s*(.+?)(?:\s*#.*)?$', s)
 				if dm:
-					fdefault = _resolve_default(dm.group(1).strip())
+					rhs      = dm.group(1).strip()
+					fdefault = _resolve_default(rhs)
+					fdesc    = _extract_description(rhs)
 
-				current_fields.append((fname, disp_t, frole, fdefault, item_t))
+				current_fields.append((fname, disp_t, frole, fdefault, item_t, fdesc))
 
 		_flush()
 
@@ -1177,10 +1188,12 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 			sect = m.get('section', 'Other')
 			by_section.setdefault(sect, []).append((cname, info, m))
 
-		def fmt_f(name: str, typ: str, dflt) -> str:
+		def fmt_f(name: str, typ: str, dflt, desc: str = '') -> str:
 			s = f'{name}({typ})'
 			if dflt is not None:
 				s += f'={dflt}'
+			if desc:
+				s += f' – {desc}'
 			return s
 
 		out_lines = []
@@ -1209,15 +1222,19 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 				if doc:
 					out_lines.append(f'  doc: {doc}')
 				if in_f:
-					out_lines.append('  in:  ' + ', '.join(fmt_f(f[0], f[1], f[3]) for f in in_f))
+					out_lines.append('  in:  ' + ', '.join(fmt_f(f[0], f[1], f[3], f[5]) for f in in_f))
 				for f in min_f:
 					item_hint = f'(item:{f[4]})' if f[4] else ''
-					out_lines.append(f'  multi-in: {f[0]}{item_hint} – each branch via separate edge with target_slot="{f[0]}.<key>"')
+					dflt_hint = f'={f[3]}'        if f[3] is not None else ''
+					desc_hint = f' – {f[5]}'      if f[5] else ''
+					out_lines.append(f'  multi-in: {f[0]}{item_hint}{dflt_hint}{desc_hint} | wire each branch via target_slot="{f[0]}.<key>"')
 				if out_f:
-					out_lines.append('  out: ' + ', '.join(fmt_f(f[0], f[1], f[3]) for f in out_f))
+					out_lines.append('  out: ' + ', '.join(fmt_f(f[0], f[1], f[3], f[5]) for f in out_f))
 				for f in mout_f:
 					item_hint = f'(item:{f[4]})' if f[4] else ''
-					out_lines.append(f'  multi-out: {f[0]}{item_hint} – declare in JSON as "{f[0]}": {{"key": null, ...}}; edge source_slot="{f[0]}.<key>"')
+					dflt_hint = f'={f[3]}'        if f[3] is not None else ''
+					desc_hint = f' – {f[5]}'      if f[5] else ''
+					out_lines.append(f'  multi-out: {f[0]}{item_hint}{dflt_hint}{desc_hint} | declare in JSON as "{f[0]}": {{"key": null, ...}}; edge source_slot="{f[0]}.<key>"')
 				out_lines.append('')
 
 		return '\n'.join(out_lines)
