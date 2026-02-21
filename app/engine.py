@@ -1240,8 +1240,7 @@ class WorkflowEngine:
 
 	async def _handle_user_input(self, node_idx: int, node: Any, context: NodeExecutionContext, state: WorkflowExecutionState, timeout: int = DEFAULT_WORKFLOW_USER_INPUT_TIMEOUT) -> NodeExecutionResult:
 		"""Handle user input node"""
-		extra  = context.node_config.extra or {}
-		prompt = extra.get("message") or extra.get("title") or "Please provide input:"
+		prompt = getattr(context.node_config, 'query', None) or "Please provide input:"
 
 		future    = asyncio.Future()
 		input_key = f"{state.execution_id}:{node_idx}"
@@ -1300,6 +1299,18 @@ class WorkflowEngine:
 				state.error    = "Cancelled by user"
 				state.end_time = datetime.now().isoformat()
 		if state:
+			# Cancel any pending user-input futures
+			for key in [k for k in self.pending_user_inputs if k.startswith(execution_id + ':')]:
+				self.pending_user_inputs.pop(key, None)
+			# Emit NODE_FAILED for every node still in running state
+			for node_idx in list(state.running_nodes):
+				await self.event_bus.emit(
+					event_type   = EventType.NODE_FAILED,
+					workflow_id  = state.workflow_id,
+					execution_id = execution_id,
+					node_id      = str(node_idx),
+					data         = {"error": "Cancelled"}
+				)
 			await self.event_bus.emit(
 				event_type   = EventType.WORKFLOW_CANCELLED,
 				workflow_id  = state.workflow_id,

@@ -505,6 +505,9 @@ function setupClientEvents() {
 		setExecStatus('idle', 'Cancelled');
 		enableStart(true);
 
+		// Close any pending user-input dialog
+		closeModal();
+
 		// UNLOCK GRAPH after cancellation
 		schemaGraph.api.lock.unlock();
 		schemaGraph.eventBus.emit('workflow:cancelled', event);
@@ -1790,13 +1793,19 @@ async function submitUserInput() {
 		return;
 	}
 
+	// Save event reference and close the modal BEFORE the POST.
+	// The server resolves the input future and may immediately emit
+	// USER_INPUT_REQUESTED for the next node — if closeModal() ran
+	// after the POST, it would hide that new dialog.
+	const savedEvent = pendingInputEvent;
+	closeModal();
+
 	try {
 		await client.provideUserInput(
-			pendingInputEvent.execution_id,
-			pendingInputEvent.node_id,
+			savedEvent.execution_id,
+			savedEvent.node_id,
 			input
 		);
-		closeModal();
 	} catch (error) {
 		addLog('error', `❌ Failed to submit input: ${error.message}`);
 	}
