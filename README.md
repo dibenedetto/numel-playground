@@ -208,11 +208,11 @@ All filesystem tools accept a `root` parameter that constrains operations to pre
 
 ## Tutorials
 
-1. [Hello Workflow](tutorial-01-hello-workflow.md) — Your first workflow: Start, Preview, End
-2. [Data Transformation](tutorial-02-transform.md) — Transform data with Python scripts
-3. [Routing and Merging](tutorial-03-routing.md) — Conditional branching and merging
-4. [Loops and Iteration](tutorial-04-loops.md) — While loops and for-each iteration
-5. [Events and Timers](tutorial-05-events.md) — Timer sources and event listeners
-6. [AI Agent with Tools](tutorial-06-agent.md) — Full agent setup with chat
-7. [Preview and Media Types](tutorial-07-preview-media.md) — All supported preview formats
-8. [Generating Workflows with /gen](tutorial-08-generate.md) — AI-powered workflow generation from natural language
+1. [Hello Workflow](docs/tutorial-01-hello-workflow.md) — Your first workflow: Start, Preview, End
+2. [Data Transformation](docs/tutorial-02-transform.md) — Transform data with Python scripts
+3. [Routing and Merging](docs/tutorial-03-routing.md) — Conditional branching and merging
+4. [Loops and Iteration](docs/tutorial-04-loops.md) — While loops and for-each iteration
+5. [Events and Timers](docs/tutorial-05-events.md) — Timer sources and event listeners
+6. [AI Agent with Tools](docs/tutorial-06-agent.md) — Full agent setup with chat
+7. [Preview and Media Types](docs/tutorial-07-preview-media.md) — All supported preview formats
+8. [Generating Workflows with /gen](docs/tutorial-08-generate.md) — AI-powered workflow generation from natural language
