@@ -1,12 +1,12 @@
 # impl_agno
 
-import asyncio
 import copy
 import os
 import tempfile
 
 
 from   importlib                       import import_module
+from   inspect                         import iscoroutinefunction
 from   fastapi                         import FastAPI
 from   typing                          import Any, Dict, List, Tuple
 from   utils                           import log_print
@@ -49,11 +49,11 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		raise ValueError(f"Invalid Agno db search type: {value}")
 
 
-	def _build_backend(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
-		item_config = workflow.nodes[index]
-		assert item_config is not None and item_config.type == "backend_config", "Invalid Agno backend"
-		item = copy.deepcopy(item_config)
-		impl[index] = item
+	# def _build_backend(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
+	# 	item_config = workflow.nodes[index]
+	# 	assert item_config is not None and item_config.type == "backend_config", "Invalid Agno backend"
+	# 	item = copy.deepcopy(item_config)
+	# 	impl[index] = item
 
 
 	def _build_model(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
@@ -351,7 +351,7 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 
 	impl = [None] * len(workflow.nodes)
 
-	for i in indices["backend_config"          ]: _build_backend           (workflow, links, impl, i)
+	# for i in indices["backend_config"          ]: _build_backend           (workflow, links, impl, i)
 	for i in indices["model_config"            ]: _build_model             (workflow, links, impl, i)
 	for i in indices["embedding_config"        ]: _build_embedding         (workflow, links, impl, i)
 	for i in indices["content_db_config"       ]: _build_content_db        (workflow, links, impl, i)
@@ -365,7 +365,7 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 
 
 	async def run_tool(tool: Any, *args, **kwargs) -> dict:
-		if asyncio.iscoroutinefunction(tool):
+		if iscoroutinefunction(tool):
 			raw = await tool(*args, **kwargs)
 		else:
 			raw = tool(*args, **kwargs)

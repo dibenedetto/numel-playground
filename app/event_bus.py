@@ -7,6 +7,7 @@ import json
 from   datetime import datetime
 from   enum     import Enum
 from   fastapi  import WebSocket
+from   inspect  import iscoroutinefunction
 from   pydantic import BaseModel
 from   typing   import Any, Callable, Dict, List, Optional, Set
 
@@ -130,7 +131,7 @@ class EventBus:
 		if event.event_type in self._subscribers:
 			for callback in self._subscribers[event.event_type]:
 				try:
-					if asyncio.iscoroutinefunction(callback):
+					if iscoroutinefunction(callback):
 						await callback(event)
 					else:
 						callback(event)

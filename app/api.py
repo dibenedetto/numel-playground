@@ -1,6 +1,5 @@
 # api
 
-import asyncio
 import json
 import os
 import re
@@ -8,6 +7,7 @@ import re
 
 from   pathlib   import Path
 from   fastapi   import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, File, Form
+from   inspect   import iscoroutinefunction
 from   pydantic  import BaseModel
 from   typing    import Any, Dict, List, Optional
 
@@ -422,7 +422,7 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 				)
 				
 				try:
-					if asyncio.iscoroutinefunction(handler):
+					if iscoroutinefunction(handler):
 						handler_result = await handler(impl, node_index, button_id, uploaded)
 					else:
 						handler_result = handler(impl, node_index, button_id, uploaded)
@@ -796,7 +796,7 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		if provider_key not in _options_providers:
 			raise HTTPException(status_code=404, detail=f"Unknown options provider: {provider_key}")
 		fn = _options_providers[provider_key]
-		options = await fn() if asyncio.iscoroutinefunction(fn) else fn()
+		options = await fn() if iscoroutinefunction(fn) else fn()
 		return {"options": options}
 
 
