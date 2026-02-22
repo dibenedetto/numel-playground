@@ -1,9 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(C:/Users/marco/.conda/envs/numel/python.exe c:/devel/numel-playground/fix_blacklist.py)",
-      "Bash(C:/Users/marco/.conda/envs/numel/python.exe c:/devel/numel-playground/verify_catalog.py)",
-      "Bash(C:/Users/marco/.conda/envs/numel/python.exe:*)"
-    ]
-  }
-}

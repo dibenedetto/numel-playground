@@ -174,4 +174,6 @@ cython_debug/
 .pypirc
 
 # Misc
+.claude/
 storage/
+tmp/
