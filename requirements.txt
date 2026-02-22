@@ -1,51 +1,44 @@
 # requirements.txt
 
-# Core dependencies
-debugpy==1.8.16
-fastapi==0.116.1
-uvicorn==0.35.0
-pydantic==2.11.7
-pydantic-settings==2.10.1
-pillow==11.3.0
-pydicom==3.0.1
-pypdf==6.0.0
-python-dotenv==1.1.1
-matplotlib==3.10.6
+# general dependencies
+aiofiles
+debugpy
+fastapi
+httpx
+pydantic
+pydantic-settings
+pypdf
+python-dotenv
+python-multipart
+uvicorn
+watchdog
 
-# Async support
-asyncio==4.0.0
-aiofiles==24.1.0
+# data science
+matplotlib
+numpy
+pandas
+pillow
+pydicom
 
-# Database and storage
-chromadb==1.3.7
-sqlalchemy==2.0.43
-lancedb==0.25.0
-sqlite3-api==2.0.4
-pgvector==0.4.2
-psycopg==3.2.10
+# database
+chromadb
+lancedb
+pgvector
+psycopg
+sqlalchemy
 
-# Vector operations
-numpy==2.3.3
-# numpy==2.2.6
-pandas==2.3.2
+# web tools
+ddgs
+duckduckgo-search
 
-# Web tools
-duckduckgo-search==8.1.1
-ddgs==9.5.5
-httpx==0.28.1
-
-# CORS and security
-python-multipart==0.0.20
-
-# AI/ML frameworks
-transformers==4.56.1
-ag-ui-protocol==0.1.8
-openai==1.107.0
-ollama==0.5.3
-anthropic==0.66.0
-# agno==1.8.2
-agno==2.0.4
-langchain==0.3.27
-langchain-text-splitters==0.3.11
-sentence-transformers==5.1.0
-tantivy==0.25.0
+# ai/ml frameworks
+agno
+ag-ui-protocol
+anthropic
+langchain
+langchain-text-splitters
+ollama
+openai
+sentence-transformers
+tantivy
+transformers

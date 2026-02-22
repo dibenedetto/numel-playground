@@ -26,7 +26,7 @@ from   agno.os.interfaces.agui         import AGUI
 from   agno.session.summary            import SessionSummaryManager
 from   agno.tools.duckduckgo           import DuckDuckGoTools
 from   agno.tools.reasoning            import ReasoningTools
-from   agno.vectordb.chroma            import ChromaDb
+# from   agno.vectordb.chroma            import ChromaDb
 from   agno.vectordb.lancedb           import LanceDb
 from   agno.vectordb.pgvector          import PgVector
 from   agno.vectordb.search            import SearchType
@@ -114,11 +114,11 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		search_type = _get_search_type(item_config.search_type)
 		full_path   = f"{item_config.url}_{item_config.table_name}"
 		supported_db_classes = {
-			"chroma"   : (ChromaDb, lambda: {
-				"path"        : f"{full_path}",
-				"search_type" : search_type,
-				"collection"  : "vectors",
-			}),
+			# "chroma"   : (ChromaDb, lambda: {
+			# 	"path"        : f"{full_path}",
+			# 	"search_type" : search_type,
+			# 	"collection"  : "vectors",
+			# }),
 			"lancedb"  : (LanceDb , lambda: {
 				"uri"         : f"{full_path}",
 				"table_name"  : item_config.table_name,

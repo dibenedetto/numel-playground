@@ -208,7 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	setupEventListeners();
 
 	// Initial log
-	addLog('info', '🚀 Numel Workflow ready');
+	addLog('info', '🚀 Numel Playground ready');
 });
 
 window.addEventListener('beforeunload', (e) => {
