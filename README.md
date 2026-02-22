@@ -2,7 +2,7 @@
 
 Numel Playground is a visual workflow editor for building and running agentic AI workflows. It combines an interactive node graph canvas with a framework-agnostic\* Python backend, enabling you to design, test, and execute complex data pipelines and AI agent configurations without writing boilerplate code.
 
-**_\*_**  *currently Agno is supported*
+**_\*_**  *Currently [Agno](https://www.agno.com) is supported.*
 
 ## Architecture
 
@@ -26,7 +26,8 @@ Numel Playground is a visual workflow editor for building and running agentic AI
 
 ### Prerequisites
 
-- Python 3.8+
+- Python 3.12+
+- ```pip install -r requirements.txt```
 - For AI agent features: [Ollama](https://ollama.com) running locally, or API keys for OpenAI/Anthropic/Groq/Google
 - A modern web browser (Chrome, Firefox, Edge)
 
