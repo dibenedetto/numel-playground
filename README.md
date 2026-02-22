@@ -2,7 +2,7 @@
 
 ![Numel Playground - /gen](docs/gen.png)
 
-Numel Playground is a visual workflow editor for building and running agentic AI workflows. It combines an interactive node graph canvas with a framework-agnostic[^1] Python backend, enabling you to design, test, and execute complex data pipelines and AI agent configurations without writing boilerplate code.
+Numel Playground is a framework and a visual editor for building and running agentic AI workflows. It combines an interactive node graph canvas with a framework-agnostic[^1] Python backend, enabling you to design, test, and execute complex data pipelines and AI agent configurations without writing boilerplate code.
 
 [^1]: Currently [Agno](https://www.agno.com) is supported.
 
