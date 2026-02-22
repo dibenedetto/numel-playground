@@ -242,7 +242,11 @@ function setupEventListeners() {
 
 	// Single mode buttons
 	$('singleImportBtn').addEventListener('click', () => $('singleWorkflowFileInput').click());
+	$('singlePasteBtn' ).addEventListener('click', pasteWorkflowFromClipboard);
 	$('singleDownloadBtn').addEventListener('click', downloadWorkflow);
+	$('singleCopyBtn'  ).addEventListener('click', copyWorkflowToClipboard);
+	$('pasteWorkflowBtn').addEventListener('click', pasteWorkflowFromClipboard);
+	$('copyWorkflowBtn' ).addEventListener('click', copyWorkflowToClipboard);
 	$('singleWorkflowFileInput').addEventListener('change', handleSingleImport);
 
 	// Execution
@@ -257,8 +261,8 @@ function setupEventListeners() {
 
 	// User input modal
 	$('submitInputBtn').addEventListener('click', submitUserInput);
-	$('cancelInputBtn').addEventListener('click', closeModal);
-	$('closeModalBtn').addEventListener('click', closeModal);
+	$('cancelInputBtn').addEventListener('click', cancelUserInput);
+	$('closeModalBtn').addEventListener('click', cancelUserInput);
 
 	// Collapsible sections
 	document.querySelectorAll('.nw-collapsible-header').forEach(header => {
@@ -283,7 +287,9 @@ function enableStart(enable) {
 	$('startBtn'         ).disabled = !enable;
 	$('cancelBtn'        ).disabled = enable;
 	$('singleImportBtn'  ).disabled = !enable;
+	$('singlePasteBtn'   ).disabled = !enable;
 	$('singleDownloadBtn').disabled = !enable;
+	$('singleCopyBtn'    ).disabled = !enable;
 	updateClearButtonState();
 }
 
@@ -381,9 +387,13 @@ async function connect() {
 		$('workflowSelect').disabled = false;
 		$('serverUrl').disabled = true;
 		$('uploadWorkflowBtn').disabled = false;
+		$('pasteWorkflowBtn').disabled = false;
 		$('downloadWorkflowBtn').disabled = false;
+		$('copyWorkflowBtn').disabled = false;
 		$('singleImportBtn').disabled = false;
+		$('singlePasteBtn').disabled = false;
 		$('singleDownloadBtn').disabled = false;
+		$('singleCopyBtn').disabled = false;
 		enableStart(true);
 
 		if (singleMode) {
@@ -440,7 +450,9 @@ async function disconnect() {
 	$('workflowSelect').innerHTML = '<option value="">-- Select workflow --</option>';
 	$('loadWorkflowBtn').disabled = true;
 	$('uploadWorkflowBtn').disabled = true;
+	$('pasteWorkflowBtn').disabled = true;
 	$('downloadWorkflowBtn').disabled = true;
+	$('copyWorkflowBtn').disabled = true;
 	$('removeWorkflowBtn').disabled = true;
 
 	enableStart(false);
@@ -641,6 +653,7 @@ async function loadSelectedWorkflow() {
 		}
 
 		$('downloadWorkflowBtn').disabled = false;
+		$('copyWorkflowBtn').disabled = false;
 		enableStart(true);
 		addLog('success', `✅ Loaded "${name}"`);
 
@@ -673,6 +686,7 @@ async function handleFileUpload(event) {
 			const loaded = visualizer.loadWorkflow(workflow);
 			if (loaded) {
 				$('downloadWorkflowBtn').disabled = false;
+				$('copyWorkflowBtn').disabled = false;
 				addLog('success', `📂 Loaded workflow from file`);
 			}
 		}
@@ -833,6 +847,61 @@ function downloadWorkflow() {
 	addLog('info', '💾 Workflow downloaded');
 }
 
+async function copyWorkflowToClipboard() {
+	const workflow = visualizer?.exportWorkflow();
+	if (!workflow) {
+		addLog('error', '⚠️ No workflow to copy');
+		return;
+	}
+	try {
+		await navigator.clipboard.writeText(JSON.stringify(workflow, null, '\t'));
+		addLog('info', '📋 Workflow copied to clipboard');
+	} catch (err) {
+		addLog('error', `❌ Failed to copy: ${err.message}`);
+	}
+}
+
+async function pasteWorkflowFromClipboard() {
+	let workflow;
+	try {
+		const text = await navigator.clipboard.readText();
+		workflow = JSON.parse(text);
+	} catch (err) {
+		addLog('error', `❌ Failed to read clipboard: ${err.message}`);
+		return;
+	}
+
+	try {
+		if (client) {
+			const response = await client.addWorkflow(workflow);
+			if (response.status === 'added') {
+				addLog('success', `📋 Uploaded "${response.name}" from clipboard`);
+				await refreshWorkflowList();
+				$('workflowSelect').value = response.name;
+				await loadSelectedWorkflow();
+			} else {
+				throw new Error('Upload failed');
+			}
+		} else {
+			const loaded = visualizer.loadWorkflow(workflow);
+			if (loaded) {
+				$('downloadWorkflowBtn').disabled = false;
+				$('copyWorkflowBtn').disabled = false;
+				addLog('success', '📋 Loaded workflow from clipboard');
+			}
+		}
+
+		if (singleMode) {
+			$('singleWorkflowName').textContent = visualizer.currentWorkflowName || 'Untitled';
+			$('singleDownloadBtn').disabled = false;
+			$('singleCopyBtn').disabled = false;
+		}
+		updateClearButtonState();
+	} catch (err) {
+		addLog('error', `❌ Failed to paste workflow: ${err.message}`);
+	}
+}
+
 async function removeSelectedWorkflow() {
 	const name = $('workflowSelect').value;
 	if (!name || !client) return;
@@ -875,6 +944,7 @@ async function confirmRemoveWorkflow() {
 		await refreshWorkflowList();
 
 		$('downloadWorkflowBtn').disabled = true;
+		$('copyWorkflowBtn').disabled = true;
 		$('startBtn').disabled = true;
 		visualizer.currentWorkflow = null;
 		visualizer.currentWorkflowName = null;
@@ -901,7 +971,9 @@ async function clearWorkflow() {
 	visualizer.graphNodes = [];
 
 	$('downloadWorkflowBtn').disabled = true;
+	$('copyWorkflowBtn'    ).disabled = true;
 	$('singleDownloadBtn'  ).disabled = true;
+	$('singleCopyBtn'      ).disabled = true;
 	$('startBtn'           ).disabled = true;
 	updateClearButtonState();
 	
@@ -921,10 +993,14 @@ function toggleWorkflowMode() {
 	
 	if (client?.isConnected) {
 		$('singleImportBtn').disabled = false;
+		$('singlePasteBtn').disabled = false;
 		$('singleDownloadBtn').disabled = !visualizer.currentWorkflow;
+		$('singleCopyBtn').disabled = !visualizer.currentWorkflow;
 	} else {
 		$('singleImportBtn').disabled = true;
+		$('singlePasteBtn').disabled = true;
 		$('singleDownloadBtn').disabled = true;
+		$('singleCopyBtn').disabled = true;
 	}
 	
 	addLog('info', singleMode ? '📄 Single workflow mode' : '📚 Multi workflow mode');
@@ -1784,6 +1860,19 @@ function closeModal() {
 	pendingInputEvent = null;
 }
 
+async function cancelUserInput() {
+	if (!pendingInputEvent) { closeModal(); return; }
+	const savedEvent = pendingInputEvent;
+	closeModal();
+	if (client) {
+		try {
+			await client.cancelExecution(savedEvent.execution_id);
+		} catch (err) {
+			addLog('error', `❌ Failed to cancel execution: ${err.message}`);
+		}
+	}
+}
+
 async function submitUserInput() {
 	if (!pendingInputEvent || !client) return;
 
@@ -1848,3 +1937,4 @@ function addLog(type, message) {
 }
 
 $('uploadWorkflowBtn').disabled = true;
+	$('pasteWorkflowBtn').disabled = true;

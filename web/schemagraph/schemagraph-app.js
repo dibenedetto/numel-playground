@@ -2888,18 +2888,18 @@ class SchemaGraphApp {
 		const cached = this[cacheKey];
 
 		if (cached) {
-			this._populateComboDropdown(dropdown, cached, input.value);
+			this._populateComboDropdown(dropdown, cached, '');
 		} else if (staticOptions && staticOptions.length > 0) {
-			this._populateComboDropdown(dropdown, staticOptions, input.value);
+			this._populateComboDropdown(dropdown, staticOptions, '');
 			// Also fetch from API to get fresh options
-			this._fetchComboOptions(optionsSource, dropdown, spinner, input.value);
+			this._fetchComboOptions(optionsSource, dropdown, spinner, '');
 		} else {
-			this._fetchComboOptions(optionsSource, dropdown, spinner, input.value);
+			this._fetchComboOptions(optionsSource, dropdown, spinner, '');
 		}
 
 		refreshBtn.onclick = () => {
 			delete this[cacheKey];
-			this._fetchComboOptions(optionsSource, dropdown, spinner, input.value);
+			this._fetchComboOptions(optionsSource, dropdown, spinner, '');
 		};
 
 		input.oninput = () => {

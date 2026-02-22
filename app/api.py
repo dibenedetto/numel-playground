@@ -231,7 +231,10 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		nonlocal manager
 		workflow = await manager.get(name)
 		if workflow:
-			workflow = workflow["workflow"].model_dump()
+			if isinstance(workflow, dict):
+				workflow = {k: v.model_dump() for k, v in workflow.items()}
+			else:
+				workflow = workflow.model_dump()
 		result   = {
 			"name"     : name,
 			"workflow" : workflow,
