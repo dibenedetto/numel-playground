@@ -4,7 +4,8 @@ Numel Playground is a visual workflow editor for building and running agentic AI
 
 [^1]: Currently [Agno](https://www.agno.com) is supported.
 
-![Numel Playground - Teaser](teaser.jpg)
+![Numel Playground - Teaser 1](teaser-1.jpg)
+![Numel Playground - Teaser 2](teaser-2.jpg)
 
 ## Architecture
 
