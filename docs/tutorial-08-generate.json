@@ -13,8 +13,8 @@
     {
       "type": "model_config",
       "source": "ollama",
-      "name": "mistral",
-      "extra": { "name": "Model (Ollama/Mistral)" }
+      "name": "qwen3.5:cloud",
+      "extra": { "name": "Model (Ollama/Qwen)" }
     },
     {
       "type": "tool_config",

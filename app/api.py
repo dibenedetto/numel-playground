@@ -1308,18 +1308,26 @@ Tool nodes connect via dotted target_slot: target_slot="tools.tool_a" → agent_
 
 ### Conditional routing (route_flow)
 Declare outputs in JSON: "output": {"branch_a": null, "branch_b": null}
-Edge from upstream: source_slot="flow_out" → route_flow.target (string deciding the branch)
-Edges from route_flow: source_slot="output.branch_a" → downstream_node.flow_in
+Edges from upstream: source_slot=<key> → route_flow.target (string deciding the branch), source_slot=<key> → route_flow.input (value passed to output.<key>),
+Edges from route_flow: route_flow.input → source_slot="output.branch_a" → downstream_node.<key>
 
 ### Fan-in merging (merge_flow)
 Set strategy: "first" | "last" | "concat" | "all"
-Each branch: source_slot="flow_out" → merge_flow, target_slot="input.branch_name" (dotted)
-Result: merge_flow.output → downstream.flow_in
+Each branch: source_slot=<key> → merge_flow, target_slot="input.branch_name" (dotted)
+Result: merge_flow.output → downstream.<key>
+
+### Transformation (transform_flow)
+Execute custom script that assigns to `output`.
+The input is available in the `input` variable and its type depends on the connected node.
+Be aware of type compatibility when connecting nodes.
+Be aware of double quotes and single quotes when composing the JSON.
 
 ### Loops
 loop_start_flow.condition (bool) controls iteration. Connect body nodes between
 loop_start_flow and loop_end_flow. loop_start_flow.iteration outputs current count.
 For lists: for_each_start_flow.items → body → for_each_end_flow; current item on .current output.
+An edge with source_slot="flow_out" from loop_start_flow to loop_end_flow creates a feedback loop for the next iteration,
+for example: {"source": 0, "target": 3, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true }.
 
 ### Event-driven workflows
 Register a source: timer_source_flow or webhook_source_flow → registered_id output.

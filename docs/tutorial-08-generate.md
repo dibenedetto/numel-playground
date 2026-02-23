@@ -13,7 +13,7 @@ Use the `/gen` command inside an Agent Chat node to describe a workflow in plain
 
 This tutorial requires an AI agent running. You need either:
 
-- [Ollama](https://ollama.com) running locally with a capable model (e.g., `mistral`, `llama3`)
+- [Ollama](https://ollama.com) running locally with a capable model (e.g., `mistral`, `llama3`) or remotely (e.g., qwen3.5:clous)
 - Or API keys for OpenAI, Anthropic, Groq, or Google set as environment variables
 
 ## Setup
