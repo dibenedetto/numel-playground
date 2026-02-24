@@ -655,7 +655,7 @@ class PreviewFlow(FlowType):
 class RouteFlow(FlowType):
 	"""Conditional routing to named output branches. Declare outputs in JSON as "output":{"branch_a":null,"branch_b":null}. At runtime, target(str) selects the branch; unmatched input falls to 'default' output."""
 	type    : Annotated[Literal["route_flow"]           , FieldRole.CONSTANT    ] = "route_flow"
-	target  : Annotated[Union[int, str]                 , FieldRole.INPUT       ] = Field(default=None, description="Branch key or index to route to; unmatched values pass through to the 'default' output")
+	target  : Annotated[Optional[Any]                   , FieldRole.INPUT       ] = Field(default=None, description="Branch key or index to route to; unmatched values pass through to the 'default' output")
 	input   : Annotated[Optional[Any]                   , FieldRole.INPUT       ] = Field(default=None, description="Data value to forward to the selected output branch")
 	output  : Annotated[Union[List[str], Dict[str, Any]], FieldRole.MULTI_OUTPUT] = Field(default=None, description="Named output branches — declare as JSON dict with null values (e.g. {branch_a: null, branch_b: null})")
 	default : Annotated[Optional[Any]                   , FieldRole.OUTPUT      ] = Field(default=None, description="Fallback output when target does not match any declared branch key")

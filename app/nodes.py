@@ -165,7 +165,10 @@ class WFRouteFlow(WFFlowType):
 		result = await super().execute(context)
 
 		try:
-			target  = context.inputs.get("target")
+			target = context.inputs.get("target")
+			if target is not None:
+				target = str(target)
+
 			outputs = self.config.output or {}
 
 			if not target in outputs:

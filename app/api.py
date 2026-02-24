@@ -1307,20 +1307,106 @@ agent_config.config    → agent_flow.config       (source_slot="config")
 Tool nodes connect via dotted target_slot: target_slot="tools.tool_a" → agent_config
 
 ### Conditional routing (route_flow)
+Propagate input to the sub-output matching the target value, or to default otherwise.
 Declare outputs in JSON: "output": {"branch_a": null, "branch_b": null}
 Edges from upstream: source_slot=<key> → route_flow.target (string deciding the branch), source_slot=<key> → route_flow.input (value passed to output.<key>),
 Edges from route_flow: route_flow.input → source_slot="output.branch_a" → downstream_node.<key>
+Example:
+{
+  "type": "workflow",
+  "nodes": [
+    {
+      "type": "start_flow"
+    },
+    {
+      "type": "native_string",
+	  "raw": "Plink"
+    },
+    {
+      "type": "user_input_flow",
+      "query": "Enter your animal kind:"
+    },
+    {
+      "type": "route_flow",
+      "output": {"cat": null, "dog": null}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "output = f'Call your cat {str(input)}!'"
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "output = 'Call your dog {str(input)}!'"
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "output = 'Call it {str(input)}!'"
+    },
+    {
+      "type": "merge_flow",
+      "input": "{"option_1": null, "option_2": null, "option_default": null}",
+    },
+    {
+      "type": "preview_flow"
+    },
+    {
+      "type": "end_flow"
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 2, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 1, "target": 2, "source_slot": "message", "target_slot": "input" },
+
+	
+		    { "source": 2, "target": 3, "source_slot": "output", "target_slot": "flow_in" },
+    { "source": 3, "target": 4, "source_slot": "flow_out", "target_slot": "flow_in" }
+  ]
+}
 
 ### Fan-in merging (merge_flow)
 Set strategy: "first" | "last" | "concat" | "all"
 Each branch: source_slot=<key> → merge_flow, target_slot="input.branch_name" (dotted)
 Result: merge_flow.output → downstream.<key>
+Example: see route_flow example above.
 
 ### Transformation (transform_flow)
 Execute custom script that assigns to `output`.
 The input is available in the `input` variable and its type depends on the connected node.
 Be aware of type compatibility when connecting nodes.
 Be aware of double quotes and single quotes when composing the JSON.
+Example:
+{
+  "type": "workflow",
+  "nodes": [
+    {
+      "type": "start_flow"
+    },
+    {
+      "type": "user_input_flow",
+      "query": "Enter your name:"
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "output = f'Hello, {str(input).upper()}!'"
+    },
+    {
+      "type": "preview_flow"
+    },
+    {
+      "type": "end_flow"
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 1, "target": 2, "source_slot": "message", "target_slot": "input" },
+    { "source": 2, "target": 3, "source_slot": "output", "target_slot": "flow_in" },
+    { "source": 3, "target": 4, "source_slot": "flow_out", "target_slot": "flow_in" }
+  ]
+}
 
 ### Loops
 loop_start_flow.condition (bool) controls iteration. Connect body nodes between
@@ -1335,7 +1421,7 @@ Listen: registered_id → event_listener_flow, target_slot="sources.<key>" (dott
 event_listener_flow.event carries the received event payload.
 
 ## Rules
-1. Always place start_flow at index 0. Always end with end_flow or sink_flow.
+1. Always place start_flow at index 0. Always end with end_flow.
 2. source_slot must be an OUTPUT or MULTI_OUTPUT field name shown in the catalog "out:" line.
 3. target_slot must be an INPUT or MULTI_INPUT field name shown in the catalog "in:" line.
 4. MULTI_OUTPUT: declare sub-keys in node JSON as {"field": {"key": null}}; use dotted source_slot.
