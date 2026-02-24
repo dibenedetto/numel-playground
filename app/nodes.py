@@ -171,10 +171,13 @@ class WFRouteFlow(WFFlowType):
 
 			outputs = self.config.output or {}
 
-			if not target in outputs:
+			if target in outputs:
+				# MULTI_OUTPUT slot: edge uses source_slot "output.<key>"
+				result.outputs[f"output.{target}"] = context.inputs.get("input")
+			else:
 				target = "default"
+				result.outputs["default"] = context.inputs.get("input")
 
-			result.outputs[target] = context.inputs.get("input")
 			result.next_target = target
 
 		except Exception as e:
