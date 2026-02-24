@@ -9,7 +9,7 @@ from   datetime    import datetime
 from   enum        import Enum
 from   functools   import partial
 from   pydantic    import BaseModel, Field
-from   typing      import Any, Dict, List, Optional, Set, Tuple
+from   typing      import Any, Dict, List, Optional, Set, Tuple, Union, get_origin, get_args
 
 
 from   event_bus   import EventType, EventBus
@@ -1202,6 +1202,48 @@ class WorkflowEngine:
 	# Fields from base classes that should not be treated as data inputs
 	_BASE_FIELDS = frozenset({"type", "id", "extra", "flow"})
 
+	@staticmethod
+	def _unwrap_annotation(annotation: Any) -> Any:
+		"""Unwrap Annotated[X, ...] and Optional[X] down to the core type."""
+		if annotation is None or annotation is Any:
+			return annotation
+		# Unwrap Annotated[X, ...] — has __metadata__ attribute
+		if hasattr(annotation, '__metadata__'):
+			args = get_args(annotation)
+			if args:
+				return WorkflowEngine._unwrap_annotation(args[0])
+		# Unwrap Optional[X] = Union[X, None]
+		origin = get_origin(annotation)
+		if origin is Union:
+			non_none = [a for a in get_args(annotation) if a is not type(None)]
+			if len(non_none) == 1:
+				return WorkflowEngine._unwrap_annotation(non_none[0])
+		return annotation
+
+	@staticmethod
+	def _coerce_edge_value(value: Any, annotation: Any) -> Any:
+		"""Coerce an edge value to the target field's type annotation.
+		Only coerces between primitive scalar types; leaves complex/Any types unchanged."""
+		core = WorkflowEngine._unwrap_annotation(annotation)
+		if core is None or core is Any or value is None:
+			return value
+		if isinstance(value, core):
+			return value  # already correct type
+		try:
+			if core is int and not isinstance(value, bool):
+				return int(value)
+			if core is float:
+				return float(value)
+			if core is str:
+				return str(value)
+			if core is bool:
+				if isinstance(value, str):
+					return value.lower() not in ('false', '0', 'no', 'none', '')
+				return bool(value)
+		except (TypeError, ValueError):
+			pass
+		return value
+
 	def _gather_inputs(self, edges: List[Edge], node_idx: int, node_outputs: Dict[int, Dict[str, Any]], node_config: Any = None) -> Dict[str, Any]:
 		"""Gather input data from node config (native values) and connected edges.
 		Edge-connected values override native values."""
@@ -1215,6 +1257,11 @@ class WorkflowEngine:
 				if val is not None:
 					inputs[key] = val
 
+		# Precompute field annotations for coercion (Pydantic v2)
+		field_annotations: Dict[str, Any] = {}
+		if node_config is not None and hasattr(node_config, 'model_fields'):
+			field_annotations = {name: fi.annotation for name, fi in node_config.model_fields.items()}
+
 		# Override with edge-connected values
 		for edge in edges:
 			if edge.target != node_idx:
@@ -1222,7 +1269,7 @@ class WorkflowEngine:
 
 			if edge.source in node_outputs:
 				source_data = node_outputs[edge.source]
-				
+
 				# Handle dotted slot names
 				data = None
 				if edge.source_slot in source_data:
@@ -1233,6 +1280,10 @@ class WorkflowEngine:
 						data = source_data[base_slot]
 
 				if data is not None:
+					# Coerce to target field type when possible
+					ann = field_annotations.get(edge.target_slot)
+					if ann is not None:
+						data = self._coerce_edge_value(data, ann)
 					inputs[edge.target_slot] = data
 
 		return inputs
