@@ -1315,54 +1315,54 @@ Example:
 {
   "type": "workflow",
   "nodes": [
-    {
+    0{
       "type": "start_flow"
     },
-    {
+    1{
       "type": "native_string",
 	  "raw": "Plink"
     },
-    {
+    2{
       "type": "user_input_flow",
       "query": "Enter your animal kind:"
     },
-    {
+    3{
       "type": "route_flow",
       "output": {"cat": null, "dog": null}
     },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "output = f'Call your cat {str(input)}!'"
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "output = 'Call your dog {str(input)}!'"
-    },
-    {
+    4{
       "type": "transform_flow",
       "lang": "python",
       "script": "output = 'Call it {str(input)}!'"
     },
-    {
+    5{
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "output = f'Call your cat {str(input)}!'"
+    },
+    6{
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "output = 'Call your dog {str(input)}!'"
+    },
+    7{
       "type": "merge_flow",
       "input": "{"option_1": null, "option_2": null, "option_default": null}",
     },
-    {
+    8{
       "type": "preview_flow"
     },
-    {
+    9{
       "type": "end_flow"
     }
   ],
   "edges": [
     { "source": 0, "target": 2, "source_slot": "flow_out", "target_slot": "flow_in" },
-    { "source": 1, "target": 2, "source_slot": "message", "target_slot": "input" },
-
-	
-		    { "source": 2, "target": 3, "source_slot": "output", "target_slot": "flow_in" },
-    { "source": 3, "target": 4, "source_slot": "flow_out", "target_slot": "flow_in" }
+    { "source": 2, "target": 3, "source_slot": "message", "target_slot": "target" },
+    { "source": 1, "target": 3, "source_slot": "value", "target_slot": "input" },
+    { "source": 3, "target": 4, "source_slot": "default", "target_slot": "input" },
+    { "source": 3, "target": 5, "source_slot": "output.cat", "target_slot": "input" },
+    { "source": 3, "target": 6, "source_slot": "output.dog", "target_slot": "input" },
   ]
 }
 
