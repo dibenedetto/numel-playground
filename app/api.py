@@ -1313,57 +1313,131 @@ Edges from upstream: source_slot=<key> → route_flow.target (string deciding th
 Edges from route_flow: route_flow.input → source_slot="output.branch_a" → downstream_node.<key>
 Example:
 {
-  "type": "workflow",
-  "nodes": [
-    0{
-      "type": "start_flow"
-    },
-    1{
-      "type": "native_string",
-	  "raw": "Plink"
-    },
-    2{
-      "type": "user_input_flow",
-      "query": "Enter your animal kind:"
-    },
-    3{
-      "type": "route_flow",
-      "output": {"cat": null, "dog": null}
-    },
-    4{
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "output = 'Call it {str(input)}!'"
-    },
-    5{
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "output = f'Call your cat {str(input)}!'"
-    },
-    6{
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "output = 'Call your dog {str(input)}!'"
-    },
-    7{
-      "type": "merge_flow",
-      "input": "{"option_1": null, "option_2": null, "option_default": null}",
-    },
-    8{
-      "type": "preview_flow"
-    },
-    9{
-      "type": "end_flow"
-    }
-  ],
-  "edges": [
-    { "source": 0, "target": 2, "source_slot": "flow_out", "target_slot": "flow_in" },
-    { "source": 2, "target": 3, "source_slot": "message", "target_slot": "target" },
-    { "source": 1, "target": 3, "source_slot": "value", "target_slot": "input" },
-    { "source": 3, "target": 4, "source_slot": "default", "target_slot": "input" },
-    { "source": 3, "target": 5, "source_slot": "output.cat", "target_slot": "input" },
-    { "source": 3, "target": 6, "source_slot": "output.dog", "target_slot": "input" },
-  ]
+	"type": "workflow",
+	"nodes": [
+		{
+			"type": "start_flow"
+		},
+		{
+			"type": "end_flow"
+		},
+		{
+			"type": "native_string",
+			"raw": "Plinko"
+		},
+		{
+			"type": "user_input_flow",
+			"query": "What kind is your animal?"
+		},
+		{
+			"type": "route_flow",
+			"output": {
+				"cat": null,
+				"dog": null
+			}
+		},
+		{
+			"type": "transform_flow",
+			"lang": "python",
+			"script": "output = f'Call your animal {input}!'"
+		},
+		{
+			"type": "transform_flow",
+			"lang": "python",
+			"script": "output = f'Call your cat {input}!'"
+		},
+		{
+			"type": "transform_flow",
+			"lang": "python",
+			"script": "output = f'Call your dog {input}!'"
+		},
+		{
+			"type": "merge_flow",
+			"strategy": "first"
+		},
+		{
+			"type": "preview_flow"
+		}
+	],
+	"edges": [
+		{
+			"type": "edge",
+			"source": 2,
+			"target": 4,
+			"source_slot": "value",
+			"target_slot": "input"
+		},
+		{
+			"type": "edge",
+			"source": 0,
+			"target": 3,
+			"source_slot": "flow_out",
+			"target_slot": "flow_in"
+		},
+		{
+			"type": "edge",
+			"source": 3,
+			"target": 4,
+			"source_slot": "message",
+			"target_slot": "target"
+		},
+		{
+			"type": "edge",
+			"source": 4,
+			"target": 5,
+			"source_slot": "default",
+			"target_slot": "input"
+		},
+		{
+			"type": "edge",
+			"source": 4,
+			"target": 6,
+			"source_slot": "output.cat",
+			"target_slot": "input"
+		},
+		{
+			"type": "edge",
+			"source": 4,
+			"target": 7,
+			"source_slot": "output.dog",
+			"target_slot": "input"
+		},
+		{
+			"type": "edge",
+			"source": 5,
+			"target": 8,
+			"source_slot": "output",
+			"target_slot": "input.option_default"
+		},
+		{
+			"type": "edge",
+			"source": 6,
+			"target": 8,
+			"source_slot": "output",
+			"target_slot": "input.option_1"
+		},
+		{
+			"type": "edge",
+			"source": 7,
+			"target": 8,
+			"source_slot": "output",
+			"target_slot": "input.option_2"
+		},
+		{
+			"type": "edge",
+			"source": 8,
+			"target": 9,
+			"source_slot": "output",
+			"target_slot": "flow_in"
+		},
+		{
+			"type": "edge",
+			"source": 9,
+			"target": 1,
+			"source_slot": "flow_out",
+			"target_slot": "flow_in"
+		}
+	]
 }
 
 ### Fan-in merging (merge_flow)
