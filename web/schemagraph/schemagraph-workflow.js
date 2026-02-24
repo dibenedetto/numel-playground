@@ -1049,8 +1049,23 @@ class WorkflowImporter {
 			const nodeType = nodeData.type || '';
 			let node = null;
 
-			if (nodeType.startsWith('native_')) node = this._createNativeNode(nodeData, i);
-			else node = this._createWorkflowNode(factory, nodeData, i, schemaName, typeMap);
+			// For native_* types: normalize old 'value' field to 'raw' for backward compat.
+			// New schema-driven exports use 'raw'; old-format exports used 'value'.
+			let nd = nodeData;
+			if (nodeType.startsWith('native_') && nd.value !== undefined && nd.raw === undefined) {
+				nd = { ...nd, raw: nd.value };
+				delete nd.value;
+			}
+
+			// Always try schema-driven factory first (handles NativeBoolean, NativeString, etc.).
+			// Fall back to _createNativeNode only for truly legacy nodes not in the schema.
+			if (factory && this._resolveModelName(nodeType, schemaName, typeMap)) {
+				node = this._createWorkflowNode(factory, nd, i, schemaName, typeMap);
+			} else if (nodeType.startsWith('native_')) {
+				node = this._createNativeNode(nd, i);
+			} else {
+				node = this._createWorkflowNode(factory, nd, i, schemaName, typeMap);
+			}
 			createdNodes.push(node);
 		}
 

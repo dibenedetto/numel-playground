@@ -966,19 +966,14 @@ async function clearWorkflow() {
 	schemaGraph.api.view.reset();
 	await client.removeWorkflow();
 
-	visualizer.currentWorkflow = null;
-	visualizer.currentWorkflowName = null;
+	visualizer.initEmptyWorkflow();
 	visualizer.graphNodes = [];
 
-	$('downloadWorkflowBtn').disabled = true;
-	$('copyWorkflowBtn'    ).disabled = true;
-	$('singleDownloadBtn'  ).disabled = true;
-	$('singleCopyBtn'      ).disabled = true;
-	$('startBtn'           ).disabled = true;
+	$('startBtn').disabled = true;
 	updateClearButtonState();
-	
+
 	if (singleMode) {
-		$('singleWorkflowName').textContent = 'None';
+		$('singleWorkflowName').textContent = visualizer.currentWorkflowName;
 	}
 	
 	addLog('info', '🧹 Graph cleared');
