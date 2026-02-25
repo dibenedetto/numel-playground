@@ -16,29 +16,30 @@ console.log('[SchemaGraph] Loading ML extension...');
 
 // ── MediaPipe CDN ────────────────────────────────────────────────────────────
 
-const MEDIAPIPE_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.js';
+const MEDIAPIPE_CDN = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/+esm';
 
 let _mpVisionLoaded   = false;
 let _mpVisionLoading  = null;   // Promise while loading
+let _mpVisionModule   = null;   // Cached ES module object
 
 async function loadMediaPipeVision() {
-	if (_mpVisionLoaded && window.mediapipeTasksVision) return window.mediapipeTasksVision;
+	if (_mpVisionLoaded && _mpVisionModule) return _mpVisionModule;
 	if (_mpVisionLoading) return _mpVisionLoading;
 
-	_mpVisionLoading = new Promise((resolve, reject) => {
-		const s = document.createElement('script');
-		s.src   = MEDIAPIPE_CDN;
-		s.onload = () => {
-			_mpVisionLoaded = true;
-			console.log('[ML] MediaPipe Tasks Vision loaded from CDN.');
-			resolve(window.mediapipeTasksVision);
-		};
-		s.onerror = (e) => {
+	// Use dynamic import() — required when the CDN serves an ES module (/+esm).
+	// Dynamic import() works from classic scripts in all modern browsers.
+	_mpVisionLoading = import(MEDIAPIPE_CDN)
+		.then(module => {
+			_mpVisionLoaded  = true;
+			_mpVisionModule  = module;
 			_mpVisionLoading = null;
-			reject(new Error('Failed to load MediaPipe Tasks Vision from CDN: ' + e));
-		};
-		document.head.appendChild(s);
-	});
+			console.log('[ML] MediaPipe Tasks Vision loaded from CDN.');
+			return module;
+		})
+		.catch(err => {
+			_mpVisionLoading = null;
+			throw new Error('Failed to load MediaPipe Tasks Vision from CDN: ' + err);
+		});
 
 	return _mpVisionLoading;
 }
@@ -80,7 +81,7 @@ class FrontendInferenceManager {
 			const { PoseLandmarker, FilesetResolver } = mp;
 
 			const filesetResolver = await FilesetResolver.forVisionTasks(
-				'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm'
+				'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm'
 			);
 
 			const detector = await PoseLandmarker.createFromOptions(filesetResolver, {
@@ -171,15 +172,23 @@ class FrontendInferenceManager {
 		if (overlay) {
 			const canvas = overlay.querySelector('.sg-media-overlay-canvas');
 			if (canvas) {
-				canvas.width  = w;
-				canvas.height = h;
+				// Use the CSS display size for the pixel buffer so drawing primitives
+				// (dot radius, line width) are correctly sized at any camera zoom level.
+				// Using the video's native resolution (640x480) when displayed at e.g.
+				// 191x97 CSS px makes 2px lines render as sub-pixel and invisible.
+				const dpr  = window.devicePixelRatio || 1;
+				const dw   = canvas.clientWidth  || w;
+				const dh   = canvas.clientHeight || h;
+				canvas.width  = dw * dpr;
+				canvas.height = dh * dpr;
 				const ctx = canvas.getContext('2d');
-				ctx.clearRect(0, 0, w, h);
+				if (dpr !== 1) ctx.scale(dpr, dpr);
+				ctx.clearRect(0, 0, dw, dh);
 				// Reuse the drawing helper from MediaOverlayManager if available
 				if (this._overlayMgr?._drawPoseLandmarks) {
-					this._overlayMgr._drawPoseLandmarks(ctx, landmarks, w, h, true);
+					this._overlayMgr._drawPoseLandmarks(ctx, landmarks, dw, dh, true);
 				} else {
-					_drawPoseFallback(ctx, landmarks, w, h);
+					_drawPoseFallback(ctx, landmarks, dw, dh);
 				}
 			}
 		}
@@ -259,10 +268,15 @@ class MLStreamExtension extends SchemaGraphExtension {
 			}
 		});
 
-		// Attach to MediaOverlayManager so the inference loop can access overlays
-		const mediaExt = this.app?.extensions?.get?.('browser-media');
-		if (mediaExt?.overlayManager) {
-			this.inferenceManager._overlayMgr = mediaExt.overlayManager;
+		// Attach to MediaOverlayManager so the inference loop can access overlays.
+		// Guard: inferenceManager is assigned after super() returns, so it may be
+		// undefined here if _setupEventListeners is called from the base constructor.
+		// The attachment is also done lazily in _startFrontendInference.
+		if (this.inferenceManager) {
+			const mediaExt = this.app?.extensions?.get?.('browser-media');
+			if (mediaExt?.overlayManager) {
+				this.inferenceManager._overlayMgr = mediaExt.overlayManager;
+			}
 		}
 	}
 
@@ -331,6 +345,11 @@ class MLStreamExtension extends SchemaGraphExtension {
 		const nodeId  = node.id;
 		const mediaExt= this.app?.extensions?.get?.('browser-media');
 		const ws      = mediaExt?.overlayManager?.streamWSockets?.get(nodeId) ?? null;
+
+		// Lazy-attach overlayMgr in case it was skipped during construction
+		if (!this.inferenceManager._overlayMgr && mediaExt?.overlayManager) {
+			this.inferenceManager._overlayMgr = mediaExt.overlayManager;
+		}
 
 		this._frontendInferenceEnabled.set(nodeId, true);
 		this.inferenceManager.enableForNode(node, ws).catch(err => {

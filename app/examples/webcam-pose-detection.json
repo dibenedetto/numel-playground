@@ -10,6 +10,7 @@
       "device_type": "webcam",
       "mode": "event",
       "interval_ms": 150,
+      "source_id": "cam_pose",
       "extra": {"pos": [220, 0], "name": "Webcam (150ms)"}
     },
     {
@@ -26,7 +27,7 @@
     {
       "type": "transform_flow",
       "lang": "python",
-      "script": "output = input.get('frame') if isinstance(input, dict) else None",
+      "script": "if isinstance(input, dict):\n    frame = input.get('frame')\n    if frame is None:\n        raw = str(input.get('data', ''))\n        frame = raw.split(',', 1)[-1] if ',' in raw else (raw or None)\n    output = frame\nelse:\n    output = None",
       "extra": {"pos": [940, 0], "name": "Extract Frame"}
     },
     {
@@ -62,7 +63,7 @@
     { "source": 1, "target": 6, "source_slot": "registered_id", "target_slot": "source_id" },
     { "source": 5, "target": 6, "source_slot": "flow_out",      "target_slot": "flow_in" },
     { "source": 6, "target": 7, "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 2, "target": 7, "source_slot": "flow_out",      "target_slot": "flow_in", "loop": true },
+    { "source": 2, "target": 7, "source_slot": "flow_in",       "target_slot": "flow_out", "loop": true },
     { "source": 7, "target": 8, "source_slot": "flow_out",      "target_slot": "flow_in" }
   ]
 }

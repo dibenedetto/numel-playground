@@ -72,8 +72,8 @@
     { "source": 5, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true },
     { "source": 5, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in" },
     { "source": 6, "target": 7, "source_slot": "current", "target_slot": "input" },
-    { "source": 7, "target": 8, "source_slot": "output", "target_slot": "input" },
-    { "source": 8, "target": 9, "source_slot": "output", "target_slot": "flow_in" },
+    { "source": 7, "target": 8, "source_slot": "output", "target_slot": "flow_in" },
+    { "source": 8, "target": 9, "source_slot": "flow_out", "target_slot": "flow_in" },
     { "source": 9, "target": 10, "source_slot": "flow_out", "target_slot": "flow_in" },
     { "source": 10, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true },
     { "source": 10, "target": 11, "source_slot": "flow_out", "target_slot": "flow_in" }

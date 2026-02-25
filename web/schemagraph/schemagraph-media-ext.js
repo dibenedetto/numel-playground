@@ -49,8 +49,7 @@ class MediaOverlayManager {
 		overlay.id = `sg-media-${nodeId}`;
 		overlay.innerHTML = this._buildHTML(node);
 
-		const container = this.app.canvas?.parentElement || document.body;
-		container.appendChild(overlay);
+		document.body.appendChild(overlay);
 
 		this.overlays.set(nodeId, overlay);
 		this.nodeRefs.set(nodeId, node);
@@ -77,6 +76,7 @@ class MediaOverlayManager {
 						? '<canvas class="sg-media-audio-canvas"></canvas>'
 						: `<div class="sg-media-video-wrapper">
 							<video class="sg-media-video" autoplay muted playsinline></video>
+							<canvas class="sg-media-display-canvas"></canvas>
 							<canvas class="sg-media-overlay-canvas"></canvas>
 						</div>`
 					}
@@ -154,6 +154,9 @@ class MediaOverlayManager {
 				const video = overlay?.querySelector('.sg-media-video');
 				if (video) {
 					video.srcObject = stream;
+					video.play().catch(e => console.warn('[BrowserMedia] video.play() failed:', e));
+					const displayCanvas = overlay?.querySelector('.sg-media-display-canvas');
+					if (displayCanvas) this._startVideoRenderer(nodeId, video, displayCanvas);
 				}
 			}
 
@@ -247,7 +250,10 @@ class MediaOverlayManager {
 			// ── High-frequency binary WebSocket streaming ──────────────────
 			this._startStreamingWS(node);
 		} else {
-			// ── Periodic HTTP-POST snapshot (original 'event' mode) ────────
+			// ── Periodic HTTP-POST snapshot (event mode) ───────────────────
+			// Also open the display WebSocket so stream_display_flow results
+			// (pose overlays, text, etc.) can be routed back to the browser.
+			this._startStreamingWS(node, false);   // display-only, no binary frame loop
 			const intervalMs = parseInt(this._getFieldValue(node, 'interval_ms')) || 1000;
 
 			const timer = setInterval(async () => {
@@ -291,7 +297,7 @@ class MediaOverlayManager {
 
 	// ── WebSocket binary streaming ────────────────────────────────────────────
 
-	_startStreamingWS(node) {
+	_startStreamingWS(node, startBinaryStream = true) {
 		const nodeId   = node.id;
 		const sourceId = node.extra?._browserSourceId;
 		if (!sourceId || !this._baseUrl) return;
@@ -305,8 +311,8 @@ class MediaOverlayManager {
 
 		ws.onopen = () => {
 			this.streamWSockets.set(nodeId, ws);
-			console.log(`[BrowserMedia] Stream WebSocket open for node ${nodeId}`);
-			this._startBinaryStreamLoop(node, ws);
+			console.log(`[BrowserMedia] Stream WebSocket open for node ${nodeId}${startBinaryStream ? '' : ' (display-only)'}`);
+			if (startBinaryStream) this._startBinaryStreamLoop(node, ws);
 		};
 
 		ws.onmessage = (event) => {
@@ -367,22 +373,28 @@ class MediaOverlayManager {
 		if (!overlay) return;
 
 		const canvas = overlay.querySelector('.sg-media-overlay-canvas');
-		const video  = overlay.querySelector('.sg-media-video');
 		if (!canvas) return;
 
-		canvas.width  = video?.videoWidth  || canvas.clientWidth  || 320;
-		canvas.height = video?.videoHeight || canvas.clientHeight || 240;
+		// Use CSS display size for the pixel buffer — same reasoning as ML ext:
+		// the canvas is displayed at a zoom-dependent CSS size; using the video's
+		// native resolution makes drawing primitives sub-pixel and invisible.
+		const dpr = window.devicePixelRatio || 1;
+		const dw  = canvas.clientWidth  || 320;
+		const dh  = canvas.clientHeight || 240;
+		canvas.width  = dw * dpr;
+		canvas.height = dh * dpr;
 
 		const ctx = canvas.getContext('2d');
-		ctx.clearRect(0, 0, canvas.width, canvas.height);
+		if (dpr !== 1) ctx.scale(dpr, dpr);
+		ctx.clearRect(0, 0, dw, dh);
 
 		const { render_type, payload } = msg;
 
 		if ((render_type === 'pose' || render_type === 'landmarks') && payload?.landmarks) {
-			this._drawPoseLandmarks(ctx, payload.landmarks, canvas.width, canvas.height, render_type === 'pose');
+			this._drawPoseLandmarks(ctx, payload.landmarks, dw, dh, render_type === 'pose');
 		} else if (render_type === 'text' && payload != null) {
 			ctx.fillStyle = 'rgba(0,0,0,0.55)';
-			ctx.fillRect(0, 0, canvas.width, 28);
+			ctx.fillRect(0, 0, dw, 28);
 			ctx.fillStyle = '#00ff88';
 			ctx.font      = '13px monospace';
 			ctx.fillText(typeof payload === 'string' ? payload : JSON.stringify(payload), 8, 18);
@@ -394,7 +406,7 @@ class MediaOverlayManager {
 			lines.forEach((l, i) => ctx.fillText(l, 8, 16 + i * 14));
 		}
 
-		// Auto-clear stale overlays after 600 ms
+		// Auto-clear stale overlays after 600 ms (use pixel buffer dimensions)
 		clearTimeout(this._overlayTimers.get(nodeId));
 		this._overlayTimers.set(nodeId, setTimeout(() => {
 			const c = overlay.querySelector('.sg-media-overlay-canvas');
@@ -414,13 +426,18 @@ class MediaOverlayManager {
 			[9,10],                                     // mouth
 		];
 
+		// Visibility threshold: use 0 — the model-level minPosePresenceConfidence
+		// already guards detection quality; some MediaPipe configurations return
+		// near-zero visibility scores even for valid landmarks (NORM_RECT warning).
+		const VIS_THRESHOLD = 0;
+
 		if (drawSkeleton) {
 			ctx.strokeStyle = 'rgba(0, 255, 136, 0.85)';
 			ctx.lineWidth   = 2;
 			for (const [a, b] of CONNECTIONS) {
 				if (a >= landmarks.length || b >= landmarks.length) continue;
 				const la = landmarks[a], lb = landmarks[b];
-				if ((la.visibility ?? 1) < 0.4 || (lb.visibility ?? 1) < 0.4) continue;
+				if ((la.visibility ?? 1) < VIS_THRESHOLD || (lb.visibility ?? 1) < VIS_THRESHOLD) continue;
 				ctx.beginPath();
 				ctx.moveTo(la.x * w, la.y * h);
 				ctx.lineTo(lb.x * w, lb.y * h);
@@ -430,7 +447,7 @@ class MediaOverlayManager {
 
 		// Joints
 		for (const lm of landmarks) {
-			if ((lm.visibility ?? 1) < 0.4) continue;
+			if ((lm.visibility ?? 1) < VIS_THRESHOLD) continue;
 			ctx.fillStyle = 'rgba(255, 80, 80, 0.9)';
 			ctx.beginPath();
 			ctx.arc(lm.x * w, lm.y * h, 4, 0, Math.PI * 2);
@@ -528,6 +545,46 @@ class MediaOverlayManager {
 		}
 	}
 
+
+
+	_startVideoRenderer(nodeId, video, displayCanvas) {
+		const ctx = displayCanvas.getContext('2d');
+		this._videoRafHandles = this._videoRafHandles || new Map();
+		let lastPW = 0, lastPH = 0;
+
+		const render = () => {
+			if (this.states.get(nodeId) !== MediaState.ACTIVE) return;
+
+			const dpr = window.devicePixelRatio || 1;
+			const cw  = displayCanvas.clientWidth  || 320;
+			const ch  = displayCanvas.clientHeight || 240;
+			const pw  = Math.round(cw * dpr);
+			const ph  = Math.round(ch * dpr);
+
+			if (pw !== lastPW || ph !== lastPH) {
+				displayCanvas.width  = pw;
+				displayCanvas.height = ph;
+				lastPW = pw; lastPH = ph;
+			}
+
+			ctx.fillStyle = '#000';
+			ctx.fillRect(0, 0, pw, ph);
+
+			if (video.readyState >= 2) {
+				const vw = video.videoWidth  || cw;
+				const vh = video.videoHeight || ch;
+				const scale = Math.min(pw / vw, ph / vh);
+				const dw = vw * scale, dh = vh * scale;
+				const dx = (pw - dw) / 2, dy = (ph - dh) / 2;
+				ctx.drawImage(video, dx, dy, dw, dh);
+			}
+
+			this._videoRafHandles.set(nodeId, requestAnimationFrame(render));
+		};
+
+		this._videoRafHandles.set(nodeId, requestAnimationFrame(render));
+	}
+
 	_stopCapture(node) {
 		const nodeId = node.id;
 
@@ -537,6 +594,7 @@ class MediaOverlayManager {
 			stream.getTracks().forEach(t => t.stop());
 			this.streams.delete(nodeId);
 		}
+
 
 		// Clear capture timer
 		const timer = this.captureTimers.get(nodeId);
@@ -564,10 +622,16 @@ class MediaOverlayManager {
 			this.audioCtx.delete(nodeId);
 		}
 
+		// Stop video canvas renderer
+		const vidRaf = this._videoRafHandles?.get(nodeId);
+		if (vidRaf) { cancelAnimationFrame(vidRaf); this._videoRafHandles.delete(nodeId); }
+
 		// Clear video element or audio canvas
 		const overlay = this.overlays.get(nodeId);
 		const video = overlay?.querySelector('.sg-media-video');
 		if (video) video.srcObject = null;
+		const displayCanvas = overlay?.querySelector('.sg-media-display-canvas');
+		if (displayCanvas) { const c = displayCanvas.getContext('2d'); c?.clearRect(0, 0, displayCanvas.width, displayCanvas.height); }
 		const audioCanvas = overlay?.querySelector('.sg-media-audio-canvas');
 		if (audioCanvas) {
 			const ctx = audioCanvas.getContext('2d');
@@ -664,8 +728,12 @@ class MediaOverlayManager {
 		const overlayW = nodeScreenW - (horizontalPadding * 2 * scale);
 		const overlayH = nodeScreenH - (contentStartY * scale) - (footerHeight * scale);
 
-		overlay.style.left = `${overlayX}px`;
-		overlay.style.top = `${overlayY}px`;
+		// Convert canvas-local coords to viewport coords for position:fixed
+		const canvasRect = this.app.canvas?.getBoundingClientRect();
+		const vpX = overlayX + (canvasRect?.left || 0);
+		const vpY = overlayY + (canvasRect?.top  || 0);
+		overlay.style.left = `${vpX}px`;
+		overlay.style.top = `${vpY}px`;
 		overlay.style.width = `${Math.max(overlayW, 80)}px`;
 		overlay.style.height = `${Math.max(overlayH, 60)}px`;
 		overlay.style.zIndex = this.Z_BASE;
@@ -926,7 +994,7 @@ class BrowserMediaExtension extends SchemaGraphExtension {
 		style.id = 'sg-media-styles';
 		style.textContent = `
 			.sg-media-overlay {
-				position: absolute;
+				position: fixed;
 				pointer-events: auto;
 				font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 				font-size: 12px;
@@ -995,14 +1063,22 @@ class BrowserMediaExtension extends SchemaGraphExtension {
 				position: relative;
 				width: 100%;
 				height: 100%;
+				isolation: isolate;
 			}
 
 			.sg-media-video {
+				position: absolute;
+				top: 0; left: 0;
+				width: 100%; height: 100%;
+				visibility: hidden;
+				pointer-events: none;
+			}
+
+			.sg-media-display-canvas {
 				width: 100%;
 				height: 100%;
-				object-fit: contain;
-				background: #000;
 				display: block;
+				background: #000;
 			}
 
 			.sg-media-overlay-canvas {
@@ -1011,6 +1087,7 @@ class BrowserMediaExtension extends SchemaGraphExtension {
 				width: 100%;
 				height: 100%;
 				pointer-events: none;
+				z-index: 1;
 			}
 
 			.sg-media-audio-canvas {

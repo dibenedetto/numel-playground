@@ -1,0 +1,25 @@
+{
+  "type": "workflow",
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": {"pos": [0, 0], "name": "Start"}
+    },
+    {
+      "type": "browser_source_flow",
+      "device_type": "webcam",
+      "mode": "event",
+      "interval_ms": 500,
+      "source_id": "cam_ml",
+      "extra": {"pos": [220, 0], "name": "Webcam"}
+    },
+    {
+      "type": "end_flow",
+      "extra": {"pos": [440, 0], "name": "End"}
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 1, "target": 2, "source_slot": "flow_out", "target_slot": "flow_in" }
+  ]
+}

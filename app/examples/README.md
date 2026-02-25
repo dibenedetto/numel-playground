@@ -2,14 +2,29 @@
 
 Compact JSON format — importable via the workflow generate/import UI.
 
+## webcam-frontend-ml.json
+**Nodes**: `start` → `browser_source` (webcam) → `end`
+
+Shows client-side (browser-only) pose detection with zero backend involvement:
+- Minimal workflow — just enough to instantiate the webcam overlay node
+- No backend workflow execution needed for pose rendering
+- After import: click **Start** on the webcam overlay to enable the camera, then click **🧠 ML On** to start MediaPipe inference in the browser (WebAssembly, 20 fps)
+- Skeleton is drawn directly on the overlay canvas; keypoints also forwarded to backend via WebSocket if available
+
+Requires: browser with webcam + internet access for MediaPipe CDN on first load.
+
+---
+
 ## webcam-pose-detection.json
 **Nodes**: `start` → `browser_source` (webcam) → `loop_start` → `event_listener` → `transform` (extract frame) → `pose_detector` → `stream_display` → `loop_end`
 
 Shows:
-- `browser_source_flow` with `device_type="webcam"`, `mode="event"`, `interval_ms=150`
+- `browser_source_flow` with `device_type="webcam"`, `mode="event"`, `interval_ms=150`, explicit `source_id="cam_pose"`
+- **Explicit `source_id` is required**: workflow and browser overlay must use the same ID so `stream_display_flow` can route overlay events back via `/ws/stream/cam_pose`
 - `event_listener_flow` waiting on `sources.cam` (MULTI_INPUT dotted slot)
-- `pose_detector_flow` receiving a base64 JPEG frame, outputting `keypoints`
-- `stream_display_flow` with `render_type="pose"` drawing the skeleton overlay
+- `pose_detector_flow` receiving a bare-base64 JPEG frame, outputting `keypoints`
+- `stream_display_flow` with `render_type="pose"` routing the skeleton back to the browser
+- Transform handles both event-mode frames (`data` key, strips data-URL prefix) and stream-mode frames (`frame` key, bare base64)
 - `loop_start_flow` / `loop_end_flow` for continuous capture; the `loop=true` edge is a visual hint
 
 Requires: browser with webcam + `pip install mediapipe Pillow numpy` on the backend.
