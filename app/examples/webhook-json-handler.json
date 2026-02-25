@@ -1,0 +1,57 @@
+{
+  "type": "workflow",
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": {"pos": [0, 0], "name": "Start"}
+    },
+    {
+      "type": "webhook_source_flow",
+      "endpoint": "/hook/events",
+      "methods": "POST",
+      "extra": {"pos": [220, 0], "name": "Webhook /hook/events"}
+    },
+    {
+      "type": "loop_start_flow",
+      "condition": true,
+      "max_iter": 10000,
+      "extra": {"pos": [460, 0], "name": "Event Loop"}
+    },
+    {
+      "type": "event_listener_flow",
+      "mode": "any",
+      "extra": {"pos": [700, 0], "name": "Wait for Request"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "import json, datetime\npayload = input if isinstance(input, dict) else {}\nts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')\noutput = {'received_at': ts, 'payload': payload, 'keys': list(payload.keys()) if payload else []}",
+      "extra": {"pos": [940, 0], "name": "Process Payload"}
+    },
+    {
+      "type": "preview_flow",
+      "hint": "json",
+      "extra": {"pos": [1180, 0], "name": "Show Result"}
+    },
+    {
+      "type": "loop_end_flow",
+      "extra": {"pos": [1420, 0], "name": "Loop End"}
+    },
+    {
+      "type": "end_flow",
+      "extra": {"pos": [1660, 0], "name": "End"}
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 1, "target": 2, "source_slot": "flow_out",       "target_slot": "flow_in" },
+    { "source": 1, "target": 3, "source_slot": "registered_id",  "target_slot": "sources.webhook" },
+    { "source": 2, "target": 3, "source_slot": "flow_out",       "target_slot": "flow_in" },
+    { "source": 3, "target": 4, "source_slot": "event",          "target_slot": "input" },
+    { "source": 3, "target": 4, "source_slot": "flow_out",       "target_slot": "flow_in" },
+    { "source": 4, "target": 5, "source_slot": "output",         "target_slot": "flow_in" },
+    { "source": 5, "target": 6, "source_slot": "flow_out",       "target_slot": "flow_in" },
+    { "source": 2, "target": 6, "source_slot": "flow_out",       "target_slot": "flow_in", "loop": true },
+    { "source": 6, "target": 7, "source_slot": "flow_out",       "target_slot": "flow_in" }
+  ]
+}

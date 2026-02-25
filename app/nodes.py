@@ -874,6 +874,135 @@ class WFWorkflow(WFComponentType):
 	pass
 
 
+# =============================================================================
+# ML / STREAM INFERENCE NODES
+# =============================================================================
+
+# Cached MediaPipe detectors keyed by (model_complexity, min_confidence)
+_POSE_DETECTORS: Dict[tuple, Any] = {}
+
+
+def _get_pose_detector(model_complexity: int, min_confidence: float) -> Optional[Any]:
+	"""Return a cached MediaPipe Pose detector, creating one if needed."""
+	key = (model_complexity, round(min_confidence, 2))
+	if key not in _POSE_DETECTORS:
+		try:
+			import mediapipe as mp
+			_POSE_DETECTORS[key] = mp.solutions.pose.Pose(
+				static_image_mode         = False,
+				model_complexity          = model_complexity,
+				min_detection_confidence  = min_confidence,
+				min_tracking_confidence   = min_confidence,
+			)
+		except Exception:
+			return None
+	return _POSE_DETECTORS[key]
+
+
+class WFPoseDetectorFlow(WFFlowType):
+	"""Runs MediaPipe Pose on a base64-encoded JPEG frame received from a Browser Source."""
+
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		try:
+			frame          = context.inputs.get("frame")
+			model_name     = context.inputs.get("model", "lite")
+			min_confidence = float(context.inputs.get("min_confidence", 0.5))
+			complexity     = {"lite": 0, "full": 1, "heavy": 2}.get(model_name, 0)
+
+			# Empty outputs for no-frame case
+			result.outputs["keypoints"]  = None
+			result.outputs["landmarks"]  = []
+			result.outputs["pose_found"] = False
+
+			if frame is None:
+				return result
+
+			# Import optional deps
+			try:
+				import base64 as _b64
+				import io
+				import numpy as np
+				from PIL import Image
+			except ImportError as e:
+				result.success = False
+				result.error   = f"Missing dependency: {e}. Install: pip install mediapipe Pillow numpy"
+				return result
+
+			# Decode base64 JPEG → numpy RGB array
+			if isinstance(frame, str):
+				if "," in frame:         # data-URL prefix
+					frame = frame.split(",", 1)[1]
+				img_bytes = _b64.b64decode(frame)
+			elif isinstance(frame, bytes):
+				img_bytes = frame
+			else:
+				return result
+
+			img       = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+			img_array = np.array(img)
+			h, w      = img_array.shape[:2]
+
+			# Run detection
+			detector = _get_pose_detector(complexity, min_confidence)
+			if detector is None:
+				result.success = False
+				result.error   = "mediapipe not installed. Run: pip install mediapipe"
+				return result
+
+			detection = detector.process(img_array)
+
+			if detection.pose_landmarks:
+				landmarks = [
+					{"x": lm.x, "y": lm.y, "z": lm.z, "visibility": lm.visibility}
+					for lm in detection.pose_landmarks.landmark
+				]
+				result.outputs["keypoints"]  = {"landmarks": landmarks, "width": w, "height": h, "model": model_name}
+				result.outputs["landmarks"]  = landmarks
+				result.outputs["pose_found"] = True
+
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+
+		return result
+
+
+class WFStreamDisplayFlow(WFFlowType):
+	"""Pushes overlay render data (pose keypoints, text, etc.) to the browser via event bus."""
+
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		try:
+			from event_bus import get_event_bus, EventType as ET
+
+			source_id   = context.inputs.get("source_id")
+			data        = context.inputs.get("data")
+			render_type = context.inputs.get("render_type", "pose")
+
+			bus = get_event_bus()
+			await bus.emit(
+				event_type = ET.STREAM_DISPLAY,
+				data = {
+					"source_id"   : source_id,
+					"render_type" : render_type,
+					"payload"     : data,
+				}
+			)
+			result.outputs["done"] = True
+
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+
+		return result
+
+
+# =============================================================================
+# END ML / STREAM INFERENCE NODES
+# =============================================================================
+
+
 class ImplementedBackend(BaseModel):
 	handles         : List[Any]
 	run_tool        : Callable
@@ -936,6 +1065,10 @@ _NODE_TYPES = {
 	"fswatch_source_flow"      : WFFSWatchSourceFlow,
 	"webhook_source_flow"      : WFWebhookSourceFlow,
 	"browser_source_flow"      : WFBrowserSourceFlow,
+
+	# ML / Stream nodes
+	"pose_detector_flow"       : WFPoseDetectorFlow,
+	"stream_display_flow"      : WFStreamDisplayFlow,
 
 	# Interactive nodes
 	"tool_call"                : WFToolCall,

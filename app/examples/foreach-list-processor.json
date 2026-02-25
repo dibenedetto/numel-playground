@@ -1,0 +1,56 @@
+{
+  "type": "workflow",
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": {"pos": [0, 0], "name": "Start"}
+    },
+    {
+      "type": "user_input_flow",
+      "query": "Enter comma-separated items to process (e.g. apple,banana,cherry):",
+      "extra": {"pos": [200, 0], "name": "Get Items"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "raw = str(input).strip()\noutput = [item.strip() for item in raw.split(',') if item.strip()]",
+      "extra": {"pos": [440, 0], "name": "Split to List"}
+    },
+    {
+      "type": "for_each_start_flow",
+      "extra": {"pos": [680, 0], "name": "For Each Item"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "item = input\noutput = f'[{variables.get(\"_loop_iteration\", 0)}] {str(item).upper()}'",
+      "extra": {"pos": [920, 0], "name": "Transform Item"}
+    },
+    {
+      "type": "preview_flow",
+      "hint": "text",
+      "extra": {"pos": [1160, 0], "name": "Preview Item"}
+    },
+    {
+      "type": "for_each_end_flow",
+      "extra": {"pos": [1400, 0], "name": "For Each End"}
+    },
+    {
+      "type": "end_flow",
+      "extra": {"pos": [1640, 0], "name": "End"}
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 1, "target": 2, "source_slot": "message",  "target_slot": "input" },
+    { "source": 1, "target": 2, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 2, "target": 3, "source_slot": "output",   "target_slot": "items" },
+    { "source": 2, "target": 3, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 3, "target": 4, "source_slot": "current",  "target_slot": "input" },
+    { "source": 3, "target": 4, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 4, "target": 5, "source_slot": "output",   "target_slot": "flow_in" },
+    { "source": 5, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 3, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true },
+    { "source": 6, "target": 7, "source_slot": "flow_out", "target_slot": "flow_in" }
+  ]
+}

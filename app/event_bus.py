@@ -79,6 +79,9 @@ class EventType(str, Enum):
 	CONTENT_REMOVE_COMPLETED = "content.remove_completed"
 	CONTENT_REMOVE_FAILED    = "content.remove_failed"
 
+	# Stream display events (ML overlay data pushed to browser)
+	STREAM_DISPLAY           = "stream.display"
+
 
 
 class WorkflowEvent(BaseModel):

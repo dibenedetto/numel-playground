@@ -28,6 +28,8 @@ class MediaOverlayManager {
 		this.captureTimers = new Map(); // nodeId -> interval ID
 		this.audioCtx = new Map();      // nodeId -> { ctx, analyser, dataArray }
 		this.states = new Map();        // nodeId -> MediaState
+		this.streamWSockets = new Map();// nodeId -> WebSocket (binary stream)
+		this._overlayTimers = new Map();// nodeId -> setTimeout handle (overlay auto-clear)
 
 		this.Z_BASE = 1000;
 		this.Z_SELECTED = 10000;
@@ -73,7 +75,10 @@ class MediaOverlayManager {
 				<div class="sg-media-preview">
 					${isAudio
 						? '<canvas class="sg-media-audio-canvas"></canvas>'
-						: '<video class="sg-media-video" autoplay muted playsinline></video>'
+						: `<div class="sg-media-video-wrapper">
+							<video class="sg-media-video" autoplay muted playsinline></video>
+							<canvas class="sg-media-overlay-canvas"></canvas>
+						</div>`
 					}
 				</div>
 				<div class="sg-media-controls">
@@ -227,62 +232,210 @@ class MediaOverlayManager {
 	}
 
 	_startCaptureLoop(node) {
-		const nodeId = node.id;
-		const intervalMs = parseInt(this._getFieldValue(node, 'interval_ms')) || 1000;
-		const deviceType = this._getFieldValue(node, 'device_type') || 'webcam';
-		const mode = this._getFieldValue(node, 'mode') || 'event';
+		const nodeId    = node.id;
+		const mode      = this._getFieldValue(node, 'mode') || 'event';
+		const deviceType= this._getFieldValue(node, 'device_type') || 'webcam';
+		const sourceId  = node.extra?._browserSourceId;
 
-		// Clear existing timer
+		// Clear any existing timer
 		if (this.captureTimers.has(nodeId)) {
 			clearInterval(this.captureTimers.get(nodeId));
+			this.captureTimers.delete(nodeId);
 		}
 
+		if (mode === 'stream') {
+			// ── High-frequency binary WebSocket streaming ──────────────────
+			this._startStreamingWS(node);
+		} else {
+			// ── Periodic HTTP-POST snapshot (original 'event' mode) ────────
+			const intervalMs = parseInt(this._getFieldValue(node, 'interval_ms')) || 1000;
+
+			const timer = setInterval(async () => {
+				if (this.states.get(nodeId) !== MediaState.ACTIVE) {
+					clearInterval(timer);
+					return;
+				}
+				try {
+					let data;
+					if (deviceType === 'microphone') {
+						data = { type: 'audio_tick', timestamp: Date.now() };
+					} else {
+						data = this._captureFrame(nodeId);
+						if (!data) return;
+					}
+					this._pushToNodeOutput(node, data);
+
+					if (sourceId && !this._sendingFrame?.get(nodeId)) {
+						this._sendingFrame = this._sendingFrame || new Map();
+						this._sendingFrame.set(nodeId, true);
+						const baseUrl = this._baseUrl || '';
+						fetch(`${baseUrl}/event-sources/browser/${sourceId}/event`, {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify({ ...data, client_id: `browser_${nodeId}` })
+						}).then(resp => {
+							this._sendingFrame.set(nodeId, false);
+							if (resp.status === 400) this._stopCapture(this.nodeRefs.get(nodeId) || node);
+						}).catch(() => {
+							this._sendingFrame.set(nodeId, false);
+						});
+					}
+				} catch (err) {
+					console.warn(`[BrowserMedia] Failed to capture for node ${nodeId}:`, err.message);
+				}
+			}, intervalMs);
+
+			this.captureTimers.set(nodeId, timer);
+		}
+	}
+
+	// ── WebSocket binary streaming ────────────────────────────────────────────
+
+	_startStreamingWS(node) {
+		const nodeId   = node.id;
 		const sourceId = node.extra?._browserSourceId;
+		if (!sourceId || !this._baseUrl) return;
 
-		const timer = setInterval(async () => {
-			if (this.states.get(nodeId) !== MediaState.ACTIVE) {
-				clearInterval(timer);
-				return;
+		// Close any existing socket for this node
+		const old = this.streamWSockets.get(nodeId);
+		if (old && old.readyState < WebSocket.CLOSING) old.close();
+
+		const wsUrl = this._baseUrl.replace(/^http/, 'ws') + `/ws/stream/${sourceId}`;
+		const ws    = new WebSocket(wsUrl);
+
+		ws.onopen = () => {
+			this.streamWSockets.set(nodeId, ws);
+			console.log(`[BrowserMedia] Stream WebSocket open for node ${nodeId}`);
+			this._startBinaryStreamLoop(node, ws);
+		};
+
+		ws.onmessage = (event) => {
+			if (typeof event.data === 'string') {
+				try {
+					const msg = JSON.parse(event.data);
+					if (msg.type === 'stream.display') {
+						this._renderDisplay(nodeId, msg);
+					}
+				} catch (e) { /* ignore */ }
 			}
+		};
 
-			try {
-				let data;
-				if (deviceType === 'microphone') {
-					// For audio, we'll send a status ping (actual audio streaming uses MediaRecorder)
-					data = { type: 'audio_tick', timestamp: Date.now() };
-				} else {
-					// Capture video frame as base64 JPEG
-					data = this._captureFrame(nodeId);
-					if (!data) return;
-				}
-
-				// Push frame to node output so connected PreviewFlow nodes display it
-				this._pushToNodeOutput(node, data);
-
-				// Send to backend if source is registered (serialized to avoid connection pileup)
-				if (sourceId && !this._sendingFrame?.get(nodeId)) {
-					this._sendingFrame = this._sendingFrame || new Map();
-					this._sendingFrame.set(nodeId, true);
-					const baseUrl = this._baseUrl || '';
-					fetch(`${baseUrl}/event-sources/browser/${sourceId}/event`, {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({ ...data, client_id: `browser_${nodeId}` })
-					}).then(resp => {
-						this._sendingFrame.set(nodeId, false);
-						// Backend returns 400 when the source is no longer running (workflow finished).
-						// Stop the capture loop so we don't keep spamming errors.
-						if (resp.status === 400) this._stopCapture(this.nodeRefs.get(nodeId) || node);
-					}).catch(() => {
-						this._sendingFrame.set(nodeId, false);
-					});
-				}
-			} catch (err) {
-				console.warn(`[BrowserMedia] Failed to capture for node ${nodeId}:`, err.message);
+		ws.onclose = () => {
+			if (this.streamWSockets.get(nodeId) === ws) {
+				this.streamWSockets.delete(nodeId);
 			}
-		}, intervalMs);
+		};
 
-		this.captureTimers.set(nodeId, timer);
+		ws.onerror = (e) => {
+			console.warn(`[BrowserMedia] Stream WebSocket error for node ${nodeId}:`, e);
+		};
+	}
+
+	_startBinaryStreamLoop(node, ws) {
+		const nodeId   = node.id;
+		const overlay  = this.overlays.get(nodeId);
+		const video    = overlay?.querySelector('.sg-media-video');
+		const capCanvas= document.createElement('canvas');
+		const FPS      = 15;
+		const minGap   = 1000 / FPS;
+		let   last     = 0;
+
+		const loop = (ts) => {
+			if (this.states.get(nodeId) !== MediaState.ACTIVE) return;
+			if (ts - last >= minGap && video?.readyState >= 2 && ws.readyState === WebSocket.OPEN) {
+				last = ts;
+				capCanvas.width  = video.videoWidth  || 320;
+				capCanvas.height = video.videoHeight || 240;
+				capCanvas.getContext('2d').drawImage(video, 0, 0);
+				capCanvas.toBlob(blob => {
+					if (blob && ws.readyState === WebSocket.OPEN) {
+						blob.arrayBuffer().then(buf => ws.send(buf)).catch(() => {});
+					}
+				}, 'image/jpeg', 0.7);
+				// Also push to downstream preview nodes
+				this._pushToNodeOutput(node, { type: 'frame', data: null /* live */ });
+			}
+			requestAnimationFrame(loop);
+		};
+		requestAnimationFrame(loop);
+	}
+
+	// ── Overlay rendering ─────────────────────────────────────────────────────
+
+	_renderDisplay(nodeId, msg) {
+		const overlay = this.overlays.get(nodeId);
+		if (!overlay) return;
+
+		const canvas = overlay.querySelector('.sg-media-overlay-canvas');
+		const video  = overlay.querySelector('.sg-media-video');
+		if (!canvas) return;
+
+		canvas.width  = video?.videoWidth  || canvas.clientWidth  || 320;
+		canvas.height = video?.videoHeight || canvas.clientHeight || 240;
+
+		const ctx = canvas.getContext('2d');
+		ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+		const { render_type, payload } = msg;
+
+		if ((render_type === 'pose' || render_type === 'landmarks') && payload?.landmarks) {
+			this._drawPoseLandmarks(ctx, payload.landmarks, canvas.width, canvas.height, render_type === 'pose');
+		} else if (render_type === 'text' && payload != null) {
+			ctx.fillStyle = 'rgba(0,0,0,0.55)';
+			ctx.fillRect(0, 0, canvas.width, 28);
+			ctx.fillStyle = '#00ff88';
+			ctx.font      = '13px monospace';
+			ctx.fillText(typeof payload === 'string' ? payload : JSON.stringify(payload), 8, 18);
+		} else if (render_type === 'custom' && payload) {
+			// Raw JSON dump in top-left for debugging
+			ctx.fillStyle = '#ffcc00';
+			ctx.font      = '11px monospace';
+			const lines   = JSON.stringify(payload, null, 2).split('\n').slice(0, 12);
+			lines.forEach((l, i) => ctx.fillText(l, 8, 16 + i * 14));
+		}
+
+		// Auto-clear stale overlays after 600 ms
+		clearTimeout(this._overlayTimers.get(nodeId));
+		this._overlayTimers.set(nodeId, setTimeout(() => {
+			const c = overlay.querySelector('.sg-media-overlay-canvas');
+			if (c) c.getContext('2d').clearRect(0, 0, c.width, c.height);
+		}, 600));
+	}
+
+	_drawPoseLandmarks(ctx, landmarks, w, h, drawSkeleton = true) {
+		// MediaPipe Pose 33-landmark connections
+		const CONNECTIONS = [
+			[11,12],[11,13],[13,15],[12,14],[14,16],   // arms
+			[11,23],[12,24],[23,24],                    // torso
+			[23,25],[25,27],[27,29],[29,31],            // left leg
+			[24,26],[26,28],[28,30],[30,32],            // right leg
+			[0,1],[1,2],[2,3],[3,7],                    // face left
+			[0,4],[4,5],[5,6],[6,8],                    // face right
+			[9,10],                                     // mouth
+		];
+
+		if (drawSkeleton) {
+			ctx.strokeStyle = 'rgba(0, 255, 136, 0.85)';
+			ctx.lineWidth   = 2;
+			for (const [a, b] of CONNECTIONS) {
+				if (a >= landmarks.length || b >= landmarks.length) continue;
+				const la = landmarks[a], lb = landmarks[b];
+				if ((la.visibility ?? 1) < 0.4 || (lb.visibility ?? 1) < 0.4) continue;
+				ctx.beginPath();
+				ctx.moveTo(la.x * w, la.y * h);
+				ctx.lineTo(lb.x * w, lb.y * h);
+				ctx.stroke();
+			}
+		}
+
+		// Joints
+		for (const lm of landmarks) {
+			if ((lm.visibility ?? 1) < 0.4) continue;
+			ctx.fillStyle = 'rgba(255, 80, 80, 0.9)';
+			ctx.beginPath();
+			ctx.arc(lm.x * w, lm.y * h, 4, 0, Math.PI * 2);
+			ctx.fill();
+		}
 	}
 
 	_captureFrame(nodeId) {
@@ -391,6 +544,17 @@ class MediaOverlayManager {
 			clearInterval(timer);
 			this.captureTimers.delete(nodeId);
 		}
+
+		// Close streaming WebSocket
+		const ws = this.streamWSockets.get(nodeId);
+		if (ws && ws.readyState < WebSocket.CLOSING) ws.close();
+		this.streamWSockets.delete(nodeId);
+
+		// Clear overlay auto-clear timer and canvas
+		clearTimeout(this._overlayTimers.get(nodeId));
+		this._overlayTimers.delete(nodeId);
+		const ovCanvas = this.overlays.get(nodeId)?.querySelector('.sg-media-overlay-canvas');
+		if (ovCanvas) ovCanvas.getContext('2d').clearRect(0, 0, ovCanvas.width, ovCanvas.height);
 
 		// Cleanup audio context and clear canvas
 		const audio = this.audioCtx.get(nodeId);
@@ -827,11 +991,26 @@ class BrowserMediaExtension extends SchemaGraphExtension {
 				overflow: hidden;
 			}
 
+			.sg-media-video-wrapper {
+				position: relative;
+				width: 100%;
+				height: 100%;
+			}
+
 			.sg-media-video {
 				width: 100%;
 				height: 100%;
 				object-fit: contain;
 				background: #000;
+				display: block;
+			}
+
+			.sg-media-overlay-canvas {
+				position: absolute;
+				top: 0; left: 0;
+				width: 100%;
+				height: 100%;
+				pointer-events: none;
 			}
 
 			.sg-media-audio-canvas {

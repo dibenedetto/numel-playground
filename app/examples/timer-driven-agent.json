@@ -1,0 +1,97 @@
+{
+  "type": "workflow",
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": {"pos": [0, 0], "name": "Start"}
+    },
+    {
+      "type": "backend_config",
+      "name": "agno",
+      "extra": {"pos": [0, 140], "name": "Backend (Agno)"}
+    },
+    {
+      "type": "model_config",
+      "source": "ollama",
+      "name": "mistral",
+      "extra": {"pos": [0, 280], "name": "Model (Mistral)"}
+    },
+    {
+      "type": "agent_options_config",
+      "name": "Monitor",
+      "instructions": ["You are a concise system monitor. Summarise the event payload in one sentence."],
+      "extra": {"pos": [0, 420], "name": "Agent Options"}
+    },
+    {
+      "type": "agent_config",
+      "extra": {"pos": [250, 280], "name": "Agent Config"}
+    },
+    {
+      "type": "timer_source_flow",
+      "interval_ms": 10000,
+      "max_triggers": -1,
+      "immediate": true,
+      "extra": {"pos": [500, 0], "name": "10s Timer"}
+    },
+    {
+      "type": "loop_start_flow",
+      "condition": true,
+      "max_iter": 500,
+      "extra": {"pos": [740, 0], "name": "Event Loop"}
+    },
+    {
+      "type": "event_listener_flow",
+      "mode": "any",
+      "extra": {"pos": [980, 0], "name": "Wait for Tick"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "import datetime\nts = datetime.datetime.now().strftime('%H:%M:%S')\noutput = f'Periodic check at {ts}. Event data: {str(input)[:200]}'",
+      "extra": {"pos": [1220, 0], "name": "Build Prompt"}
+    },
+    {
+      "type": "agent_flow",
+      "extra": {"pos": [1460, 0], "name": "Agent"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "r = input\noutput = r.get('response', {}).get('content', str(r)) if isinstance(r, dict) else str(r)",
+      "extra": {"pos": [1700, 0], "name": "Extract Reply"}
+    },
+    {
+      "type": "preview_flow",
+      "hint": "text",
+      "extra": {"pos": [1940, 0], "name": "Show Summary"}
+    },
+    {
+      "type": "loop_end_flow",
+      "extra": {"pos": [2180, 0], "name": "Loop End"}
+    },
+    {
+      "type": "end_flow",
+      "extra": {"pos": [2420, 0], "name": "End"}
+    }
+  ],
+  "edges": [
+    { "source": 0,  "target": 5,  "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 1,  "target": 4,  "source_slot": "config",         "target_slot": "backend" },
+    { "source": 2,  "target": 4,  "source_slot": "config",         "target_slot": "model" },
+    { "source": 3,  "target": 4,  "source_slot": "options",        "target_slot": "options" },
+    { "source": 4,  "target": 9,  "source_slot": "config",         "target_slot": "config" },
+    { "source": 5,  "target": 6,  "source_slot": "flow_out",       "target_slot": "flow_in" },
+    { "source": 5,  "target": 7,  "source_slot": "registered_id",  "target_slot": "sources.timer" },
+    { "source": 6,  "target": 7,  "source_slot": "flow_out",       "target_slot": "flow_in" },
+    { "source": 7,  "target": 8,  "source_slot": "event",          "target_slot": "input" },
+    { "source": 7,  "target": 8,  "source_slot": "flow_out",       "target_slot": "flow_in" },
+    { "source": 8,  "target": 9,  "source_slot": "output",         "target_slot": "request" },
+    { "source": 8,  "target": 9,  "source_slot": "flow_out",       "target_slot": "flow_in" },
+    { "source": 9,  "target": 10, "source_slot": "response",       "target_slot": "input" },
+    { "source": 9,  "target": 10, "source_slot": "flow_out",       "target_slot": "flow_in" },
+    { "source": 10, "target": 11, "source_slot": "output",         "target_slot": "flow_in" },
+    { "source": 11, "target": 12, "source_slot": "flow_out",       "target_slot": "flow_in" },
+    { "source": 6,  "target": 12, "source_slot": "flow_out",       "target_slot": "flow_in", "loop": true },
+    { "source": 12, "target": 13, "source_slot": "flow_out",       "target_slot": "flow_in" }
+  ]
+}

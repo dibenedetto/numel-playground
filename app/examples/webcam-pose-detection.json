@@ -1,0 +1,68 @@
+{
+  "type": "workflow",
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": {"pos": [0, 0], "name": "Start"}
+    },
+    {
+      "type": "browser_source_flow",
+      "device_type": "webcam",
+      "mode": "event",
+      "interval_ms": 150,
+      "extra": {"pos": [220, 0], "name": "Webcam (150ms)"}
+    },
+    {
+      "type": "loop_start_flow",
+      "condition": true,
+      "max_iter": 10000,
+      "extra": {"pos": [460, 0], "name": "Capture Loop"}
+    },
+    {
+      "type": "event_listener_flow",
+      "mode": "any",
+      "extra": {"pos": [700, 0], "name": "Wait for Frame"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "output = input.get('frame') if isinstance(input, dict) else None",
+      "extra": {"pos": [940, 0], "name": "Extract Frame"}
+    },
+    {
+      "type": "pose_detector_flow",
+      "model": "lite",
+      "min_confidence": 0.5,
+      "extra": {"pos": [1180, 0], "name": "Pose Detector"}
+    },
+    {
+      "type": "stream_display_flow",
+      "render_type": "pose",
+      "extra": {"pos": [1420, 0], "name": "Draw Skeleton"}
+    },
+    {
+      "type": "loop_end_flow",
+      "extra": {"pos": [1660, 0], "name": "Loop End"}
+    },
+    {
+      "type": "end_flow",
+      "extra": {"pos": [1900, 0], "name": "End"}
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 1, "target": 2, "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 1, "target": 3, "source_slot": "registered_id", "target_slot": "sources.cam" },
+    { "source": 2, "target": 3, "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 3, "target": 4, "source_slot": "event",         "target_slot": "input" },
+    { "source": 3, "target": 4, "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 4, "target": 5, "source_slot": "output",        "target_slot": "frame" },
+    { "source": 4, "target": 5, "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 5, "target": 6, "source_slot": "keypoints",     "target_slot": "data" },
+    { "source": 1, "target": 6, "source_slot": "registered_id", "target_slot": "source_id" },
+    { "source": 5, "target": 6, "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 6, "target": 7, "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 2, "target": 7, "source_slot": "flow_out",      "target_slot": "flow_in", "loop": true },
+    { "source": 7, "target": 8, "source_slot": "flow_out",      "target_slot": "flow_in" }
+  ]
+}

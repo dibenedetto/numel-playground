@@ -1,5 +1,6 @@
 # api
 
+import base64
 import json
 import os
 import re
@@ -719,6 +720,74 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		client_id = data.pop("client_id", None)
 		await source.receive_event(data, client_id=client_id)
 		return {"status": "ok"}
+
+	@app.websocket("/ws/stream/{source_id}")
+	async def stream_websocket(websocket: WebSocket, source_id: str):
+		"""Binary WebSocket for high-speed media streaming.
+
+		Browser sends:
+		  - Binary messages: raw JPEG/WebP frames (for backend inference)
+		  - Text messages:   JSON data (keypoints from frontend inference, or control)
+
+		Server sends:
+		  - Text messages: JSON stream.display events (overlay data to render)
+		"""
+		registry = get_event_registry()
+		source   = registry.get(source_id)
+
+		if not source or not isinstance(source, BrowserSource):
+			await websocket.close(code=4004, reason=f"Browser source not found: {source_id}")
+			return
+
+		await websocket.accept()
+		client_id = f"ws_{id(websocket)}"
+		source.add_client(client_id)
+
+		# Forward STREAM_DISPLAY events that target this source back to the browser
+		async def on_stream_display(ev):
+			if ev.data and ev.data.get("source_id") == source_id:
+				try:
+					await websocket.send_text(json.dumps({
+						"type"        : "stream.display",
+						"source_id"   : source_id,
+						"render_type" : ev.data.get("render_type", "pose"),
+						"payload"     : ev.data.get("payload"),
+					}))
+				except Exception:
+					pass
+
+		event_bus.subscribe(EventType.STREAM_DISPLAY, on_stream_display)
+
+		try:
+			while True:
+				message = await websocket.receive()
+
+				if message["type"] == "websocket.disconnect":
+					break
+
+				if message.get("bytes"):
+					# Binary frame (JPEG / WebP) — encode to base64 for the event payload
+					frame_bytes = message["bytes"]
+					frame_b64   = base64.b64encode(frame_bytes).decode("ascii")
+					await source.receive_event({
+						"frame"        : frame_b64,
+						"frame_format" : "jpeg_b64",
+						"frame_size"   : len(frame_bytes),
+					}, client_id=client_id)
+
+				elif message.get("text"):
+					# JSON payload (keypoints from frontend inference, metadata, etc.)
+					try:
+						data = json.loads(message["text"])
+						await source.receive_event(data, client_id=client_id)
+					except json.JSONDecodeError:
+						pass
+
+		except WebSocketDisconnect:
+			pass
+		finally:
+			source.remove_client(client_id)
+			event_bus.unsubscribe(EventType.STREAM_DISPLAY, on_stream_display)
 
 	@app.post("/event-sources/delete/{source_id}")
 	async def delete_event_source(source_id: str):

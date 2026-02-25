@@ -1,0 +1,67 @@
+{
+  "type": "workflow",
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": {"pos": [0, 0], "name": "Start"}
+    },
+    {
+      "type": "browser_source_flow",
+      "device_type": "microphone",
+      "mode": "event",
+      "interval_ms": 500,
+      "audio_format": "wav",
+      "extra": {"pos": [220, 0], "name": "Microphone (0.5s chunks)"}
+    },
+    {
+      "type": "loop_start_flow",
+      "condition": true,
+      "max_iter": 10000,
+      "extra": {"pos": [460, 0], "name": "Audio Loop"}
+    },
+    {
+      "type": "event_listener_flow",
+      "mode": "any",
+      "extra": {"pos": [700, 0], "name": "Wait for Audio Chunk"}
+    },
+    {
+      "type": "gate_flow",
+      "threshold": 6,
+      "reset_on_fire": true,
+      "extra": {"pos": [940, 0], "name": "Batch: every 6 chunks (3 s)"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "triggered = variables.get('_gate_4_count', 0) == 0\nbatch = input if isinstance(input, list) else [input]\nif triggered:\n    output = {'status': 'batch_ready', 'chunks': len(batch), 'sizes': [len(str(c)) for c in batch]}\nelse:\n    count = variables.get('_gate_4_count', 0)\n    output = {'status': 'accumulating', 'chunks_so_far': count}",
+      "extra": {"pos": [1180, 0], "name": "Check Gate"}
+    },
+    {
+      "type": "preview_flow",
+      "hint": "json",
+      "extra": {"pos": [1420, 0], "name": "Show Status"}
+    },
+    {
+      "type": "loop_end_flow",
+      "extra": {"pos": [1660, 0], "name": "Loop End"}
+    },
+    {
+      "type": "end_flow",
+      "extra": {"pos": [1900, 0], "name": "End"}
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 1, "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 1, "target": 2, "source_slot": "flow_out",       "target_slot": "flow_in" },
+    { "source": 1, "target": 3, "source_slot": "registered_id",  "target_slot": "sources.mic" },
+    { "source": 2, "target": 3, "source_slot": "flow_out",       "target_slot": "flow_in" },
+    { "source": 3, "target": 4, "source_slot": "event",          "target_slot": "input" },
+    { "source": 3, "target": 4, "source_slot": "flow_out",       "target_slot": "flow_in" },
+    { "source": 4, "target": 5, "source_slot": "accumulated",    "target_slot": "input" },
+    { "source": 4, "target": 5, "source_slot": "flow_out",       "target_slot": "flow_in" },
+    { "source": 5, "target": 6, "source_slot": "output",         "target_slot": "flow_in" },
+    { "source": 6, "target": 7, "source_slot": "flow_out",       "target_slot": "flow_in" },
+    { "source": 2, "target": 7, "source_slot": "flow_out",       "target_slot": "flow_in", "loop": true },
+    { "source": 7, "target": 8, "source_slot": "flow_out",       "target_slot": "flow_in" }
+  ]
+}

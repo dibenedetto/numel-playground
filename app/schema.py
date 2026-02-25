@@ -1064,6 +1064,53 @@ class BrowserSourceFlow(FlowType):
 
 
 # =============================================================================
+# ML INFERENCE / STREAM DISPLAY FLOW NODES
+# =============================================================================
+
+@node_info(
+	title       = "Pose Detector",
+	description = "Runs MediaPipe pose detection on a video frame. "
+	              "Receives a frame (base64 JPEG) from a Browser Source event and outputs "
+	              "the detected skeleton landmarks. Install: pip install mediapipe Pillow numpy",
+	icon        = "🦴",
+	section     = "ML / Stream",
+	visible     = True
+)
+class PoseDetectorFlow(FlowType):
+	"""Pose detection node — runs MediaPipe Pose on a received video frame."""
+	type           : Annotated[Literal["pose_detector_flow"]              , FieldRole.CONSTANT] = "pose_detector_flow"
+	frame          : Annotated[Optional[Any]                              , FieldRole.INPUT   ] = Field(default=None,      description="Video frame to analyse — base64-encoded JPEG string, as produced by the Browser Source event data['frame'] field")
+	model          : Annotated[Literal["lite", "full", "heavy"]           , FieldRole.INPUT   ] = Field(default="lite",    description="MediaPipe model complexity — 'lite' is fastest, 'heavy' is most accurate")
+	min_confidence : Annotated[float                                      , FieldRole.INPUT   ] = Field(default=0.5,       description="Minimum detection confidence threshold (0–1); lower = more detections but more false positives")
+	keypoints      : Annotated[Optional[Any]                              , FieldRole.OUTPUT  ] = Field(default=None,      description="Detected pose as a dict with 'landmarks' (list of 33 points with x/y/z/visibility), 'width', 'height'")
+	landmarks      : Annotated[Optional[List]                             , FieldRole.OUTPUT  ] = Field(default=None,      description="Raw list of 33 landmark dicts [{x, y, z, visibility}] in normalised coordinates (0–1)")
+	pose_found     : Annotated[bool                                       , FieldRole.OUTPUT  ] = Field(default=False,     description="True when at least one person was detected in the frame")
+
+
+@node_info(
+	title       = "Stream Display",
+	description = "Sends data (pose keypoints, text, or custom payload) back to the browser "
+	              "for overlay rendering on the live video feed. Wire from Pose Detector or "
+	              "any transform node; the matching Browser Source overlay canvas will be updated.",
+	icon        = "📺",
+	section     = "ML / Stream",
+	visible     = True
+)
+class StreamDisplayFlow(FlowType):
+	"""Stream Display node — pushes overlay render data to the browser over the stream WebSocket."""
+	type        : Annotated[Literal["stream_display_flow"]                                   , FieldRole.CONSTANT] = "stream_display_flow"
+	source_id   : Annotated[Optional[str]                                                    , FieldRole.INPUT   ] = Field(default=None,    description="ID of the Browser Source whose overlay should be updated; wire from browser_source_flow.registered_id")
+	data        : Annotated[Optional[Any]                                                    , FieldRole.INPUT   ] = Field(default=None,    description="Data to render — for 'pose' use the keypoints output from Pose Detector; for 'text' use any string or dict")
+	render_type : Annotated[Literal["pose", "landmarks", "text", "custom"]                   , FieldRole.INPUT   ] = Field(default="pose",  description="How to render the data — 'pose' draws a skeleton, 'landmarks' draws dots only, 'text' shows a text overlay, 'custom' passes raw JSON to the frontend")
+	done        : Annotated[Optional[bool]                                                   , FieldRole.OUTPUT  ] = Field(default=None,    description="True after the display event has been dispatched to the browser")
+
+
+# =============================================================================
+# END ML INFERENCE / STREAM DISPLAY FLOW NODES
+# =============================================================================
+
+
+# =============================================================================
 # END EVENT/TRIGGER FLOW NODES
 # =============================================================================
 
@@ -1236,6 +1283,10 @@ WorkflowNodeUnion = Union[
 	FSWatchSourceFlow,
 	WebhookSourceFlow,
 	BrowserSourceFlow,
+
+	# ML / Stream nodes
+	PoseDetectorFlow,
+	StreamDisplayFlow,
 
 	# Interactive nodes
 	ToolCall,
