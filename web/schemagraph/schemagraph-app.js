@@ -1747,6 +1747,16 @@ class SchemaGraphApp {
 				flex: 1;
 				min-height: 0;
 			}
+			.sg-preview-img-actions {
+				position: absolute;
+				z-index: 101;
+				pointer-events: auto;
+				display: flex;
+				gap: 2px;
+				padding: 2px 4px;
+				background: rgba(0,0,0,0.55);
+				border-radius: 4px;
+			}
 		`;
 		document.head.appendChild(style);
 	}
@@ -1777,6 +1787,7 @@ class SchemaGraphApp {
 				<span class="sg-preview-text-title">${this._escapeHtml(title)}</span>
 				<div class="sg-preview-text-actions">
 					<button class="sg-preview-text-btn sg-preview-copy-btn" title="Copy to clipboard">📋</button>
+					<button class="sg-preview-text-btn sg-preview-dl-btn" title="Download">⬇</button>
 					<button class="sg-preview-text-btn sg-preview-close-btn" title="Collapse">▲</button>
 				</div>
 			</div>
@@ -1802,6 +1813,12 @@ class SchemaGraphApp {
 				copyBtn.textContent = '✓';
 				setTimeout(() => { copyBtn.textContent = '📋'; }, 1000);
 			});
+		});
+
+		const dlBtn = overlay.querySelector('.sg-preview-dl-btn');
+		dlBtn?.addEventListener('click', (e) => {
+			e.stopPropagation();
+			this._triggerPreviewDownload(node, previewData);
 		});
 
 		// Position overlay fixed over the node content area
@@ -1882,6 +1899,7 @@ class SchemaGraphApp {
 			}
 		}
 		this.updateAllPreviewMediaOverlayPositions();
+		this.updateAllPreviewImageActionsPositions();
 	}
 
 	closeAllPreviewTextOverlays() {
@@ -1899,6 +1917,98 @@ class SchemaGraphApp {
 		}
 		this._previewTextOverlays.clear();
 		this.closeAllPreviewMediaOverlays();
+		this.closeAllPreviewImageActions();
+	}
+
+	// ── Image action bar (download button for image previews) ──────────────
+
+	_createPreviewImageActions(node, data) {
+		const existing = this._previewImageActions?.get(node.id);
+		if (existing) { existing.remove(); this._previewImageActions.delete(node.id); }
+
+		const bar = document.createElement('div');
+		bar.className = 'sg-preview-img-actions';
+		bar.id = `sg-preview-imgact-${node.id}`;
+
+		const dlBtn = document.createElement('button');
+		dlBtn.className = 'sg-preview-text-btn sg-preview-dl-btn';
+		dlBtn.title = 'Download';
+		dlBtn.textContent = '⬇';
+		dlBtn.addEventListener('click', (e) => { e.stopPropagation(); this._triggerPreviewDownload(node, data); });
+		bar.appendChild(dlBtn);
+
+		(this.canvas?.parentElement || document.body).appendChild(bar);
+		this._updatePreviewImageActionsPosition(node, bar);
+
+		if (!this._previewImageActions) this._previewImageActions = new Map();
+		this._previewImageActions.set(node.id, bar);
+		return bar;
+	}
+
+	_updatePreviewImageActionsPosition(node, bar) {
+		bar = bar || this._previewImageActions?.get(node.id);
+		if (!bar) return;
+		const camera = this.camera;
+		const bounds = node._previewBounds;
+		if (!bounds) return;
+		// Top-right corner of the content area
+		const barW = 32;
+		bar.style.left = ((bounds.x + bounds.w) * camera.scale + camera.x - barW - 4) + 'px';
+		bar.style.top  = (bounds.y * camera.scale + camera.y + 4) + 'px';
+	}
+
+	_closePreviewImageActions(node) {
+		const bar = this._previewImageActions?.get(node.id);
+		if (bar) { bar.remove(); this._previewImageActions.delete(node.id); }
+	}
+
+	closeAllPreviewImageActions() {
+		if (!this._previewImageActions) return;
+		for (const [, bar] of this._previewImageActions) bar.remove();
+		this._previewImageActions.clear();
+	}
+
+	updateAllPreviewImageActionsPositions() {
+		if (!this._previewImageActions) return;
+		for (const [nodeId, bar] of this._previewImageActions) {
+			const node = this.graph.getNodeById(nodeId);
+			if (node) this._updatePreviewImageActionsPosition(node, bar);
+		}
+	}
+
+	// ── Download trigger ─────────────────────────────────────────────
+
+	_triggerPreviewDownload(node, data) {
+		if (!data?.value) return;
+		const title = (node.displayTitle || node.title || 'preview')
+			.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+		const a = document.createElement('a');
+
+		if (data.type === 'image') {
+			a.href = data.value;
+			const ext = /^data:image\/png/i.test(data.value) ? 'png' : 'jpg';
+			a.download = `${title}.${ext}`;
+		} else if (data.type === 'audio') {
+			a.href = data.value;
+			a.download = `${title}.mp3`;
+		} else if (data.type === 'video') {
+			a.href = data.value;
+			a.download = `${title}.mp4`;
+		} else if (['json', 'dict', 'list'].includes(data.type)) {
+			const text = typeof data.value === 'string' ? data.value : JSON.stringify(data.value, null, 2);
+			a.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+			a.download = `${title}.json`;
+			a.addEventListener('click', () => setTimeout(() => URL.revokeObjectURL(a.href), 1000));
+		} else {
+			const text = typeof data.value === 'string' ? data.value : String(data.value);
+			a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' }));
+			a.download = `${title}.txt`;
+			a.addEventListener('click', () => setTimeout(() => URL.revokeObjectURL(a.href), 1000));
+		}
+
+		document.body.appendChild(a);
+		a.click();
+		a.remove();
 	}
 
 	// ── Media preview overlays (audio / video with native browser controls) ───
@@ -1921,6 +2031,7 @@ class SchemaGraphApp {
 		header.className = 'sg-preview-text-header';  // reuse text overlay header style
 		header.innerHTML = `
 			<span class="sg-preview-text-title">${this._escapeHtml(title)}</span>
+			<button class="sg-preview-text-btn sg-preview-dl-btn" title="Download">⬇</button>
 			<button class="sg-preview-text-btn sg-preview-media-close-btn" title="Collapse">▲</button>`;
 
 		const media = document.createElement(isVideo ? 'video' : 'audio');
@@ -1939,6 +2050,8 @@ class SchemaGraphApp {
 		header.querySelector('.sg-preview-media-close-btn')
 			?.addEventListener('click', () => this._closePreviewMediaOverlay(node));
 		header.addEventListener('dblclick', () => this._closePreviewMediaOverlay(node));
+		header.querySelector('.sg-preview-dl-btn')
+			?.addEventListener('click', (e) => { e.stopPropagation(); this._triggerPreviewDownload(node, data); });
 
 		this._updatePreviewMediaOverlayPosition(node, wrapper);
 
@@ -2879,6 +2992,7 @@ class SchemaGraphApp {
 					// Collapsing — close overlays first
 					this._closePreviewTextOverlay(node);
 					this._closePreviewMediaOverlay(node, false);
+					this._closePreviewImageActions(node);
 				}
 
 				// Resize node and redraw so _previewBounds is recalculated
@@ -2894,6 +3008,8 @@ class SchemaGraphApp {
 						this._createPreviewTextOverlay(node);
 					} else if (previewData && mediaTypes.includes(previewData.type)) {
 						this._createPreviewMediaOverlay(node, previewData);
+					} else if (previewData && previewData.type === 'image') {
+						this._createPreviewImageActions(node, previewData);
 					}
 				}
 
