@@ -555,6 +555,13 @@ class MediaOverlayManager {
 		const render = () => {
 			if (this.states.get(nodeId) !== MediaState.ACTIVE) return;
 
+			// Yield to ML Worker when it is rendering composed frames
+			const overlay = this.overlays.get(nodeId);
+			if (overlay?._mlRendering) {
+				this._videoRafHandles.set(nodeId, requestAnimationFrame(render));
+				return;
+			}
+
 			const dpr = window.devicePixelRatio || 1;
 			const cw  = displayCanvas.clientWidth  || 320;
 			const ch  = displayCanvas.clientHeight || 240;

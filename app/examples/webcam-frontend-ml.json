@@ -8,10 +8,9 @@
     {
       "type": "browser_source_flow",
       "device_type": "webcam",
-      "mode": "event",
-      "interval_ms": 500,
+      "mode": "stream",
       "source_id": "cam_ml",
-      "extra": {"pos": [220, 0], "name": "Webcam"}
+      "extra": {"pos": [220, 0], "name": "Webcam (Worker ML)"}
     },
     {
       "type": "end_flow",

@@ -9,13 +9,13 @@
         "enabled": true,
         "tags": [],
         "device_type": "webcam",
-        "mode": "event",
-        "interval_ms": 500,
+        "mode": "stream",
+        "interval_ms": 1000,
         "resolution": null,
         "audio_format": null
       },
       "created_at": "2026-02-25T19:25:03.255930",
-      "updated_at": "2026-02-25T20:18:18.191863"
+      "updated_at": "2026-02-26T10:24:01.746940"
     },
     "cam_pose": {
       "config": {
