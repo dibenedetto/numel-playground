@@ -1956,17 +1956,17 @@ class SchemaGraphApp {
 		if (bounds) {
 			overlay.style.left   = (bounds.x * camera.scale + camera.x) + 'px';
 			overlay.style.top    = (bounds.y * camera.scale + camera.y) + 'px';
-			overlay.style.width  = Math.max(160, bounds.w * camera.scale) + 'px';
-			overlay.style.height = Math.max(80,  bounds.h * camera.scale) + 'px';
+			overlay.style.width  = (bounds.w * camera.scale) + 'px';
+			overlay.style.height = (bounds.h * camera.scale) + 'px';
 		} else {
 			const sx = node.pos[0] * camera.scale + camera.x;
 			const sy = node.pos[1] * camera.scale + camera.y + 30 * camera.scale;
 			const sw = node.size[0] * camera.scale;
-			const sh = node.size[1] * camera.scale - 30 * camera.scale;
+			const sh = node.size[1] * camera.scale - 36 * camera.scale;
 			overlay.style.left   = sx + 'px';
 			overlay.style.top    = sy + 'px';
-			overlay.style.width  = Math.max(160, sw) + 'px';
-			overlay.style.height = Math.max(80,  sh) + 'px';
+			overlay.style.width  = sw + 'px';
+			overlay.style.height = sh + 'px';
 		}
 	}
 
@@ -7139,7 +7139,7 @@ class SchemaGraphApp {
 					node.size = [400, 350];
 					break;
 				case 'audio':
-					node.size = [280, 160];
+					node.size = [300, 230];
 					break;
 				default:
 					node.size = [280, 200];
