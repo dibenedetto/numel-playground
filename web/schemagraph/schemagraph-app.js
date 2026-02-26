@@ -1748,14 +1748,27 @@ class SchemaGraphApp {
 				min-height: 0;
 			}
 			.sg-preview-img-actions {
-				position: absolute;
-				z-index: 101;
+				position: fixed;
+				z-index: 1001;
 				pointer-events: auto;
 				display: flex;
-				gap: 2px;
-				padding: 2px 4px;
-				background: rgba(0,0,0,0.55);
-				border-radius: 4px;
+				align-items: center;
+				padding: 0 8px;
+				gap: 4px;
+				height: 28px;
+				box-sizing: border-box;
+				background: rgba(0,0,0,0.72);
+				border-radius: var(--sg-node-radius, 6px);
+				border: 1px solid var(--sg-border-color, #1a1a1a);
+				box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+			}
+			.sg-preview-img-actions .sg-preview-img-title {
+				flex: 1;
+				color: var(--sg-text-primary, #e0e0e0);
+				font-size: 11px;
+				white-space: nowrap;
+				overflow: hidden;
+				text-overflow: ellipsis;
 			}
 		`;
 		document.head.appendChild(style);
@@ -1804,8 +1817,8 @@ class SchemaGraphApp {
 		const header = overlay.querySelector('.sg-preview-text-header');
 
 		// Clicking header or close button collapses back
-		closeBtn?.addEventListener('click', () => this._closePreviewTextOverlay(node));
-		header?.addEventListener('dblclick', () => this._closePreviewTextOverlay(node));
+		closeBtn?.addEventListener('click', () => this._togglePreviewExpanded(node));
+		header?.addEventListener('dblclick', () => this._togglePreviewExpanded(node));
 
 		copyBtn?.addEventListener('click', (e) => {
 			e.stopPropagation();
@@ -1926,18 +1939,23 @@ class SchemaGraphApp {
 		const existing = this._previewImageActions?.get(node.id);
 		if (existing) { existing.remove(); this._previewImageActions.delete(node.id); }
 
+		const title = node.displayTitle || node.title || 'Preview';
+		const hasDl  = !!data?.value;
+
 		const bar = document.createElement('div');
 		bar.className = 'sg-preview-img-actions';
 		bar.id = `sg-preview-imgact-${node.id}`;
+		bar.innerHTML = `
+			<span class="sg-preview-img-title">${this._escapeHtml(title)}</span>
+			${hasDl ? '<button class="sg-preview-text-btn sg-preview-dl-btn" title="Download">⬇</button>' : ''}
+			<button class="sg-preview-text-btn sg-preview-img-collapse-btn" title="Collapse">▲</button>`;
 
-		const dlBtn = document.createElement('button');
-		dlBtn.className = 'sg-preview-text-btn sg-preview-dl-btn';
-		dlBtn.title = 'Download';
-		dlBtn.textContent = '⬇';
-		dlBtn.addEventListener('click', (e) => { e.stopPropagation(); this._triggerPreviewDownload(node, data); });
-		bar.appendChild(dlBtn);
+		bar.querySelector('.sg-preview-dl-btn')
+			?.addEventListener('click', (e) => { e.stopPropagation(); this._triggerPreviewDownload(node, data); });
+		bar.querySelector('.sg-preview-img-collapse-btn')
+			?.addEventListener('click', (e) => { e.stopPropagation(); this._togglePreviewExpanded(node); });
 
-		(this.canvas?.parentElement || document.body).appendChild(bar);
+		document.body.appendChild(bar);
 		this._updatePreviewImageActionsPosition(node, bar);
 
 		if (!this._previewImageActions) this._previewImageActions = new Map();
@@ -1949,12 +1967,19 @@ class SchemaGraphApp {
 		bar = bar || this._previewImageActions?.get(node.id);
 		if (!bar) return;
 		const camera = this.camera;
+		const canvasRect = this.canvas.getBoundingClientRect();
 		const bounds = node._previewBounds;
-		if (!bounds) return;
-		// Top-right corner of the content area
-		const barW = 32;
-		bar.style.left = ((bounds.x + bounds.w) * camera.scale + camera.x - barW - 4) + 'px';
-		bar.style.top  = (bounds.y * camera.scale + camera.y + 4) + 'px';
+		if (bounds) {
+			bar.style.left  = (bounds.x * camera.scale + camera.x + canvasRect.left) + 'px';
+			bar.style.top   = (bounds.y * camera.scale + camera.y + canvasRect.top)  + 'px';
+			bar.style.width = (bounds.w * camera.scale) + 'px';
+		} else {
+			// Fallback: estimate from node geometry
+			const slotH = 35;
+			bar.style.left  = (node.pos[0] * camera.scale + camera.x + 8 * camera.scale + canvasRect.left) + 'px';
+			bar.style.top   = ((node.pos[1] + 30 + slotH) * camera.scale + camera.y + canvasRect.top) + 'px';
+			bar.style.width = ((node.size[0] - 16) * camera.scale) + 'px';
+		}
 	}
 
 	_closePreviewImageActions(node) {
@@ -1988,6 +2013,12 @@ class SchemaGraphApp {
 			a.href = data.value;
 			const ext = /^data:image\/png/i.test(data.value) ? 'png' : 'jpg';
 			a.download = `${title}.${ext}`;
+		} else if (data.type === 'model3d') {
+			a.href = data.value;
+			const knownExts = ['glb','gltf','obj','fbx','stl','3ds'];
+			const fmt = (data.meta?.format || '').toLowerCase();
+			const ext3d = knownExts.includes(fmt) ? fmt : 'glb';
+			a.download = `${title}.${ext3d}`;
 		} else if (data.type === 'audio') {
 			a.href = data.value;
 			a.download = `${title}.mp3`;
@@ -2048,8 +2079,8 @@ class SchemaGraphApp {
 		container.appendChild(wrapper);
 
 		header.querySelector('.sg-preview-media-close-btn')
-			?.addEventListener('click', () => this._closePreviewMediaOverlay(node));
-		header.addEventListener('dblclick', () => this._closePreviewMediaOverlay(node));
+			?.addEventListener('click', () => this._togglePreviewExpanded(node));
+		header.addEventListener('dblclick', () => this._togglePreviewExpanded(node));
 		header.querySelector('.sg-preview-dl-btn')
 			?.addEventListener('click', (e) => { e.stopPropagation(); this._triggerPreviewDownload(node, data); });
 
@@ -2661,6 +2692,17 @@ class SchemaGraphApp {
 		}
 
 		if (clickedNode) {
+			// Single-click on the ▶/▼ icon area in a PreviewFlow node header toggles expand
+			if (!data.event.ctrlKey && !data.event.metaKey &&
+				this._isPreviewFlowNode(clickedNode) &&
+				wy >= clickedNode.pos[1] && wy < clickedNode.pos[1] + 26 &&
+				wx >= clickedNode.pos[0] + 4 && wx < clickedNode.pos[0] + 30 &&
+				Date.now() >= (this._previewCollapseBlockUntil || 0)) {
+				if (!this.selectedNodes.has(clickedNode)) this.selectNode(clickedNode, false);
+				this._togglePreviewExpanded(clickedNode);
+				return;
+			}
+
 			if (data.event.ctrlKey || data.event.metaKey) this.toggleNodeSelection(clickedNode);
 			else {
 				if (!this.selectedNodes.has(clickedNode)) this.selectNode(clickedNode, false);
@@ -2977,46 +3019,18 @@ class SchemaGraphApp {
 		const [wx, wy] = this.screenToWorld(data.coords.screenX, data.coords.screenY);
 
 		// Check for PreviewFlow node double-click on preview area (allowed even when locked)
+		// Guard: if a close-button was just clicked, ignore the follow-up canvas dblclick
+		// that fires when the overlay disappears between click #1 and click #2 of a double-click.
+		if (Date.now() < (this._previewCollapseBlockUntil || 0)) return;
+
 		for (const node of this.graph.nodes) {
 			if (!this._isPreviewFlowNode(node)) continue;
 
-			const bounds = node._previewBounds;
-			if (bounds && wx >= bounds.x && wx <= bounds.x + bounds.w &&
-				wy >= bounds.y && wy <= bounds.y + bounds.h) {
-				// Toggle preview mode
-				if (!node.extra) node.extra = {};
-				const wasExpanded = node.extra.previewExpanded;
-				node.extra.previewExpanded = !wasExpanded;
-
-				if (!node.extra.previewExpanded) {
-					// Collapsing — close overlays first
-					this._closePreviewTextOverlay(node);
-					this._closePreviewMediaOverlay(node, false);
-					this._closePreviewImageActions(node);
-				}
-
-				// Resize node and redraw so _previewBounds is recalculated
-				this._recalculatePreviewNodeSize(node);
-				this.draw();
-
-				if (node.extra.previewExpanded) {
-					// Expanding — create overlay after draw so _previewBounds is fresh
-					const previewData = this._getPreviewData(node);
-					const textTypes  = ['text', 'json', 'list', 'dict', 'integer', 'float', 'boolean'];
-					const mediaTypes = ['audio', 'video'];
-					if (previewData && textTypes.includes(previewData.type)) {
-						this._createPreviewTextOverlay(node);
-					} else if (previewData && mediaTypes.includes(previewData.type)) {
-						this._createPreviewMediaOverlay(node, previewData);
-					} else if (previewData && previewData.type === 'image') {
-						this._createPreviewImageActions(node, previewData);
-					}
-				}
-
-				this.eventBus.emit('preview:modeToggled', {
-					nodeId: node.id,
-					expanded: node.extra.previewExpanded
-				});
+			// Hit-test the full node body so double-click works on header/slots too
+			const nx = node.pos[0], ny = node.pos[1];
+			const nw = node.size[0], nh = node.size[1];
+			if (wx >= nx && wx <= nx + nw && wy >= ny && wy <= ny + nh) {
+				this._togglePreviewExpanded(node);
 				return;
 			}
 		}
@@ -5873,6 +5887,42 @@ class SchemaGraphApp {
 			   node.modelName === 'PreviewFlow' ||
 			   node.type?.includes('PreviewFlow') ||
 			   (node.title?.toLowerCase().includes('preview') && node.isWorkflowNode);
+	}
+
+	/**
+	 * Toggle preview expanded/collapsed state.
+	 * Sets a short block flag so a follow-up canvas dblclick (from an overlay
+	 * button disappearing mid-double-click) cannot immediately re-toggle.
+	 */
+	_togglePreviewExpanded(node) {
+		if (!node.extra) node.extra = {};
+		this._previewCollapseBlockUntil = Date.now() + 400;
+		const wasExpanded = node.extra.previewExpanded;
+		node.extra.previewExpanded = !wasExpanded;
+
+		if (!node.extra.previewExpanded) {
+			this._closePreviewTextOverlay(node);
+			this._closePreviewMediaOverlay(node, false);
+			this._closePreviewImageActions(node);
+		}
+
+		this._recalculatePreviewNodeSize(node);
+		this.draw();
+
+		if (node.extra.previewExpanded) {
+			const previewData = this._getPreviewData(node);
+			const textTypes  = ['text', 'json', 'list', 'dict', 'integer', 'float', 'boolean'];
+			const mediaTypes = ['audio', 'video'];
+			if (previewData && textTypes.includes(previewData.type)) {
+				this._createPreviewTextOverlay(node);
+			} else if (previewData && mediaTypes.includes(previewData.type)) {
+				this._createPreviewMediaOverlay(node, previewData);
+			} else {
+				this._createPreviewImageActions(node, previewData);
+			}
+		}
+
+		this.eventBus.emit('preview:modeToggled', { nodeId: node.id, expanded: node.extra.previewExpanded });
 	}
 
 	/**
