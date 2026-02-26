@@ -1728,6 +1728,25 @@ class SchemaGraphApp {
 			.sg-preview-text-resize {
 				display: none;
 			}
+			.sg-preview-media-overlay {
+				position: absolute;
+				pointer-events: auto;
+				border-radius: var(--sg-node-radius, 6px);
+				overflow: hidden;
+				box-shadow: 0 4px 20px var(--sg-node-shadow, rgba(0,0,0,0.4));
+				z-index: 100;
+				display: flex;
+				flex-direction: column;
+				background: #000;
+				border: 1px solid var(--sg-border-color, #1a1a1a);
+			}
+			.sg-preview-media-overlay .sg-preview-text-header {
+				flex-shrink: 0;
+			}
+			.sg-preview-media-element {
+				flex: 1;
+				min-height: 0;
+			}
 		`;
 		document.head.appendChild(style);
 	}
@@ -1854,13 +1873,15 @@ class SchemaGraphApp {
 	}
 
 	updateAllPreviewTextOverlayPositions() {
-		if (!this._previewTextOverlays) return;
-		for (const [nodeId, overlay] of this._previewTextOverlays) {
-			const node = this.graph.getNodeById(nodeId);
-			if (node) {
-				this._updatePreviewTextOverlayPosition(node, overlay);
+		if (this._previewTextOverlays) {
+			for (const [nodeId, overlay] of this._previewTextOverlays) {
+				const node = this.graph.getNodeById(nodeId);
+				if (node) {
+					this._updatePreviewTextOverlayPosition(node, overlay);
+				}
 			}
 		}
+		this.updateAllPreviewMediaOverlayPositions();
 	}
 
 	closeAllPreviewTextOverlays() {
@@ -1877,6 +1898,113 @@ class SchemaGraphApp {
 			}
 		}
 		this._previewTextOverlays.clear();
+		this.closeAllPreviewMediaOverlays();
+	}
+
+	// ── Media preview overlays (audio / video with native browser controls) ───
+
+	_createPreviewMediaOverlay(node, data) {
+		if (!data?.value) return null;
+
+		// Remove stale overlay for this node without collapsing
+		const existing = this._previewMediaOverlays?.get(node.id);
+		if (existing) { existing.remove(); this._previewMediaOverlays.delete(node.id); }
+
+		const isVideo = data.type === 'video';
+		const title   = node.displayTitle || node.title || 'Preview';
+
+		const wrapper = document.createElement('div');
+		wrapper.className = 'sg-preview-media-overlay';
+		wrapper.id = `sg-preview-media-${node.id}`;
+
+		const header = document.createElement('div');
+		header.className = 'sg-preview-text-header';  // reuse text overlay header style
+		header.innerHTML = `
+			<span class="sg-preview-text-title">${this._escapeHtml(title)}</span>
+			<button class="sg-preview-text-btn sg-preview-media-close-btn" title="Collapse">▲</button>`;
+
+		const media = document.createElement(isVideo ? 'video' : 'audio');
+		media.controls = true;
+		media.src = data.value;
+		media.className = 'sg-preview-media-element';
+		if (isVideo) media.style.cssText = 'width:100%;height:calc(100% - 28px);display:block;object-fit:contain;background:#000;';
+		else         media.style.cssText = 'width:100%;margin-top:4px;';
+
+		wrapper.appendChild(header);
+		wrapper.appendChild(media);
+
+		const container = this.canvas?.parentElement || document.body;
+		container.appendChild(wrapper);
+
+		header.querySelector('.sg-preview-media-close-btn')
+			?.addEventListener('click', () => this._closePreviewMediaOverlay(node));
+		header.addEventListener('dblclick', () => this._closePreviewMediaOverlay(node));
+
+		this._updatePreviewMediaOverlayPosition(node, wrapper);
+
+		if (!this._previewMediaOverlays) this._previewMediaOverlays = new Map();
+		this._previewMediaOverlays.set(node.id, wrapper);
+		return wrapper;
+	}
+
+	_updatePreviewMediaOverlayPosition(node, overlay) {
+		overlay = overlay || this._previewMediaOverlays?.get(node.id);
+		if (!overlay) return;
+
+		const camera = this.camera;
+		const bounds = node._previewBounds;
+		if (bounds) {
+			overlay.style.left   = (bounds.x * camera.scale + camera.x) + 'px';
+			overlay.style.top    = (bounds.y * camera.scale + camera.y) + 'px';
+			overlay.style.width  = Math.max(160, bounds.w * camera.scale) + 'px';
+			overlay.style.height = Math.max(80,  bounds.h * camera.scale) + 'px';
+		} else {
+			const sx = node.pos[0] * camera.scale + camera.x;
+			const sy = node.pos[1] * camera.scale + camera.y + 30 * camera.scale;
+			const sw = node.size[0] * camera.scale;
+			const sh = node.size[1] * camera.scale - 30 * camera.scale;
+			overlay.style.left   = sx + 'px';
+			overlay.style.top    = sy + 'px';
+			overlay.style.width  = Math.max(160, sw) + 'px';
+			overlay.style.height = Math.max(80,  sh) + 'px';
+		}
+	}
+
+	_closePreviewMediaOverlay(node, collapse = true) {
+		const overlay = this._previewMediaOverlays?.get(node.id);
+		if (overlay) {
+			const media = overlay.querySelector('video, audio');
+			try { media?.pause(); if (media) media.src = ''; } catch (_) {}
+			overlay.remove();
+			this._previewMediaOverlays.delete(node.id);
+		}
+		if (collapse) {
+			if (node.extra) node.extra.previewExpanded = false;
+			this._recalculatePreviewNodeSize(node);
+			this.draw();
+		}
+	}
+
+	updateAllPreviewMediaOverlayPositions() {
+		if (!this._previewMediaOverlays) return;
+		for (const [nodeId, overlay] of this._previewMediaOverlays) {
+			const node = this.graph.getNodeById(nodeId);
+			if (node) this._updatePreviewMediaOverlayPosition(node, overlay);
+		}
+	}
+
+	closeAllPreviewMediaOverlays() {
+		if (!this._previewMediaOverlays) return;
+		for (const [, overlay] of this._previewMediaOverlays) {
+			const media = overlay.querySelector('video, audio');
+			try { media?.pause(); if (media) media.src = ''; } catch (_) {}
+			overlay.remove();
+		}
+		for (const nodeId of this._previewMediaOverlays.keys()) {
+			const node = this.graph.getNodeById(nodeId);
+			if (node?.extra) node.extra.previewExpanded = false;
+		}
+		this._previewMediaOverlays.clear();
 	}
 
 	_escapeHtml(text) {
@@ -2748,8 +2876,9 @@ class SchemaGraphApp {
 				node.extra.previewExpanded = !wasExpanded;
 
 				if (!node.extra.previewExpanded) {
-					// Collapsing — close overlay first
+					// Collapsing — close overlays first
 					this._closePreviewTextOverlay(node);
+					this._closePreviewMediaOverlay(node, false);
 				}
 
 				// Resize node and redraw so _previewBounds is recalculated
@@ -2759,9 +2888,12 @@ class SchemaGraphApp {
 				if (node.extra.previewExpanded) {
 					// Expanding — create overlay after draw so _previewBounds is fresh
 					const previewData = this._getPreviewData(node);
-					const textTypes = ['text', 'json', 'list', 'dict', 'integer', 'float', 'boolean'];
+					const textTypes  = ['text', 'json', 'list', 'dict', 'integer', 'float', 'boolean'];
+					const mediaTypes = ['audio', 'video'];
 					if (previewData && textTypes.includes(previewData.type)) {
 						this._createPreviewTextOverlay(node);
+					} else if (previewData && mediaTypes.includes(previewData.type)) {
+						this._createPreviewMediaOverlay(node, previewData);
 					}
 				}
 
@@ -8808,6 +8940,7 @@ class SchemaGraphApp {
 						self.canvas.width = container.clientWidth;
 						self.canvas.height = container.clientHeight;
 						self.draw();
+						self.updateAllPreviewTextOverlayPositions();
 					}
 				}
 			},
