@@ -7377,6 +7377,9 @@ class SchemaGraphApp {
 		const meta = node.inputMeta?.[slotIdx];
 		if (!meta) return false;
 
+		// meta.optional is set for MULTI_INPUT slots (element type strips Optional[])
+		if (meta.optional) return false;
+
 		const typeStr = meta.type || '';
 		if (typeStr.includes('Optional[')) return false;
 		if (node.nativeInputs?.[slotIdx]?.optional) return false;

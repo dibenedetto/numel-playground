@@ -738,6 +738,7 @@ class WorkflowNodeFactory {
 			const expandedIndices = [];
 			if (keys?.constructor === Object) keys = Object.keys(keys);
 			const elementType = this._getMultiSlotElementType(field.rawType);
+			const isOptional  = field.rawType.includes('Optional');
 
 			// Always create the base slot (main field label with "+" button)
 			const displayName = this._getDisplayName(field);
@@ -747,7 +748,8 @@ class WorkflowNodeFactory {
 				title: field.title,
 				description: field.description,
 				type: elementType,
-				isMulti: true
+				isMulti: true,
+				optional: isOptional
 			};
 			expandedIndices.push(inputIdx++);
 
@@ -761,7 +763,8 @@ class WorkflowNodeFactory {
 						title: field.title,
 						description: field.description,
 						type: elementType,
-						isMulti: true
+						isMulti: true,
+						optional: isOptional
 					};
 					expandedIndices.push(inputIdx++);
 				}
