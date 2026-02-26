@@ -157,7 +157,10 @@ class WFSinkFlow(WFFlowType):
 
 
 class WFPreviewFlow(WFFlowType):
-	pass
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		result.outputs["output"] = context.inputs.get("input")
+		return result
 
 
 class WFRouteFlow(WFFlowType):
@@ -998,6 +1001,127 @@ class WFStreamDisplayFlow(WFFlowType):
 		return result
 
 
+# ── Pose connections for PIL drawing ─────────────────────────────────────────
+_POSE_CONNECTIONS = [
+	(11,12),(11,13),(13,15),(12,14),(14,16),
+	(11,23),(12,24),(23,24),
+	(23,25),(25,27),(27,29),(29,31),
+	(24,26),(26,28),(28,30),(30,32),
+	(0,1),(1,2),(2,3),(3,7),
+	(0,4),(4,5),(5,6),(6,8),
+	(9,10),
+]
+
+
+def _draw_pose_on_image(img: Any, landmarks: list, w: int, h: int) -> Any:
+	"""Draw pose skeleton and joint dots on a PIL Image in-place and return it."""
+	try:
+		from PIL import ImageDraw
+	except ImportError:
+		return img
+	draw = ImageDraw.Draw(img)
+	# Skeleton lines (green)
+	for a, b in _POSE_CONNECTIONS:
+		if a >= len(landmarks) or b >= len(landmarks):
+			continue
+		la, lb = landmarks[a], landmarks[b]
+		x1, y1 = int(la["x"] * w), int(la["y"] * h)
+		x2, y2 = int(lb["x"] * w), int(lb["y"] * h)
+		draw.line([(x1, y1), (x2, y2)], fill=(0, 255, 100), width=2)
+	# Joint dots (red)
+	r = 4
+	for lm in landmarks:
+		x, y = int(lm["x"] * w), int(lm["y"] * h)
+		draw.ellipse([(x - r, y - r), (x + r, y + r)], fill=(255, 80, 80))
+	return img
+
+
+class WFComputerVisionFlow(WFFlowType):
+	"""Computer Vision node — runs ML inference in the browser (frontend) or on the server (backend)."""
+
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+
+		result.outputs["rendered_image"] = None
+		result.outputs["detections"]     = None
+
+		inference_location = context.inputs.get("inference_location", "frontend")
+
+		if inference_location == "frontend":
+			# Frontend Worker handles everything — backend is a no-op.
+			# Detections arrive via the stream WebSocket instead of output edges.
+			return result
+
+		# ── Backend inference ─────────────────────────────────────────────────
+		frame = context.inputs.get("image")
+		if frame is None:
+			return result
+
+		task           = context.inputs.get("task", "pose")
+		model_size     = context.inputs.get("model_size", "lite")
+		min_confidence = float(context.inputs.get("min_confidence", 0.5))
+		draw_overlay   = bool(context.inputs.get("draw_overlay", True))
+
+		try:
+			import base64 as _b64
+			import io
+			import numpy as np
+			from PIL import Image
+		except ImportError as e:
+			result.success = False
+			result.error   = f"Missing dependency: {e}. Install: pip install mediapipe Pillow numpy"
+			return result
+
+		# Decode base64 JPEG → PIL Image
+		if isinstance(frame, str):
+			if "," in frame:
+				frame = frame.split(",", 1)[1]
+			img_bytes = _b64.b64decode(frame)
+		elif isinstance(frame, bytes):
+			img_bytes = frame
+		else:
+			return result
+
+		try:
+			img      = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+			w, h     = img.size
+			img_arr  = np.array(img)
+		except Exception as e:
+			result.success = False
+			result.error   = f"Image decode failed: {e}"
+			return result
+
+		if task == "pose":
+			complexity = {"lite": 0, "full": 1, "heavy": 2}.get(model_size, 0)
+			detector   = _get_pose_detector(complexity, min_confidence)
+			if detector is None:
+				result.success = False
+				result.error   = "mediapipe not installed. Run: pip install mediapipe"
+				return result
+
+			detection = detector.process(img_arr)
+			if detection.pose_landmarks:
+				landmarks = [
+					{"x": lm.x, "y": lm.y, "z": lm.z, "visibility": lm.visibility}
+					for lm in detection.pose_landmarks.landmark
+				]
+				result.outputs["detections"] = landmarks
+				if draw_overlay:
+					img = _draw_pose_on_image(img, landmarks, w, h)
+		# face / hands: not yet implemented — fall through with null outputs
+
+		# Encode rendered image (only when detections were found and draw_overlay=True)
+		if draw_overlay and result.outputs["detections"]:
+			try:
+				buf = io.BytesIO()
+				img.save(buf, format="JPEG", quality=85)
+				result.outputs["rendered_image"] = _b64.b64encode(buf.getvalue()).decode("ascii")
+			except Exception:
+				pass
+
+		return result
+
+
 # =============================================================================
 # END ML / STREAM INFERENCE NODES
 # =============================================================================
@@ -1068,7 +1192,9 @@ _NODE_TYPES = {
 
 	# ML / Stream nodes
 	"pose_detector_flow"       : WFPoseDetectorFlow,
+
 	"stream_display_flow"      : WFStreamDisplayFlow,
+	"computer_vision_flow"     : WFComputerVisionFlow,
 
 	# Interactive nodes
 	"tool_call"                : WFToolCall,

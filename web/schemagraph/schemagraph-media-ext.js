@@ -390,7 +390,23 @@ class MediaOverlayManager {
 
 		const { render_type, payload } = msg;
 
-		if ((render_type === 'pose' || render_type === 'landmarks') && payload?.landmarks) {
+		if (render_type === 'image' && payload != null) {
+			// Draw a full annotated frame (base64 JPEG) from the backend.
+			// The image covers the plain video feed beneath the overlay canvas.
+			const src = (typeof payload === 'string' && payload.startsWith('data:'))
+				? payload
+				: 'data:image/jpeg;base64,' + payload;
+			const imgEl = new Image();
+			imgEl.onload = () => {
+				const scale = Math.min(dw / imgEl.naturalWidth, dh / imgEl.naturalHeight);
+				const iw = imgEl.naturalWidth  * scale;
+				const ih = imgEl.naturalHeight * scale;
+				ctx.fillStyle = '#000';
+				ctx.fillRect(0, 0, dw, dh);
+				ctx.drawImage(imgEl, (dw - iw) / 2, (dh - ih) / 2, iw, ih);
+			};
+			imgEl.src = src;
+		} else if ((render_type === 'pose' || render_type === 'landmarks') && payload?.landmarks) {
 			this._drawPoseLandmarks(ctx, payload.landmarks, dw, dh, render_type === 'pose');
 		} else if (render_type === 'text' && payload != null) {
 			ctx.fillStyle = 'rgba(0,0,0,0.55)';
@@ -555,13 +571,6 @@ class MediaOverlayManager {
 		const render = () => {
 			if (this.states.get(nodeId) !== MediaState.ACTIVE) return;
 
-			// Yield to ML Worker when it is rendering composed frames
-			const overlay = this.overlays.get(nodeId);
-			if (overlay?._mlRendering) {
-				this._videoRafHandles.set(nodeId, requestAnimationFrame(render));
-				return;
-			}
-
 			const dpr = window.devicePixelRatio || 1;
 			const cw  = displayCanvas.clientWidth  || 320;
 			const ch  = displayCanvas.clientHeight || 240;
@@ -651,6 +660,7 @@ class MediaOverlayManager {
 
 	_setState(nodeId, state, errorMsg = null) {
 		this.states.set(nodeId, state);
+		this.eventBus?.emit('media:state:changed', { nodeId, state });
 		const overlay = this.overlays.get(nodeId);
 		if (!overlay) return;
 

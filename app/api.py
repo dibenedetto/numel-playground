@@ -1555,8 +1555,8 @@ Example:
 loop_start_flow.condition (bool) controls iteration. Connect body nodes between
 loop_start_flow and loop_end_flow. loop_start_flow.iteration outputs current count.
 For lists: for_each_start_flow.items → body → for_each_end_flow; current item on .current output.
-An edge with source_slot="flow_out" from loop_start_flow to loop_end_flow creates a feedback loop for the next iteration,
-for example: {"source": 0, "target": 3, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true }.
+An edge with source=<loop_end_flow>, source_slot="flow_out" to target=<loop_start_flow>, target_slot="flow_in" and attribute loop=true creates a feedback loop for the next iteration,
+for example: {"source": 3, "target": 0, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true }.
 
 ### Event-driven workflows
 Register a source: timer_source_flow or webhook_source_flow → registered_id output.

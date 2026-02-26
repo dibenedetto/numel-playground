@@ -1,15 +1,17 @@
 // ============================================================================
 // SCHEMAGRAPH ML EXTENSION — Frontend MediaPipe Inference
 //
-// Adds optional client-side MediaPipe Tasks Vision inference to BrowserSource
-// nodes. When enabled (mode = 'stream' + frontend inference toggle), frames
-// are processed locally in the browser using WebAssembly — no round-trip to
-// the backend for pose detection — then the keypoints are both:
-//   1. Drawn on the overlay canvas immediately (zero-latency display)
-//   2. Sent to the backend via the stream WebSocket as JSON (for workflow use)
+// When a graph contains a ComputerVisionFlow node (inference_location=frontend)
+// connected downstream from a BrowserSourceFlow node, this extension:
+//   1. Spins up a Web Worker that runs MediaPipe PoseLandmarker
+//   2. Feeds live video frames from the BrowserSource overlay (zero-copy ImageBitmap)
+//   3. Receives rendered frames (video + skeleton) back from the Worker
+//   4. Pushes each rendered frame to the downstream preview_flow node canvas
+//      (sets node._liveFrameImg / previewData so the graph draws it inline)
+//   5. Sends keypoint JSON to the backend via the stream WebSocket
 //
 // Depends on: schemagraph-media-ext.js, schemagraph-extensions.js
-// CDN: @mediapipe/tasks-vision loaded dynamically on first use
+// CDN: @mediapipe/tasks-vision loaded dynamically on first use inside Worker
 // ============================================================================
 
 console.log('[SchemaGraph] Loading ML extension...');
@@ -47,21 +49,25 @@ self.onmessage = async ({ data }) => {
 	const { type } = data;
 
 	if (type === 'init') {
+		const minConf = data.min_confidence ?? 0.5;
+		const modelMap = {
+			lite  : 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+			full  : 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
+			heavy : 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task',
+		};
+		const modelAssetPath = modelMap[data.model_size] || modelMap.lite;
 		try {
 			const { PoseLandmarker, FilesetResolver } = await _getMP();
 			const resolver = await FilesetResolver.forVisionTasks(
 				'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm'
 			);
 			detector = await PoseLandmarker.createFromOptions(resolver, {
-				baseOptions: {
-					modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
-					delegate: 'GPU',
-				},
+				baseOptions: { modelAssetPath, delegate: 'GPU' },
 				runningMode: 'VIDEO',
 				numPoses: 1,
-				minPoseDetectionConfidence: 0.5,
-				minPosePresenceConfidence:  0.5,
-				minTrackingConfidence:      0.5,
+				minPoseDetectionConfidence: minConf,
+				minPosePresenceConfidence:  minConf,
+				minTrackingConfidence:      minConf,
 			});
 			console.log('[ML Worker] PoseLandmarker ready.');
 			self.postMessage({ type: 'ready' });
@@ -128,235 +134,215 @@ function _drawSkeleton(ctx, landmarks, w, h) {
 // ── Per-node inference state ──────────────────────────────────────────────────
 
 const MLState = Object.freeze({
-	IDLE     : 'idle',
-	LOADING  : 'loading',
-	RUNNING  : 'running',
-	ERROR    : 'error',
+	IDLE    : 'idle',
+	LOADING : 'loading',
+	RUNNING : 'running',
+	ERROR   : 'error',
 });
 
 
 // ── FrontendInferenceManager ─────────────────────────────────────────────────
+// Workers are keyed by CVFlow node ID.
+// Video is read from the BrowserSource overlay.
+// Rendered frames are pushed to the downstream preview_flow graph node so the
+// graph draws them inline (same mechanism used by stream_display_flow).
 
 class FrontendInferenceManager {
 	constructor() {
-		this._workers      = new Map();   // nodeId -> Worker
-		this._states       = new Map();   // nodeId -> MLState
-		this._pending      = new Map();   // nodeId -> bool (backpressure: frame in-flight)
-		this._captureRafs  = new Map();   // nodeId -> bool (capture RAF loop active)
-		this._wsRefs       = new Map();   // nodeId -> WebSocket (ref from media ext)
-		this._overlayMgr   = null;        // MediaOverlayManager ref (set after init)
-		this._eventBus     = null;        // EventBus ref (set after init)
+		this._workers     = new Map();  // cvNodeId -> Worker
+		this._states      = new Map();  // cvNodeId -> MLState
+		this._pending     = new Map();  // cvNodeId -> bool (backpressure)
+		this._captureRafs = new Map();  // cvNodeId -> bool (RAF loop active)
+		this._wsRefs      = new Map();  // cvNodeId -> WebSocket
+		this._browserRefs = new Map();  // cvNodeId -> browserNode (graph node)
+		this._previewRefs = new Map();  // cvNodeId -> previewNode (graph node)
+		this._overlayMgr  = null;       // MediaOverlayManager (set by MLStreamExtension)
+		this._app         = null;       // SchemaGraphApp ref (for app.draw())
+		this._eventBus    = null;
 	}
 
-	// ── Lifecycle ─────────────────────────────────────────────────────────────
+	// cvNode      : ComputerVisionFlow graph node
+	// browserNode : BrowserSourceFlow graph node (has the live video element)
+	// wsRef       : stream WebSocket for sending keypoints to backend
+	// previewNode : preview_flow graph node to push rendered frames to (may be null)
+	// cvConfig    : { task, model_size, min_confidence }
+	enableForCVNode(cvNode, browserNode, wsRef, previewNode, cvConfig = {}) {
+		const cvNodeId = String(cvNode.id);
+		if (this._states.get(cvNodeId) === MLState.RUNNING ||
+		    this._states.get(cvNodeId) === MLState.LOADING) return;
 
-	enableForNode(node, wsRef) {
-		const nodeId = String(node.id);
-		if (this._states.get(nodeId) === MLState.RUNNING ||
-		    this._states.get(nodeId) === MLState.LOADING) return;
+		this._states.set(cvNodeId, MLState.LOADING);
+		this._wsRefs.set(cvNodeId, wsRef);
+		this._browserRefs.set(cvNodeId, browserNode);
+		this._previewRefs.set(cvNodeId, previewNode ?? null);
+		this._log(cvNodeId, `Starting CV Worker (task=${cvConfig.task || 'pose'}, model=${cvConfig.model_size || 'lite'})…`);
 
-		this._states.set(nodeId, MLState.LOADING);
-		this._wsRefs.set(nodeId, wsRef);
-		this._log(nodeId, 'Starting ML Worker…');
+		const blob    = new Blob([_ML_WORKER_SOURCE], { type: 'text/javascript' });
+		const blobUrl = URL.createObjectURL(blob);
+		const worker  = new Worker(blobUrl);
+		worker._blobUrl = blobUrl;
+		this._workers.set(cvNodeId, worker);
 
-		const blob      = new Blob([_ML_WORKER_SOURCE], { type: 'text/javascript' });
-		const blobUrl   = URL.createObjectURL(blob);
-		const worker    = new Worker(blobUrl);  // classic worker — uses dynamic import() internally
-		worker._blobUrl = blobUrl;   // store for cleanup
-		this._workers.set(nodeId, worker);
-
-		worker.onmessage = ({ data }) => this._onWorkerMessage(nodeId, data);
+		worker.onmessage = ({ data }) => this._onWorkerMessage(cvNodeId, data);
 		worker.onerror   = (err) => {
-			console.error(`[ML:node-${nodeId}] Worker error:`, err);
-			this._states.set(nodeId, MLState.ERROR);
+			console.error(`[CV:${cvNodeId}] Worker error:`, err);
+			this._states.set(cvNodeId, MLState.ERROR);
 		};
 
-		worker.postMessage({ type: 'init' });
+		worker.postMessage({
+			type           : 'init',
+			task           : cvConfig.task           || 'pose',
+			model_size     : cvConfig.model_size     || 'lite',
+			min_confidence : cvConfig.min_confidence ?? 0.5,
+		});
 	}
 
-	disableForNode(nodeId) {
-		nodeId = String(nodeId);
+	disableForCVNode(cvNodeId) {
+		cvNodeId = String(cvNodeId);
+		this._captureRafs.delete(cvNodeId);
+		this._pending.delete(cvNodeId);
 
-		// Stop capture RAF loop
-		this._captureRafs.delete(nodeId);
-		this._pending.delete(nodeId);
-
-		// Clear _mlRendering flag so video renderer takes back the display canvas
-		const overlay = this._overlayMgr?.overlays.get(nodeId);
-		if (overlay) overlay._mlRendering = false;
-
-		// Tell worker to shut down (gives it a chance to close the detector cleanly)
-		const worker = this._workers.get(nodeId);
+		const worker = this._workers.get(cvNodeId);
 		if (worker) {
 			try { worker.postMessage({ type: 'stop' }); } catch (_) {}
-			// Force-terminate after grace period in case worker hangs
 			setTimeout(() => {
 				try { worker.terminate(); } catch (_) {}
 				if (worker._blobUrl) URL.revokeObjectURL(worker._blobUrl);
 			}, 500);
-			this._workers.delete(nodeId);
+			this._workers.delete(cvNodeId);
 		}
 
-		this._states.set(nodeId, MLState.IDLE);
-		this._wsRefs.delete(nodeId);
-		this._log(nodeId, 'Stopped.');
+		this._states.set(cvNodeId, MLState.IDLE);
+		this._wsRefs.delete(cvNodeId);
+		this._browserRefs.delete(cvNodeId);
+		this._previewRefs.delete(cvNodeId);
+		this._log(cvNodeId, 'Stopped.');
 	}
 
 	// ── Worker message handler ────────────────────────────────────────────────
 
-	_onWorkerMessage(nodeId, data) {
+	_onWorkerMessage(cvNodeId, data) {
 		const { type } = data;
 
 		if (type === 'ready') {
-			this._states.set(nodeId, MLState.RUNNING);
-			this._log(nodeId, 'Worker ready — starting capture loop.');
-
-			// Signal media-ext to yield the display canvas to us
-			const overlay = this._overlayMgr?.overlays.get(nodeId);
-			if (overlay) overlay._mlRendering = true;
-
-			this._startCaptureLoop(nodeId);
+			this._states.set(cvNodeId, MLState.RUNNING);
+			this._log(cvNodeId, 'Worker ready — starting capture loop.');
+			this._startCaptureLoop(cvNodeId);
 
 		} else if (type === 'error') {
-			this._states.set(nodeId, MLState.ERROR);
-			console.error(`[ML:node-${nodeId}] Worker error: ${data.message}`);
+			this._states.set(cvNodeId, MLState.ERROR);
+			console.error(`[CV:${cvNodeId}] Worker error: ${data.message}`);
 
 		} else if (type === 'result') {
-			// Release backpressure — ready for next frame
-			this._pending.set(nodeId, false);
-
+			this._pending.set(cvNodeId, false);
 			const { landmarks, frame, width, height, ts } = data;
 
-			// Draw composed frame (video + skeleton) on the display canvas
-			if (frame) {
-				this._drawComposedFrame(nodeId, frame);  // closes frame internally
-			}
+			if (frame) this._drawToPreviewNode(cvNodeId, frame);
 
-			// Send keypoints to backend + emit on EventBus
 			if (landmarks) {
-				this._sendToWS(nodeId, landmarks, width, height);
-				const sourceId = this._overlayMgr?.nodeRefs.get(nodeId)?.extra?._browserSourceId;
-				this._eventBus?.emit('ml:pose:result', { nodeId, sourceId, landmarks, width, height, ts });
+				this._sendToWS(cvNodeId, landmarks, width, height);
+				this._eventBus?.emit('cv:pose:result', { cvNodeId, landmarks, width, height, ts });
 			}
 		}
 	}
 
-	// ── Capture loop (main thread) ────────────────────────────────────────────
-	// Grabs video frames via createImageBitmap (async, zero-copy) and sends
-	// them to the Worker. Backpressure: only one frame in-flight at a time.
+	// ── Capture loop — reads from BrowserSource video, sends to Worker ────────
 
-	_startCaptureLoop(nodeId) {
-		const FPS    = 20;
-		const minGap = 1000 / FPS;
+	_startCaptureLoop(cvNodeId) {
+		const minGap = 1000 / 20;  // 20 FPS cap
 		let lastInf  = 0;
 
-		this._captureRafs.set(nodeId, true);
-		this._pending.set(nodeId, false);
+		this._captureRafs.set(cvNodeId, true);
+		this._pending.set(cvNodeId, false);
 
 		const loop = (ts) => {
-			if (!this._captureRafs.has(nodeId)) return;  // stopped
+			if (!this._captureRafs.has(cvNodeId)) return;
 			requestAnimationFrame(loop);
+			if (ts - lastInf < minGap) return;
+			if (this._pending.get(cvNodeId)) return;
 
-			if (ts - lastInf < minGap) return;           // FPS throttle
-			if (this._pending.get(nodeId)) return;        // backpressure
-
-			const overlay = this._overlayMgr?.overlays.get(nodeId);
-			if (!overlay) return;
-			const video = overlay.querySelector('.sg-media-video');
+			// Locate video via the BrowserSource's media overlay
+			const browserNode   = this._browserRefs.get(cvNodeId);
+			if (!browserNode) return;
+			const mediaOverlay  = this._overlayMgr?.overlays.get(browserNode.id);
+			if (!mediaOverlay) return;
+			const video = mediaOverlay.querySelector('.sg-media-video');
 			if (!video || video.readyState < 2 || video.paused) return;
 
-			const worker = this._workers.get(nodeId);
+			const worker = this._workers.get(cvNodeId);
 			if (!worker) return;
 
 			lastInf = ts;
-			this._pending.set(nodeId, true);
+			this._pending.set(cvNodeId, true);
 
-			// Async grab — releases ownership to worker via transferable
 			createImageBitmap(video).then(bitmap => {
-				if (!this._captureRafs.has(nodeId)) {
-					bitmap.close();  // loop was stopped while awaiting
-					return;
-				}
+				if (!this._captureRafs.has(cvNodeId)) { bitmap.close(); return; }
 				worker.postMessage(
 					{ type: 'detect', bitmap, ts, width: video.videoWidth, height: video.videoHeight },
 					[bitmap]
 				);
-			}).catch(() => {
-				this._pending.set(nodeId, false);  // release on error
-			});
+			}).catch(() => { this._pending.set(cvNodeId, false); });
 		};
 
 		requestAnimationFrame(loop);
 	}
 
-	// ── Draw composed frame on display canvas ─────────────────────────────────
+	// ── Push rendered frame into the downstream preview_flow node ─────────────
+	// Converts the ImageBitmap → JPEG data URL, then sets the preview node's
+	// _liveFrameImg so the graph draws it inline on the next frame.
 
-	_drawComposedFrame(nodeId, frame) {
-		const overlay = this._overlayMgr?.overlays.get(nodeId);
-		if (!overlay) { frame.close(); return; }
-
-		const displayCanvas = overlay.querySelector('.sg-media-display-canvas');
-		if (!displayCanvas) { frame.close(); return; }
-
-		const ctx = displayCanvas.getContext('2d');
-		const dpr = window.devicePixelRatio || 1;
-		const cw  = displayCanvas.clientWidth  || 320;
-		const ch  = displayCanvas.clientHeight || 240;
-		const pw  = Math.round(cw * dpr);
-		const ph  = Math.round(ch * dpr);
-
-		if (displayCanvas.width !== pw || displayCanvas.height !== ph) {
-			displayCanvas.width  = pw;
-			displayCanvas.height = ph;
+	_drawToPreviewNode(cvNodeId, frame) {
+		const previewNode = this._previewRefs.get(cvNodeId);
+		if (!previewNode) {
+			console.warn(`[CV:${cvNodeId}] No preview node — wire CVFlow.rendered_image → preview_flow.input`);
+			frame.close();
+			return;
 		}
+		if (previewNode._framePending) { frame.close(); return; }  // backpressure
 
-		// Letterbox the composed frame to fit the display canvas
-		const fw    = frame.width  || pw;
-		const fh    = frame.height || ph;
-		const scale = Math.min(pw / fw, ph / fh);
-		const dw    = fw * scale;
-		const dh    = fh * scale;
-		const dx    = (pw - dw) / 2;
-		const dy    = (ph - dh) / 2;
-
-		ctx.fillStyle = '#000';
-		ctx.fillRect(0, 0, pw, ph);
-		ctx.drawImage(frame, dx, dy, dw, dh);
+		// Draw into a temporary canvas to get a data URL
+		const tmp = document.createElement('canvas');
+		tmp.width  = frame.width;
+		tmp.height = frame.height;
+		tmp.getContext('2d').drawImage(frame, 0, 0);
 		frame.close();
 
-		// Clear overlay canvas — skeleton is now baked into the composed frame
-		const overlayCanvas = overlay.querySelector('.sg-media-overlay-canvas');
-		if (overlayCanvas) {
-			const octx = overlayCanvas.getContext('2d');
-			octx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+		previewNode._framePending = true;
+		const dataUrl = tmp.toDataURL('image/jpeg', 0.75);
+
+		const img = new Image();
+		img.onload = () => {
+			previewNode._liveFrameImg = img;
+			previewNode.previewData   = dataUrl;
+			previewNode.previewType   = 'image';
+			previewNode._framePending = false;
+
+			// Auto-expand on first frame so the image is immediately visible
+			if (!previewNode._mlAutoExpanded) {
+				previewNode._mlAutoExpanded = true;
+				previewNode.extra = previewNode.extra || {};
+				previewNode.extra.previewExpanded = true;
+				this._app?._recalculatePreviewNodeSize?.(previewNode);
+			}
+
+			this._app?.draw?.();
+		};
+		img.onerror = () => { previewNode._framePending = false; };
+		img.src = dataUrl;
+	}
+
+	// ── Send keypoints to backend via BrowserSource stream WebSocket ──────────
+
+	_sendToWS(cvNodeId, landmarks, width, height) {
+		const ws = this._wsRefs.get(cvNodeId);
+		if (ws?.readyState === WebSocket.OPEN) {
+			ws.send(JSON.stringify({ type: 'keypoints', inference: 'frontend_pose',
+				landmarks, width, height, timestamp: Date.now() }));
 		}
 	}
 
-	// ── Send keypoints to backend ─────────────────────────────────────────────
-
-	_sendToWS(nodeId, landmarks, width, height) {
-		const ws = this._wsRefs.get(nodeId);
-		if (ws && ws.readyState === WebSocket.OPEN) {
-			ws.send(JSON.stringify({
-				type      : 'keypoints',
-				inference : 'frontend_pose',
-				landmarks,
-				width,
-				height,
-				timestamp : Date.now(),
-			}));
-		}
-	}
-
-	// ── Helpers ───────────────────────────────────────────────────────────────
-
-	_log(nodeId, msg) {
-		console.log(`[ML:node-${nodeId}] ${msg}`);
-	}
-
-	getState(nodeId) {
-		return this._states.get(nodeId) ?? MLState.IDLE;
-	}
+	_log(id, msg) { console.log(`[CV:${id}] ${msg}`); }
+	getState(cvNodeId) { return this._states.get(String(cvNodeId)) ?? MLState.IDLE; }
 }
 
 
@@ -365,21 +351,21 @@ class FrontendInferenceManager {
 class MLStreamExtension extends SchemaGraphExtension {
 	constructor(app) {
 		super(app);
-		this.inferenceManager = new FrontendInferenceManager();
-		// Toggled per-node via the UI button added below
-		this._frontendInferenceEnabled = new Map();   // nodeId -> bool
 	}
 
 	_registerNodeTypes() {
-		// No new node types — we augment existing BrowserSource overlays
+		// Must be initialized here (before _setupEventListeners) because super()
+		// calls _init() → _registerNodeTypes() → _setupEventListeners() before the
+		// constructor body after super() would run.
+		this.inferenceManager = new FrontendInferenceManager();
+		this._cvBrowserMap    = new Map();  // cvNodeId -> browserNode
 	}
 
 	_setupEventListeners() {
 		this.on('node:created', (e) => {
 			const node = e.node || this.graph.getNodeById(e.nodeId);
-			if (node && this._isBrowserSource(node)) {
-				this._addInferenceToggle(node);
-			}
+			if (!node) return;
+			if (this._isCVFrontend(node)) this._onCVNodeAdded(node);
 		});
 
 		this.on('workflow:imported', () => this._reapplyAll());
@@ -393,136 +379,223 @@ class MLStreamExtension extends SchemaGraphExtension {
 		this.on('node:deleted', onRemoved);
 
 		this.on('graph:cleared', () => {
-			for (const nodeId of [...this._frontendInferenceEnabled.keys()]) {
-				this._stopFrontendInference(nodeId);
+			for (const cvNodeId of [...this.inferenceManager._workers.keys()]) {
+				this.inferenceManager.disableForCVNode(cvNodeId);
 			}
+			this._cvBrowserMap.clear();
 		});
 
-		// Attach to MediaOverlayManager so the inference loop can access overlays.
-		// Guard: inferenceManager is assigned after super() returns, so it may be
-		// undefined here if _setupEventListeners is called from the base constructor.
-		// The attachment is also done lazily in _startFrontendInference.
-		if (this.inferenceManager) {
-			const mediaExt = this.app?.extensions?.get?.('browser-media');
-			if (mediaExt?.overlayManager) {
-				this.inferenceManager._overlayMgr = mediaExt.overlayManager;
-			}
+		// Auto-start/stop when camera becomes active/idle.
+		this.on('media:state:changed', ({ nodeId, state }) => {
+			if (state === 'active') this._onSourceActive(nodeId);
+			if (state === 'idle')   this._onSourceInactive(nodeId);
+		});
+
+		// Wire inference manager to MediaOverlayManager and app.
+		const mediaExt = this.app?.extensions?.get?.('browser-media');
+		if (mediaExt?.overlayManager) {
+			this.inferenceManager._overlayMgr = mediaExt.overlayManager;
 		}
+		this.inferenceManager._app      = this.app;
+		this.inferenceManager._eventBus = this.eventBus;
 	}
 
 	_extendAPI() {
 		this.app.api = this.app.api || {};
 		this.app.api.mlStream = {
-			enableFrontendInference : (nodeOrId) => {
-				const node = this._resolveNode(nodeOrId);
-				if (node) this._startFrontendInference(node);
-			},
-			disableFrontendInference: (nodeOrId) => {
-				const id = typeof nodeOrId === 'string' ? nodeOrId : nodeOrId?.id;
-				if (id) this._stopFrontendInference(id);
-			},
-			getState: (nodeOrId) => {
-				const id = typeof nodeOrId === 'string' ? nodeOrId : nodeOrId?.id;
+			getState: (cvNodeOrId) => {
+				const id = typeof cvNodeOrId === 'string' ? cvNodeOrId : cvNodeOrId?.id;
 				return this.inferenceManager.getState(id);
 			},
 		};
 	}
 
-	// ── Per-node inference toggle ─────────────────────────────────────────────
+	// ── CV node helpers ───────────────────────────────────────────────────────
 
-	_addInferenceToggle(node) {
-		// Wait a tick for the media overlay to render, then inject the button
-		setTimeout(() => {
-			const mediaExt = this.app?.extensions?.get?.('browser-media');
-			const overlay  = mediaExt?.overlayManager?.overlays.get(node.id);
-			if (!overlay) return;
-
-			if (overlay.querySelector('.sg-ml-toggle-btn')) return; // already added
-
-			const controls = overlay.querySelector('.sg-media-controls');
-			if (!controls) return;
-
-			const btn = document.createElement('button');
-			btn.className   = 'sg-media-btn sg-ml-toggle-btn';
-			btn.textContent = '🧠 ML Off';
-			btn.title       = 'Toggle frontend MediaPipe inference';
-			btn.style.background = 'var(--sg-accent-orange, #e6872a)';
-
-			btn.addEventListener('click', (e) => {
-				e.stopPropagation();
-				const enabled = this._frontendInferenceEnabled.get(node.id);
-				if (enabled) {
-					this._stopFrontendInference(node.id);
-					btn.textContent = '🧠 ML Off';
-					btn.style.background = 'var(--sg-accent-orange, #e6872a)';
-				} else {
-					const mediaState = mediaExt?.overlayManager?.states.get(node.id);
-					if (mediaState !== 'active') {
-						alert('Start the camera first, then enable ML inference.');
-						return;
-					}
-					this._startFrontendInference(node);
-					btn.textContent = '🧠 ML On';
-					btn.style.background = 'var(--sg-accent-green, #5cb85c)';
-				}
-			});
-
-			controls.appendChild(btn);
-		}, 200);
+	_isCVNode(node) {
+		return node.workflowType === 'computer_vision_flow';
 	}
 
-	_startFrontendInference(node) {
-		const nodeId  = node.id;
-		const mediaExt= this.app?.extensions?.get?.('browser-media');
-		const ws      = mediaExt?.overlayManager?.streamWSockets?.get(nodeId) ?? null;
-
-		// Lazy-attach overlayMgr in case it was skipped during construction
-		if (!this.inferenceManager._overlayMgr && mediaExt?.overlayManager) {
-			this.inferenceManager._overlayMgr = mediaExt.overlayManager;
-		}
-		if (!this.inferenceManager._eventBus && this.eventBus) {
-			this.inferenceManager._eventBus = this.eventBus;
-		}
-
-		this._frontendInferenceEnabled.set(nodeId, true);
-		this.inferenceManager.enableForNode(node, ws);
-	}
-
-	_stopFrontendInference(nodeId) {
-		this._frontendInferenceEnabled.set(nodeId, false);
-		this.inferenceManager.disableForNode(nodeId);
-	}
-
-	_onNodeRemoved(nodeId) {
-		this._stopFrontendInference(nodeId);
-		this._frontendInferenceEnabled.delete(nodeId);
+	_isCVFrontend(node) {
+		return this._isCVNode(node) &&
+			(this._getNodeField(node, 'inference_location') ?? 'frontend') === 'frontend';
 	}
 
 	_isBrowserSource(node) {
 		return node.workflowType === 'browser_source_flow';
 	}
 
-	_resolveNode(nodeOrId) {
-		return typeof nodeOrId === 'string' ? this.graph.getNodeById(nodeOrId) : nodeOrId;
+	// Read a named input field (native input value, falls back to properties).
+	_getNodeField(node, fieldName) {
+		if (node.inputMeta) {
+			for (let i = 0; i < node.inputMeta.length; i++) {
+				if (node.inputMeta[i]?.name === fieldName) {
+					return node.nativeInputs?.[i]?.value;
+				}
+			}
+		}
+		return node.properties?.[fieldName];
 	}
 
-	_reapplyAll() {
+	_cvConfigFromNode(cvNode) {
+		return {
+			task           : this._getNodeField(cvNode, 'task')           || 'pose',
+			model_size     : this._getNodeField(cvNode, 'model_size')     || 'lite',
+			min_confidence : parseFloat(this._getNodeField(cvNode, 'min_confidence') ?? 0.5),
+		};
+	}
+
+	_findBrowserSourceBySourceId(sourceId) {
+		if (!sourceId) return null;
 		for (const node of this.graph.nodes) {
-			if (this._isBrowserSource(node)) this._addInferenceToggle(node);
+			if (!this._isBrowserSource(node)) continue;
+			const nid = this._getNodeField(node, 'source_id') ?? node.extra?._browserSourceId;
+			if (nid === sourceId) return node;
+		}
+		return null;
+	}
+
+	// Find any CV frontend node connected to the given BrowserSource.
+	_findCVNodeForBrowserSource(browserNode) {
+		const bSourceId = this._getNodeField(browserNode, 'source_id')
+			?? browserNode.extra?._browserSourceId;
+		for (const node of this.graph.nodes) {
+			if (!this._isCVFrontend(node)) continue;
+			if (bSourceId && this._getNodeField(node, 'source_id') === bSourceId) return node;
+			if (this._hasEdgeFrom(browserNode, node)) return node;
+		}
+		return null;
+	}
+
+	// Find the BrowserSource connected to the given CV node via graph edges.
+	_findBrowserSourceForCVNode(cvNode) {
+		if (!cvNode.inputs) return null;
+		for (const input of cvNode.inputs) {
+			if (!input?.link) continue;
+			const link = this.graph.links?.[input.link];
+			if (!link) continue;
+			const origin = this.graph.getNodeById(link.origin_id);
+			if (origin && this._isBrowserSource(origin)) return origin;
+		}
+		return null;
+	}
+
+	// Find the preview_flow node wired to any output of the CVFlow node.
+	_findPreviewNodeForCV(cvNode) {
+		if (!cvNode.outputs) return null;
+		for (const output of cvNode.outputs) {
+			const linkIds = output.links || (output.link != null ? [output.link] : []);
+			for (const linkId of linkIds) {
+				const link = this.graph.links?.[linkId];
+				if (!link) continue;
+				const target = this.graph.getNodeById(link.target_id);
+				if (target?.workflowType === 'preview_flow') return target;
+			}
+		}
+		return null;
+	}
+
+	// True when toNode has at least one input edge from fromNode.
+	_hasEdgeFrom(fromNode, toNode) {
+		if (!toNode.inputs) return false;
+		for (const input of toNode.inputs) {
+			if (!input?.link) continue;
+			const link = this.graph.links?.[input.link];
+			if (link?.origin_id === fromNode.id) return true;
+		}
+		return false;
+	}
+
+	// ── Lifecycle ─────────────────────────────────────────────────────────────
+
+	_setupCVNode(cvNode, browserNode) {
+		const cvNodeId = String(cvNode.id);
+
+		// Ensure managers are wired (may have been missed if mediaExt wasn't ready yet).
+		const mediaExt = this.app?.extensions?.get?.('browser-media');
+		if (mediaExt?.overlayManager && !this.inferenceManager._overlayMgr) {
+			this.inferenceManager._overlayMgr = mediaExt.overlayManager;
+		}
+		if (!this.inferenceManager._app) {
+			this.inferenceManager._app = this.app;
+		}
+		if (this.eventBus && !this.inferenceManager._eventBus) {
+			this.inferenceManager._eventBus = this.eventBus;
+		}
+
+		// Store the preview node reference (may be null if not yet connected).
+		const previewNode = this._findPreviewNodeForCV(cvNode);
+		this.inferenceManager._previewRefs.set(cvNodeId, previewNode ?? null);
+
+		this._cvBrowserMap.set(cvNodeId, browserNode);
+
+		// If the camera is already active, start inference immediately.
+		if (mediaExt?.overlayManager?.states.get(browserNode.id) === 'active') {
+			this._startCV(cvNode, browserNode);
 		}
 	}
 
-	_injectStyles() {
-		if (document.getElementById('sg-ml-styles')) return;
-		const s = document.createElement('style');
-		s.id = 'sg-ml-styles';
-		s.textContent = `
-			.sg-ml-toggle-btn {
-				min-width: 72px;
-			}
-		`;
-		document.head.appendChild(s);
+	_startCV(cvNode, browserNode) {
+		const mediaExt = this.app?.extensions?.get?.('browser-media');
+		const ws = mediaExt?.overlayManager?.streamWSockets?.get(browserNode.id) ?? null;
+		const cvConfig = this._cvConfigFromNode(cvNode);
+		const previewNode = this._findPreviewNodeForCV(cvNode);
+
+		this.inferenceManager.enableForCVNode(cvNode, browserNode, ws, previewNode, cvConfig);
 	}
+
+	_onCVNodeAdded(cvNode) {
+		setTimeout(() => {
+			if (!this._isCVFrontend(cvNode)) return;
+			const browserNode = this._findBrowserSourceForCVNode(cvNode)
+				?? this._findBrowserSourceBySourceId(this._getNodeField(cvNode, 'source_id'));
+			if (!browserNode) return;
+			this._setupCVNode(cvNode, browserNode);
+		}, 300);
+	}
+
+	_onSourceActive(nodeId) {
+		const browserNode = this.graph.getNodeById(nodeId);
+		if (!browserNode || !this._isBrowserSource(browserNode)) return;
+		const cvNode = this._findCVNodeForBrowserSource(browserNode);
+		if (!cvNode) return;
+		this._setupCVNode(cvNode, browserNode);
+		this._startCV(cvNode, browserNode);
+	}
+
+	_onSourceInactive(nodeId) {
+		for (const [cvNodeId, browserNode] of this._cvBrowserMap) {
+			if (String(browserNode.id) === String(nodeId)) {
+				this.inferenceManager.disableForCVNode(cvNodeId);
+			}
+		}
+	}
+
+	_onNodeRemoved(nodeId) {
+		const nodeIdStr = String(nodeId);
+		// CVFlow node removed.
+		this.inferenceManager.disableForCVNode(nodeIdStr);
+		this._cvBrowserMap.delete(nodeIdStr);
+		// BrowserSource node removed — stop any CV node that used it.
+		for (const [cvNodeId, browserNode] of this._cvBrowserMap) {
+			if (String(browserNode.id) === nodeIdStr) {
+				this.inferenceManager.disableForCVNode(cvNodeId);
+				this._cvBrowserMap.delete(cvNodeId);
+			}
+		}
+	}
+
+	_reapplyAll() {
+		setTimeout(() => {
+			for (const node of this.graph.nodes) {
+				if (!this._isBrowserSource(node)) continue;
+				const cvNode = this._findCVNodeForBrowserSource(node);
+				if (cvNode) this._setupCVNode(cvNode, node);
+			}
+		}, 350);
+	}
+
+	_injectStyles() {}
 }
 
 

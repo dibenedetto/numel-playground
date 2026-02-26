@@ -9,7 +9,7 @@
       "type": "browser_source_flow",
       "device_type": "webcam",
       "mode": "stream",
-      "source_id": "cam_ml",
+      "source_id": "cam_cv",
       "extra": {"pos": [220, 0], "name": "Webcam"}
     },
     {

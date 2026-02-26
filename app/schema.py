@@ -642,7 +642,9 @@ class SinkFlow(FlowType):
 class PreviewFlow(FlowType):
 	"""Passthrough node with UI data preview. Set hint to control rendering (auto/text/json/image/audio/video). Data passes unchanged to 'output'."""
 	type   : Annotated[Literal["preview_flow"]                                              , FieldRole.CONSTANT] = "preview_flow"
-	hint   : Annotated[Literal["auto", "text", "json", "image", "audio", "video", "model3d"], FieldRole.INPUT   ] = Field(default="auto", description="Rendering hint for the UI preview panel — controls how the incoming data is visualized")
+	hint   : Annotated[Literal["auto", "text", "json", "image", "audio", "video", "model3d"], FieldRole.INPUT   ] = Field(default="auto",  description="Rendering hint for the UI preview panel — controls how the incoming data is visualized")
+	input  : Annotated[Optional[Any]                                                        , FieldRole.INPUT   ] = Field(default=None,    description="Data to preview — wire from any node output (base64 JPEG for image, dict/list for json, string for text)")
+	output : Annotated[Optional[Any]                                                        , FieldRole.OUTPUT  ] = Field(default=None,    description="Input data passed through unchanged")
 
 
 @node_info(
@@ -1101,8 +1103,34 @@ class StreamDisplayFlow(FlowType):
 	type        : Annotated[Literal["stream_display_flow"]                                   , FieldRole.CONSTANT] = "stream_display_flow"
 	source_id   : Annotated[Optional[str]                                                    , FieldRole.INPUT   ] = Field(default=None,    description="ID of the Browser Source whose overlay should be updated; wire from browser_source_flow.registered_id")
 	data        : Annotated[Optional[Any]                                                    , FieldRole.INPUT   ] = Field(default=None,    description="Data to render — for 'pose' use the keypoints output from Pose Detector; for 'text' use any string or dict")
-	render_type : Annotated[Literal["pose", "landmarks", "text", "custom"]                   , FieldRole.INPUT   ] = Field(default="pose",  description="How to render the data — 'pose' draws a skeleton, 'landmarks' draws dots only, 'text' shows a text overlay, 'custom' passes raw JSON to the frontend")
+	render_type : Annotated[Literal["pose", "landmarks", "text", "custom", "image"]          , FieldRole.INPUT   ] = Field(default="pose",  description="How to render the data — 'pose' draws a skeleton, 'landmarks' draws dots only, 'text' shows a text overlay, 'image' displays a full annotated JPEG frame, 'custom' passes raw JSON to the frontend")
 	done        : Annotated[Optional[bool]                                                   , FieldRole.OUTPUT  ] = Field(default=None,    description="True after the display event has been dispatched to the browser")
+
+
+@node_info(
+	title       = "Computer Vision",
+	description = "Runs a computer vision task (pose, face, hands) on an image frame. "
+	              "Set inference_location='frontend' for zero-latency in-browser inference "
+	              "via a MediaPipe Web Worker (~20 fps, no backend round-trip). "
+	              "Set inference_location='backend' for server-side Python MediaPipe inference "
+	              "(chainable with other backend nodes; wire rendered_image → stream_display_flow). "
+	              "Connect source_id from a Browser Source to link the live video stream.",
+	icon        = "🤖",
+	section     = "ML / Stream",
+	visible     = True
+)
+class ComputerVisionFlow(FlowType):
+	"""Computer Vision node — runs ML inference on video frames in the browser or on the server."""
+	type               : Annotated[Literal["computer_vision_flow"]                           , FieldRole.CONSTANT] = "computer_vision_flow"
+	image              : Annotated[Optional[Any]                                             , FieldRole.INPUT   ] = Field(default=None,        description="Input image — base64-encoded JPEG from a Browser Source frame. Not required in frontend mode (the browser Worker reads directly from the live <video> element).")
+	source_id          : Annotated[Optional[str]                                             , FieldRole.INPUT   ] = Field(default=None,        description="Browser Source ID — wire from browser_source_flow.registered_id. Used to route the rendered result back to the correct overlay (both modes) and to identify the live video element (frontend mode).")
+	task               : Annotated[Literal["pose", "face", "hands"]                          , FieldRole.INPUT   ] = Field(default="pose",      description="Computer vision task — 'pose' detects a full-body skeleton (33 keypoints), 'face' detects face mesh landmarks, 'hands' detects hand landmarks")
+	model_size         : Annotated[Literal["lite", "full", "heavy"]                          , FieldRole.INPUT   ] = Field(default="lite",      description="Model complexity: 'lite' is fastest (~15 ms/frame), 'full' is balanced, 'heavy' is most accurate but slowest")
+	min_confidence     : Annotated[float                                                     , FieldRole.INPUT   ] = Field(default=0.5,         description="Minimum detection confidence (0–1); lower values detect more but increase false positives")
+	draw_overlay       : Annotated[bool                                                      , FieldRole.INPUT   ] = Field(default=True,        description="When True, detected skeleton/landmarks are drawn on top of the input image and returned as rendered_image (backend mode only)")
+	inference_location : Annotated[Literal["frontend", "backend"]                            , FieldRole.INPUT   ] = Field(default="frontend",  description="Where to run inference — 'frontend' uses a browser Web Worker (zero network latency, ~20 fps, no backend dependency); 'backend' uses server-side Python MediaPipe (adds ~30–80 ms round-trip but lets you chain results with other backend nodes)")
+	rendered_image     : Annotated[Optional[Any]                                             , FieldRole.OUTPUT  ] = Field(default=None,        description="Annotated image with skeleton/landmarks drawn — base64 JPEG. Available only in backend mode; wire to stream_display_flow with render_type='image' to display on the Browser Source overlay.")
+	detections         : Annotated[Optional[Any]                                             , FieldRole.OUTPUT  ] = Field(default=None,        description="Detection results — for 'pose', a list of 33 landmark dicts [{x,y,z,visibility}] in normalised 0–1 coordinates. Null when nothing is detected or in frontend mode (results are delivered via the stream WebSocket instead).")
 
 
 # =============================================================================
@@ -1287,6 +1315,7 @@ WorkflowNodeUnion = Union[
 	# ML / Stream nodes
 	PoseDetectorFlow,
 	StreamDisplayFlow,
+	ComputerVisionFlow,
 
 	# Interactive nodes
 	ToolCall,
