@@ -227,7 +227,7 @@ class ChatOverlayManager {
 
 		overlay.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
 
-		// Workflow import button delegation (for /gen results)
+		// Workflow import/merge button delegation (for /gen results)
 		overlay.addEventListener('click', (e) => {
 			const importBtn = e.target.closest('.sg-chat-workflow-import-btn');
 			if (importBtn) {
@@ -235,6 +235,14 @@ class ChatOverlayManager {
 				const msgId = importBtn.dataset.msgId;
 				const currentNode = getNode();
 				if (currentNode) this._handleWorkflowImport(currentNode, msgId);
+				return;
+			}
+			const mergeBtn = e.target.closest('.sg-chat-workflow-merge-btn');
+			if (mergeBtn) {
+				e.stopPropagation();
+				const msgId = mergeBtn.dataset.msgId;
+				const currentNode = getNode();
+				if (currentNode) this._handleWorkflowMerge(currentNode, msgId);
 			}
 		});
 	}
@@ -257,7 +265,7 @@ class ChatOverlayManager {
 		const container = overlay.querySelector('.sg-chat-messages');
 		if (!container) return;
 
-		container.innerHTML = node.chatMessages.map(msg => this._renderMessage(msg, node)).join('');
+		container.innerHTML = (node.chatMessages || []).map(msg => this._renderMessage(msg, node)).join('');
 		container.scrollTop = container.scrollHeight;
 	}
 
@@ -481,6 +489,7 @@ class ChatOverlayManager {
 			actions = `
 				<div class="sg-chat-workflow-actions">
 					<button class="sg-chat-workflow-import-btn" data-msg-id="${msg.id}">Import to Canvas</button>
+					<button class="sg-chat-workflow-merge-btn" data-msg-id="${msg.id}">Merge into Canvas</button>
 					<details class="sg-chat-workflow-preview">
 						<summary>Preview JSON</summary>
 						<pre class="sg-chat-workflow-json">${jsonPreview}</pre>
@@ -559,6 +568,25 @@ class ChatOverlayManager {
 			app.centerView?.();
 		} catch (err) {
 			app.showError?.('Import failed: ' + err.message);
+		}
+	}
+
+	_handleWorkflowMerge(node, msgId) {
+		const msg = node.chatMessages.find(m => m.id === msgId);
+		if (!msg?.workflow) return;
+
+		const app = this.app;
+		const schemas = app.graph.getRegisteredSchemas().filter(s => app.graph.isWorkflowSchema(s));
+		if (schemas.length === 0) {
+			app.showError?.('No workflow schema registered');
+			return;
+		}
+
+		try {
+			app.api.workflow.import(msg.workflow, schemas[0], { merge: true });
+			app.centerView?.();
+		} catch (err) {
+			app.showError?.('Merge failed: ' + err.message);
 		}
 	}
 }
@@ -690,9 +718,17 @@ class ChatExtension extends SchemaGraphExtension {
 			if (!chatConfig) continue;
 
 			try {
-				// Always do full (re)initialization — _applyChatToNode and
-				// createOverlay are both safe to call repeatedly.
-				this._applyChatToNode(node);
+				if (node.isChat && node.chatId) {
+					// Fully initialised (chatId set by initChat) — preserve messages/state.
+					// createOverlay handles both existing (rebind) and missing (recreate) overlays.
+					// updateMessages then restores the chat history into the DOM without resetting it.
+					this.overlayManager.createOverlay(node);
+					this.overlayManager.updateMessages(node);
+				} else {
+					// Not yet fully initialised — decorator may have set isChat=true early,
+					// but initChat was never called (chatId is the definitive initialized signal).
+					this._applyChatToNode(node);
+				}
 			} catch (err) {
 				console.error(`[ChatExtension] Error processing chat for node ${node.id}:`, err);
 			}
@@ -1049,6 +1085,54 @@ class ChatExtension extends SchemaGraphExtension {
 			.sg-chat-messages::-webkit-scrollbar-thumb:hover {
 				background: var(--sg-text-tertiary, rgba(255, 255, 255, 0.2));
 			}
+
+			.sg-chat-workflow-actions {
+				display: flex;
+				flex-wrap: wrap;
+				gap: 5px;
+				margin-top: 6px;
+			}
+
+			.sg-chat-workflow-import-btn,
+			.sg-chat-workflow-merge-btn {
+				padding: 3px 10px;
+				border: 1px solid var(--sg-accent-blue, #4a90d9);
+				background: rgba(74, 144, 217, 0.15);
+				color: var(--sg-accent-blue, #4a90d9);
+				border-radius: 4px;
+				cursor: pointer;
+				font-size: 11px;
+				transition: background 0.15s, color 0.15s;
+			}
+
+			.sg-chat-workflow-import-btn:hover,
+			.sg-chat-workflow-merge-btn:hover {
+				background: var(--sg-accent-blue, #4a90d9);
+				color: #fff;
+			}
+
+			.sg-chat-workflow-preview {
+				width: 100%;
+				margin-top: 4px;
+				font-size: 10px;
+				color: var(--sg-text-tertiary, #888);
+			}
+
+			.sg-chat-workflow-preview summary {
+				cursor: pointer;
+				user-select: none;
+			}
+
+			.sg-chat-workflow-json {
+				max-height: 120px;
+				overflow-y: auto;
+				font-size: 9px;
+				background: var(--sg-bg-primary, rgba(0,0,0,0.3));
+				padding: 4px 6px;
+				border-radius: 3px;
+				margin-top: 4px;
+				white-space: pre;
+			}
 		`;
 
 		document.head.appendChild(style);
@@ -1074,7 +1158,9 @@ class ChatExtension extends SchemaGraphExtension {
 
 			// Apply chat to existing nodes that match this schema
 			for (const node of this.graph.nodes) {
-				if (node.schemaName === schemaName && !node.isChat) {
+				if (node.schemaName === schemaName && !node.chatId) {
+					// Gate on chatId (set by initChat) — not isChat, which may be set early
+					// by the decorator parser before initChat is actually called.
 					const chatConfig = chats[node.modelName];
 					if (chatConfig) {
 						this._applyChatToNode(node);

@@ -5,6 +5,7 @@ import os
 
 
 from   jinja2   import Template
+from   pathlib  import Path
 from   pydantic import BaseModel
 from   typing   import Any, Callable, Dict, List, Optional
 
@@ -891,7 +892,7 @@ _POSE_MODEL_URLS = {
 	"full":  "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task",
 	"heavy": "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/latest/pose_landmarker_heavy.task",
 }
-_POSE_MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
+_POSE_MODEL_DIR = Path(__file__).resolve().parent.parent / "models"
 
 
 def _get_pose_model_path(model_name: str) -> Optional[str]:

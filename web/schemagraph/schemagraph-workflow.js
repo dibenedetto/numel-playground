@@ -1016,11 +1016,14 @@ class WorkflowImporter {
 	import(workflowData, schemaName, schema, options = {}) {
 		if (!workflowData?.nodes) throw new Error('Invalid workflow data: missing nodes array');
 		this.importOptions = { includeLayout: options.includeLayout !== false };
+		const isMerge = !!options.merge;
 
-		this.graph.nodes = [];
-		this.graph.links = {};
-		this.graph._nodes_by_id = {};
-		this.graph.last_link_id = 0;
+		if (!isMerge) {
+			this.graph.nodes = [];
+			this.graph.links = {};
+			this.graph._nodes_by_id = {};
+			this.graph.last_link_id = 0;
+		}
 
 		const typeMap = schema ? this._buildTypeMap(schema) : {};
 		const factory = schema ? new WorkflowNodeFactory(this.graph, {
@@ -1076,7 +1079,14 @@ class WorkflowImporter {
 			for (const edgeData of workflowData.edges) this._createEdge(edgeData, createdNodes);
 		}
 
-		if (this.importOptions?.includeLayout === false) this._autoLayoutNodes(createdNodes);
+		if (isMerge) {
+			// Always auto-layout imported nodes when merging, then shift them
+			// to the right of the existing graph to avoid overlap.
+			this._autoLayoutNodes(createdNodes);
+			this._offsetForMerge(createdNodes);
+		} else if (this.importOptions?.includeLayout === false) {
+			this._autoLayoutNodes(createdNodes);
+		}
 
 		for (const node of this.graph.nodes) if (node?.onExecute) node.onExecute();
 
@@ -1182,6 +1192,24 @@ class WorkflowImporter {
 		for (let i = 0; i < validNodes.length; i++) {
 			validNodes[i].pos = [100 + (i % cols) * 280, 100 + Math.floor(i / cols) * 200];
 		}
+	}
+
+	/** Shift newly imported nodes to the right of all pre-existing nodes. */
+	_offsetForMerge(newNodes) {
+		const newSet = new Set(newNodes.filter(n => n));
+		const existing = this.graph.nodes.filter(n => n && !newSet.has(n));
+		if (existing.length === 0) return;
+
+		let maxRight = -Infinity;
+		for (const n of existing) maxRight = Math.max(maxRight, n.pos[0] + (n.size?.[0] || 200));
+
+		const validNew = [...newSet];
+		if (!validNew.length) return;
+		let minX = Infinity;
+		for (const n of validNew) minX = Math.min(minX, n.pos[0]);
+
+		const dx = maxRight + 150 - minX;
+		for (const n of validNew) n.pos[0] += dx;
 	}
 
 	_populateNodeFields(node, nodeData) {

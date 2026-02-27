@@ -933,6 +933,7 @@ class SchemaGraphApp {
 					<pre id="sg-generatePreviewJson"></pre>
 					<div class="sg-generate-preview-actions">
 						<button id="sg-generateImport" class="sg-generate-btn">Import to Canvas</button>
+						<button id="sg-generateMerge" class="sg-generate-btn secondary">Merge into Canvas</button>
 						<button id="sg-generateRetry" class="sg-generate-btn secondary">Retry</button>
 					</div>
 				</div>
@@ -949,6 +950,9 @@ class SchemaGraphApp {
 
 		// Wire import button
 		document.getElementById('sg-generateImport').addEventListener('click', () => this._handleGenerateImport());
+
+		// Wire merge button
+		document.getElementById('sg-generateMerge').addEventListener('click', () => this._handleGenerateMerge());
 
 		// Wire retry button
 		document.getElementById('sg-generateRetry').addEventListener('click', () => this._handleGenerate());
@@ -1433,6 +1437,33 @@ class SchemaGraphApp {
 			document.getElementById('sg-generateStatus').textContent = '';
 		} catch (err) {
 			this.showError('Import failed: ' + err.message);
+		}
+	}
+
+	_handleGenerateMerge() {
+		if (!this._lastGeneratedWorkflow) {
+			this.showError('No generated workflow to import');
+			return;
+		}
+
+		const schemas = this.graph.getRegisteredSchemas().filter(s => this.graph.isWorkflowSchema(s));
+		if (schemas.length === 0) {
+			this.showError('No workflow schema registered');
+			return;
+		}
+
+		try {
+			this.api.workflow.import(this._lastGeneratedWorkflow, schemas[0], { merge: true });
+			this.centerView();
+			this._closeGenerateWorkflow();
+
+			// Clear conversation state for next session
+			this._generateHistory = [];
+			document.getElementById('sg-generateMessages').innerHTML = '';
+			document.getElementById('sg-generatePreview').style.display = 'none';
+			document.getElementById('sg-generateStatus').textContent = '';
+		} catch (err) {
+			this.showError('Merge failed: ' + err.message);
 		}
 	}
 
@@ -5988,7 +6019,9 @@ class SchemaGraphApp {
 				isExpanded ? 180 : Math.max(120, 96 + visSlots * 25)
 			];
 		}
-		// Chat (or other resizable) nodes: use natural slot-based height floor
+		// Chat nodes: use minSize set by _applyChatToNode if available (respects minWidth/minHeight from config)
+		if (node.minSize) return [node.minSize[0], node.minSize[1]];
+		// Fallback: slot-based height floor
 		const visIn  = (node.inputs  || []).filter((_, j) => !this._isFieldHidden(node, j, false)).length;
 		const visOut = (node.outputs || []).filter((_, j) => !this._isFieldHidden(node, j, true )).length;
 		const visSlots = Math.max(visIn, visOut);
