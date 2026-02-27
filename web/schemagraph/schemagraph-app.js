@@ -43,6 +43,9 @@ class SchemaGraphApp {
 		this.setupVoiceCommands();
 		this.registerNativeNodes();
 
+		this._initTabs();
+		this._initHistory();
+
 		this.ui.init();
 		this.ui.util.resizeCanvas();
 		this.draw();
@@ -195,6 +198,23 @@ class SchemaGraphApp {
 
 		this.textScalingMode = 'fixed';
 		this.loadTextScalingMode();
+
+		// ---- Tabs ----
+		this.tabs        = [{ id: this._genTabId(), name: 'Graph 1', graphData: null, camera: { x: 0, y: 0, scale: 1.0 }, undoStack: [], redoStack: [] }];
+		this.activeTabId = this.tabs[0].id;
+
+		// ---- History ----
+		this.history               = new HistoryManager(100);
+		this._historyIgnore        = false;  // suppress recording during undo/redo/tab-switch
+		this._historyBatch         = false;  // suppress individual event listeners during compound ops
+		this._batchBefore          = null;   // snapshot captured at _startBatch()
+		this._currentStateSnapshot = null;   // graph state at last committed history op
+		this._fieldChangeBefore    = null;   // snapshot before a field-edit sequence begins
+		this._fieldChangeTimer     = null;   // debounce timer id for field changes
+
+		// ---- Drag/resize capture for delta commands ----
+		this._dragStartPositions   = new Map(); // nodeId → [ox, oy], captured at mouseDown
+		this._resizeStartData      = null;      // { nodeId, oldSize }, captured at resize drag start
 	}
 
 	// === LOCK METHODS ===
@@ -1822,6 +1842,7 @@ class SchemaGraphApp {
 		document.head.appendChild(style);
 	}
 
+
 	// === PREVIEW TEXT OVERLAY MANAGEMENT ===
 
 	_createPreviewTextOverlay(node) {
@@ -2435,7 +2456,14 @@ class SchemaGraphApp {
 
 	toggleNodeSelection(node) { this.selectedNodes.has(node) ? this.deselectNode(node) : this.selectNode(node, true); }
 	isNodeSelected(node) { return this.selectedNodes.has(node); }
-	deleteSelectedNodes() { for (const node of Array.from(this.selectedNodes)) this.removeNode(node); this.clearSelection(); }
+	deleteSelectedNodes() {
+		if (!this.selectedNodes.size) return;
+		const label = this.selectedNodes.size > 1 ? 'Delete Nodes' : 'Delete Node';
+		this._startBatch();
+		for (const node of Array.from(this.selectedNodes)) this.removeNode(node);
+		this.clearSelection();
+		this._endBatch(label);
+	}
 
 	clearSelection() {
 		const hadSelection = this.selectedNodes.size > 0;
@@ -2762,6 +2790,7 @@ class SchemaGraphApp {
 					this.resizeNode = clickedNode;
 					this.resizeStart = [wx, wy];
 					this.resizeStartSize = [clickedNode.size[0], clickedNode.size[1]];
+					this._resizeStartData = { nodeId: clickedNode.id, oldSize: [clickedNode.size[0], clickedNode.size[1]] };
 					// Capture natural minimum (= default size floor) at drag start
 					this.resizeFloor = this._getNodeDefaultSize(clickedNode);
 					this.canvas.style.cursor = 'se-resize';
@@ -2775,6 +2804,8 @@ class SchemaGraphApp {
 				if (this._features.nodeDragging) {
 					this.dragNode = clickedNode;
 					this.dragOffset = [wx - clickedNode.pos[0], wy - clickedNode.pos[1]];
+					this._dragStartPositions.clear();
+					for (const n of this.selectedNodes) this._dragStartPositions.set(n.id, [n.pos[0], n.pos[1]]);
 					this.canvas.classList.add('dragging');
 				}
 			}
@@ -3036,6 +3067,8 @@ class SchemaGraphApp {
 		}
 
 		if (this.connecting) {
+			this._startBatch();
+			let _connLinkCreated = false;
 			for (const node of this.graph.nodes) {
 				if (this.connecting.isOutput) {
 					let visIdx = 0;
@@ -3051,11 +3084,11 @@ class SchemaGraphApp {
 								this.graph.links[linkId] = link;
 								this.connecting.node.outputs[this.connecting.slot].links.push(linkId);
 								node.multiInputs[j].links.push(linkId);
-								this.eventBus.emit('link:created', { linkId });
+								this.eventBus.emit('link:created', { linkId }); _connLinkCreated = true;
 							} else {
 								if (node.inputs[j].link) this.removeLink(node.inputs[j].link, node, j);
 								const link = this.graph.connect(this.connecting.node, this.connecting.slot, node, j);
-								if (link) this.eventBus.emit('link:created', { linkId: link.id });
+								if (link) { this.eventBus.emit('link:created', { linkId: link.id }); _connLinkCreated = true; }
 							}
 							break;
 						}
@@ -3075,17 +3108,24 @@ class SchemaGraphApp {
 								this.graph.links[linkId] = link;
 								node.outputs[j].links.push(linkId);
 								this.connecting.node.multiInputs[this.connecting.slot].links.push(linkId);
-								this.eventBus.emit('link:created', { linkId });
+								this.eventBus.emit('link:created', { linkId }); _connLinkCreated = true;
 							} else {
 								if (this.connecting.node.inputs[this.connecting.slot].link) this.removeLink(this.connecting.node.inputs[this.connecting.slot].link, this.connecting.node, this.connecting.slot);
 								const link = this.graph.connect(node, j, this.connecting.node, this.connecting.slot);
-								if (link) this.eventBus.emit('link:created', { linkId: link.id });
+								if (link) { this.eventBus.emit('link:created', { linkId: link.id }); _connLinkCreated = true; }
 							}
 							break;
 						}
 						visIdx++;
 					}
 				}
+			}
+			this._historyBatch = false;
+			if (_connLinkCreated && !this._historyIgnore) {
+				const after = this._captureCurrentSnapshot();
+				this.history.push(new SnapshotCmd('Connect', this._batchBefore, after));
+				this._currentStateSnapshot = after;
+				this._updateHistoryButtons();
 			}
 			this.connecting = null;
 			this.canvas.classList.remove('connecting');
@@ -3105,8 +3145,27 @@ class SchemaGraphApp {
 		this.selectionStart = null;
 		this.selectionRect = null;
 		this.previewSelection.clear();
+		// Push MoveNodesCmd if any node moved
+		if (this.dragNode && this._dragStartPositions.size > 0 && !this._historyIgnore) {
+			const deltas = [];
+			for (const [nodeId, [ox, oy]] of this._dragStartPositions) {
+				const n = this.graph.getNodeById(nodeId);
+				if (n && (n.pos[0] !== ox || n.pos[1] !== oy)) deltas.push({ nodeId, ox, oy, nx: n.pos[0], ny: n.pos[1] });
+			}
+			if (deltas.length) { this.history.push(new MoveNodesCmd(deltas)); this._updateHistoryButtons(); }
+			this._dragStartPositions.clear();
+		}
 		this.dragNode = null;
 		this.canvas.classList.remove('dragging');
+		// Push ResizeNodeCmd if node was resized
+		if (this.resizeNode && this._resizeStartData && !this._historyIgnore) {
+			const { nodeId, oldSize } = this._resizeStartData;
+			const n = this.graph.getNodeById(nodeId);
+			if (n && (n.size[0] !== oldSize[0] || n.size[1] !== oldSize[1]))
+				this.history.push(new ResizeNodeCmd(nodeId, oldSize, [n.size[0], n.size[1]]));
+			this._resizeStartData = null;
+			this._updateHistoryButtons();
+		}
 		if (this.resizeNode) {
 			this.resizeNode = null;
 			this.resizeFloor = null;
@@ -3674,7 +3733,13 @@ class SchemaGraphApp {
 
 		if (node) {
 			contextMenu.querySelector('.sg-context-menu-delete')?.addEventListener('click', () => {
-				this.selectedNodes.size > 1 ? this.deleteSelectedNodes() : this.removeNode(node);
+				if (this.selectedNodes.size > 1) {
+					this.deleteSelectedNodes();
+				} else {
+					this._startBatch();
+					this.removeNode(node);
+					this._endBatch('Delete Node');
+				}
 				contextMenu.classList.remove('show');
 			});
 			contextMenu.querySelector('[data-action="save-template"]')?.addEventListener('click', () => {
@@ -3696,9 +3761,11 @@ class SchemaGraphApp {
 					return;
 				}
 
+				this._startBatch();
 				const n = this.graph.createNode(type);
 				n.pos = [parseFloat(contextMenu.dataset.worldX) - 90, parseFloat(contextMenu.dataset.worldY) - 40];
 				contextMenu.classList.remove('show');
+				this._endBatch('Add Node');
 				this.draw();
 			});
 		});
@@ -3707,6 +3774,13 @@ class SchemaGraphApp {
 	// === KEYBOARD HANDLERS ===
 	handleKeyDown(data) {
 		const isTyping = data.event.target.tagName === 'INPUT' || data.event.target.tagName === 'TEXTAREA';
+		const isCtrl = data.event.ctrlKey || data.event.metaKey;
+		if (isCtrl && data.key === 'z' && !data.event.shiftKey && !isTyping) {
+			data.event.preventDefault(); this.history.undo(this); this._historyAfterOp(); return;
+		}
+		if (isCtrl && (data.key === 'y' || (data.event.shiftKey && data.key === 'Z')) && !isTyping) {
+			data.event.preventDefault(); this.history.redo(this); this._historyAfterOp(); return;
+		}
 		if (data.code === 'Space' && !this.spacePressed && !this.editingNode && !isTyping) {
 			data.event.preventDefault();
 			this.spacePressed = true;
@@ -6028,6 +6102,324 @@ class SchemaGraphApp {
 		return [220, Math.max(160, 80 + visSlots * 25)];
 	}
 
+	// ========================================================================
+	// TAB MANAGEMENT
+	// ========================================================================
+
+	_genTabId() { return 'tab_' + Math.random().toString(36).substr(2, 9); }
+
+	_getActiveTab() { return this.tabs.find(t => t.id === this.activeTabId); }
+
+	_saveCurrentTabState() {
+		const tab = this._getActiveTab();
+		if (!tab) return;
+		tab.graphData = this.graph.serialize(false);
+		tab.camera    = { x: this.camera.x, y: this.camera.y, scale: this.camera.scale };
+		tab.undoStack = this.history.undoStack.slice();
+		tab.redoStack = this.history.redoStack.slice();
+	}
+
+	_loadTabState(tab) {
+		this._historyIgnore = true;
+		if (tab.graphData) {
+			this.graph.deserialize(tab.graphData, false, this.camera);
+		} else {
+			// Empty tab — clear the graph
+			this.graph.nodes          = [];
+			this.graph.links          = {};
+			this.graph._nodes_by_id   = {};
+			this.graph.last_link_id   = 0;
+		}
+		this.camera.x     = tab.camera.x;
+		this.camera.y     = tab.camera.y;
+		this.camera.scale = tab.camera.scale;
+		this.history.loadStacks(tab.undoStack.slice(), tab.redoStack.slice());
+		this._currentStateSnapshot = tab.graphData ? tab.graphData : this._captureCurrentSnapshot();
+		this._historyIgnore = false;
+		this.clearSelection();
+		this.draw();
+		this._updateHistoryButtons();
+		// Notify extensions (chat, media) to re-attach overlays
+		this.eventBus.emit(GraphEvents.WORKFLOW_IMPORTED, {});
+	}
+
+	_addTab(name) {
+		this._saveCurrentTabState();
+		const newTab = {
+			id: this._genTabId(),
+			name: name || `Graph ${this.tabs.length + 1}`,
+			graphData: null,
+			camera: { x: 0, y: 0, scale: 1.0 },
+			undoStack: [],
+			redoStack: []
+		};
+		this.tabs.push(newTab);
+		this.activeTabId = newTab.id;
+		this._loadTabState(newTab);
+		this._renderTabs();
+	}
+
+	_switchTab(tabId) {
+		if (tabId === this.activeTabId) return;
+		this._saveCurrentTabState();
+		this.activeTabId = tabId;
+		const tab = this._getActiveTab();
+		if (tab) this._loadTabState(tab);
+		this._renderTabs();
+	}
+
+	_closeTab(tabId) {
+		if (this.tabs.length === 1) {
+			// Only one tab — clear its graph but keep the tab
+			const tab = this.tabs[0];
+			tab.graphData = null;
+			tab.undoStack = [];
+			tab.redoStack = [];
+			this._loadTabState(tab);
+			this._renderTabs();
+			return;
+		}
+		const idx = this.tabs.findIndex(t => t.id === tabId);
+		if (idx === -1) return;
+		this.tabs.splice(idx, 1);
+		if (this.activeTabId === tabId) {
+			this.activeTabId = this.tabs[Math.max(0, idx - 1)].id;
+			this._loadTabState(this._getActiveTab());
+		}
+		this._renderTabs();
+	}
+
+	_renameTab(tabId, name) {
+		const tab = this.tabs.find(t => t.id === tabId);
+		if (tab && name) { tab.name = name; this._renderTabs(); }
+	}
+
+	_startTabRename(tabId) {
+		const tabEl = document.querySelector(`.sg-tab[data-tab-id="${tabId}"]`);
+		if (!tabEl) return;
+		const label = tabEl.querySelector('.sg-tab-label');
+		if (!label) return;
+		const tab = this.tabs.find(t => t.id === tabId);
+		if (!tab) return;
+
+		const input = document.createElement('input');
+		input.type = 'text';
+		input.value = tab.name;
+		input.className = 'sg-tab-rename-input';
+		input.style.cssText = 'width:100%;border:none;outline:none;background:transparent;color:inherit;font:inherit;padding:0;';
+		label.textContent = '';
+		label.appendChild(input);
+		input.focus();
+		input.select();
+
+		const commit = () => {
+			const newName = input.value.trim() || tab.name;
+			label.textContent = newName;
+			input.remove();
+			this._renameTab(tabId, newName);
+		};
+		input.addEventListener('blur', commit);
+		input.addEventListener('keydown', e => {
+			if (e.key === 'Enter')  { e.preventDefault(); input.blur(); }
+			if (e.key === 'Escape') { input.value = tab.name; input.blur(); }
+			e.stopPropagation();
+		});
+	}
+
+	_renderTabs() {
+		const list = document.getElementById('sg-tab-list');
+		if (!list) return;
+		list.innerHTML = '';
+		for (const tab of this.tabs) {
+			const el = document.createElement('div');
+			el.className = 'sg-tab' + (tab.id === this.activeTabId ? ' sg-tab--active' : '');
+			el.dataset.tabId = tab.id;
+			el.innerHTML = `<span class="sg-tab-label" title="${tab.name}">${tab.name}</span><button class="sg-tab-close" title="Close tab">×</button>`;
+			list.appendChild(el);
+		}
+		this._updateHistoryButtons();
+	}
+
+	_initTabs() {
+		const canvasContainer = this.canvas.parentElement;    // .sg-canvas-container
+		const panelContainer  = canvasContainer.parentElement; // .nw-canvas-panel
+
+		panelContainer.classList.add('sg-has-tabs');
+
+		const tabBar = document.createElement('div');
+		tabBar.className = 'sg-tab-bar';
+		tabBar.id = 'sg-tab-bar';
+		tabBar.innerHTML = `
+			<div class="sg-tab-list" id="sg-tab-list"></div>
+			<button class="sg-tab-add" id="sg-tab-add" title="New tab">+</button>
+			<div class="sg-tab-spacer"></div>
+			<button class="sg-undo-btn" id="sg-undo-btn" title="Nothing to undo" disabled>↩</button>
+			<button class="sg-redo-btn" id="sg-redo-btn" title="Nothing to redo" disabled>↪</button>
+		`;
+		panelContainer.insertBefore(tabBar, canvasContainer);
+
+		// Inject tab bar + canvas fix CSS
+		const style = document.createElement('style');
+		style.id = 'sg-tabs-styles';
+		style.textContent = `
+			.sg-tab-bar {
+				display:flex; align-items:center; height:34px; min-height:34px;
+				background:var(--sg-bg-secondary,#1a1a1a); border-bottom:1px solid var(--sg-border,#333);
+				padding:0 4px; gap:2px; flex-shrink:0; overflow:hidden; box-sizing:border-box; user-select:none;
+			}
+			.sg-tab-list { display:flex; align-items:center; gap:1px; overflow-x:auto; flex:1; min-width:0; }
+			.sg-tab-list::-webkit-scrollbar { height:3px; }
+			.sg-tab-list::-webkit-scrollbar-thumb { background:var(--sg-border,#333); border-radius:2px; }
+			.sg-tab {
+				display:flex; align-items:center; gap:4px; padding:0 6px 0 10px;
+				height:26px; min-width:80px; max-width:160px;
+				background:var(--sg-bg-tertiary,#252525); border-radius:4px 4px 0 0;
+				cursor:pointer; white-space:nowrap; font-size:12px; color:var(--sg-text-muted,#888);
+				border:1px solid transparent; border-bottom:none; flex-shrink:0;
+			}
+			.sg-tab:hover { color:var(--sg-text,#ccc); background:var(--sg-hover,#2a2a2a); }
+			.sg-tab--active {
+				background:var(--sg-canvas-bg,#212121); color:var(--sg-text,#ddd);
+				border-color:var(--sg-border,#333); border-bottom-color:var(--sg-canvas-bg,#212121);
+			}
+			.sg-tab-label { flex:1; overflow:hidden; text-overflow:ellipsis; pointer-events:none; }
+			.sg-tab-close {
+				width:16px; height:16px; border-radius:3px; border:none; background:transparent;
+				color:inherit; cursor:pointer; font-size:14px; line-height:1; padding:0;
+				display:flex; align-items:center; justify-content:center; opacity:0; flex-shrink:0;
+			}
+			.sg-tab:hover .sg-tab-close { opacity:0.5; }
+			.sg-tab-close:hover { opacity:1!important; background:rgba(255,80,80,0.3); }
+			.sg-tab-add {
+				width:24px; height:24px; border-radius:4px; border:1px solid var(--sg-border,#333);
+				background:transparent; color:var(--sg-text-muted,#888); cursor:pointer; font-size:18px;
+				line-height:1; padding:0; display:flex; align-items:center; justify-content:center; flex-shrink:0;
+			}
+			.sg-tab-add:hover { color:var(--sg-text,#ddd); background:var(--sg-hover,#2a2a2a); }
+			.sg-tab-spacer { flex:1; }
+			.sg-undo-btn, .sg-redo-btn {
+				width:28px; height:26px; border-radius:4px; border:1px solid var(--sg-border,#333);
+				background:transparent; color:var(--sg-text-muted,#888); cursor:pointer; font-size:14px;
+				flex-shrink:0; display:flex; align-items:center; justify-content:center;
+			}
+			.sg-undo-btn:hover:not(:disabled), .sg-redo-btn:hover:not(:disabled) { color:var(--sg-text,#ddd); background:var(--sg-hover,#2a2a2a); }
+			.sg-undo-btn:disabled, .sg-redo-btn:disabled { opacity:0.3; cursor:not-allowed; }
+			/* Make canvas container fill remaining space when tab bar is present */
+			.nw-canvas-panel.sg-has-tabs .sg-canvas-container { flex:1; height:auto; min-height:0; }
+		`;
+		document.head.appendChild(style);
+
+		// Event delegation on tab bar
+		tabBar.addEventListener('click', (e) => {
+			const closeBtn = e.target.closest('.sg-tab-close');
+			const tab      = e.target.closest('.sg-tab');
+			if (closeBtn && tab)              { this._closeTab(tab.dataset.tabId); return; }
+			if (tab)                          { this._switchTab(tab.dataset.tabId); return; }
+			if (e.target.id === 'sg-tab-add') { this._addTab(); return; }
+			if (e.target.id === 'sg-undo-btn') { this.history.undo(this); this._historyAfterOp(); return; }
+			if (e.target.id === 'sg-redo-btn') { this.history.redo(this); this._historyAfterOp(); return; }
+		});
+		tabBar.addEventListener('dblclick', (e) => {
+			const tab = e.target.closest('.sg-tab');
+			if (tab && !e.target.closest('.sg-tab-close')) this._startTabRename(tab.dataset.tabId);
+		});
+
+		this._renderTabs();
+	}
+
+	// ========================================================================
+	// HISTORY MANAGEMENT
+	// ========================================================================
+
+	_captureCurrentSnapshot() { return this.graph.serialize(false); }
+
+	_startBatch() {
+		this._historyBatch = true;
+		this._batchBefore  = this._currentStateSnapshot;
+	}
+
+	_endBatch(label) {
+		this._historyBatch = false;
+		if (this._historyIgnore) return;
+		const after = this._captureCurrentSnapshot();
+		this.history.push(new SnapshotCmd(label, this._batchBefore, after));
+		this._currentStateSnapshot = after;
+		this._updateHistoryButtons();
+	}
+
+	_historyRestore(snapshot) {
+		this._historyIgnore = true;
+		if (snapshot && snapshot.nodes) {
+			this.graph.deserialize(snapshot, false, this.camera);
+		} else {
+			this.graph.nodes = []; this.graph.links = {}; this.graph._nodes_by_id = {}; this.graph.last_link_id = 0;
+		}
+		this._currentStateSnapshot = snapshot;
+		this.clearSelection();
+		// Notify extensions to re-attach overlays
+		this.eventBus.emit(GraphEvents.WORKFLOW_IMPORTED, {});
+		this.draw();
+		this._historyIgnore = false;
+		this._updateHistoryButtons();
+	}
+
+	_historyAfterDelta() {
+		this.clearSelection();
+		if (typeof this.updateAllPreviewTextOverlayPositions === 'function') this.updateAllPreviewTextOverlayPositions();
+		this.draw();
+		this._updateHistoryButtons();
+	}
+
+	_historyAfterOp() {
+		this._updateHistoryButtons();
+		this.draw();
+	}
+
+	_updateHistoryButtons() {
+		const undoBtn = document.getElementById('sg-undo-btn');
+		const redoBtn = document.getElementById('sg-redo-btn');
+		if (undoBtn) {
+			undoBtn.disabled = !this.history.canUndo();
+			undoBtn.title    = this.history.canUndo() ? `Undo: ${this.history.peekUndo()} (Ctrl+Z)` : 'Nothing to undo';
+		}
+		if (redoBtn) {
+			redoBtn.disabled = !this.history.canRedo();
+			redoBtn.title    = this.history.canRedo() ? `Redo: ${this.history.peekRedo()} (Ctrl+Y)` : 'Nothing to redo';
+		}
+	}
+
+	_initHistory() {
+		const commit = (label) => {
+			if (this._historyIgnore || this._historyBatch) return;
+			const after = this._captureCurrentSnapshot();
+			this.history.push(new SnapshotCmd(label, this._currentStateSnapshot, after));
+			this._currentStateSnapshot = after;
+			this._updateHistoryButtons();
+		};
+
+		this.eventBus.on(GraphEvents.NODE_CREATED,  () => commit('Add Node'));
+		this.eventBus.on(GraphEvents.NODE_REMOVED,  () => commit('Delete Node'));
+		this.eventBus.on(GraphEvents.LINK_CREATED,  () => commit('Connect'));
+		this.eventBus.on(GraphEvents.LINK_REMOVED,  () => commit('Disconnect'));
+		this.eventBus.on(GraphEvents.GRAPH_CLEARED, () => commit('Clear'));
+
+		// Field value changes — debounced so rapid edits merge into one undo step
+		this.eventBus.on(GraphEvents.FIELD_CHANGED, () => {
+			if (this._historyIgnore || this._historyBatch) return;
+			// Capture "before" only at the start of an edit sequence
+			if (!this._fieldChangeBefore) this._fieldChangeBefore = this._currentStateSnapshot;
+			clearTimeout(this._fieldChangeTimer);
+			this._fieldChangeTimer = setTimeout(() => {
+				const after = this._captureCurrentSnapshot();
+				this.history.push(new SnapshotCmd('Change Field', this._fieldChangeBefore, after));
+				this._currentStateSnapshot = after;
+				this._fieldChangeBefore = null;
+				this._fieldChangeTimer  = null;
+				this._updateHistoryButtons();
+			}, 400);
+		});
+	}
+
 	/** Draw a small ◢ resize handle triangle in the bottom-right corner of a node. */
 	_drawResizeHandle(x, y, w, h) {
 		const sz = 10 / this.camera.scale;
@@ -6100,14 +6492,21 @@ class SchemaGraphApp {
 			this._nodeNameEditorNode = null;
 		};
 
+		const oldTitle = node.displayTitle ?? null;
+		let _nameCommitted = false;
 		const commit = () => {
-			const newName = input.value.trim();
+			if (_nameCommitted) return;
+			_nameCommitted = true;
+			const newTitle = input.value.trim() || null;
 			input.remove();
 			cleanup();
-			node.displayTitle = newName || null;
+			node.displayTitle = newTitle;
+			if (newTitle !== oldTitle && !this._historyIgnore)
+				this.history.push(new TitleCmd(node.id, oldTitle, newTitle));
+			this._updateHistoryButtons();
 			this.draw();
 		};
-		const cancel = () => { input.remove(); cleanup(); };
+		const cancel = () => { if (_nameCommitted) return; _nameCommitted = true; input.remove(); cleanup(); };
 
 		input.addEventListener('keydown', (e) => {
 			if (e.key === 'Enter')  { e.preventDefault(); commit(); }
@@ -9299,6 +9698,22 @@ class SchemaGraphApp {
 					linkHitDistance: self._edgePreviewConfig.linkHitDistance,
 					featureEnabled: self._features.edgePreview
 				})
+			},
+
+			history: {
+				undo:    () => { self.history.undo(self); self._historyAfterOp(); },
+				redo:    () => { self.history.redo(self); self._historyAfterOp(); },
+				canUndo: () => self.history.canUndo(),
+				canRedo: () => self.history.canRedo(),
+				clear:   () => { self.history.clear(); self._updateHistoryButtons(); },
+			},
+
+			tabs: {
+				add:    (name)        => self._addTab(name),
+				close:  (tabId)       => self._closeTab(tabId),
+				switch: (tabId)       => self._switchTab(tabId),
+				rename: (tabId, name) => self._renameTab(tabId, name),
+				list:   ()            => self.tabs.map(t => ({ id: t.id, name: t.name, active: t.id === self.activeTabId })),
 			},
 		};
 	}

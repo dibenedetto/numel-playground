@@ -674,6 +674,8 @@ class SchemaGraph extends Graph {
 			if (node.multiInputs) nodeData.multiInputs = JSON.parse(JSON.stringify(node.multiInputs));
 			if (node.multiInputSlots) nodeData.multiInputSlots = JSON.parse(JSON.stringify(node.multiInputSlots));
 			if (node.multiOutputSlots) nodeData.multiOutputSlots = JSON.parse(JSON.stringify(node.multiOutputSlots));
+			if (node.inputMeta) nodeData.inputMeta = JSON.parse(JSON.stringify(node.inputMeta));
+			if (node.outputMeta) nodeData.outputMeta = JSON.parse(JSON.stringify(node.outputMeta));
 			if (node.constantFields) nodeData.constantFields = JSON.parse(JSON.stringify(node.constantFields));
 			if (node.workflowType) nodeData.workflowType = node.workflowType;
 			if (node.workflowIndex !== undefined) nodeData.workflowIndex = node.workflowIndex;
@@ -731,6 +733,23 @@ class SchemaGraph extends Graph {
 			if (nodeData.workflowIndex !== undefined) node.workflowIndex = nodeData.workflowIndex;
 			if (nodeData.color) node.color = nodeData.color;
 			if (nodeData.displayTitle) node.displayTitle = nodeData.displayTitle;
+			// Rebuild dynamic input/output slot entries from inputMeta/outputMeta
+			if (nodeData.inputMeta) {
+				node.inputMeta = JSON.parse(JSON.stringify(nodeData.inputMeta));
+				for (const [idxStr, meta] of Object.entries(node.inputMeta)) {
+					const idx = parseInt(idxStr);
+					while (node.inputs.length <= idx) node.inputs.push({ name: '', type: 'Any', link: null });
+					node.inputs[idx] = { name: meta.name || '', type: meta.type || 'Any', link: null };
+				}
+			}
+			if (nodeData.outputMeta) {
+				node.outputMeta = JSON.parse(JSON.stringify(nodeData.outputMeta));
+				for (const [idxStr, meta] of Object.entries(node.outputMeta)) {
+					const idx = parseInt(idxStr);
+					while (node.outputs.length <= idx) node.outputs.push({ name: '', type: 'Any', links: [] });
+					node.outputs[idx] = { name: meta.name || '', type: meta.type || 'Any', links: [] };
+				}
+			}
 			this.nodes.push(node);
 			this._nodes_by_id[node.id] = node;
 			node.graph = this;
@@ -750,10 +769,14 @@ class SchemaGraph extends Graph {
 						linkData.type
 					);
 					this.links[linkData.id] = link;
-					originNode.outputs[linkData.origin_slot].links.push(linkData.id);
+					if (originNode.outputs[linkData.origin_slot])
+						originNode.outputs[linkData.origin_slot].links.push(linkData.id);
 					if (targetNode.multiInputs && targetNode.multiInputs[linkData.target_slot])
 						targetNode.multiInputs[linkData.target_slot].links.push(linkData.id);
-					else targetNode.inputs[linkData.target_slot].link = linkData.id;
+					else if (targetNode.inputs[linkData.target_slot])
+						targetNode.inputs[linkData.target_slot].link = linkData.id;
+					else
+						console.warn('[Graph] Deserialize: target input slot not found for link', linkData);
 					if (linkData.id > this.last_link_id) this.last_link_id = linkData.id;
 				}
 			}
