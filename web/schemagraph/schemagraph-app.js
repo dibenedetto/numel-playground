@@ -6212,16 +6212,27 @@ class SchemaGraphApp {
 		input.focus();
 		input.select();
 
+		const oldName = tab.name;
+		let _tabRenameCommitted = false;
 		const commit = () => {
-			const newName = input.value.trim() || tab.name;
-			label.textContent = newName;
+			if (_tabRenameCommitted) return;
+			_tabRenameCommitted = true;
+			const newName = input.value.trim() || oldName;
 			input.remove();
-			this._renameTab(tabId, newName);
+			if (newName !== oldName) {
+				this._renameTab(tabId, newName);
+				if (!this._historyIgnore) {
+					this.history.push(new TabRenameCmd(tabId, oldName, newName));
+					this._updateHistoryButtons();
+				}
+			} else {
+				label.textContent = oldName;
+			}
 		};
 		input.addEventListener('blur', commit);
 		input.addEventListener('keydown', e => {
 			if (e.key === 'Enter')  { e.preventDefault(); input.blur(); }
-			if (e.key === 'Escape') { input.value = tab.name; input.blur(); }
+			if (e.key === 'Escape') { _tabRenameCommitted = true; input.value = oldName; label.textContent = oldName; input.remove(); }
 			e.stopPropagation();
 		});
 	}
@@ -6237,6 +6248,12 @@ class SchemaGraphApp {
 			el.innerHTML = `<span class="sg-tab-label" title="${tab.name}">${tab.name}</span><button class="sg-tab-close" title="Close tab">×</button>`;
 			list.appendChild(el);
 		}
+		// "+" button lives inside the list, right after the last tab
+		const addBtn = document.createElement('button');
+		addBtn.className = 'sg-tab-add';
+		addBtn.title = 'New tab (Ctrl+T)';
+		addBtn.textContent = '+';
+		list.appendChild(addBtn);
 		this._updateHistoryButtons();
 	}
 
@@ -6251,7 +6268,6 @@ class SchemaGraphApp {
 		tabBar.id = 'sg-tab-bar';
 		tabBar.innerHTML = `
 			<div class="sg-tab-list" id="sg-tab-list"></div>
-			<button class="sg-tab-add" id="sg-tab-add" title="New tab">+</button>
 			<div class="sg-tab-spacer"></div>
 			<button class="sg-undo-btn" id="sg-undo-btn" title="Nothing to undo" disabled>↩</button>
 			<button class="sg-redo-btn" id="sg-redo-btn" title="Nothing to redo" disabled>↪</button>
@@ -6262,50 +6278,71 @@ class SchemaGraphApp {
 		const style = document.createElement('style');
 		style.id = 'sg-tabs-styles';
 		style.textContent = `
+			/* Unified card — tab bar + canvas share one rounded container */
+			.nw-canvas-panel.sg-has-tabs {
+				border-radius: 8px;
+				overflow: hidden;
+				border: 1px solid var(--sg-border-color, #1a1a1a);
+			}
 			.sg-tab-bar {
-				display:flex; align-items:center; height:34px; min-height:34px;
-				background:var(--sg-bg-secondary,#1a1a1a); border-bottom:1px solid var(--sg-border,#333);
-				padding:0 4px; gap:2px; flex-shrink:0; overflow:hidden; box-sizing:border-box; user-select:none;
+				display:flex; align-items:center; height:38px; min-height:38px;
+				background:var(--sg-bg-secondary, #2a2a2a);
+				border-bottom: 1px solid var(--sg-border-color, #1a1a1a);
+				padding: 4px 6px;
+				gap: 2px; flex-shrink:0; overflow:hidden; box-sizing:border-box; user-select:none;
 			}
-			.sg-tab-list { display:flex; align-items:center; gap:1px; overflow-x:auto; flex:1; min-width:0; }
-			.sg-tab-list::-webkit-scrollbar { height:3px; }
-			.sg-tab-list::-webkit-scrollbar-thumb { background:var(--sg-border,#333); border-radius:2px; }
+			.sg-tab-list {
+				display:flex; align-items:center; gap:1px; overflow-x:auto; flex:1; min-width:0; height:100%;
+			}
+			.sg-tab-list::-webkit-scrollbar { height:2px; }
+			.sg-tab-list::-webkit-scrollbar-thumb { background:var(--sg-border-color,#1a1a1a); border-radius:2px; }
 			.sg-tab {
-				display:flex; align-items:center; gap:4px; padding:0 6px 0 10px;
-				height:26px; min-width:80px; max-width:160px;
-				background:var(--sg-bg-tertiary,#252525); border-radius:4px 4px 0 0;
-				cursor:pointer; white-space:nowrap; font-size:12px; color:var(--sg-text-muted,#888);
-				border:1px solid transparent; border-bottom:none; flex-shrink:0;
+				display:flex; align-items:center; gap:3px; padding:0 6px 0 10px;
+				height:28px; min-width:72px; max-width:160px;
+				background:transparent; border-radius:6px;
+				cursor:pointer; white-space:nowrap; font-size:11.5px;
+				color:var(--sg-text-secondary,#888); flex-shrink:0;
+				transition:color 0.12s, background 0.12s;
 			}
-			.sg-tab:hover { color:var(--sg-text,#ccc); background:var(--sg-hover,#2a2a2a); }
+			.sg-tab:hover { color:var(--sg-text-primary,#e0e0e0); background:rgba(128,128,128,0.1); }
 			.sg-tab--active {
-				background:var(--sg-canvas-bg,#212121); color:var(--sg-text,#ddd);
-				border-color:var(--sg-border,#333); border-bottom-color:var(--sg-canvas-bg,#212121);
+				background:var(--sg-bg-tertiary,#353535); color:var(--sg-text-primary,#e2e2e2);
+				font-weight:500;
 			}
 			.sg-tab-label { flex:1; overflow:hidden; text-overflow:ellipsis; pointer-events:none; }
 			.sg-tab-close {
-				width:16px; height:16px; border-radius:3px; border:none; background:transparent;
-				color:inherit; cursor:pointer; font-size:14px; line-height:1; padding:0;
+				width:14px; height:14px; border-radius:50%; border:none; background:transparent;
+				color:inherit; cursor:pointer; font-size:12px; line-height:1; padding:0;
 				display:flex; align-items:center; justify-content:center; opacity:0; flex-shrink:0;
+				transition:background 0.1s, opacity 0.1s;
 			}
-			.sg-tab:hover .sg-tab-close { opacity:0.5; }
-			.sg-tab-close:hover { opacity:1!important; background:rgba(255,80,80,0.3); }
+			.sg-tab:hover .sg-tab-close,
+			.sg-tab--active .sg-tab-close { opacity:0.4; }
+			.sg-tab-close:hover { opacity:1!important; background:rgba(255,75,75,0.25); color:#ff7070; }
+			/* + button inside tab list, right after last tab */
 			.sg-tab-add {
-				width:24px; height:24px; border-radius:4px; border:1px solid var(--sg-border,#333);
-				background:transparent; color:var(--sg-text-muted,#888); cursor:pointer; font-size:18px;
-				line-height:1; padding:0; display:flex; align-items:center; justify-content:center; flex-shrink:0;
+				width:22px; height:22px; border-radius:50%; border:none;
+				background:transparent; color:var(--sg-text-secondary,#888); cursor:pointer;
+				font-size:16px; line-height:1; padding:0; flex-shrink:0; margin-left:2px;
+				display:flex; align-items:center; justify-content:center; align-self:center;
+				transition:background 0.1s, color 0.1s;
 			}
-			.sg-tab-add:hover { color:var(--sg-text,#ddd); background:var(--sg-hover,#2a2a2a); }
-			.sg-tab-spacer { flex:1; }
+			.sg-tab-add:hover { color:var(--sg-text-primary,#e0e0e0); background:rgba(128,128,128,0.15); }
+			.sg-tab-spacer { flex:1; min-width:4px; }
 			.sg-undo-btn, .sg-redo-btn {
-				width:28px; height:26px; border-radius:4px; border:1px solid var(--sg-border,#333);
-				background:transparent; color:var(--sg-text-muted,#888); cursor:pointer; font-size:14px;
+				width:26px; height:26px; border-radius:6px; border:none;
+				background:transparent; color:var(--sg-text-secondary,#888); cursor:pointer; font-size:13px;
 				flex-shrink:0; display:flex; align-items:center; justify-content:center;
+				transition:background 0.1s, color 0.1s;
 			}
-			.sg-undo-btn:hover:not(:disabled), .sg-redo-btn:hover:not(:disabled) { color:var(--sg-text,#ddd); background:var(--sg-hover,#2a2a2a); }
-			.sg-undo-btn:disabled, .sg-redo-btn:disabled { opacity:0.3; cursor:not-allowed; }
-			/* Make canvas container fill remaining space when tab bar is present */
-			.nw-canvas-panel.sg-has-tabs .sg-canvas-container { flex:1; height:auto; min-height:0; }
+			.sg-undo-btn:hover:not(:disabled), .sg-redo-btn:hover:not(:disabled) {
+				color:var(--sg-text-primary,#e0e0e0); background:rgba(128,128,128,0.12);
+			}
+			.sg-undo-btn:disabled, .sg-redo-btn:disabled { opacity:0.22; cursor:not-allowed; }
+			/* Canvas fills remaining card space; card's overflow:hidden provides corner clipping */
+			.nw-canvas-panel.sg-has-tabs .sg-canvas-container {
+				flex:1; height:auto; min-height:0; border-radius:0;
+			}
 		`;
 		document.head.appendChild(style);
 
@@ -6315,7 +6352,7 @@ class SchemaGraphApp {
 			const tab      = e.target.closest('.sg-tab');
 			if (closeBtn && tab)              { this._closeTab(tab.dataset.tabId); return; }
 			if (tab)                          { this._switchTab(tab.dataset.tabId); return; }
-			if (e.target.id === 'sg-tab-add') { this._addTab(); return; }
+			if (e.target.closest('.sg-tab-add')) { this._addTab(); return; }
 			if (e.target.id === 'sg-undo-btn') { this.history.undo(this); this._historyAfterOp(); return; }
 			if (e.target.id === 'sg-redo-btn') { this.history.redo(this); this._historyAfterOp(); return; }
 		});

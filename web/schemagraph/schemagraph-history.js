@@ -103,6 +103,27 @@ class TitleCmd extends HistoryCmd {
 }
 
 // ========================================================================
+// TAB RENAME COMMAND — pure delta for tab name changes
+// ========================================================================
+
+class TabRenameCmd extends HistoryCmd {
+	constructor(tabId, oldName, newName) {
+		super('Rename Tab');
+		this.tabId   = tabId;
+		this.oldName = oldName;
+		this.newName = newName;
+	}
+	undo(app) {
+		const t = app.tabs.find(t => t.id === this.tabId);
+		if (t) { t.name = this.oldName; app._renderTabs(); }
+	}
+	redo(app) {
+		const t = app.tabs.find(t => t.id === this.tabId);
+		if (t) { t.name = this.newName; app._renderTabs(); }
+	}
+}
+
+// ========================================================================
 // HISTORY MANAGER
 // ========================================================================
 
@@ -154,15 +175,16 @@ class HistoryManager {
 // ========================================================================
 
 if (typeof module !== 'undefined' && module.exports) {
-	module.exports = { HistoryCmd, SnapshotCmd, MoveNodesCmd, ResizeNodeCmd, TitleCmd, HistoryManager };
+	module.exports = { HistoryCmd, SnapshotCmd, MoveNodesCmd, ResizeNodeCmd, TitleCmd, TabRenameCmd, HistoryManager };
 }
 
 if (typeof window !== 'undefined') {
-	window.HistoryCmd    = HistoryCmd;
-	window.SnapshotCmd   = SnapshotCmd;
-	window.MoveNodesCmd  = MoveNodesCmd;
-	window.ResizeNodeCmd = ResizeNodeCmd;
-	window.TitleCmd      = TitleCmd;
+	window.HistoryCmd     = HistoryCmd;
+	window.SnapshotCmd    = SnapshotCmd;
+	window.MoveNodesCmd   = MoveNodesCmd;
+	window.ResizeNodeCmd  = ResizeNodeCmd;
+	window.TitleCmd       = TitleCmd;
+	window.TabRenameCmd   = TabRenameCmd;
 	window.HistoryManager = HistoryManager;
 }
 
