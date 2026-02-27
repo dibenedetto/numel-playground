@@ -2731,6 +2731,8 @@ class SchemaGraphApp {
 					this.resizeNode = clickedNode;
 					this.resizeStart = [wx, wy];
 					this.resizeStartSize = [clickedNode.size[0], clickedNode.size[1]];
+					// Capture natural minimum (= default size floor) at drag start
+					this.resizeFloor = this._getNodeDefaultSize(clickedNode);
 					this.canvas.style.cursor = 'se-resize';
 					return;
 				}
@@ -2769,16 +2771,9 @@ class SchemaGraphApp {
 			const node = this.resizeNode;
 			const newW = this.resizeStartSize[0] + (wx - this.resizeStart[0]);
 			const newH = this.resizeStartSize[1] + (wy - this.resizeStart[1]);
-			// Enforce minimum sizes
-			const isPreview = this._isPreviewFlowNode(node);
-			const minW = isPreview ? (node.extra?.previewExpanded ? 280 : 200) : 180;
-			const minH = isPreview
-				? (node.extra?.previewExpanded
-					? 180
-					: Math.max(120, 96 + Math.max(this._getVisibleSlotCount(node, false), this._getVisibleSlotCount(node, true)) * 25))
-				: 120;
-			node.size[0] = Math.max(minW, newW);
-			node.size[1] = Math.max(minH, newH);
+			const [floorW, floorH] = this.resizeFloor || this._getNodeDefaultSize(node);
+			node.size[0] = Math.max(floorW, newW);
+			node.size[1] = Math.max(floorH, newH);
 			this.canvas.style.cursor = 'se-resize';
 			this._hideTooltip();
 			this.updateAllPreviewTextOverlayPositions();
@@ -3083,6 +3078,7 @@ class SchemaGraphApp {
 		this.canvas.classList.remove('dragging');
 		if (this.resizeNode) {
 			this.resizeNode = null;
+			this.resizeFloor = null;
 			this.canvas.style.cursor = 'default';
 		}
 		this.draw();
@@ -5972,6 +5968,31 @@ class SchemaGraphApp {
 
 	_isResizableNode(node) {
 		return !!(node && (this._isPreviewFlowNode(node) || node.isChat));
+	}
+
+	/**
+	 * Return the natural minimum [w, h] for a resizable node — the smallest it
+	 * should ever be, regardless of user resize.  This is computed from content
+	 * (slot count, expand/collapse state) so it always matches what the draw
+	 * functions would enforce on their own.
+	 */
+	_getNodeDefaultSize(node) {
+		if (this._isPreviewFlowNode(node)) {
+			const isExpanded = node.extra?.previewExpanded ?? false;
+			const visSlots = Math.max(
+				this._getVisibleSlotCount(node, false),
+				this._getVisibleSlotCount(node, true)
+			);
+			return [
+				isExpanded ? 280 : 200,
+				isExpanded ? 180 : Math.max(120, 96 + visSlots * 25)
+			];
+		}
+		// Chat (or other resizable) nodes: use natural slot-based height floor
+		const visIn  = (node.inputs  || []).filter((_, j) => !this._isFieldHidden(node, j, false)).length;
+		const visOut = (node.outputs || []).filter((_, j) => !this._isFieldHidden(node, j, true )).length;
+		const visSlots = Math.max(visIn, visOut);
+		return [220, Math.max(160, 80 + visSlots * 25)];
 	}
 
 	/** Draw a small ◢ resize handle triangle in the bottom-right corner of a node. */
