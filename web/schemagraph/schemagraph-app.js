@@ -1770,6 +1770,20 @@ class SchemaGraphApp {
 				overflow: hidden;
 				text-overflow: ellipsis;
 			}
+			.sg-node-name-editor {
+				position: fixed;
+				z-index: 2000;
+				box-sizing: border-box;
+				padding: 0 4px;
+				background: rgba(20, 20, 40, 0.95);
+				color: var(--sg-text-primary, #e0e0e0);
+				border: 1px solid var(--sg-accent-blue, #4a90d9);
+				border-radius: 3px;
+				outline: none;
+				font-family: var(--sg-text-font, sans-serif);
+				font-size: 11px;
+				line-height: 1;
+			}
 		`;
 		document.head.appendChild(style);
 	}
@@ -1913,6 +1927,7 @@ class SchemaGraphApp {
 		}
 		this.updateAllPreviewMediaOverlayPositions();
 		this.updateAllPreviewImageActionsPositions();
+		this._updateNodeNameEditorPosition();
 	}
 
 	closeAllPreviewTextOverlays() {
@@ -3018,18 +3033,25 @@ class SchemaGraphApp {
 	handleDoubleClick(data) {
 		const [wx, wy] = this.screenToWorld(data.coords.screenX, data.coords.screenY);
 
-		// Check for PreviewFlow node double-click on preview area (allowed even when locked)
 		// Guard: if a close-button was just clicked, ignore the follow-up canvas dblclick
 		// that fires when the overlay disappears between click #1 and click #2 of a double-click.
 		if (Date.now() < (this._previewCollapseBlockUntil || 0)) return;
 
+		// Double-click on ANY node header → edit name (allowed even when locked)
+		for (const node of this.graph.nodes) {
+			const nx = node.pos[0], ny = node.pos[1], nw = node.size[0];
+			if (wx >= nx && wx <= nx + nw && wy >= ny && wy < ny + 26) {
+				this._showNodeNameEditor(node);
+				return;
+			}
+		}
+
+		// Double-click on PreviewFlow node body (below header) → toggle expand
 		for (const node of this.graph.nodes) {
 			if (!this._isPreviewFlowNode(node)) continue;
-
-			// Hit-test the full node body so double-click works on header/slots too
 			const nx = node.pos[0], ny = node.pos[1];
 			const nw = node.size[0], nh = node.size[1];
-			if (wx >= nx && wx <= nx + nw && wy >= ny && wy <= ny + nh) {
+			if (wx >= nx && wx <= nx + nw && wy >= ny + 26 && wy <= ny + nh) {
 				this._togglePreviewExpanded(node);
 				return;
 			}
@@ -5923,6 +5945,72 @@ class SchemaGraphApp {
 		}
 
 		this.eventBus.emit('preview:modeToggled', { nodeId: node.id, expanded: node.extra.previewExpanded });
+	}
+
+	_showNodeNameEditor(node) {
+		// Remove any existing editor
+		this._nodeNameEditorEl?.remove();
+		this._nodeNameEditorEl  = null;
+		this._nodeNameEditorNode = null;
+
+		const isPreview = this._isPreviewFlowNode(node);
+		// For preview nodes skip the ▶/▼ icon (~28px); for others start at x+8
+		const leftPad = isPreview ? 28 : 8;
+		node._nameEditorLeftPad = leftPad;
+
+		const input = document.createElement('input');
+		input.type = 'text';
+		input.id = 'sg-node-name-editor';
+		input.className = 'sg-node-name-editor';
+		input.value = node.displayTitle || node.nodeInfo?.title || node.title || '';
+
+		const cleanup = () => {
+			this._nodeNameEditorEl   = null;
+			this._nodeNameEditorNode = null;
+		};
+
+		const commit = () => {
+			const newName = input.value.trim();
+			input.remove();
+			cleanup();
+			node.displayTitle = newName || null;
+			this.draw();
+		};
+		const cancel = () => { input.remove(); cleanup(); };
+
+		input.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter')  { e.preventDefault(); commit(); }
+			if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+			e.stopPropagation();
+		});
+		input.addEventListener('blur', commit);
+		input.addEventListener('mousedown', (e) => e.stopPropagation());
+
+		document.body.appendChild(input);
+
+		// Track for camera-follow updates
+		this._nodeNameEditorEl   = input;
+		this._nodeNameEditorNode = node;
+
+		this._updateNodeNameEditorPosition();
+		input.focus();
+		input.select();
+	}
+
+	_updateNodeNameEditorPosition() {
+		const input = this._nodeNameEditorEl;
+		const node  = this._nodeNameEditorNode;
+		if (!input || !node) return;
+
+		const camera = this.camera;
+		const canvasRect = this.canvas.getBoundingClientRect();
+		const leftPad = node._nameEditorLeftPad ?? 8;
+
+		input.style.left     = (node.pos[0] * camera.scale + camera.x + leftPad * camera.scale + canvasRect.left) + 'px';
+		input.style.top      = (node.pos[1] * camera.scale + camera.y + canvasRect.top) + 'px';
+		input.style.width    = ((node.size[0] - leftPad - 8) * camera.scale) + 'px';
+		input.style.height   = (26 * camera.scale) + 'px';
+		input.style.fontSize = Math.max(9, 11 * camera.scale) + 'px';
 	}
 
 	/**

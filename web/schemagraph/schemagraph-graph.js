@@ -678,6 +678,7 @@ class SchemaGraph extends Graph {
 			if (node.workflowType) nodeData.workflowType = node.workflowType;
 			if (node.workflowIndex !== undefined) nodeData.workflowIndex = node.workflowIndex;
 			if (node.color) nodeData.color = node.color;
+			if (node.displayTitle) nodeData.displayTitle = node.displayTitle;
 			data.nodes.push(nodeData);
 		}
 		for (const linkId in this.links) {
@@ -729,6 +730,7 @@ class SchemaGraph extends Graph {
 			if (nodeData.workflowType) node.workflowType = nodeData.workflowType;
 			if (nodeData.workflowIndex !== undefined) node.workflowIndex = nodeData.workflowIndex;
 			if (nodeData.color) node.color = nodeData.color;
+			if (nodeData.displayTitle) node.displayTitle = nodeData.displayTitle;
 			this.nodes.push(node);
 			this._nodes_by_id[node.id] = node;
 			node.graph = this;
