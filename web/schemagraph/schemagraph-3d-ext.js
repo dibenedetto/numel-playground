@@ -105,7 +105,7 @@ class Model3DOverlayManager {
 		camera.position.set(2, 1.5, 3);
 
 		const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-		renderer.setSize(w, h);
+		renderer.setSize(w, h, false);  // false = don't set inline width/height; let CSS 100%x100% control display size
 		renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 		renderer.toneMapping = THREE.ACESFilmicToneMapping;
 		renderer.toneMappingExposure = 1.0;

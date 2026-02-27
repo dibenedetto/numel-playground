@@ -65,6 +65,9 @@ class SchemaGraphApp {
 		this.previewSelection = new Set();
 		this.dragNode = null;
 		this.dragOffset = [0, 0];
+		this.resizeNode = null;
+		this.resizeStart = [0, 0];
+		this.resizeStartSize = [0, 0];
 		this.connecting = null;
 		this.mousePos = [0, 0];
 		this.isPanning = false;
@@ -2718,6 +2721,21 @@ class SchemaGraphApp {
 				return;
 			}
 
+			// Resize corner detection — 14 world-px hit zone at bottom-right
+			if (!data.event.ctrlKey && !data.event.metaKey && this._isResizableNode(clickedNode)) {
+				const rz = 14 / this.camera.scale;
+				const rx = clickedNode.pos[0] + clickedNode.size[0];
+				const ry = clickedNode.pos[1] + clickedNode.size[1];
+				if (wx >= rx - rz && wy >= ry - rz) {
+					if (!this.selectedNodes.has(clickedNode)) this.selectNode(clickedNode, false);
+					this.resizeNode = clickedNode;
+					this.resizeStart = [wx, wy];
+					this.resizeStartSize = [clickedNode.size[0], clickedNode.size[1]];
+					this.canvas.style.cursor = 'se-resize';
+					return;
+				}
+			}
+
 			if (data.event.ctrlKey || data.event.metaKey) this.toggleNodeSelection(clickedNode);
 			else {
 				if (!this.selectedNodes.has(clickedNode)) this.selectNode(clickedNode, false);
@@ -2740,6 +2758,28 @@ class SchemaGraphApp {
 		if (this.isPanning) {
 			this.camera.x = data.coords.screenX - this.panStart[0];
 			this.camera.y = data.coords.screenY - this.panStart[1];
+			this._hideTooltip();
+			this.updateAllPreviewTextOverlayPositions();
+			this.draw();
+			return;
+		}
+
+		if (this.resizeNode) {
+			const [wx, wy] = this.screenToWorld(data.coords.screenX, data.coords.screenY);
+			const node = this.resizeNode;
+			const newW = this.resizeStartSize[0] + (wx - this.resizeStart[0]);
+			const newH = this.resizeStartSize[1] + (wy - this.resizeStart[1]);
+			// Enforce minimum sizes
+			const isPreview = this._isPreviewFlowNode(node);
+			const minW = isPreview ? (node.extra?.previewExpanded ? 280 : 200) : 180;
+			const minH = isPreview
+				? (node.extra?.previewExpanded
+					? 180
+					: Math.max(120, 96 + Math.max(this._getVisibleSlotCount(node, false), this._getVisibleSlotCount(node, true)) * 25))
+				: 120;
+			node.size[0] = Math.max(minW, newW);
+			node.size[1] = Math.max(minH, newH);
+			this.canvas.style.cursor = 'se-resize';
 			this._hideTooltip();
 			this.updateAllPreviewTextOverlayPositions();
 			this.draw();
@@ -2941,6 +2981,20 @@ class SchemaGraphApp {
 			}
 		}
 
+			// Show se-resize cursor when hovering the resize corner of a resizable node
+		{
+			const [wx2, wy2] = this.screenToWorld(data.coords.screenX, data.coords.screenY);
+			let overResize = false;
+			for (const node of this.graph.nodes) {
+				if (!this._isResizableNode(node)) continue;
+				const rz = 14 / this.camera.scale;
+				const rx = node.pos[0] + node.size[0];
+				const ry = node.pos[1] + node.size[1];
+				if (wx2 >= rx - rz && wy2 >= ry - rz) { overResize = true; break; }
+			}
+			if (overResize) { this.canvas.style.cursor = 'se-resize'; this.draw(); return; }
+		}
+
 		this.canvas.style.cursor = 'default';
 		this.draw();
 	}
@@ -3027,6 +3081,10 @@ class SchemaGraphApp {
 		this.previewSelection.clear();
 		this.dragNode = null;
 		this.canvas.classList.remove('dragging');
+		if (this.resizeNode) {
+			this.resizeNode = null;
+			this.canvas.style.cursor = 'default';
+		}
 		this.draw();
 	}
 
@@ -4992,6 +5050,7 @@ class SchemaGraphApp {
 		if (node.isWorkflowNode) this._drawMultiSlotButtons(node, colors);
 		this._drawDropZoneHighlight(node);
 		this._drawButtonStacks(node, colors);
+		if (this._isResizableNode(node)) this._drawResizeHandle(x, y, w, h);
 	}
 
 	_drawMultiSlotButtons(node, colors) {
@@ -5911,6 +5970,24 @@ class SchemaGraphApp {
 			   (node.title?.toLowerCase().includes('preview') && node.isWorkflowNode);
 	}
 
+	_isResizableNode(node) {
+		return !!(node && (this._isPreviewFlowNode(node) || node.isChat));
+	}
+
+	/** Draw a small ◢ resize handle triangle in the bottom-right corner of a node. */
+	_drawResizeHandle(x, y, w, h) {
+		const sz = 10 / this.camera.scale;
+		this.ctx.save();
+		this.ctx.fillStyle = 'rgba(180,180,180,0.45)';
+		this.ctx.beginPath();
+		this.ctx.moveTo(x + w, y + h - sz);
+		this.ctx.lineTo(x + w, y + h);
+		this.ctx.lineTo(x + w - sz, y + h);
+		this.ctx.closePath();
+		this.ctx.fill();
+		this.ctx.restore();
+	}
+
 	/**
 	 * Toggle preview expanded/collapsed state.
 	 * Sets a short block flag so a follow-up canvas dblclick (from an overlay
@@ -6463,6 +6540,7 @@ class SchemaGraphApp {
 
 		// Draw button stacks if any
 		this._drawButtonStacks(node, colors);
+		this._drawResizeHandle(x, y, w, h);
 	}
 
 	/**
