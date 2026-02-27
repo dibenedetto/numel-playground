@@ -1126,7 +1126,7 @@ class WorkflowEngine:
 		with_reference = []
 
 		for i, (node, impl) in enumerate(zip(nodes, backend.handles)):
-			if node.type == "agent_node" or node.type == "tool_node":
+			if node.type in ("agent_node", "agent_flow", "tool_node", "tool_flow"):
 				with_reference.append(i)
 				continue
 			instances[i] = create_node(node, impl)
@@ -1139,7 +1139,7 @@ class WorkflowEngine:
 			node   = nodes[i]
 			impl   = backend.handles[i]
 			arg    = instances[links[i]["config"]].impl
-			fn     = backend.run_agent if node.type == "agent_node" else backend.run_tool
+			fn     = backend.run_agent if node.type in ("agent_node", "agent_flow") else backend.run_tool
 			ref    = partial(fn, arg)
 			kwargs = {"ref": ref}
 			instances[i] = create_node(node, impl, **kwargs)
@@ -1227,8 +1227,14 @@ class WorkflowEngine:
 		core = WorkflowEngine._unwrap_annotation(annotation)
 		if core is None or core is Any or value is None:
 			return value
-		if isinstance(value, core):
-			return value  # already correct type
+		# Parameterised generics like list[str] or dict[str, Any] cannot be used
+		# directly in isinstance(); use their origin type (list, dict, …) instead.
+		check_type = get_origin(core) or core
+		try:
+			if isinstance(value, check_type):
+				return value  # already correct type
+		except TypeError:
+			return value  # exotic annotation — skip coercion
 		try:
 			if core is int and not isinstance(value, bool):
 				return int(value)

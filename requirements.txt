@@ -37,6 +37,7 @@ ag-ui-protocol
 anthropic
 langchain
 langchain-text-splitters
+mediapipe
 ollama
 openai
 sentence-transformers

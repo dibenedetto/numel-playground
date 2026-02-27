@@ -1,6 +1,7 @@
 # nodes
 
 import copy
+import os
 
 
 from   jinja2   import Template
@@ -8,8 +9,9 @@ from   pydantic import BaseModel
 from   typing   import Any, Callable, Dict, List, Optional
 
 
-from   schema   import DEFAULT_TRANSFORM_NODE_LANG, DEFAULT_TRANSFORM_NODE_SCRIPT, BaseType
 from   events   import get_event_registry, TimerSourceConfig, FSWatchSourceConfig, WebhookSourceConfig, BrowserSourceConfig
+from   schema   import DEFAULT_TRANSFORM_NODE_LANG, DEFAULT_TRANSFORM_NODE_SCRIPT, BaseType
+from   utils	import log_print
 
 
 class NodeExecutionContext:
@@ -881,23 +883,59 @@ class WFWorkflow(WFComponentType):
 # ML / STREAM INFERENCE NODES
 # =============================================================================
 
-# Cached MediaPipe detectors keyed by (model_complexity, min_confidence)
+# Cached MediaPipe Tasks PoseLandmarker instances keyed by (model_name, min_confidence)
 _POSE_DETECTORS: Dict[tuple, Any] = {}
 
+_POSE_MODEL_URLS = {
+	"lite":  "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task",
+	"full":  "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task",
+	"heavy": "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/latest/pose_landmarker_heavy.task",
+}
+_POSE_MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
 
-def _get_pose_detector(model_complexity: int, min_confidence: float) -> Optional[Any]:
-	"""Return a cached MediaPipe Pose detector, creating one if needed."""
-	key = (model_complexity, round(min_confidence, 2))
+
+def _get_pose_model_path(model_name: str) -> Optional[str]:
+	"""Return path to the .task model file, downloading it if necessary."""
+	import urllib.request
+	os.makedirs(_POSE_MODEL_DIR, exist_ok=True)
+	fname = f"pose_landmarker_{model_name}.task"
+	path  = os.path.join(_POSE_MODEL_DIR, fname)
+	if not os.path.exists(path):
+		url = _POSE_MODEL_URLS.get(model_name)
+		if not url:
+			return None
+		try:
+			log_print(f"Downloading MediaPipe model {fname} …")
+			urllib.request.urlretrieve(url, path)
+			log_print(f"Saved to {path}")
+		except Exception as e:
+			log_print(f"Model download failed: {e}")
+			return None
+	return path
+
+
+def _get_pose_detector(model_name: str, min_confidence: float) -> Optional[Any]:
+	"""Return a cached MediaPipe Tasks PoseLandmarker (Tasks API, 0.10.14+)."""
+	key = (model_name, round(min_confidence, 2))
 	if key not in _POSE_DETECTORS:
 		try:
-			import mediapipe as mp
-			_POSE_DETECTORS[key] = mp.solutions.pose.Pose(
-				static_image_mode         = False,
-				model_complexity          = model_complexity,
-				min_detection_confidence  = min_confidence,
-				min_tracking_confidence   = min_confidence,
+			from mediapipe.tasks import python as _mp_python
+			from mediapipe.tasks.python import vision as _mp_vision
+
+			model_path = _get_pose_model_path(model_name)
+			if model_path is None:
+				return None
+
+			options = _mp_vision.PoseLandmarkerOptions(
+				base_options                  = _mp_python.BaseOptions(model_asset_path=model_path),
+				running_mode                  = _mp_vision.RunningMode.IMAGE,
+				min_pose_detection_confidence = min_confidence,
+				min_pose_presence_confidence  = min_confidence,
+				min_tracking_confidence       = min_confidence,
 			)
-		except Exception:
+			_POSE_DETECTORS[key] = _mp_vision.PoseLandmarker.create_from_options(options)
+		except Exception as e:
+			log_print(e)
 			return None
 	return _POSE_DETECTORS[key]
 
@@ -911,7 +949,6 @@ class WFPoseDetectorFlow(WFFlowType):
 			frame          = context.inputs.get("frame")
 			model_name     = context.inputs.get("model", "lite")
 			min_confidence = float(context.inputs.get("min_confidence", 0.5))
-			complexity     = {"lite": 0, "full": 1, "heavy": 2}.get(model_name, 0)
 
 			# Empty outputs for no-frame case
 			result.outputs["keypoints"]  = None
@@ -925,6 +962,7 @@ class WFPoseDetectorFlow(WFFlowType):
 			try:
 				import base64 as _b64
 				import io
+				import mediapipe as mp
 				import numpy as np
 				from PIL import Image
 			except ImportError as e:
@@ -946,19 +984,20 @@ class WFPoseDetectorFlow(WFFlowType):
 			img_array = np.array(img)
 			h, w      = img_array.shape[:2]
 
-			# Run detection
-			detector = _get_pose_detector(complexity, min_confidence)
+			# Run detection (Tasks API)
+			detector = _get_pose_detector(model_name, min_confidence)
 			if detector is None:
 				result.success = False
-				result.error   = "mediapipe not installed. Run: pip install mediapipe"
+				result.error   = "mediapipe not available or model download failed"
 				return result
 
-			detection = detector.process(img_array)
+			mp_image  = mp.Image(image_format=mp.ImageFormat.SRGB, data=img_array)
+			detection = detector.detect(mp_image)
 
 			if detection.pose_landmarks:
 				landmarks = [
 					{"x": lm.x, "y": lm.y, "z": lm.z, "visibility": lm.visibility}
-					for lm in detection.pose_landmarks.landmark
+					for lm in detection.pose_landmarks[0]
 				]
 				result.outputs["keypoints"]  = {"landmarks": landmarks, "width": w, "height": h, "model": model_name}
 				result.outputs["landmarks"]  = landmarks
@@ -1092,18 +1131,19 @@ class WFComputerVisionFlow(WFFlowType):
 			return result
 
 		if task == "pose":
-			complexity = {"lite": 0, "full": 1, "heavy": 2}.get(model_size, 0)
-			detector   = _get_pose_detector(complexity, min_confidence)
+			detector = _get_pose_detector(model_size, min_confidence)
 			if detector is None:
 				result.success = False
-				result.error   = "mediapipe not installed. Run: pip install mediapipe"
+				result.error   = "mediapipe not available or model download failed"
 				return result
 
-			detection = detector.process(img_arr)
+			import mediapipe as mp
+			mp_image  = mp.Image(image_format=mp.ImageFormat.SRGB, data=img_arr)
+			detection = detector.detect(mp_image)
 			if detection.pose_landmarks:
 				landmarks = [
 					{"x": lm.x, "y": lm.y, "z": lm.z, "visibility": lm.visibility}
-					for lm in detection.pose_landmarks.landmark
+					for lm in detection.pose_landmarks[0]
 				]
 				result.outputs["detections"] = landmarks
 				if draw_overlay:

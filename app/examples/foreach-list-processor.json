@@ -50,7 +50,7 @@
     { "source": 3, "target": 4, "source_slot": "flow_out", "target_slot": "flow_in" },
     { "source": 4, "target": 5, "source_slot": "output",   "target_slot": "flow_in" },
     { "source": 5, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in" },
-    { "source": 3, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true },
+    { "source": 6, "target": 3, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true },
     { "source": 6, "target": 7, "source_slot": "flow_out", "target_slot": "flow_in" }
   ]
 }
