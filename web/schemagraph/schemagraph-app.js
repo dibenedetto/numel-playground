@@ -2465,6 +2465,170 @@ class SchemaGraphApp {
 		this._endBatch(label);
 	}
 
+	// === COPY / CUT / PASTE ===
+	// _clipboard lives on `this` (app-level) so it persists across tab switches.
+
+	_copyNodes() {
+		if (!this.selectedNodes.size) return;
+		const selectedIds = new Set([...this.selectedNodes].map(n => n.id));
+
+		// Serialize selected nodes (same fields as graph.serialize)
+		const nodes = [];
+		for (const node of this.selectedNodes) {
+			const nd = {
+				id: node.id,
+				type: node.title,
+				pos: node.pos.slice(),
+				size: node.size.slice(),
+				properties: JSON.parse(JSON.stringify(node.properties || {})),
+				schemaName: node.schemaName,
+				modelName: node.modelName,
+				isNative: node.isNative || false,
+				isRootType: node.isRootType || false,
+				isWorkflowNode: node.isWorkflowNode || false,
+			};
+			if (node.nativeInputs)    nd.nativeInputs    = JSON.parse(JSON.stringify(node.nativeInputs));
+			if (node.multiInputs)     nd.multiInputs     = JSON.parse(JSON.stringify(node.multiInputs));
+			if (node.multiInputSlots) nd.multiInputSlots = JSON.parse(JSON.stringify(node.multiInputSlots));
+			if (node.multiOutputSlots) nd.multiOutputSlots = JSON.parse(JSON.stringify(node.multiOutputSlots));
+			if (node.constantFields)  nd.constantFields  = JSON.parse(JSON.stringify(node.constantFields));
+			if (node.workflowType)    nd.workflowType    = node.workflowType;
+			if (node.workflowIndex !== undefined) nd.workflowIndex = node.workflowIndex;
+			if (node.color)           nd.color           = node.color;
+			if (node.displayTitle)    nd.displayTitle    = node.displayTitle;
+			if (node.inputMeta)       nd.inputMeta       = JSON.parse(JSON.stringify(node.inputMeta));
+			if (node.outputMeta)      nd.outputMeta      = JSON.parse(JSON.stringify(node.outputMeta));
+			nodes.push(nd);
+		}
+
+		// Collect only internal edges (both endpoints inside the selection)
+		const links = [];
+		for (const linkId in this.graph.links) {
+			const lk = this.graph.links[linkId];
+			if (selectedIds.has(lk.origin_id) && selectedIds.has(lk.target_id)) {
+				links.push({
+					origin_id:   lk.origin_id,
+					origin_slot: lk.origin_slot,
+					target_id:   lk.target_id,
+					target_slot: lk.target_slot,
+					type:        lk.type,
+				});
+			}
+		}
+
+		this._clipboard = { nodes, links };
+	}
+
+	_cutNodes() {
+		if (!this.selectedNodes.size) return;
+		this._copyNodes();
+		this.deleteSelectedNodes();
+	}
+
+	_pasteNodes() {
+		if (!this._clipboard || !this._clipboard.nodes.length) return;
+		const OFFSET = 40;
+		const idMap    = {}; // old node id → new node id
+		const newNodes = [];
+
+		this._startBatch();
+
+		for (const nd of this._clipboard.nodes) {
+			// Resolve type key (same logic as graph.deserialize)
+			const typeKey = nd.isNative
+				? 'Native.' + nd.type
+				: (nd.schemaName && nd.modelName)
+					? nd.schemaName + '.' + nd.modelName
+					: nd.type;
+
+			const NodeClass = this.graph.nodeTypes[typeKey];
+			if (!NodeClass) { console.warn('[Paste] Unknown node type:', typeKey); continue; }
+
+			const node = new NodeClass(); // auto-generates a random id in constructor
+
+			// Guarantee uniqueness in the target graph (handles cross-tab paste collisions)
+			while (this.graph._nodes_by_id[node.id]) {
+				node.id = Math.random().toString(36).substr(2, 9);
+			}
+
+			idMap[nd.id] = node.id;
+
+			node.pos  = [nd.pos[0] + OFFSET, nd.pos[1] + OFFSET];
+			node.size = nd.size.slice();
+			node.properties = JSON.parse(JSON.stringify(nd.properties || {}));
+			if (nd.isRootType !== undefined) node.isRootType = nd.isRootType;
+			if (nd.nativeInputs)    node.nativeInputs    = JSON.parse(JSON.stringify(nd.nativeInputs));
+			if (nd.multiInputs)     node.multiInputs     = JSON.parse(JSON.stringify(nd.multiInputs));
+			if (nd.multiInputSlots) node.multiInputSlots = JSON.parse(JSON.stringify(nd.multiInputSlots));
+			if (nd.multiOutputSlots) node.multiOutputSlots = JSON.parse(JSON.stringify(nd.multiOutputSlots));
+			if (nd.constantFields)  node.constantFields  = JSON.parse(JSON.stringify(nd.constantFields));
+			if (nd.workflowType)    node.workflowType    = nd.workflowType;
+			if (nd.workflowIndex !== undefined) node.workflowIndex = nd.workflowIndex;
+			if (nd.color)           node.color           = nd.color;
+			if (nd.displayTitle)    node.displayTitle    = nd.displayTitle;
+
+			// Rebuild dynamic slot entries from inputMeta / outputMeta
+			if (nd.inputMeta) {
+				node.inputMeta = JSON.parse(JSON.stringify(nd.inputMeta));
+				for (const [idxStr, meta] of Object.entries(node.inputMeta)) {
+					const idx = parseInt(idxStr);
+					while (node.inputs.length <= idx) node.inputs.push({ name: '', type: 'Any', link: null });
+					node.inputs[idx] = { name: meta.name || '', type: meta.type || 'Any', link: null };
+				}
+			}
+			if (nd.outputMeta) {
+				node.outputMeta = JSON.parse(JSON.stringify(nd.outputMeta));
+				for (const [idxStr, meta] of Object.entries(node.outputMeta)) {
+					const idx = parseInt(idxStr);
+					while (node.outputs.length <= idx) node.outputs.push({ name: '', type: 'Any', links: [] });
+					node.outputs[idx] = { name: meta.name || '', type: meta.type || 'Any', links: [] };
+				}
+			}
+
+			// Clear any stale link references copied from clipboard data
+			for (const inp of node.inputs) inp.link = null;
+			for (const out of node.outputs) out.links = [];
+			if (node.multiInputs) {
+				for (const k in node.multiInputs) {
+					if (node.multiInputs[k]) node.multiInputs[k].links = [];
+				}
+			}
+
+			this.graph.nodes.push(node);
+			this.graph._nodes_by_id[node.id] = node;
+			node.graph = this.graph;
+			newNodes.push(node);
+		}
+
+		// Reconnect internal edges using remapped node IDs
+		for (const lk of this._clipboard.links) {
+			const newOriginId = idMap[lk.origin_id];
+			const newTargetId = idMap[lk.target_id];
+			if (!newOriginId || !newTargetId) continue;
+			const originNode = this.graph._nodes_by_id[newOriginId];
+			const targetNode = this.graph._nodes_by_id[newTargetId];
+			if (!originNode || !targetNode) continue;
+
+			const linkId = ++this.graph.last_link_id;
+			const link = new Link(linkId, newOriginId, lk.origin_slot, newTargetId, lk.target_slot, lk.type);
+			this.graph.links[linkId] = link;
+
+			if (originNode.outputs[lk.origin_slot])
+				originNode.outputs[lk.origin_slot].links.push(linkId);
+			if (targetNode.multiInputs && targetNode.multiInputs[lk.target_slot])
+				targetNode.multiInputs[lk.target_slot].links.push(linkId);
+			else if (targetNode.inputs[lk.target_slot])
+				targetNode.inputs[lk.target_slot].link = linkId;
+		}
+
+		// Select the freshly pasted nodes so the user can immediately reposition them
+		this.clearSelection();
+		for (const node of newNodes) this.selectNode(node, true);
+
+		this._endBatch('Paste');
+		this.draw();
+	}
+
 	clearSelection() {
 		const hadSelection = this.selectedNodes.size > 0;
 		this.selectedNodes.clear();
@@ -3780,6 +3944,15 @@ class SchemaGraphApp {
 		}
 		if (isCtrl && (data.key === 'y' || (data.event.shiftKey && data.key === 'Z')) && !isTyping) {
 			data.event.preventDefault(); this.history.redo(this); this._historyAfterOp(); return;
+		}
+		if (isCtrl && data.key === 'c' && !isTyping && this.selectedNodes.size) {
+			data.event.preventDefault(); this._copyNodes(); return;
+		}
+		if (isCtrl && data.key === 'x' && !isTyping && this.selectedNodes.size && !this.isLocked) {
+			data.event.preventDefault(); this._cutNodes(); return;
+		}
+		if (isCtrl && data.key === 'v' && !isTyping && !this.isLocked) {
+			data.event.preventDefault(); this._pasteNodes(); return;
 		}
 		if (data.code === 'Space' && !this.spacePressed && !this.editingNode && !isTyping) {
 			data.event.preventDefault();
