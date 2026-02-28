@@ -34,7 +34,7 @@ from   agno.vectordb.search            import SearchType
 
 from   schema                          import *
 from   nodes                           import ImplementedBackend
-from   utils                           import add_middleware, get_timestamp_str
+from   utils                           import add_middleware
 
 
 def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
