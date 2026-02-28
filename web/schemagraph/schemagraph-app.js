@@ -122,10 +122,13 @@ class SchemaGraphApp {
 			previewSlotMap: {}              // Maps preview input slot names to output slot names (e.g., { 'input': 'output' })
 		};
 
-		// Set types: paired nodes that must be created/removed together with a loop-back edge
-		// Each entry maps a start workflowType to its end workflowType (and vice versa)
-		// Format: { startType: endType, ... } — both directions are auto-derived
+		// Set types: paired nodes that must be created/removed together
+		// _setTypes: { workflowType → partnerWorkflowType } (both directions)
+		// _pairedNodePairs: [{ startType, endType, loopEdge: { fromSlot, toSlot } | null }]
+		// _pairedNodeStarts: Set of startType workflow types (canonical representative of each pair)
 		this._setTypes = {};
+		this._pairedNodePairs = [];
+		this._pairedNodeStarts = new Set();
 		this._creatingPairedNode = false;
 		this._removingPairedNode = false;
 
@@ -3966,15 +3969,33 @@ class SchemaGraphApp {
 				const defaultSection = 'General';
 
 				const _BOOKEND_MODELS = new Set(['StartFlow', 'EndFlow', 'SinkFlow']);
+				const schemaDefaults = this.graph.schemas[schemaName]?.defaults || {};
 				for (const type in this.graph.nodeTypes) {
 					if (!type.startsWith(schemaName + '.')) continue;
 					const modelName = type.split('.')[1];
 					const info = decorators[modelName]?.info;
 					if (info?.visible === false) continue;
 					if (this._features.implicitStartEnd && _BOOKEND_MODELS.has(modelName)) continue;
+
+					// Paired nodes: skip the end type (shown merged into the start entry)
+					const nodeWorkflowType = schemaDefaults[modelName]?.type;
+					if (nodeWorkflowType && this._setTypes[nodeWorkflowType] && !this._pairedNodeStarts.has(nodeWorkflowType)) continue;
+
+					// If this is a pair start, find the partner's display title
+					let pairedEndTitle = null;
+					if (nodeWorkflowType && this._pairedNodeStarts.has(nodeWorkflowType)) {
+						const partnerWT = this._setTypes[nodeWorkflowType];
+						const partnerFullType = this._findFullNodeType(partnerWT);
+						if (partnerFullType) {
+							const partnerModelName = partnerFullType.split('.')[1];
+							const partnerInfo = decorators[partnerModelName]?.info;
+							pairedEndTitle = partnerInfo?.title || partnerModelName;
+						}
+					}
+
 					const section = info?.section || defaultSection;
 					if (!sections[section]) sections[section] = [];
-					sections[section].push({ type, modelName, info, isRoot: schemaInfo.rootType === modelName });
+					sections[section].push({ type, modelName, info, isRoot: schemaInfo.rootType === modelName, pairedEndTitle });
 				}
 
 				const sectionNames = Object.keys(sections).sort((a, b) => {
@@ -3998,7 +4019,8 @@ class SchemaGraphApp {
 
 					for (const item of sectionNodes) {
 						const icon = item.info?.icon ? `<span class="sg-menu-icon">${item.info.icon}</span>` : '';
-						const title = item.info?.title || item.modelName;
+						const baseTitle = item.info?.title || item.modelName;
+						const title = item.pairedEndTitle ? `${baseTitle} + ${item.pairedEndTitle}` : baseTitle;
 						const rootMark = item.isRoot ? '☆ ' : '';
 						const rootClass = item.isRoot ? ' sg-menu-root' : '';
 						html += `<div class="sg-context-menu-item${rootClass}" data-type="${item.type}">${icon}${rootMark}${title}</div>`;
@@ -4017,7 +4039,8 @@ class SchemaGraphApp {
 						});
 						for (const item of sectionNodes) {
 							const icon = item.info?.icon ? `<span class="sg-menu-icon">${item.info.icon}</span>` : '';
-							const title = item.info?.title || item.modelName;
+							const baseTitle = item.info?.title || item.modelName;
+							const title = item.pairedEndTitle ? `${baseTitle} + ${item.pairedEndTitle}` : baseTitle;
 							const rootMark = item.isRoot ? '☆ ' : '';
 							const rootClass = item.isRoot ? ' sg-menu-root' : '';
 							html += `<div class="sg-context-menu-item${rootClass}" data-type="${item.type}">${icon}${rootMark}${title}</div>`;
@@ -6339,39 +6362,50 @@ class SchemaGraphApp {
 		const partnerFullType = this._findFullNodeType(partnerWorkflowType);
 		if (!partnerFullType) return;
 
+		const isStart = this._pairedNodeStarts.has(node.workflowType);
+		const pairConfig = this._pairedNodePairs.find(p =>
+			isStart ? p.startType === node.workflowType : p.endType === node.workflowType
+		);
+
 		this._creatingPairedNode = true;
 		try {
 			const partner = this.graph.createNode(partnerFullType);
 			partner.pos = [node.pos[0] + node.size[0] + 80, node.pos[1]];
 
-			// Create loop-back edge: from end's output to start's input
-			// Determine which is start and which is end
-			const startNode = this._isLoopStartType(node.workflowType) ? node : partner;
-			const endNode = this._isLoopStartType(node.workflowType) ? partner : node;
+			// Store cross-references so _findPairedNode works even without a loop edge
+			node.properties._pairedNodeId = partner.id;
+			partner.properties._pairedNodeId = node.id;
 
-			// Find 'output' slot on end node and 'input' slot on start node
-			let endOutIdx = -1;
-			for (let i = 0; i < endNode.outputs.length; i++) {
-				const name = endNode.outputMeta?.[i]?.name || endNode.outputs[i]?.name;
-				if (name === 'output') { endOutIdx = i; break; }
-			}
-			let startInIdx = -1;
-			for (let i = 0; i < startNode.inputs.length; i++) {
-				const name = startNode.inputMeta?.[i]?.name || startNode.inputs[i]?.name;
-				if (name === 'input') { startInIdx = i; break; }
-			}
-			if (endOutIdx >= 0 && startInIdx >= 0) {
-				const prevLink = startNode.inputs[startInIdx].link;
-				const link = this.graph.connect(endNode, endOutIdx, startNode, startInIdx);
-				if (link) {
-					link.loop = true;
-					// Loop-back edges don't occupy the target input slot so normal connections can coexist
-					startNode.inputs[startInIdx].link = prevLink;
+			// Create loop-back edge only if configured in pairedNodes entry
+			if (pairConfig?.loopEdge) {
+				const startNode = isStart ? node : partner;
+				const endNode = isStart ? partner : node;
+				const { fromSlot, toSlot } = pairConfig.loopEdge;
+
+				let endOutIdx = -1;
+				for (let i = 0; i < endNode.outputs.length; i++) {
+					const name = endNode.outputMeta?.[i]?.name || endNode.outputs[i]?.name;
+					if (name === fromSlot) { endOutIdx = i; break; }
+				}
+				let startInIdx = -1;
+				for (let i = 0; i < startNode.inputs.length; i++) {
+					const name = startNode.inputMeta?.[i]?.name || startNode.inputs[i]?.name;
+					if (name === toSlot) { startInIdx = i; break; }
+				}
+				if (endOutIdx >= 0 && startInIdx >= 0) {
+					const prevLink = startNode.inputs[startInIdx].link;
+					const link = this.graph.connect(endNode, endOutIdx, startNode, startInIdx);
+					if (link) {
+						link.loop = true;
+						// Loop-back edges don't occupy the target input slot so normal connections can coexist
+						startNode.inputs[startInIdx].link = prevLink;
+					}
 				}
 			}
 		} finally {
 			this._creatingPairedNode = false;
 		}
+		this.draw();
 	}
 
 	_isLoopStartType(workflowType) {
@@ -6383,7 +6417,12 @@ class SchemaGraphApp {
 		if (!node?.workflowType) return null;
 		const partnerType = this._getPairedWorkflowType(node.workflowType);
 		if (!partnerType) return null;
-		// Find partner via loop-back edge
+		// Try direct reference first (works with or without a loop edge)
+		if (node.properties?._pairedNodeId) {
+			const partner = this.graph.getNodeById(node.properties._pairedNodeId);
+			if (partner?.workflowType === partnerType) return partner;
+		}
+		// Fallback: find via loop-back edge
 		for (const link of Object.values(this.graph.links)) {
 			if (!link.loop) continue;
 			if (link.origin_id === node.id) {
@@ -9789,12 +9828,36 @@ class SchemaGraphApp {
 							? config.hiddenFields : [config.hiddenFields];
 					}
 					if (config.pairedNodes) {
-						// Array of [startType, endType] pairs, e.g. [['loop_start_flow', 'loop_end_flow']]
-						// Both directions are registered automatically
+						// Array of entries: [startType, endType] or [startType, endType, loopEdge]
+						// loopEdge: true (use default slots 'output'→'input'), or { fromSlot, toSlot }
+						// Object form: { start, end, loopEdge } also accepted
 						self._setTypes = {};
-						for (const [startType, endType] of config.pairedNodes) {
+						self._pairedNodePairs = [];
+						self._pairedNodeStarts = new Set();
+						for (const entry of config.pairedNodes) {
+							let startType, endType, loopEdge = null;
+							if (Array.isArray(entry)) {
+								[startType, endType] = entry;
+								if (entry[2]) {
+									const le = entry[2];
+									loopEdge = le === true
+										? { fromSlot: 'output', toSlot: 'input' }
+										: { fromSlot: le.fromSlot || 'output', toSlot: le.toSlot || 'input' };
+								}
+							} else {
+								startType = entry.start;
+								endType = entry.end;
+								if (entry.loopEdge) {
+									const le = entry.loopEdge;
+									loopEdge = le === true
+										? { fromSlot: 'output', toSlot: 'input' }
+										: { fromSlot: le.fromSlot || 'output', toSlot: le.toSlot || 'input' };
+								}
+							}
 							self._setTypes[startType] = endType;
 							self._setTypes[endType] = startType;
+							self._pairedNodePairs.push({ startType, endType, loopEdge });
+							self._pairedNodeStarts.add(startType);
 						}
 					}
 				},

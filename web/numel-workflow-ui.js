@@ -107,9 +107,32 @@ document.addEventListener('DOMContentLoaded', () => {
 			workflowExecutionOptions : "WorkflowExecutionOptions",
 			previewSlotMap           : { "flow_in": "flow_out" },
 			hiddenFields             : ["extra"],
-			pairedNodes              : [
-				["loop_start_flow"    , "loop_end_flow"    ],
-				["for_each_start_flow", "for_each_end_flow"],
+			// pairedNodes              : [
+			// 	["start_flow"    , "end_flow"    ],
+			// 	["loop_start_flow"    , "loop_end_flow"    ],
+			// 	["for_each_start_flow", "for_each_end_flow"],
+			// ],
+			pairedNodes: [
+				{
+					start    : 'start_flow',
+					end      : 'end_flow'
+				},
+				{
+					start    : 'loop_start_flow',
+					end      : 'loop_end_flow',
+					loopEdge : {
+						fromSlot : 'flow_out',
+						toSlot   : 'flow_in'
+					}
+				},
+				{
+					start    : 'for_each_start_flow',
+					end      : 'for_each_end_flow',
+					loopEdge : {
+						fromSlot : 'flow_out',
+						toSlot   : 'flow_in'
+					}
+				},
 			],
 		});
 
