@@ -31,6 +31,7 @@ class SchemaGraphApp {
 		this.injectTemplatePanelHTML();
 		this.injectGenerateWorkflowHTML();
 		this.injectDocsPanelHTML();
+		this.injectShortcutsModalHTML();
 		this.injectMultiSlotUIStyles();
 		this.injectInteractiveStyles();
 		this.injectPreviewOverlayStyles();
@@ -414,6 +415,8 @@ class SchemaGraphApp {
 				<div class="sg-toolbar-divider" id="sg-toolbar-style-divider"></div>
 				<div class="sg-toolbar-section" id="sg-toolbar-features"><button id="sg-featuresToggleBtn" class="sg-toolbar-btn">⚙️ Features</button></div>
 				<div class="sg-toolbar-divider" id="sg-toolbar-features-divider"></div>
+				<div class="sg-toolbar-section" id="sg-toolbar-shortcuts"><button id="sg-shortcutsBtn" class="sg-toolbar-btn" title="Keyboard &amp; mouse shortcuts (?)">? Help</button></div>
+				<div class="sg-toolbar-divider" id="sg-toolbar-shortcuts-divider"></div>
 				<div class="sg-toolbar-section" id="sg-toolbar-zoom"><span class="sg-toolbar-label">Zoom</span><span class="sg-toolbar-zoom-value" id="sg-zoomLevel">100%</span><button id="sg-resetZoomBtn" class="sg-toolbar-btn">⟲</button></div>
 			</div>`;
 
@@ -823,6 +826,167 @@ class SchemaGraphApp {
 				</div>
 			</div>`;
 		document.body.appendChild(panel);
+	}
+
+	injectShortcutsModalHTML() {
+		if (document.getElementById('sg-shortcutsModal')) return;
+
+		const style = document.createElement('style');
+		style.id = 'sg-shortcuts-styles';
+		style.textContent = `
+			.sg-shortcuts-modal {
+				display:none; position:fixed; inset:0;
+				background:rgba(0,0,0,0.65); z-index:3000;
+				align-items:center; justify-content:center;
+			}
+			.sg-shortcuts-modal.show { display:flex; }
+			.sg-shortcuts-container {
+				width:680px; max-width:96vw; max-height:82vh;
+				background:var(--sg-bg-secondary,#2a2a2a);
+				border:1px solid var(--sg-border-color,#1a1a1a);
+				border-radius:10px; box-shadow:0 16px 48px rgba(0,0,0,0.7);
+				display:flex; flex-direction:column; overflow:hidden;
+			}
+			.sg-shortcuts-header {
+				display:flex; align-items:center; padding:12px 16px;
+				background:var(--sg-bg-tertiary,#353535);
+				border-bottom:1px solid var(--sg-border-color,#1a1a1a);
+				flex-shrink:0;
+			}
+			.sg-shortcuts-title {
+				flex:1; font-weight:700; font-size:13px; letter-spacing:0.4px;
+				color:var(--sg-text-primary,#fff); text-transform:uppercase;
+			}
+			.sg-shortcuts-close {
+				background:none; border:none; color:var(--sg-text-secondary,#aaa);
+				font-size:18px; cursor:pointer; padding:2px 6px; border-radius:4px;
+				transition:color 0.1s, background 0.1s; line-height:1;
+			}
+			.sg-shortcuts-close:hover { background:rgba(220,100,100,0.2); color:#ff7070; }
+			.sg-shortcuts-body {
+				display:grid; grid-template-columns:1fr 1fr; gap:0;
+				overflow-y:auto; flex:1;
+			}
+			.sg-shortcuts-col {
+				padding:16px 18px;
+			}
+			.sg-shortcuts-col + .sg-shortcuts-col {
+				border-left:1px solid var(--sg-border-color,#1a1a1a);
+			}
+			.sg-shortcuts-section-title {
+				font-size:10px; font-weight:700; text-transform:uppercase;
+				letter-spacing:0.8px; color:var(--sg-text-tertiary,#707070);
+				margin:0 0 10px 0; padding-bottom:6px;
+				border-bottom:1px solid var(--sg-border-color,#1a1a1a);
+			}
+			.sg-shortcuts-section-title:not(:first-child) { margin-top:18px; }
+			.sg-shortcut-row {
+				display:flex; align-items:center; gap:8px;
+				padding:4px 0; font-size:11.5px;
+				color:var(--sg-text-secondary,#aaa);
+				border-bottom:1px solid rgba(128,128,128,0.08);
+			}
+			.sg-shortcut-row:last-child { border-bottom:none; }
+			.sg-shortcut-desc { flex:1; }
+			.sg-shortcut-keys { display:flex; gap:3px; flex-shrink:0; }
+			.sg-key {
+				display:inline-flex; align-items:center; justify-content:center;
+				background:var(--sg-bg-tertiary,#353535);
+				border:1px solid var(--sg-border-color,#1a1a1a);
+				border-bottom-width:2px; border-radius:4px;
+				padding:2px 6px; font-size:10px; font-weight:600;
+				color:var(--sg-text-primary,#fff); white-space:nowrap;
+				font-family:'Segoe UI',sans-serif; min-width:20px;
+			}
+			.sg-key-sep { color:var(--sg-text-tertiary,#707070); font-size:10px; align-self:center; }
+			.sg-shortcuts-footer {
+				padding:8px 16px; font-size:10px; color:var(--sg-text-tertiary,#707070);
+				border-top:1px solid var(--sg-border-color,#1a1a1a);
+				text-align:center; flex-shrink:0;
+			}
+		`;
+		document.head.appendChild(style);
+
+		const modal = document.createElement('div');
+		modal.id = 'sg-shortcutsModal';
+		modal.className = 'sg-shortcuts-modal';
+
+		const K = (k) => `<span class="sg-key">${k}</span>`;
+		const Sep = (s='or') => `<span class="sg-key-sep">${s}</span>`;
+		const row = (desc, ...keys) =>
+			`<div class="sg-shortcut-row"><span class="sg-shortcut-desc">${desc}</span><span class="sg-shortcut-keys">${keys.join('')}</span></div>`;
+		const sec = (title) => `<div class="sg-shortcuts-section-title">${title}</div>`;
+
+		modal.innerHTML = `
+		<div class="sg-shortcuts-container">
+			<div class="sg-shortcuts-header">
+				<span class="sg-shortcuts-title">Keyboard &amp; Mouse Shortcuts</span>
+				<button class="sg-shortcuts-close" id="sg-shortcutsClose">✕</button>
+			</div>
+			<div class="sg-shortcuts-body">
+				<div class="sg-shortcuts-col">
+					${sec('History')}
+					${row('Undo',                     K('Ctrl'), K('Z'))}
+					${row('Redo',                     K('Ctrl'), K('Y'), Sep(), K('Ctrl'), K('Shift'), K('Z'))}
+					${sec('Selection')}
+					${row('Select all nodes',          K('Ctrl'), K('A'))}
+					${row('Clear selection',           K('Esc'))}
+					${row('Multi-select node',         K('Ctrl'), Sep('+'), K('Click'))}
+					${row('Box select',                K('Drag'), Sep('on'), K('empty'))}
+					${sec('Copy / Paste')}
+					${row('Copy selected nodes',       K('Ctrl'), K('C'))}
+					${row('Cut selected nodes',        K('Ctrl'), K('X'))}
+					${row('Paste nodes',               K('Ctrl'), K('V'))}
+					${sec('Editing')}
+					${row('Delete selected',           K('Del'), Sep(), K('Backspace'))}
+					${row('Rename node',               K('Dbl-click'), Sep('on'), K('header'))}
+					${row('Edit field value',          K('Dbl-click'), Sep('on'), K('field'))}
+					${row('Toggle boolean field',      K('Dbl-click'), Sep('on'), K('bool'))}
+					${row('Show shortcuts',            K('?'))}
+				</div>
+				<div class="sg-shortcuts-col">
+					${sec('Navigation')}
+					${row('Pan canvas',                K('Space'), Sep('+'), K('Drag'), Sep(), K('Mid-drag'))}
+					${row('Zoom in / out',             K('Scroll'))}
+					${row('Center view',               K('Ctrl'), K('0'), Sep('via toolbar'))}
+					${sec('Nodes')}
+					${row('Move node(s)',               K('Drag'), Sep('on'), K('node'))}
+					${row('Resize node',               K('Drag'), Sep('on'), K('▥ corner'))}
+					${row('Open context menu',         K('Right-click'))}
+					${row('Create node',               K('Right-click'), Sep('→'), K('canvas'))}
+					${row('Delete node',               K('Right-click'), Sep('→'), K('node'))}
+					${sec('Connections')}
+					${row('Start connection',          K('Drag'), Sep('on'), K('● output'))}
+					${row('Complete connection',        K('Release'), Sep('on'), K('● input'))}
+					${row('Remove input link',         K('Drag'), Sep('on'), K('● input'))}
+					${row('Insert preview on edge',    K('Alt'), Sep('+'), K('Click'), Sep('on'), K('edge'))}
+					${sec('Tabs')}
+					${row('New tab',                   K('Ctrl'), K('T'))}
+					${row('Rename tab',                K('Dbl-click'), Sep('on'), K('tab'))}
+				</div>
+			</div>
+			<div class="sg-shortcuts-footer">Press <strong>?</strong> or click <strong>? Help</strong> in the toolbar to open this screen · Click outside to close</div>
+		</div>`;
+
+		document.body.appendChild(modal);
+
+		document.getElementById('sg-shortcutsClose').addEventListener('click', () => this._closeShortcutsModal());
+		modal.addEventListener('click', (e) => { if (e.target === modal) this._closeShortcutsModal(); });
+		document.addEventListener('keydown', (e) => {
+			if (e.key === 'Escape' && modal.classList.contains('show')) { e.stopPropagation(); this._closeShortcutsModal(); }
+		}, true);
+
+		document.getElementById('sg-shortcutsBtn')?.addEventListener('click', () => this._toggleShortcutsModal());
+	}
+
+	_toggleShortcutsModal() {
+		const modal = document.getElementById('sg-shortcutsModal');
+		if (!modal) return;
+		modal.classList.contains('show') ? this._closeShortcutsModal() : modal.classList.add('show');
+	}
+
+	_closeShortcutsModal() {
+		document.getElementById('sg-shortcutsModal')?.classList.remove('show');
 	}
 
 	injectTemplatePanelHTML() {
@@ -3377,7 +3541,7 @@ class SchemaGraphApp {
 						const slotY = node.pos[1] + 30 + visIdx * 25;
 						const boxX = node.pos[0] + 10, boxY = slotY + 6, boxW = 70, boxH = 12;
 						if (wx >= boxX && wx <= boxX + boxW && wy >= boxY && wy <= boxY + boxH) {
-							if (node.nativeInputs[j].type === 'bool') { node.nativeInputs[j].value = !node.nativeInputs[j].value; this.draw(); return; }
+							if (node.nativeInputs[j].type === 'bool') { node.nativeInputs[j].value = !node.nativeInputs[j].value; this.eventBus.emit(GraphEvents.FIELD_CHANGED, { nodeId: node.id, fieldName: node.inputs[j]?.name, value: node.nativeInputs[j].value }); this.draw(); return; }
 							this.showInputOverlay(node, j, boxX, boxY, data.coords.rect);
 							return;
 						}
@@ -3391,7 +3555,7 @@ class SchemaGraphApp {
 			if (!node.isNative) continue;
 			const valueY = node.pos[1] + node.size[1] - 18;
 			if (wx >= node.pos[0] + 8 && wx <= node.pos[0] + node.size[0] - 8 && wy >= valueY && wy <= valueY + 20) {
-				if (node.title === 'Boolean') { node.properties.value = !node.properties.value; this.draw(); }
+				if (node.title === 'Boolean') { node.properties.value = !node.properties.value; this.eventBus.emit(GraphEvents.FIELD_CHANGED, { nodeId: node.id, fieldName: 'value', value: node.properties.value }); this.draw(); }
 				else this.showInputOverlay(node, null, node.pos[0] + 8, valueY, data.coords.rect);
 				return;
 			}
@@ -3969,6 +4133,9 @@ class SchemaGraphApp {
 			for (const node of this.graph.nodes) this.selectNode(node, true);
 		}
 		if (data.key === 'Escape' && !this.editingNode) this.clearSelection();
+		if (data.key === '?' && !isTyping) {
+			data.event.preventDefault(); this._toggleShortcutsModal(); return;
+		}
 	}
 
 	handleKeyUp(data) {
@@ -9090,9 +9257,9 @@ class SchemaGraphApp {
 
 			graph: {
 				export: (includeCamera = true) => self.graph.serialize(includeCamera, self.camera),
-				import: (data, restoreCamera = true) => { try { self.graph.deserialize(data, restoreCamera, self.camera); self.ui?.update?.schemaList?.(); self.ui?.update?.nodeTypesList?.(); if (restoreCamera) self.eventBus.emit('ui:update', { id: 'zoomLevel', content: Math.round(self.camera.scale * 100) + '%' }); self._refreshAllCompleteness(); self.eventBus.emit('graph:imported', {}); return true; } catch (e) { self.showError('Import failed: ' + e.message); return false; } },
+				import: (data, restoreCamera = true) => { try { self._historyIgnore = true; self.graph.deserialize(data, restoreCamera, self.camera); self._historyIgnore = false; self._currentStateSnapshot = self._captureCurrentSnapshot(); self.ui?.update?.schemaList?.(); self.ui?.update?.nodeTypesList?.(); if (restoreCamera) self.eventBus.emit('ui:update', { id: 'zoomLevel', content: Math.round(self.camera.scale * 100) + '%' }); self._refreshAllCompleteness(); self.eventBus.emit('graph:imported', {}); return true; } catch (e) { self._historyIgnore = false; self.showError('Import failed: ' + e.message); return false; } },
 				download: () => self.exportGraph(),
-				clear: () => { self.graph.nodes = []; self.graph.links = {}; self.graph._nodes_by_id = {}; self.graph.last_link_id = 0; self.clearSelection(); self.draw(); }
+				clear: () => { self.graph.nodes = []; self.graph.links = {}; self.graph._nodes_by_id = {}; self.graph.last_link_id = 0; self.clearSelection(); self._currentStateSnapshot = self._captureCurrentSnapshot(); self.draw(); }
 			},
 
 			workflow: {
@@ -9148,7 +9315,7 @@ class SchemaGraphApp {
 					return true;
 				},
 
-				import: (data, schemaName, options) => { try { self.graph.importWorkflow(data, schemaName, options); self.ui?.update?.schemaList?.(); self.ui?.update?.nodeTypesList?.(); self._refreshAllCompleteness(); return true; } catch (e) { self.showError('Workflow import failed: ' + e.message); return false; } },
+				import: (data, schemaName, options) => { try { self._historyIgnore = true; self.graph.importWorkflow(data, schemaName, options); self._historyIgnore = false; self._currentStateSnapshot = self._captureCurrentSnapshot(); self.ui?.update?.schemaList?.(); self.ui?.update?.nodeTypesList?.(); self._refreshAllCompleteness(); return true; } catch (e) { self._historyIgnore = false; self.showError('Workflow import failed: ' + e.message); return false; } },
 				export: (schemaName, workflowInfo, options) => self.graph.exportWorkflow(schemaName, workflowInfo, options),
 				download: (schemaName, workflowInfo = {}, options = {}) => {
 					const workflow = self.graph.exportWorkflow(schemaName, workflowInfo, options);
