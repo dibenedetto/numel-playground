@@ -21,6 +21,23 @@ let fileUploadManager  = null;
 const $ = id => document.getElementById(id);
 
 // ========================================================================
+// Workflow name sync helper — keeps singleWorkflowName div, currentWorkflowName,
+// and the active tab label all in sync.
+// syncTab=false skips updating the tab (used when the change originated from the tab).
+// ========================================================================
+function _setWorkflowName(name, syncTab = true) {
+	if (!visualizer) return;
+	visualizer.currentWorkflowName = name || null;
+	if ($('singleWorkflowName')) $('singleWorkflowName').textContent = name || 'None';
+	const nameInput = $('wfOpt_name');
+	if (nameInput && nameInput.value !== (name || '')) nameInput.value = name || '';
+	if (syncTab && name && schemaGraph) {
+		const tab = schemaGraph.tabs?.find(t => t.id === schemaGraph.activeTabId);
+		if (tab && tab.name !== name) { tab.name = name; schemaGraph._renderTabs?.(); }
+	}
+}
+
+// ========================================================================
 // Initialization
 // ========================================================================
 
@@ -78,6 +95,12 @@ document.addEventListener('DOMContentLoaded', () => {
 	schemaGraph.eventBus.on('workflow:optionsChanged', (data) => {
 		workflowDirty = true;
 		console.log('Workflow options changed:', data.options);
+	});
+
+	// Tab rename → sync to currentWorkflowName and singleWorkflowName
+	schemaGraph.eventBus.on('tab:renamed', (data) => {
+		if (!data.active) return;
+		_setWorkflowName(data.name, false); // false = don't sync back to tab
 	});
 
 	// Refresh workflow options panel when a workflow is imported/loaded
@@ -420,7 +443,7 @@ async function connect() {
 		enableStart(true);
 
 		if (singleMode) {
-			$('singleWorkflowName').textContent = visualizer.currentWorkflowName;
+			_setWorkflowName(visualizer.currentWorkflowName);
 		}
 
 		addLog('success', `✅ Connected to ${serverUrl}`);
@@ -480,7 +503,7 @@ async function disconnect() {
 
 	enableStart(false);
 	$('cancelBtn').disabled = true;
-	$('singleWorkflowName').textContent = 'None';
+	_setWorkflowName(null);
 	
 	setWsStatus('disconnected');
 	setExecStatus('idle', 'Not running');
@@ -715,7 +738,7 @@ async function handleFileUpload(event) {
 		}
 
 		if (singleMode) {
-			$('singleWorkflowName').textContent = visualizer.currentWorkflowName || 'Untitled';
+			_setWorkflowName(visualizer.currentWorkflowName || 'Untitled');
 			$('singleDownloadBtn').disabled = false;
 		}
 		updateClearButtonState();
@@ -915,7 +938,7 @@ async function pasteWorkflowFromClipboard() {
 		}
 
 		if (singleMode) {
-			$('singleWorkflowName').textContent = visualizer.currentWorkflowName || 'Untitled';
+			_setWorkflowName(visualizer.currentWorkflowName || 'Untitled');
 			$('singleDownloadBtn').disabled = false;
 			$('singleCopyBtn').disabled = false;
 		}
@@ -996,7 +1019,7 @@ async function clearWorkflow() {
 	updateClearButtonState();
 
 	if (singleMode) {
-		$('singleWorkflowName').textContent = visualizer.currentWorkflowName;
+		_setWorkflowName(visualizer.currentWorkflowName);
 	}
 	
 	addLog('info', '🧹 Graph cleared');
@@ -1082,11 +1105,38 @@ function populateWorkflowOptionsPanel() {
 	if (!form) return;
 	form.innerHTML = '';
 
+	// Always add workflow name input as first field
+	{
+		const nameDiv = document.createElement('div');
+		nameDiv.className = 'nw-field';
+		const nameLabel = document.createElement('label');
+		nameLabel.textContent = 'Name';
+		nameLabel.setAttribute('for', 'wfOpt_name');
+		nameDiv.appendChild(nameLabel);
+		const nameInput = document.createElement('input');
+		nameInput.type = 'text';
+		nameInput.id = 'wfOpt_name';
+		nameInput.className = 'nw-input';
+		nameInput.placeholder = 'Workflow name...';
+		nameInput.value = visualizer?.currentWorkflowName || '';
+		nameInput.addEventListener('blur', () => {
+			const newName = nameInput.value.trim();
+			if (newName) {
+				_setWorkflowName(newName);
+				visualizer?.setWorkflowOptions({ name: newName });
+			}
+		});
+		nameInput.addEventListener('keydown', (e) => {
+			if (e.key === 'Enter') nameInput.blur();
+		});
+		nameDiv.appendChild(nameInput);
+		form.appendChild(nameDiv);
+	}
+
 	// Get workflow options schema info
 	const optionsInfo = schemaGraph.api.schemaTypes.getWorkflowOptionsInfo(WORKFLOW_SCHEMA_NAME);
 
 	if (!optionsInfo || !optionsInfo.fields) {
-		form.innerHTML = '<p class="nw-options-empty">No workflow options available.</p>';
 		return;
 	}
 
@@ -1132,10 +1182,6 @@ function populateWorkflowOptionsPanel() {
 		}
 
 		form.appendChild(fieldDiv);
-	}
-
-	if (form.children.length === 0) {
-		form.innerHTML = '<p class="nw-options-empty">No workflow options available.</p>';
 	}
 }
 

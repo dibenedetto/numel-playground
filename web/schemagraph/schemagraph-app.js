@@ -219,6 +219,7 @@ class SchemaGraphApp {
 		// ---- Drag/resize capture for delta commands ----
 		this._dragStartPositions   = new Map(); // nodeId → [ox, oy], captured at mouseDown
 		this._resizeStartData      = null;      // { nodeId, oldSize }, captured at resize drag start
+
 	}
 
 	// === LOCK METHODS ===
@@ -6606,7 +6607,11 @@ class SchemaGraphApp {
 
 	_renameTab(tabId, name) {
 		const tab = this.tabs.find(t => t.id === tabId);
-		if (tab && name) { tab.name = name; this._renderTabs(); }
+		if (tab && name) {
+			tab.name = name;
+			this._renderTabs();
+			this.eventBus.emit('tab:renamed', { tabId, name, active: tabId === this.activeTabId });
+		}
 	}
 
 	_startTabRename(tabId) {
@@ -6870,6 +6875,7 @@ class SchemaGraphApp {
 				this._updateHistoryButtons();
 			}, 400);
 		});
+
 	}
 
 	/** Draw a small ◢ resize handle triangle in the bottom-right corner of a node. */
