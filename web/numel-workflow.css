@@ -35,14 +35,88 @@ body {
 	flex-direction: column;
 	gap: 16px;
 	overflow-y: auto;
+	overflow-x: hidden;
+	transition: width 0.25s ease, min-width 0.25s ease, padding 0.25s ease, border-width 0.25s ease;
+}
+
+.nw-panel.nw-panel-collapsed {
+	width: 48px;
+	min-width: 48px;
+	padding: 10px 8px;
+	overflow: hidden;
+}
+
+/* Hide sections and title text when panel is collapsed */
+.nw-panel.nw-panel-collapsed .nw-section {
+	opacity: 0;
+	pointer-events: none;
+}
+
+.nw-panel.nw-panel-collapsed .nw-title-text {
+	opacity: 0;
+	max-width: 0;
+	overflow: hidden;
+}
+
+/* Panel toggle button — lives inside .nw-title */
+#nw-panel-toggle {
+	width: 26px;
+	height: 26px;
+	border-radius: 6px;
+	border: 1px solid var(--sg-border-color);
+	background: transparent;
+	cursor: pointer;
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: background 0.15s ease;
+}
+
+#nw-panel-toggle:hover {
+	background: var(--sg-bg-tertiary);
+}
+
+/* CSS chevron pointing left (panel open → collapse) */
+#nw-panel-toggle::before {
+	content: '';
+	display: block;
+	width: 6px;
+	height: 6px;
+	border-right: 2px solid var(--sg-text-secondary);
+	border-top: 2px solid var(--sg-text-secondary);
+	transform: rotate(225deg);
+	transition: transform 0.25s ease, border-color 0.15s ease;
+	margin-left: 3px;
+	flex-shrink: 0;
+}
+
+/* Flip chevron right when panel is collapsed */
+.nw-panel.nw-panel-collapsed #nw-panel-toggle::before {
+	transform: rotate(45deg);
+	margin-left: -3px;
+}
+
+#nw-panel-toggle:hover::before {
+	border-color: var(--sg-text-primary);
 }
 
 .nw-title {
 	margin: 0;
 	font-size: 22px;
 	font-weight: 600;
-	text-align: center;
 	color: var(--sg-text-primary);
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.nw-title-text {
+	flex: 1;
+	text-align: center;
+	transition: opacity 0.2s ease, max-width 0.25s ease;
+	white-space: nowrap;
+	overflow: hidden;
 }
 
 .nw-brand {
@@ -70,9 +144,75 @@ body {
 
 .nw-section-header {
 	display: flex;
-	justify-content: space-between;
+	gap: 6px;
 	align-items: center;
 	margin-bottom: 10px;
+	cursor: pointer;
+	user-select: none;
+}
+
+.nw-section-header .nw-ws-badge,
+.nw-section-header .nw-btn-icon {
+	margin-left: auto;
+}
+
+.nw-section-collapse-icon {
+	width: 12px;
+	height: 12px;
+	flex-shrink: 0;
+	margin-right: 5px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+/* CSS chevron pointing down (section expanded) */
+.nw-section-collapse-icon::before {
+	content: '';
+	display: block;
+	width: 5px;
+	height: 5px;
+	border-right: 1.5px solid var(--sg-text-tertiary);
+	border-bottom: 1.5px solid var(--sg-text-tertiary);
+	transform: rotate(45deg);
+	transition: transform 0.2s ease;
+	margin-bottom: 3px;
+}
+
+/* Rotate to point right when section is collapsed */
+.nw-section.nw-section-collapsed .nw-section-collapse-icon::before {
+	transform: rotate(-45deg);
+	margin-bottom: 0;
+	margin-right: -3px;
+}
+
+.nw-section.nw-section-collapsed .nw-section-header {
+	margin-bottom: 0;
+}
+
+.nw-section-body {
+	overflow: hidden;
+	max-height: 1000px;
+	opacity: 1;
+	transition: max-height 0.25s ease, opacity 0.15s ease;
+}
+
+.nw-section.nw-section-collapsed .nw-section-body {
+	max-height: 0;
+	opacity: 0;
+}
+
+/* Event log section: pass flex-grow through the body wrapper */
+.nw-section-grow .nw-section-body {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+}
+
+.nw-section-grow.nw-section-collapsed {
+	flex: none;
+	min-height: 0;
 }
 
 .nw-section-title {

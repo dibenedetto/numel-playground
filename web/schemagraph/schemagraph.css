@@ -838,7 +838,7 @@
   background: var(--sg-bg-tertiary, #353535);
   border-radius: 6px;
   border: 1px solid var(--sg-border-color, #1a1a1a);
-  animation: sg-toolbarItemFadeIn 0.4s ease backwards;
+  animation: sg-toolbarItemFadeIn 0.15s ease backwards;
 }
 
 @keyframes sg-toolbarItemFadeIn {
@@ -846,14 +846,23 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Stagger animation for sections */
-.sg-toolbar-section:nth-child(2) { animation-delay: 0.05s; }
-.sg-toolbar-section:nth-child(4) { animation-delay: 0.1s; }
-.sg-toolbar-section:nth-child(6) { animation-delay: 0.15s; }
-.sg-toolbar-section:nth-child(8) { animation-delay: 0.2s; }
-.sg-toolbar-section:nth-child(10) { animation-delay: 0.25s; }
-.sg-toolbar-section:nth-child(12) { animation-delay: 0.3s; }
-.sg-toolbar-section:nth-child(14) { animation-delay: 0.35s; }
+/* Standalone buttons in toolbar content get the same animation as sections */
+.sg-toolbar-content > .sg-toolbar-btn {
+  animation: sg-toolbarItemFadeIn 0.15s ease backwards;
+}
+
+/* Stagger animation for all direct children (sections and standalone buttons) */
+.sg-toolbar-content > *:nth-child(2)  { animation-delay: 0.03s; }
+.sg-toolbar-content > *:nth-child(3)  { animation-delay: 0.06s; }
+.sg-toolbar-content > *:nth-child(4)  { animation-delay: 0.09s; }
+.sg-toolbar-content > *:nth-child(5)  { animation-delay: 0.12s; }
+.sg-toolbar-content > *:nth-child(6)  { animation-delay: 0.15s; }
+.sg-toolbar-content > *:nth-child(7)  { animation-delay: 0.18s; }
+.sg-toolbar-content > *:nth-child(8)  { animation-delay: 0.21s; }
+.sg-toolbar-content > *:nth-child(9)  { animation-delay: 0.24s; }
+.sg-toolbar-content > *:nth-child(10) { animation-delay: 0.27s; }
+.sg-toolbar-content > *:nth-child(11) { animation-delay: 0.30s; }
+.sg-toolbar-content > *:nth-child(12) { animation-delay: 0.33s; }
 
 .sg-toolbar-label {
   font-size: 10px;

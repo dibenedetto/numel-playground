@@ -253,6 +253,58 @@ document.addEventListener('DOMContentLoaded', () => {
 	// Setup event listeners
 	setupEventListeners();
 
+	// Panel collapse toggle — button lives inside the title
+	const _panel = document.querySelector('.nw-panel');
+	if (_panel) {
+		const h1 = _panel.querySelector('.nw-title');
+		// Wrap existing title content in a span so it can be hidden independently
+		const titleText = document.createElement('span');
+		titleText.className = 'nw-title-text';
+		Array.from(h1.childNodes).forEach(n => titleText.appendChild(n));
+		h1.appendChild(titleText);
+
+		const panelToggle = document.createElement('button');
+		panelToggle.id = 'nw-panel-toggle';
+		panelToggle.title = 'Toggle panel';
+		h1.insertBefore(panelToggle, h1.firstChild);
+
+		panelToggle.addEventListener('click', (e) => {
+			e.stopPropagation();
+			_panel.classList.toggle('nw-panel-collapsed');
+			// Pump resize + camera:moved during CSS transition so overlays follow canvas
+			const animEnd = Date.now() + 300;
+			const pump = () => {
+				window.dispatchEvent(new Event('resize'));    // resizeCanvas → draw → media overlays
+				schemaGraph?.eventBus?.emit('camera:moved'); // 3D and other position-dependent overlays
+				if (Date.now() < animEnd) requestAnimationFrame(pump);
+			};
+			requestAnimationFrame(pump);
+		});
+	}
+
+	// Make each panel section collapsible via header click
+	document.querySelectorAll('.nw-panel .nw-section').forEach(section => {
+		const header = section.querySelector('.nw-section-header');
+		if (!header) return;
+
+		// Wrap all content after the header in a body div
+		const body = document.createElement('div');
+		body.className = 'nw-section-body';
+		const children = Array.from(section.children);
+		children.slice(children.indexOf(header) + 1).forEach(child => body.appendChild(child));
+		section.appendChild(body);
+
+		// Collapse icon prepended to header
+		const icon = document.createElement('span');
+		icon.className = 'nw-section-collapse-icon';
+		header.insertBefore(icon, header.firstChild);
+
+		header.addEventListener('click', (e) => {
+			if (e.target.closest('button, select, input, a')) return;
+			section.classList.toggle('nw-section-collapsed');
+		});
+	});
+
 	// Initial log
 	addLog('info', '🚀 Numel Playground ready');
 });

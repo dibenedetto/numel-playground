@@ -400,27 +400,16 @@ class SchemaGraphApp {
 			<div class="sg-toolbar-header"><span class="sg-toolbar-title">⚙️ Toolbar</span><button id="sg-toolbarClose" class="sg-toolbar-close">✕</button></div>
 			<div class="sg-toolbar-content" id="sg-toolbarContent">
 				<div class="sg-toolbar-section" id="sg-toolbar-voice"><span class="sg-toolbar-label">🎤 Voice</span><button id="sg-voiceStartBtn" class="sg-toolbar-btn">Start</button><button id="sg-voiceStopBtn" class="sg-toolbar-btn" style="display:none;">Stop</button><span id="sg-voiceStatus" class="sg-toolbar-status"></span></div>
-				<div class="sg-toolbar-divider" id="sg-toolbar-voice-divider"></div>
-				<div class="sg-toolbar-section" id="sg-toolbar-analytics"><button id="sg-analyticsToggleBtn" class="sg-toolbar-btn">📊 Analytics</button></div>
-				<div class="sg-toolbar-divider" id="sg-toolbar-analytics-divider"></div>
+				<button id="sg-analyticsToggleBtn" class="sg-toolbar-btn">📊 Analytics</button>
 				<div class="sg-toolbar-section" id="sg-toolbar-schema"><span class="sg-toolbar-label">Schema</span><button id="sg-uploadSchemaBtn" class="sg-toolbar-btn sg-toolbar-btn-primary">📤 Upload</button><button id="sg-exportBtn" class="sg-toolbar-btn">Export Graph</button><button id="sg-importBtn" class="sg-toolbar-btn">Import Graph</button><button id="sg-exportConfigBtn" class="sg-toolbar-btn">Export Config</button><button id="sg-importConfigBtn" class="sg-toolbar-btn">Import Config</button></div>
-				<div class="sg-toolbar-divider" id="sg-toolbar-schema-divider"></div>
-				<div class="sg-toolbar-section" id="sg-toolbar-workflow"><span class="sg-toolbar-label">Workflow</span><button id="sg-exportWorkflowBtn" class="sg-toolbar-btn">Export Workflow</button><button id="sg-importWorkflowBtn" class="sg-toolbar-btn">Import Workflow</button><button id="sg-generateWorkflowBtn" class="sg-toolbar-btn sg-toolbar-btn-primary">Generate</button></div>
-				<div class="sg-toolbar-divider" id="sg-toolbar-workflow-divider"></div>
-				<div class="sg-toolbar-section" id="sg-toolbar-templates"><span class="sg-toolbar-label">Templates</span><button id="sg-templatesBtn" class="sg-toolbar-btn">Templates</button></div>
-				<div class="sg-toolbar-divider" id="sg-toolbar-templates-divider"></div>
-				<div class="sg-toolbar-section" id="sg-toolbar-docs"><button id="sg-docsBtn" class="sg-toolbar-btn">📖 Tutorials</button></div>
-				<div class="sg-toolbar-divider" id="sg-toolbar-docs-divider"></div>
-				<div class="sg-toolbar-section" id="sg-toolbar-view"><span class="sg-toolbar-label">View</span><button id="sg-centerViewBtn" class="sg-toolbar-btn">🎯 Center</button></div>
-				<div class="sg-toolbar-divider" id="sg-toolbar-view-divider"></div>
+				<div class="sg-toolbar-section" id="sg-toolbar-workflow"><span class="sg-toolbar-label">Workflow</span><button id="sg-exportWorkflowBtn" class="sg-toolbar-btn">Export</button><button id="sg-importWorkflowBtn" class="sg-toolbar-btn">Import</button><button id="sg-generateWorkflowBtn" class="sg-toolbar-btn sg-toolbar-btn-primary">Generate</button></div>
+				<button id="sg-templatesBtn" class="sg-toolbar-btn">📋 Templates</button>
+				<button id="sg-docsBtn" class="sg-toolbar-btn">📖 Tutorials</button>
+				<button id="sg-centerViewBtn" class="sg-toolbar-btn">🎯 Center</button>
 				<div class="sg-toolbar-section" id="sg-toolbar-layout"><span class="sg-toolbar-label">Layout</span><select id="sg-layoutSelect" class="sg-toolbar-select"><option value="">🔧 Layout...</option><option value="hierarchical-horizontal">Hierarchical →</option><option value="hierarchical-vertical">Hierarchical ↓</option><option value="force-directed">Force-Directed</option><option value="grid">Grid</option><option value="circular">Circular</option></select></div>
-				<div class="sg-toolbar-divider" id="sg-toolbar-layout-divider"></div>
 				<div class="sg-toolbar-section" id="sg-toolbar-style"><span class="sg-toolbar-label">Style</span><select id="sg-drawingStyleSelect" class="sg-toolbar-select"><option value="default">🎨 Default</option><option value="minimal">✨ Minimal</option><option value="blueprint">📐 Blueprint</option><option value="neon">💫 Neon</option><option value="organic">🌿 Organic</option><option value="wireframe">📊 Wireframe</option></select><button id="sg-textScalingToggle" class="sg-toolbar-btn sg-toolbar-btn-toggle"><span class="sg-toolbar-toggle-label" id="sg-textScalingLabel">Text: Fixed</span></button><button id="sg-themeBtn" class="sg-toolbar-btn">🎨 Theme</button></div>
-				<div class="sg-toolbar-divider" id="sg-toolbar-style-divider"></div>
-				<div class="sg-toolbar-section" id="sg-toolbar-features"><button id="sg-featuresToggleBtn" class="sg-toolbar-btn">⚙️ Features</button></div>
-				<div class="sg-toolbar-divider" id="sg-toolbar-features-divider"></div>
-				<div class="sg-toolbar-section" id="sg-toolbar-shortcuts"><button id="sg-shortcutsBtn" class="sg-toolbar-btn" title="Keyboard &amp; mouse shortcuts (?)">? Help</button></div>
-				<div class="sg-toolbar-divider" id="sg-toolbar-shortcuts-divider"></div>
+				<button id="sg-featuresToggleBtn" class="sg-toolbar-btn">⚙️ Features</button>
+				<button id="sg-shortcutsBtn" class="sg-toolbar-btn" title="Keyboard &amp; mouse shortcuts (?)">? Help</button>
 				<div class="sg-toolbar-section" id="sg-toolbar-zoom"><span class="sg-toolbar-label">Zoom</span><span class="sg-toolbar-zoom-value" id="sg-zoomLevel">100%</span><button id="sg-resetZoomBtn" class="sg-toolbar-btn">⟲</button></div>
 			</div>`;
 
@@ -475,15 +464,15 @@ class SchemaGraphApp {
 
 		// Toolbar section visibility mapping
 		const sectionMap = {
-			toolbarVoice: ['sg-toolbar-voice', 'sg-toolbar-voice-divider'],
-			toolbarAnalytics: ['sg-toolbar-analytics', 'sg-toolbar-analytics-divider'],
-			toolbarSchema: ['sg-toolbar-schema', 'sg-toolbar-schema-divider'],
-			toolbarWorkflow: ['sg-toolbar-workflow', 'sg-toolbar-workflow-divider'],
-			toolbarTemplates: ['sg-toolbar-templates', 'sg-toolbar-templates-divider'],
-			toolbarView: ['sg-toolbar-view', 'sg-toolbar-view-divider'],
-			toolbarLayout: ['sg-toolbar-layout', 'sg-toolbar-layout-divider'],
+			toolbarVoice: ['sg-toolbar-voice'],
+			toolbarAnalytics: ['sg-analyticsToggleBtn'],
+			toolbarSchema: ['sg-toolbar-schema'],
+			toolbarWorkflow: ['sg-toolbar-workflow'],
+			toolbarTemplates: ['sg-templatesBtn'],
+			toolbarView: ['sg-centerViewBtn'],
+			toolbarLayout: ['sg-toolbar-layout'],
 			toolbarZoom: ['sg-toolbar-zoom'],
-			toolbarStyle: ['sg-toolbar-style', 'sg-toolbar-style-divider'],
+			toolbarStyle: ['sg-toolbar-style'],
 		};
 
 		// Individual element visibility (textScaling, themeSwitch)
