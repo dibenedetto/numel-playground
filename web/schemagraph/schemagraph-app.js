@@ -861,11 +861,12 @@ class SchemaGraphApp {
 				color:var(--sg-text-primary,#fff); text-transform:uppercase;
 			}
 			.sg-shortcuts-close {
-				background:none; border:none; color:var(--sg-text-secondary,#aaa);
-				font-size:18px; cursor:pointer; padding:2px 6px; border-radius:4px;
-				transition:color 0.1s, background 0.1s; line-height:1;
+				background:var(--sg-accent-red,#dc6464); color:var(--sg-text-primary,#fff);
+				border:none; padding:2px 8px; border-radius:4px; cursor:pointer;
+				font-size:14px; font-weight:bold; transition:all 0.15s ease; line-height:1;
 			}
-			.sg-shortcuts-close:hover { background:rgba(220,100,100,0.2); color:#ff7070; }
+			.sg-shortcuts-close:hover { background:#ff4444; transform:scale(1.1); }
+			.sg-shortcuts-close:active { transform:scale(0.95); }
 			.sg-shortcuts-body {
 				display:grid; grid-template-columns:1fr 1fr; gap:0;
 				overflow-y:auto; flex:1;
@@ -3483,7 +3484,40 @@ class SchemaGraphApp {
 				const n = this.graph.getNodeById(nodeId);
 				if (n && (n.pos[0] !== ox || n.pos[1] !== oy)) deltas.push({ nodeId, ox, oy, nx: n.pos[0], ny: n.pos[1] });
 			}
-			if (deltas.length) { this.history.push(new MoveNodesCmd(deltas)); this._updateHistoryButtons(); }
+			if (deltas.length) { this.history.push(new MoveNodesCmd(deltas)); this._currentStateSnapshot = this._captureCurrentSnapshot(); this._updateHistoryButtons(); }
+			else if (this.dragNode && !this.isLocked) {
+				// Clean click (no drag) — check if it landed on a native input value box
+				const node = this.dragNode;
+				if (node.nativeInputs) {
+					let visIdx = 0;
+					for (let j = 0; j < node.inputs.length; j++) {
+						if (this._isFieldHidden(node, j, false)) continue;
+						if (!node.inputs[j].link && node.nativeInputs[j] !== undefined) {
+							const sy = node.pos[1] + 38 + visIdx * 25;
+							const boxX = node.pos[0] + 10, boxY = sy + 6, boxW = 70, boxH = 12;
+							if (wx >= boxX && wx <= boxX + boxW && wy >= boxY && wy <= boxY + boxH) {
+								if (node.nativeInputs[j].type === 'bool') {
+									node.nativeInputs[j].value = !node.nativeInputs[j].value;
+									this.eventBus.emit(GraphEvents.FIELD_CHANGED, { nodeId: node.id, fieldName: node.inputs[j]?.name, value: node.nativeInputs[j].value });
+									this.draw();
+								} else {
+									this.showInputOverlay(node, j, boxX, boxY, data.coords.rect);
+								}
+								break;
+							}
+						}
+						visIdx++;
+					}
+				}
+				// Native standalone node value box
+				if (node.isNative) {
+					const valueY = node.pos[1] + node.size[1] - 18;
+					if (wx >= node.pos[0] + 8 && wx <= node.pos[0] + node.size[0] - 8 && wy >= valueY && wy <= valueY + 20) {
+						if (node.title === 'Boolean') { node.properties.value = !node.properties.value; this.eventBus.emit(GraphEvents.FIELD_CHANGED, { nodeId: node.id, fieldName: 'value', value: node.properties.value }); this.draw(); }
+						else this.showInputOverlay(node, null, node.pos[0] + 8, valueY, data.coords.rect);
+					}
+				}
+			}
 			this._dragStartPositions.clear();
 		}
 		this.dragNode = null;
@@ -3492,8 +3526,10 @@ class SchemaGraphApp {
 		if (this.resizeNode && this._resizeStartData && !this._historyIgnore) {
 			const { nodeId, oldSize } = this._resizeStartData;
 			const n = this.graph.getNodeById(nodeId);
-			if (n && (n.size[0] !== oldSize[0] || n.size[1] !== oldSize[1]))
+			if (n && (n.size[0] !== oldSize[0] || n.size[1] !== oldSize[1])) {
 				this.history.push(new ResizeNodeCmd(nodeId, oldSize, [n.size[0], n.size[1]]));
+				this._currentStateSnapshot = this._captureCurrentSnapshot();
+			}
 			this._resizeStartData = null;
 			this._updateHistoryButtons();
 		}
@@ -3541,8 +3577,8 @@ class SchemaGraphApp {
 				for (let j = 0; j < node.inputs.length; j++) {
 					if (this._isFieldHidden(node, j, false)) continue;
 					if (!node.inputs[j].link && node.nativeInputs[j] !== undefined) {
-						const slotY = node.pos[1] + 30 + visIdx * 25;
-						const boxX = node.pos[0] + 10, boxY = slotY + 6, boxW = 70, boxH = 12;
+						const sy = node.pos[1] + 38 + visIdx * 25;
+						const boxX = node.pos[0] + 10, boxY = sy + 6, boxW = 70, boxH = 12;
 						if (wx >= boxX && wx <= boxX + boxW && wy >= boxY && wy <= boxY + boxH) {
 							if (node.nativeInputs[j].type === 'bool') { node.nativeInputs[j].value = !node.nativeInputs[j].value; this.eventBus.emit(GraphEvents.FIELD_CHANGED, { nodeId: node.id, fieldName: node.inputs[j]?.name, value: node.nativeInputs[j].value }); this.draw(); return; }
 							this.showInputOverlay(node, j, boxX, boxY, data.coords.rect);

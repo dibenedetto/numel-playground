@@ -686,14 +686,16 @@ class SchemaGraph extends Graph {
 		for (const linkId in this.links) {
 			if (this.links.hasOwnProperty(linkId)) {
 				const link = this.links[linkId];
-				data.links.push({
+				const linkData = {
 					id: link.id,
 					origin_id: link.origin_id,
 					origin_slot: link.origin_slot,
 					target_id: link.target_id,
 					target_slot: link.target_slot,
 					type: link.type
-				});
+				};
+				if (link.loop) linkData.loop = true;
+				data.links.push(linkData);
 			}
 		}
 		if (includeCamera && camera)
@@ -768,6 +770,7 @@ class SchemaGraph extends Graph {
 						linkData.target_slot,
 						linkData.type
 					);
+					if (linkData.loop) link.loop = true;
 					this.links[linkData.id] = link;
 					if (originNode.outputs[linkData.origin_slot])
 						originNode.outputs[linkData.origin_slot].links.push(linkData.id);
