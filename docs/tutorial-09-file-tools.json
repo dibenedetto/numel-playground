@@ -1,0 +1,78 @@
+{
+  "options": {
+    "type": "workflow_options",
+    "name": "Tutorial 9: File Tools & Agent Prompting",
+    "description": "Read a file from disk and send its content as a request to an AI agent chat. Preview the agent's response."
+  },
+  "nodes": [
+    {
+      "type": "backend_config",
+      "name": "agno",
+      "extra": { "name": "Backend (Agno)" }
+    },
+    {
+      "type": "model_config",
+      "source": "ollama",
+      "name": "mistral",
+      "extra": { "name": "Model (Ollama/Mistral)" }
+    },
+    {
+      "type": "agent_options_config",
+      "instructions": [
+        "You are a helpful assistant.",
+        "Respond to the user's request."
+      ],
+      "markdown": true,
+      "extra": { "name": "Agent Options" }
+    },
+    {
+      "type": "tool_config",
+      "name": "tools.read_file",
+      "extra": { "name": "Tool: Read File" }
+    },
+    {
+      "type": "tool_config",
+      "name": "tools.write_file",
+      "extra": { "name": "Tool: Write File" }
+    },
+    {
+      "type": "agent_config",
+      "extra": { "name": "Agent Config" }
+    },
+    {
+      "type": "start_flow",
+      "extra": { "name": "Start" }
+    },
+    {
+      "type": "tool_flow",
+      "args": { "path": "docs/prompt.txt" },
+      "extra": { "name": "Load Prompt File" }
+    },
+    {
+      "type": "agent_chat",
+      "extra": { "name": "Agent Chat" }
+    },
+    {
+      "type": "preview_flow",
+      "extra": { "name": "Response Preview" }
+    },
+    {
+      "type": "end_flow",
+      "extra": { "name": "End" }
+    }
+  ],
+  "edges": [
+    { "source": 0, "target": 5, "source_slot": "get", "target_slot": "backend" },
+    { "source": 1, "target": 5, "source_slot": "get", "target_slot": "model" },
+    { "source": 2, "target": 5, "source_slot": "get", "target_slot": "options" },
+    { "source": 3, "target": 7, "source_slot": "get", "target_slot": "config" },
+    { "source": 4, "target": 5, "source_slot": "get", "target_slot": "tools.write_file" },
+    { "source": 5, "target": 8, "source_slot": "get", "target_slot": "config" },
+    { "source": 6, "target": 7, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 7, "target": 8, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 7, "target": 8, "source_slot": "output", "target_slot": "request" },
+    { "source": 8, "target": 9, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 8, "target": 9, "source_slot": "response", "target_slot": "input" },
+    { "source": 9, "target": 10, "source_slot": "flow_out", "target_slot": "flow_in" }
+  ]
+}

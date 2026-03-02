@@ -134,6 +134,7 @@ class AgentChatManager {
 		this.app = app;
 		this.syncWorkflow = syncWorkflowFn;
 		this.handlers = new Map(); // chatId -> { handler, port, dirty }
+		this.executionId = null;    // current workflow execution ID (null when idle)
 
 		this._setupListeners();
 	}
@@ -153,6 +154,11 @@ class AgentChatManager {
 
 		// Handle chat send events from ChatExtension
 		eventBus.on('chat:send', (e) => this._handleSend(e));
+
+		// Track workflow execution lifecycle
+		eventBus.on('workflow:started', (e) => { this.executionId = e.execution_id; });
+		eventBus.on('workflow:completed', () => { this.executionId = null; });
+		eventBus.on('workflow:cancelled', () => { this.executionId = null; });
 	}
 
 	_markAllDirty() {
@@ -233,6 +239,83 @@ class AgentChatManager {
 		this.handlers.set(chatId, { handler, port, dirty: false });
 
 		this.app.api.chat.setState(newNode, ChatState.READY);
+
+		// Auto-send from input field if wired and has data
+		this._checkAutoSend(newNode);
+	}
+
+	async _checkAutoSend(node) {
+		const inputField = node.chatConfig?.inputField;
+		if (!inputField) return;
+
+		const slotIdx = node.getInputSlotByName?.(inputField);
+		if (slotIdx < 0) return;
+
+		const inputData = node.getInputData?.(slotIdx);
+		if (inputData == null || inputData === '') return;
+
+		// Avoid re-sending the same input
+		if (node._lastAutoSentInput === inputData) return;
+		node._lastAutoSentInput = inputData;
+
+		const text = String(inputData).trim();
+		if (!text) return;
+
+		const chatId = node.chatId;
+		const entry = this.handlers.get(chatId);
+		if (!entry?.handler?.isConnected()) return;
+
+		try {
+			this.app.api.chat.addMessage(node, MessageRole.USER, text);
+			this.app.api.chat.setState(node, ChatState.SENDING);
+			await entry.handler.send(text);
+		} catch (err) {
+			this.app.api.chat.setState(node, ChatState.ERROR, err.message);
+			this.app.api.chat.addMessage(node, MessageRole.ERROR, err.message);
+		}
+	}
+
+	/**
+	 * Called by the engine when it reaches an agent_chat node during workflow execution.
+	 * Ensures the agent is connected and sends the request message if provided.
+	 */
+	async activateForExecution(node, request) {
+		try {
+			await this._ensureConnected(node);
+
+			if (request != null && request !== '') {
+				const chatId = node.chatId;
+				const entry = this.handlers.get(chatId);
+				if (!entry?.handler?.isConnected()) return;
+
+				// Avoid re-sending the same request
+				if (node._lastAutoSentInput === request) return;
+				node._lastAutoSentInput = request;
+
+				const text = String(request).trim();
+				if (!text) return;
+
+				this.app.api.chat.addMessage(node, MessageRole.USER, text);
+				this.app.api.chat.setState(node, ChatState.SENDING);
+				await entry.handler.send(text);
+			}
+		} catch (err) {
+			console.error('[AgentChat] activateForExecution error:', err);
+			this.app.api.chat.setState(node, ChatState.ERROR, err.message);
+			this.app.api.chat.addMessage(node, MessageRole.ERROR, err.message);
+		}
+	}
+
+	/**
+	 * Called when upstream node outputs change (e.g., tool_flow completes).
+	 * Re-checks auto-send for all connected agent chat nodes.
+	 */
+	notifyInputsChanged() {
+		for (const [chatId, entry] of this.handlers) {
+			if (!entry?.handler?.isConnected()) continue;
+			const node = this._findNodeByChatId(chatId);
+			if (node) this._checkAutoSend(node);
+		}
 	}
 
 	_findNodeByChatId(chatId) {
@@ -354,10 +437,30 @@ class AgentChatManager {
 			.find(m => m.role === MessageRole.ASSISTANT);
 
 		if (lastAssistant) {
-			const outputIdx = node.getOutputSlotByName?.('response');
+			const outputField = node.chatConfig?.outputField || 'output';
+			const outputIdx = node.getOutputSlotByName?.(outputField);
 			if (outputIdx >= 0) {
 				node.setOutputData(outputIdx, lastAssistant.content);
 			}
+
+			// Signal the engine if a workflow is running
+			this._signalChatResponse(node, lastAssistant.content);
+		}
+	}
+
+	async _signalChatResponse(node, response) {
+		if (!this.executionId) return;
+		const nodeId = node.workflowIndex;
+		if (nodeId == null) return;
+
+		try {
+			await fetch(`${this.url}/chat_response/${this.executionId}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ node_id: String(nodeId), response })
+			});
+		} catch (err) {
+			console.warn('[AgentChat] Failed to signal chat response:', err);
 		}
 	}
 

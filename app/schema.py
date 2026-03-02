@@ -728,12 +728,11 @@ DEFAULT_TOOL_NODE_ARGS : Dict[str, Any] = {}
 	visible     = True
 )
 class ToolFlow(FlowType):
-	"""Execute a tool within the flow graph. Wire tool_config→config. Input data is passed to the tool; result appears on 'output'."""
+	"""Execute a tool within the flow graph. Wire tool_config→config. Keyword arguments go in 'args'; result appears on 'output'."""
 	type   : Annotated[Literal["tool_flow"], FieldRole.CONSTANT] = "tool_flow"
-	config : Annotated[ToolConfig          , FieldRole.INPUT   ] = Field(default=None,                 description="ToolConfig describing which tool to invoke; wire from a tool_config node")
-	args   : Annotated[Dict[str, Any]      , FieldRole.INPUT   ] = Field(default=DEFAULT_TOOL_NODE_ARGS, description="Optional runtime argument overrides merged with the tool's default arguments")
-	input  : Annotated[Any                 , FieldRole.INPUT   ] = Field(default=None,                 description="Primary data passed to the tool as its main input")
-	output : Annotated[Any                 , FieldRole.OUTPUT  ] = Field(default=None,                 description="Result returned by the tool after execution")
+	config : Annotated[ToolConfig          , FieldRole.INPUT   ] = Field(default=None,                   description="ToolConfig describing which tool to invoke; wire from a tool_config node")
+	args   : Annotated[Dict[str, Any]      , FieldRole.INPUT   ] = Field(default=DEFAULT_TOOL_NODE_ARGS, description="Keyword arguments passed to the tool function")
+	output : Annotated[Any                 , FieldRole.OUTPUT  ] = Field(default=None,                   description="Result returned by the tool after execution")
 
 
 @node_info(
@@ -1191,6 +1190,8 @@ class ToolCall(InteractiveType):
 	placeholder         = "Ask the agent...",
 	config_field        = "config",
 	system_prompt_field = "system_prompt",
+	input_field         = "request",
+	output_field        = "response",
 	min_width           = 350,
 	min_height          = 450,
 	show_timestamps     = True,
@@ -1203,13 +1204,13 @@ class ToolCall(InteractiveType):
 	section     = "Interactive",
 	visible     = True
 )
-class AgentChat(InteractiveType):
-	"""Interactive chat UI for conversing with an agent. Wire agent_config→config. Supports streaming responses. Use system_prompt to override agent prompt for this chat."""
+class AgentChat(FlowType):
+	"""Interactive chat UI for conversing with an agent. Wire agent_config→config. Supports streaming responses. Use system_prompt to override agent prompt for this chat. Wire a string to 'request' to auto-send a message; the agent's last reply appears on 'response'."""
 	type          : Annotated[Literal["agent_chat"], FieldRole.CONSTANT] = "agent_chat"
 	config        : Annotated[AgentConfig          , FieldRole.INPUT   ] = Field(default=None, description="AgentConfig defining the agent to converse with; wire from an agent_config node")
 	system_prompt : Annotated[Optional[str]        , FieldRole.INPUT   ] = Field(default=None, description="Optional system prompt override applied to this chat session only")
-	# response      : Annotated[Any                  , FieldRole.OUTPUT  ] = None
-	# chat          : Annotated[Any                  , FieldRole.OUTPUT  ] = None
+	request       : Annotated[Optional[str]        , FieldRole.INPUT   ] = Field(default=None, description="Optional message to send automatically when the node executes, as if typed in the chat UI")
+	response      : Annotated[Optional[str]        , FieldRole.OUTPUT  ] = Field(default=None, description="The last message sent by the agent in the chat session")
 
 
 # =============================================================================

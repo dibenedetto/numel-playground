@@ -109,7 +109,8 @@ class WorkflowEngine:
 		self.event_bus           : EventBus                          = event_bus
 		self.executions          : Dict[str, WorkflowExecutionState] = {}
 		self.execution_tasks     : Dict[str, asyncio.Task]           = {}
-		self.pending_user_inputs : Dict[str, asyncio.Future]         = {}
+		self.pending_user_inputs    : Dict[str, asyncio.Future]         = {}
+		self.pending_chat_responses : Dict[str, asyncio.Future]         = {}
 
 
 	def validate_workflow(self, workflow: Workflow) -> Dict[str, Any]:
@@ -1184,6 +1185,8 @@ class WorkflowEngine:
 
 			if node_type == "user_input_flow":
 				result = await self._handle_user_input(node_idx, node, context, state, input_timeout)
+			elif node_type == "agent_chat":
+				result = await self._handle_agent_chat(node_idx, node, context, state, input_timeout)
 			else:
 				result = await node.execute(context)
 
@@ -1342,6 +1345,42 @@ class WorkflowEngine:
 				)
 
 
+	async def _handle_agent_chat(self, node_idx: int, node: Any, context: NodeExecutionContext, state: WorkflowExecutionState, timeout: int = DEFAULT_WORKFLOW_USER_INPUT_TIMEOUT) -> NodeExecutionResult:
+		"""Handle agent chat node — waits for the frontend to deliver the agent's response."""
+		request = context.inputs.get("request")
+
+		future    = asyncio.Future()
+		input_key = f"{state.execution_id}:{node_idx}"
+		self.pending_chat_responses[input_key] = future
+
+		await self.event_bus.emit(
+			event_type   = EventType.NODE_WAITING,
+			workflow_id  = state.workflow_id,
+			execution_id = state.execution_id,
+			node_id      = str(node_idx),
+			data         = {"wait_type": "agent_chat", "request": request}
+		)
+
+		result = NodeExecutionResult()
+
+		try:
+			response       = await asyncio.wait_for(future, timeout=timeout)
+			result.outputs = {"response": response}
+
+		except asyncio.TimeoutError:
+			result.success = False
+			result.error   = f"Agent chat timeout after {timeout}s"
+
+		return result
+
+	async def provide_chat_response(self, execution_id: str, node_id: str, response: str):
+		"""Provide agent chat response from the frontend"""
+		input_key = f"{execution_id}:{node_id}"
+
+		if input_key in self.pending_chat_responses:
+			future = self.pending_chat_responses.pop(input_key)
+			future.set_result(response)
+
 	async def cancel_execution(self, execution_id: Optional[str] = None):
 		"""Cancel a running workflow"""
 		if not execution_id:
@@ -1356,9 +1395,11 @@ class WorkflowEngine:
 				state.error    = "Cancelled by user"
 				state.end_time = datetime.now().isoformat()
 		if state:
-			# Cancel any pending user-input futures
+			# Cancel any pending user-input and chat-response futures
 			for key in [k for k in self.pending_user_inputs if k.startswith(execution_id + ':')]:
 				self.pending_user_inputs.pop(key, None)
+			for key in [k for k in self.pending_chat_responses if k.startswith(execution_id + ':')]:
+				self.pending_chat_responses.pop(key, None)
 			# Emit NODE_FAILED for every node still in running state
 			for node_idx in list(state.running_nodes):
 				await self.event_bus.emit(

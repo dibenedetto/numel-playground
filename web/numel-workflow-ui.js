@@ -638,7 +638,9 @@ function setupClientEvents() {
 		const outputs = event.data?.outputs;
 		visualizer?.updateNodeState(idx, 'completed');
 		if (outputs) {
+			storeNodeOutputs(idx, outputs);
 			updateConnectedPreviews(idx, outputs);
+			agentChatManager?.notifyInputsChanged();
 		}
 		addLog('success', `✅ [${idx}] ${label}`);
 	});
@@ -656,6 +658,14 @@ function setupClientEvents() {
 		const waitType = event.data?.wait_type || 'unknown';
 		visualizer?.updateNodeState(idx, 'waiting');
 		addLog('info', `⏳ [${idx}] ${label} waiting (${waitType})`);
+
+		// Auto-activate agent chat when engine reaches it
+		if (waitType === 'agent_chat' && agentChatManager) {
+			const graphNode = visualizer?.graphNodes[idx];
+			if (graphNode) {
+				agentChatManager.activateForExecution(graphNode, event.data?.request);
+			}
+		}
 	});
 
 	client.on('node.resumed', (event) => {
@@ -1525,6 +1535,35 @@ async function executeToolCall(toolCallNode) {
  * @param {number} workflowNodeIdx - Index of the completed workflow node
  * @param {Object} outputs - Output data from the node
  */
+/**
+ * Store node outputs on the graph node's output slots so downstream nodes
+ * (including InteractiveType nodes like agent_chat) can read them via getInputData().
+ */
+function storeNodeOutputs(workflowNodeIdx, outputs) {
+	if (!visualizer) return;
+	const graphNode = visualizer.graphNodes[workflowNodeIdx];
+	if (!graphNode || !outputs || typeof outputs !== 'object') return;
+
+	for (let slotIdx = 0; slotIdx < (graphNode.outputs || []).length; slotIdx++) {
+		const metaName = graphNode.outputMeta?.[slotIdx]?.name;
+		const slotName = graphNode.outputs[slotIdx].name;
+		let data;
+
+		if (metaName && metaName in outputs) {
+			data = outputs[metaName];
+		} else if (slotName in outputs) {
+			data = outputs[slotName];
+		} else {
+			const baseName = (metaName || slotName).split('.')[0];
+			if (baseName in outputs) data = outputs[baseName];
+		}
+
+		if (data !== undefined) {
+			graphNode.setOutputData(slotIdx, data);
+		}
+	}
+}
+
 function updateConnectedPreviews(workflowNodeIdx, outputs) {
 	if (!visualizer || !schemaGraph) return;
 

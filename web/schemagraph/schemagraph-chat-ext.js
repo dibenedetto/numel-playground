@@ -40,6 +40,8 @@ const ChatNodeMixin = {
 			placeholder: config.placeholder || 'Type a message...',
 			configField: config.config_field || config.configField || 'config',
 			systemPromptField: config.system_prompt_field || config.systemPromptField || null,
+			inputField: config.input_field || config.inputField || null,
+			outputField: config.output_field || config.outputField || null,
 			maxMessages: config.max_messages || config.maxMessages || 100,
 			showTimestamps: config.show_timestamps ?? config.showTimestamps ?? false,
 			streamResponse: config.stream_response ?? config.streamResponse ?? true,

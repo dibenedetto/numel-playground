@@ -1,11 +1,13 @@
 # api
 
 import base64
+import io
 import json
 import os
 import re
 
-
+import numpy as np
+from   PIL       import Image
 from   pathlib   import Path
 from   fastapi   import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, File, Form
 from   inspect   import iscoroutinefunction
@@ -28,6 +30,24 @@ from   events    import (
 from   tutorial_api import setup_tutorial_api
 
 
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _json_safe(obj):
+	"""Make an object JSON-serializable, converting ndarrays to lists."""
+	if isinstance(obj, np.ndarray):
+		return obj.tolist()
+	if isinstance(obj, dict):
+		return {k: _json_safe(v) for k, v in obj.items()}
+	if isinstance(obj, (list, tuple)):
+		return [_json_safe(v) for v in obj]
+	return obj
+
+
+def _decode_frame_to_ndarray(frame_bytes: bytes) -> np.ndarray:
+	"""Decode JPEG/WebP/PNG bytes into an RGB uint8 ndarray (h, w, 3)."""
+	return np.array(Image.open(io.BytesIO(frame_bytes)).convert("RGB"))
+
+
 class WorkflowUploadRequest(BaseModel):
 	workflow : Workflow
 	name     : Optional[str] = None
@@ -41,6 +61,11 @@ class WorkflowStartRequest(BaseModel):
 class UserInputRequest(BaseModel):
 	node_id    : str
 	input_data : Any
+
+
+class ChatResponseRequest(BaseModel):
+	node_id  : str
+	response : str
 
 
 class ToolCallRequest(BaseModel):
@@ -338,6 +363,25 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 			return result
 		except Exception as e:
 			log_print(f"Error providing user input: {e}")
+			raise HTTPException(status_code=500, detail=str(e))
+
+
+	@app.post("/chat_response/{execution_id}")
+	async def provide_chat_response(execution_id: str, request: ChatResponseRequest):
+		nonlocal engine
+		try:
+			await engine.provide_chat_response(
+				execution_id = execution_id,
+				node_id      = request.node_id,
+				response     = request.response
+			)
+			return {
+				"execution_id" : execution_id,
+				"status"       : "response_received",
+				"node_id"      : request.node_id,
+			}
+		except Exception as e:
+			log_print(f"Error providing chat response: {e}")
 			raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -718,6 +762,16 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		if not source.is_running:
 			raise HTTPException(status_code=400, detail=f"Source {source_id} is not running")
 		client_id = data.pop("client_id", None)
+		# Decode data-url image to ndarray (event mode sends base64 data-urls)
+		if "data" in data and isinstance(data["data"], str) and data["data"].startswith("data:image"):
+			b64_part = data["data"].split(",", 1)[1]
+			img_bytes = base64.b64decode(b64_part)
+			frame_array = _decode_frame_to_ndarray(img_bytes)
+			data["frame"]        = frame_array
+			data["frame_format"] = "ndarray"
+			data["frame_shape"]  = frame_array.shape
+			data["frame_dtype"]  = str(frame_array.dtype)
+			del data["data"]
 		await source.receive_event(data, client_id=client_id)
 		return {"status": "ok"}
 
@@ -747,12 +801,23 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		async def on_stream_display(ev):
 			if ev.data and ev.data.get("source_id") == source_id:
 				try:
-					await websocket.send_text(json.dumps({
-						"type"        : "stream.display",
-						"source_id"   : source_id,
-						"render_type" : ev.data.get("render_type", "pose"),
-						"payload"     : ev.data.get("payload"),
-					}))
+					payload     = ev.data.get("payload")
+					render_type = ev.data.get("render_type", "pose")
+
+					if isinstance(payload, np.ndarray) and payload.ndim == 3:
+						# Image ndarray -> JPEG bytes -> binary WebSocket
+						img = Image.fromarray(payload)
+						buf = io.BytesIO()
+						img.save(buf, format="JPEG", quality=85)
+						# Binary protocol: 1-byte type tag (0x01 = image) + JPEG
+						await websocket.send_bytes(b'\x01' + buf.getvalue())
+					else:
+						await websocket.send_text(json.dumps({
+							"type"        : "stream.display",
+							"source_id"   : source_id,
+							"render_type" : render_type,
+							"payload"     : _json_safe(payload),
+						}))
 				except Exception:
 					pass
 
@@ -766,13 +831,15 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 					break
 
 				if message.get("bytes"):
-					# Binary frame (JPEG / WebP) — encode to base64 for the event payload
+					# Binary frame (JPEG / WebP) — decode to numpy ndarray
 					frame_bytes = message["bytes"]
-					frame_b64   = base64.b64encode(frame_bytes).decode("ascii")
+					frame_array = _decode_frame_to_ndarray(frame_bytes)
 					await source.receive_event({
-						"frame"        : frame_b64,
-						"frame_format" : "jpeg_b64",
+						"frame"        : frame_array,
+						"frame_format" : "ndarray",
 						"frame_size"   : len(frame_bytes),
+						"frame_shape"  : frame_array.shape,
+						"frame_dtype"  : str(frame_array.dtype),
 					}, client_id=client_id)
 
 				elif message.get("text"):

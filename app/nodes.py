@@ -312,11 +312,10 @@ class WFToolFlow(WFFlowType):
 		result = await super().execute(context)
 
 		try:
-			args  = context.inputs.get("args" , {})
-			input = context.inputs.get("input", {})
+			args = context.inputs.get("args", {})
 
 			if self.ref:
-				tool_result = await self.ref(input, **args)
+				tool_result = await self.ref(**args)
 			else:
 				tool_result = {
 					"error": "No tool configured"
@@ -868,7 +867,8 @@ class WFToolCall(WFInteractiveType):
 	pass
 
 
-class WFAgentChat(WFInteractiveType):
+class WFAgentChat(WFFlowType):
+	"""Agent chat node — execution is handled by the engine via Future-based wait."""
 	pass
 
 
@@ -971,19 +971,19 @@ class WFPoseDetectorFlow(WFFlowType):
 				result.error   = f"Missing dependency: {e}. Install: pip install mediapipe Pillow numpy"
 				return result
 
-			# Decode base64 JPEG → numpy RGB array
-			if isinstance(frame, str):
-				if "," in frame:         # data-URL prefix
+			# Accept ndarray directly (preferred), fall back to base64/bytes
+			if isinstance(frame, np.ndarray):
+				img_array = frame
+			elif isinstance(frame, str):
+				if "," in frame:
 					frame = frame.split(",", 1)[1]
 				img_bytes = _b64.b64decode(frame)
+				img_array = np.array(Image.open(io.BytesIO(img_bytes)).convert("RGB"))
 			elif isinstance(frame, bytes):
-				img_bytes = frame
+				img_array = np.array(Image.open(io.BytesIO(frame)).convert("RGB"))
 			else:
 				return result
-
-			img       = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-			img_array = np.array(img)
-			h, w      = img_array.shape[:2]
+			h, w = img_array.shape[:2]
 
 			# Run detection (Tasks API)
 			detector = _get_pose_detector(model_name, min_confidence)
@@ -1112,20 +1112,21 @@ class WFComputerVisionFlow(WFFlowType):
 			result.error   = f"Missing dependency: {e}. Install: pip install mediapipe Pillow numpy"
 			return result
 
-		# Decode base64 JPEG → PIL Image
-		if isinstance(frame, str):
+		# Accept ndarray directly (preferred), fall back to base64/bytes
+		if isinstance(frame, np.ndarray):
+			img_arr = frame
+		elif isinstance(frame, str):
 			if "," in frame:
 				frame = frame.split(",", 1)[1]
-			img_bytes = _b64.b64decode(frame)
+			img_arr = np.array(Image.open(io.BytesIO(_b64.b64decode(frame))).convert("RGB"))
 		elif isinstance(frame, bytes):
-			img_bytes = frame
+			img_arr = np.array(Image.open(io.BytesIO(frame)).convert("RGB"))
 		else:
 			return result
 
 		try:
-			img      = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-			w, h     = img.size
-			img_arr  = np.array(img)
+			h, w = img_arr.shape[:2]
+			img  = Image.fromarray(img_arr)
 		except Exception as e:
 			result.success = False
 			result.error   = f"Image decode failed: {e}"
@@ -1151,12 +1152,10 @@ class WFComputerVisionFlow(WFFlowType):
 					img = _draw_pose_on_image(img, landmarks, w, h)
 		# face / hands: not yet implemented — fall through with null outputs
 
-		# Encode rendered image (only when detections were found and draw_overlay=True)
+		# Output rendered image as ndarray (drawn overlay baked in)
 		if draw_overlay and result.outputs["detections"]:
 			try:
-				buf = io.BytesIO()
-				img.save(buf, format="JPEG", quality=85)
-				result.outputs["rendered_image"] = _b64.b64encode(buf.getvalue()).decode("ascii")
+				result.outputs["rendered_image"] = np.array(img)
 			except Exception:
 				pass
 

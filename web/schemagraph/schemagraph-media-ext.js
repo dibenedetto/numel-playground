@@ -334,7 +334,14 @@ class MediaOverlayManager {
 		};
 
 		ws.onmessage = (event) => {
-			if (typeof event.data === 'string') {
+			if (event.data instanceof Blob) {
+				// Binary message from server (type_tag + payload)
+				event.data.arrayBuffer().then(buf => {
+					this._handleBinaryDisplay(nodeId, buf);
+				});
+			} else if (event.data instanceof ArrayBuffer) {
+				this._handleBinaryDisplay(nodeId, event.data);
+			} else if (typeof event.data === 'string') {
 				try {
 					const msg = JSON.parse(event.data);
 					if (msg.type === 'stream.display') {
@@ -385,6 +392,50 @@ class MediaOverlayManager {
 	}
 
 	// ── Overlay rendering ─────────────────────────────────────────────────────
+
+	_handleBinaryDisplay(nodeId, buf) {
+		const bytes   = new Uint8Array(buf);
+		if (bytes.length < 2) return;
+		const typeTag = bytes[0];
+
+		if (typeTag === 0x01) {
+			// 0x01 = display image (JPEG bytes follow)
+			const jpegBlob = new Blob([bytes.subarray(1)], { type: 'image/jpeg' });
+			const url      = URL.createObjectURL(jpegBlob);
+			const overlay  = this.overlays.get(nodeId);
+			const canvas   = overlay?.querySelector('.sg-media-overlay-canvas');
+			if (!canvas) { URL.revokeObjectURL(url); return; }
+
+			const dpr = window.devicePixelRatio || 1;
+			const dw  = canvas.clientWidth  || 320;
+			const dh  = canvas.clientHeight || 240;
+			canvas.width  = dw * dpr;
+			canvas.height = dh * dpr;
+			const ctx = canvas.getContext('2d');
+			if (dpr !== 1) ctx.scale(dpr, dpr);
+
+			const imgEl = new Image();
+			imgEl.onload = () => {
+				ctx.clearRect(0, 0, dw, dh);
+				const scale = Math.min(dw / imgEl.naturalWidth, dh / imgEl.naturalHeight);
+				const iw = imgEl.naturalWidth  * scale;
+				const ih = imgEl.naturalHeight * scale;
+				ctx.fillStyle = '#000';
+				ctx.fillRect(0, 0, dw, dh);
+				ctx.drawImage(imgEl, (dw - iw) / 2, (dh - ih) / 2, iw, ih);
+				URL.revokeObjectURL(url);
+			};
+			imgEl.src = url;
+
+			// Auto-clear stale overlays
+			clearTimeout(this._overlayTimers.get(nodeId));
+			this._overlayTimers.set(nodeId, setTimeout(() => {
+				const c = overlay?.querySelector('.sg-media-overlay-canvas');
+				if (c) c.getContext('2d').clearRect(0, 0, c.width, c.height);
+			}, 600));
+		}
+		// Future type tags: 0x02 = audio, 0x10 = mesh, etc.
+	}
 
 	_renderDisplay(nodeId, msg) {
 		const overlay = this.overlays.get(nodeId);
