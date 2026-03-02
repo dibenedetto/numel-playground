@@ -88,6 +88,20 @@ class MediaOverlayManager {
 			</div>`;
 	}
 
+	_ensureOverlayMatchesDeviceType(node, deviceType) {
+		const overlay = this.overlays.get(node.id);
+		if (!overlay) return;
+
+		const isAudio = deviceType === 'microphone';
+		const hasAudioCanvas = !!overlay.querySelector('.sg-media-audio-canvas');
+
+		if (isAudio === hasAudioCanvas) return;   // already matches
+
+		// Mismatch — rebuild inner HTML and re-bind button events
+		overlay.innerHTML = this._buildHTML(node);
+		this._bindEvents(node, overlay);
+	}
+
 	_bindEvents(node, overlay) {
 		const nodeId = node.id;
 		const getNode = () => this.nodeRefs.get(nodeId);
@@ -124,6 +138,10 @@ class MediaOverlayManager {
 		const nodeId = node.id;
 		const deviceType = this._getFieldValue(node, 'device_type') || 'webcam';
 		const resolution = this._getFieldValue(node, 'resolution');
+
+		// Rebuild overlay HTML if device type changed since the overlay was created
+		// (e.g. user switched webcam → microphone after the node was placed).
+		this._ensureOverlayMatchesDeviceType(node, deviceType);
 
 		this._setState(nodeId, MediaState.REQUESTING);
 
