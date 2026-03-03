@@ -238,6 +238,54 @@
       },
       "created_at": "2026-03-02T13:14:26.458713",
       "updated_at": "2026-03-02T13:14:26.458713"
+    },
+    "webcam_src": {
+      "config": {
+        "id": "webcam_src",
+        "name": null,
+        "source_type": "browser",
+        "enabled": true,
+        "tags": [],
+        "device_type": "webcam",
+        "mode": "event",
+        "interval_ms": 3000,
+        "resolution": null,
+        "audio_format": null
+      },
+      "created_at": "2026-03-03T10:05:29.057839",
+      "updated_at": "2026-03-03T10:05:53.885710"
+    },
+    "mic_src": {
+      "config": {
+        "id": "mic_src",
+        "name": null,
+        "source_type": "browser",
+        "enabled": true,
+        "tags": [],
+        "device_type": "microphone",
+        "mode": "event",
+        "interval_ms": 5000,
+        "resolution": null,
+        "audio_format": "wav"
+      },
+      "created_at": "2026-03-03T10:05:29.068084",
+      "updated_at": "2026-03-03T10:05:59.369654"
+    },
+    "screen_src": {
+      "config": {
+        "id": "screen_src",
+        "name": null,
+        "source_type": "browser",
+        "enabled": true,
+        "tags": [],
+        "device_type": "screen",
+        "mode": "event",
+        "interval_ms": 3000,
+        "resolution": null,
+        "audio_format": null
+      },
+      "created_at": "2026-03-03T10:05:29.076617",
+      "updated_at": "2026-03-03T10:06:08.678429"
     }
   }
 }

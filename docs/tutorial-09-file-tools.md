@@ -37,7 +37,7 @@ Start ────────────┘
 Two layers:
 
 1. **Config layer** (top): Backend, Model, Options, and Write File tool feed into Agent Config, which wires to Agent Chat.
-2. **Flow layer** (bottom): Start triggers a Tool Flow that reads `prompt.txt`. The Tool Flow connects to Agent Chat with both a flow edge (execution chain) and a data edge (`output` → `request`). When the engine reaches Agent Chat, the request is auto-sent. The engine waits for the agent's reply, then continues: the `response` output feeds into Preview's `input`, and the flow chain continues to End.
+2. **Flow layer** (bottom): Start triggers a Tool Flow that reads `prompt.txt`. The Tool Flow connects to Agent Chat with both a flow edge (execution chain) and a data edge (`output` → `request`). When the engine reaches Agent Chat, the request is auto-sent. The engine waits for the agent's reply, then continues: the `response` output feeds into Preview's `flow_in`, and the flow chain continues to End.
 
 ## Node Breakdown
 
@@ -117,11 +117,10 @@ When the engine reaches Agent Chat, whatever text was in `prompt.txt` is automat
 
 ### Response Preview
 
-Agent Chat's `response` slot carries the last agent response. It's wired to a Preview node's `input`, with `flow_out`→`flow_in` for the execution chain:
+Agent Chat's `response` slot carries the last agent response. It's wired directly to Preview's `flow_in` — the data flows through the same slot used for execution ordering:
 
 ```json
-{ "source": 8, "target": 9, "source_slot": "flow_out", "target_slot": "flow_in" },
-{ "source": 8, "target": 9, "source_slot": "response", "target_slot": "input" }
+{ "source": 8, "target": 9, "source_slot": "response", "target_slot": "flow_in" }
 ```
 
 The Preview node displays the agent's reply text in a formatted panel, useful for debugging or inspecting responses.

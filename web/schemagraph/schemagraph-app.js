@@ -7522,9 +7522,9 @@ class SchemaGraphApp {
 			};
 		}
 
-		// 1. Find the 'input' slot by name (not at fixed index due to inheritance)
+		// 1. Find the 'flow_in' slot by name (preview data arrives via flow_in)
 		if (!result) {
-			const inputSlotIdx = this._findInputSlotByName(node, 'input');
+			const inputSlotIdx = this._findInputSlotByName(node, 'flow_in');
 			if (inputSlotIdx >= 0) {
 				const inputSlot = node.inputs?.[inputSlotIdx];
 				if (inputSlot?.link) {

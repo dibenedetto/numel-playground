@@ -640,11 +640,9 @@ class SinkFlow(FlowType):
 	visible     = True
 )
 class PreviewFlow(FlowType):
-	"""Passthrough node with UI data preview. Set hint to control rendering (auto/text/json/image/audio/video). Data passes unchanged to 'output'."""
+	"""Passthrough node with UI data preview. Data arrives on flow_in and passes unchanged to flow_out. Set hint to control rendering (auto/text/json/image/audio/video/model3d)."""
 	type   : Annotated[Literal["preview_flow"]                                              , FieldRole.CONSTANT] = "preview_flow"
 	hint   : Annotated[Literal["auto", "text", "json", "image", "audio", "video", "model3d"], FieldRole.INPUT   ] = Field(default="auto",  description="Rendering hint for the UI preview panel — controls how the incoming data is visualized")
-	input  : Annotated[Optional[Any]                                                        , FieldRole.INPUT   ] = Field(default=None,    description="Data to preview — wire from any node output (base64 JPEG for image, dict/list for json, string for text)")
-	output : Annotated[Optional[Any]                                                        , FieldRole.OUTPUT  ] = Field(default=None,    description="Input data passed through unchanged")
 
 
 @node_info(

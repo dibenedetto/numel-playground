@@ -167,8 +167,8 @@ A workflow is defined as a JSON file with three sections:
     {
       "source": 0,
       "target": 1,
-      "source_slot": "output",
-      "target_slot": "input"
+      "source_slot": "flow_out",
+      "target_slot": "flow_in"
     }
   ]
 }

@@ -162,7 +162,7 @@ class WFSinkFlow(WFFlowType):
 class WFPreviewFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = await super().execute(context)
-		result.outputs["output"] = context.inputs.get("input")
+		result.outputs["flow_out"] = context.inputs.get("flow_in")
 		return result
 
 
