@@ -369,11 +369,12 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 			raw = await tool(*args, **kwargs)
 		else:
 			raw = tool(*args, **kwargs)
-		result = dict(
-			content_type = "",
-			content      = raw,
-		)
-		return result
+		# result = dict(
+		# 	content_type = "",
+		# 	content      = raw,
+		# )
+		# return result
+		return raw
 
 
 	async def run_agent(agent: Any, *args, **kwargs) -> dict:

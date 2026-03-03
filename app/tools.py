@@ -1,13 +1,15 @@
 # tools
 
-import os
-import stat
-import smtplib
+import email           as email_lib
 import imaplib
-import email as email_lib
-from email.mime.text import MIMEText
-from pathlib import Path
-from datetime import datetime
+import smtplib
+import stat
+
+
+from   datetime        import datetime
+from   email.mime.text import MIMEText
+from   pathlib         import Path
+from   typing          import Any
 
 
 def square_tool(n: int) -> int:
@@ -44,6 +46,11 @@ def _safe_resolve(path: str, root: str) -> Path:
 	return target
 
 
+def _is_text_file(path: Path) -> bool:
+	"""Heuristic check if a file is likely text based on extension."""
+	return path.suffix.lower() in {".txt", ".md", ".log", ".csv", ".json", ".xml"}
+
+
 # ---------------------------------------------------------------------------
 # Filesystem tools
 # ---------------------------------------------------------------------------
@@ -78,30 +85,34 @@ def list_directory(path: str = ".", root: str = ".") -> str:
 	return "\n".join(lines)
 
 
-def read_file(path: str, root: str = ".") -> str:
+def read_file(path: str, root: str = ".") -> Any:
 	"""
-	Read and return the text contents of a file.
+	Read and return the contents of a file.
 
 	Args:
 		path (str): File path relative to root.
 		root (str): Root directory that constrains all file operations.
 
 	Returns:
-		str: The full text contents of the file.
+		Any: The full contents of the file.
 	"""
 	target = _safe_resolve(path, root)
 	if not target.exists():
 		raise FileNotFoundError(f"File not found: {path}")
-	return target.read_text(encoding="utf-8")
+	if _is_text_file(target):
+		return target.read_text(encoding="utf-8")
+	with open(target, mode="rb") as file:
+		raw = file.read()
+	return raw
 
 
-def write_file(path: str, content: str, root: str = ".") -> str:
+def write_file(path: str, content: Any, root: str = ".") -> str:
 	"""
 	Write text content to a file, creating parent directories if needed.
 
 	Args:
 		path (str): File path relative to root.
-		content (str): The text content to write.
+		content (Any): The content to write.
 		root (str): Root directory that constrains all file operations.
 
 	Returns:
@@ -111,7 +122,11 @@ def write_file(path: str, content: str, root: str = ".") -> str:
 	# Also verify parent stays inside root
 	_safe_resolve(str(target.parent.relative_to(Path(root).resolve())), root)
 	target.parent.mkdir(parents=True, exist_ok=True)
-	n = target.write_text(content, encoding="utf-8")
+	if _is_text_file(target):
+		n = target.write_text(str(content), encoding="utf-8")
+	else:
+		with open(target, mode="wb") as file:
+			n = file.write(content)
 	return f"Wrote {n} bytes to {path}"
 
 
