@@ -1207,8 +1207,8 @@ class AgentChat(FlowType):
 	type          : Annotated[Literal["agent_chat"], FieldRole.CONSTANT] = "agent_chat"
 	config        : Annotated[AgentConfig          , FieldRole.INPUT   ] = Field(default=None, description="AgentConfig defining the agent to converse with; wire from an agent_config node")
 	system_prompt : Annotated[Optional[str]        , FieldRole.INPUT   ] = Field(default=None, description="Optional system prompt override applied to this chat session only")
-	request       : Annotated[Optional[str]        , FieldRole.INPUT   ] = Field(default=None, description="Optional message to send automatically when the node executes, as if typed in the chat UI")
-	response      : Annotated[Optional[str]        , FieldRole.OUTPUT  ] = Field(default=None, description="The last message sent by the agent in the chat session")
+	request       : Annotated[Optional[Any]        , FieldRole.INPUT   ] = Field(default=None, description="Optional message to send automatically when the node executes, as if typed in the chat UI")
+	response      : Annotated[Optional[Any]        , FieldRole.OUTPUT  ] = Field(default=None, description="The last message sent by the agent in the chat session")
 
 
 # =============================================================================

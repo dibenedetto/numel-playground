@@ -315,9 +315,15 @@ class Graph {
 	_areTypesCompatible(outputType, inputType) {
 		if (!outputType || !inputType) return true;
 		const output = outputType.trim(), input = inputType.trim();
-		if (output === input || input === 'Any' || output === 'Any') return true;
+		if (output === input || input === 'Any') return true;
+		const anyDowncast = this.app?._features?.anyDowncast ?? true;
+		if (output === 'Any' && anyDowncast) return true;
 
-		const optMatch = input.match(/Optional\[(.+)\]/);
+		// Unwrap Optional on both sides
+		const optOutMatch = output.match(/^Optional\[(.+)\]$/);
+		if (optOutMatch) return this._areTypesCompatible(optOutMatch[1], input);
+
+		const optMatch = input.match(/^Optional\[(.+)\]$/);
 		if (optMatch) return this._areTypesCompatible(output, optMatch[1]);
 
 		const unionMatch = input.match(/Union\[(.+)\]/);

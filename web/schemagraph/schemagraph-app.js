@@ -188,6 +188,7 @@ class SchemaGraphApp {
 			loopEdgeOrthogonal: true,  // Use orthogonal routing for loop-back edges
 			autoLayoutOnImport: true,  // Auto-apply hierarchical layout when loaded workflow has no saved positions
 			implicitStartEnd: false,  // Strip start/end/sink on import; visually mark entry/exit nodes instead
+			anyDowncast: true,  // Allow connecting Any-typed outputs to concrete-typed inputs (downcast)
 			// Node types
 			nativeTypes: true
 		};
@@ -521,7 +522,8 @@ class SchemaGraphApp {
 			'sg-feature-hiddenfields': this._features.hiddenFields,
 			'sg-feature-prettyfieldnames': this._features.prettyFieldNames,
 			'sg-feature-autolayoutonimport': this._features.autoLayoutOnImport,
-			'sg-feature-implicitstartend': this._features.implicitStartEnd
+			'sg-feature-implicitstartend': this._features.implicitStartEnd,
+			'sg-feature-anydowncast': this._features.anyDowncast
 		};
 
 		for (const [id, checked] of Object.entries(basicCheckboxMap)) {
@@ -652,6 +654,11 @@ class SchemaGraphApp {
 						<input type="checkbox" id="sg-feature-implicitstartend">
 						<span class="sg-toolbar-toggle-slider"></span>
 						<span class="sg-toolbar-toggle-text">Implicit Start/End</span>
+					</label>
+					<label class="sg-toolbar-toggle-switch" title="Allow connecting Any-typed outputs to concrete-typed inputs (downcast from Any)">
+						<input type="checkbox" id="sg-feature-anydowncast" checked>
+						<span class="sg-toolbar-toggle-slider"></span>
+						<span class="sg-toolbar-toggle-text">Any Downcast</span>
 					</label>
 				</div>
 			</div>
@@ -4949,9 +4956,8 @@ class SchemaGraphApp {
 		if (dotIdx >= 0) {
 			const parentName = origName.substring(0, dotIdx);
 			const key = origName.substring(dotIdx + 1);
-			if (meta.title) return `${meta.title}.${key}`;
-			if (this._features.prettyFieldNames) return `${this._prettifyName(parentName)}.${key}`;
-			return origName;
+			const displayParent = this._features.prettyFieldNames ? this._prettifyName(parentName) : parentName;
+			return `${displayParent}.${key}`;
 		}
 		if (meta.title) return meta.title;
 		if (this._features.prettyFieldNames) return this._prettifyName(origName);
@@ -10445,6 +10451,9 @@ class SchemaGraphApp {
 					document.getElementById('sg-feature-implicitstartend')?.addEventListener('change', (e) => {
 						self.api.features.set({ implicitStartEnd: e.target.checked });
 						self._updateImplicitRoles();
+					});
+					document.getElementById('sg-feature-anydowncast')?.addEventListener('change', (e) => {
+						self.api.features.set({ anyDowncast: e.target.checked });
 					});
 
 					// Features panel toggle (show/hide with animation)
