@@ -221,3 +221,4 @@ All filesystem tools accept a `root` parameter that constrains operations to pre
 6. [AI Agent with Tools](docs/tutorial-06-agent.md) — Full agent setup with chat
 7. [Preview and Media Types](docs/tutorial-07-preview-media.md) — All supported preview formats
 8. [Generating Workflows with /gen](docs/tutorial-08-generate.md) — AI-powered workflow generation from natural language
+9. [File Tools & Agent Prompting](docs/tutorial-09-file-tools.md) — Tool Config + Tool Flow to read files and prompt an Agent Chat
