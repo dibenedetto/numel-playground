@@ -6,7 +6,7 @@ import tempfile
 
 
 from   importlib                       import import_module
-from   inspect                         import iscoroutinefunction
+from   inspect                         import iscoroutinefunction, getmembers, ismethod
 from   fastapi                         import FastAPI
 from   typing                          import Any, Dict, List, Tuple
 from   utils                           import log_print
@@ -203,6 +203,57 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		impl[index] = item
 
 
+	def _build_toolkit(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
+		item_config = workflow.nodes[index]
+		assert item_config is not None and item_config.type == "toolkit_config", "Invalid Agno toolkit"
+		if not item_config.name:
+			raise ValueError("Agno toolkit needs name")
+		args = item_config.args or {}
+		try:
+			md = import_module(item_config.name)
+		except (ImportError, ModuleNotFoundError) as e:
+			log_print(f"⚠️  Agno toolkit module not found: {item_config.name} ({e})")
+			impl[index] = None
+			return
+		# Find the toolkit class: look for a class with __toolkit__ = True, or the first class with __doc__
+		toolkit_cls = None
+		for attr_name in dir(md):
+			attr = getattr(md, attr_name)
+			if isinstance(attr, type) and getattr(attr, '__toolkit__', False):
+				toolkit_cls = attr
+				break
+		if toolkit_cls is None:
+			for attr_name in dir(md):
+				attr = getattr(md, attr_name)
+				if isinstance(attr, type) and attr.__module__ == md.__name__ and attr.__doc__:
+					toolkit_cls = attr
+					break
+		if toolkit_cls is None:
+			log_print(f"⚠️  Agno toolkit class not found in module: {item_config.name}")
+			impl[index] = None
+			return
+		# Instantiate
+		try:
+			instance = toolkit_cls(**args)
+		except Exception as e:
+			log_print(f"⚠️  Agno toolkit instantiation failed: {toolkit_cls.__name__} ({e})")
+			impl[index] = None
+			return
+		# Extract description from class docstring
+		description = toolkit_cls.__doc__ or ""
+		# Extract public methods as tools
+		tools = []
+		for name, method in getmembers(instance, predicate=ismethod):
+			if name.startswith('_'):
+				continue
+			tools.append(method)
+		impl[index] = {
+			"instance"    : instance,
+			"description" : description.strip(),
+			"tools"       : tools,
+		}
+
+
 	def _build_agent_options(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "agent_options_config", "Invalid Agno agent options"
@@ -231,6 +282,21 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		tools_links = node_links.get("tools")
 		if isinstance(tools_links, dict) and tools_links:
 			tools = [impl[src] for src in tools_links.values() if impl[src] is not None]
+
+		# Toolkits: extract descriptions for prompt and merge functions into tools
+		toolkit_descriptions = []
+		toolkits_links = node_links.get("toolkits")
+		if isinstance(toolkits_links, dict) and toolkits_links:
+			for src in toolkits_links.values():
+				tk = impl[src]
+				if tk is None:
+					continue
+				if tk["description"]:
+					toolkit_descriptions.append(tk["description"])
+				if tk["tools"]:
+					if tools is None:
+						tools = []
+					tools.extend(tk["tools"])
 
 		if True:
 			enable_agentic_memory   = False
@@ -261,6 +327,15 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 						session_summary_prompt = session_mgr_config.prompt,
 					)
 
+		# Merge toolkit descriptions into agent instructions
+		agent_instructions = options.instructions
+		if toolkit_descriptions:
+			extra = ["\n## Available Toolkits\n"] + toolkit_descriptions
+			if agent_instructions:
+				agent_instructions = list(agent_instructions) + extra
+			else:
+				agent_instructions = extra
+
 		if True:
 			item = Agent(
 				name                    = options.name or "Agent",
@@ -268,7 +343,7 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 				model                   = model,
 
 				description             = options.description,
-				instructions            = options.instructions,
+				instructions            = agent_instructions,
 				system_message          = options.prompt_override,
 
 				markdown                = options.markdown,
@@ -307,6 +382,7 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		"content_db_config"        : [],
 		"index_db_config"          : [],
 		"tool_config"              : [],
+		"toolkit_config"           : [],
 		"agent_options_config"     : [],
 		"memory_manager_config"    : [],
 		"session_manager_config"   : [],
@@ -360,6 +436,7 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 	for i in indices["session_manager_config"  ]: _build_session_manager   (workflow, links, impl, i)
 	for i in indices["knowledge_manager_config"]: _build_knowledge_manager (workflow, links, impl, i)
 	for i in indices["tool_config"             ]: _build_tool              (workflow, links, impl, i)
+	for i in indices["toolkit_config"          ]: _build_toolkit           (workflow, links, impl, i)
 	for i in indices["agent_options_config"    ]: _build_agent_options     (workflow, links, impl, i)
 	for i in indices["agent_config"            ]: _build_agent             (workflow, links, impl, i)
 

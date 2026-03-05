@@ -546,6 +546,24 @@ DEFAULT_AGENT_OPTIONS_MARKDOWN        : bool = True
 
 
 @node_info(
+	title       = "Toolkit",
+	description = "Toolkit module providing multiple related tools with shared state",
+	icon        = "🧰",
+	section     = "Configurations",
+	visible     = True
+)
+class ToolkitConfig(ConfigType):
+	"""Toolkit module for agents. Set name to Python import path of a toolkit module (e.g. 'toolkits.file_toolkit'). The class docstring describes the toolkit to the agent; each public method becomes a tool. Wire get→agent_config.toolkits.<key> via MULTI_INPUT edge (target_slot='toolkits.<key>')."""
+	type     : Annotated[Literal["toolkit_config"], FieldRole.CONSTANT] = "toolkit_config"
+	name     : Annotated[str                      , FieldRole.INPUT   ] = Field(default="",   description="Python import path to the toolkit module (e.g. 'toolkits.file_toolkit')")
+	args     : Annotated[Optional[Dict[str, Any]] , FieldRole.INPUT   ] = Field(default=None, description="Optional arguments passed to the toolkit constructor")
+
+	@property
+	def config(self) -> Annotated[ToolkitConfig, FieldRole.OUTPUT]:
+		return self
+
+
+@node_info(
 	title       = "Agent Options",
 	description = "Stores agent configuration options",
 	icon        = "🛠️",
@@ -573,16 +591,17 @@ class AgentOptionsConfig(OptionsType):
 )
 class AgentConfig(ConfigType):
 	"""Complete agent definition combining backend, model, options, and optional tools/memory/knowledge. Wire get→agent_flow.config or agent_chat.config."""
-	type          : Annotated[Literal["agent_config"]         , FieldRole.CONSTANT   ] = "agent_config"
-	port          : Annotated[Optional[int]                   , FieldRole.ANNOTATION ] = None
-	options       : Annotated[Optional[AgentOptionsConfig]    , FieldRole.INPUT      ] = Field(default=None, description="AgentOptionsConfig defining the agent persona, instructions, and system prompt")
-	backend       : Annotated[BackendConfig                   , FieldRole.INPUT      ] = Field(default=None, description="BackendConfig specifying which AI engine to use (e.g. 'agno')")
-	model         : Annotated[ModelConfig                     , FieldRole.INPUT      ] = Field(default=None, description="ModelConfig specifying the language model provider and name")
-	content_db    : Annotated[Optional[ContentDBConfig]       , FieldRole.INPUT      ] = Field(default=None, description="Optional ContentDBConfig for direct database access (bypasses the knowledge manager)")
-	memory_mgr    : Annotated[Optional[MemoryManagerConfig]   , FieldRole.INPUT      ] = Field(default=None, description="Optional MemoryManagerConfig for long-term memory persistence across sessions")
-	session_mgr   : Annotated[Optional[SessionManagerConfig]  , FieldRole.INPUT      ] = Field(default=None, description="Optional SessionManagerConfig for per-conversation history management")
-	knowledge_mgr : Annotated[Optional[KnowledgeManagerConfig], FieldRole.INPUT      ] = Field(default=None, description="Optional KnowledgeManagerConfig enabling RAG retrieval from a document store")
-	tools         : Annotated[Optional[Dict[str, ToolConfig]] , FieldRole.MULTI_INPUT] = Field(default=None, description="Dict of ToolConfig nodes; each key becomes a callable tool name available to the agent")
+	type          : Annotated[Literal["agent_config"]           , FieldRole.CONSTANT   ] = "agent_config"
+	port          : Annotated[Optional[int]                     , FieldRole.ANNOTATION ] = None
+	options       : Annotated[Optional[AgentOptionsConfig]      , FieldRole.INPUT      ] = Field(default=None, description="AgentOptionsConfig defining the agent persona, instructions, and system prompt")
+	backend       : Annotated[BackendConfig                     , FieldRole.INPUT      ] = Field(default=None, description="BackendConfig specifying which AI engine to use (e.g. 'agno')")
+	model         : Annotated[ModelConfig                       , FieldRole.INPUT      ] = Field(default=None, description="ModelConfig specifying the language model provider and name")
+	content_db    : Annotated[Optional[ContentDBConfig]         , FieldRole.INPUT      ] = Field(default=None, description="Optional ContentDBConfig for direct database access (bypasses the knowledge manager)")
+	memory_mgr    : Annotated[Optional[MemoryManagerConfig]     , FieldRole.INPUT      ] = Field(default=None, description="Optional MemoryManagerConfig for long-term memory persistence across sessions")
+	session_mgr   : Annotated[Optional[SessionManagerConfig]    , FieldRole.INPUT      ] = Field(default=None, description="Optional SessionManagerConfig for per-conversation history management")
+	knowledge_mgr : Annotated[Optional[KnowledgeManagerConfig]  , FieldRole.INPUT      ] = Field(default=None, description="Optional KnowledgeManagerConfig enabling RAG retrieval from a document store")
+	tools         : Annotated[Optional[Dict[str, ToolConfig]]   , FieldRole.MULTI_INPUT] = Field(default=None, description="Dict of ToolConfig nodes; each key becomes a callable tool name available to the agent")
+	toolkits      : Annotated[Optional[Dict[str, ToolkitConfig]], FieldRole.MULTI_INPUT] = Field(default=None, description="Dict of ToolkitConfig nodes; each toolkit's module docstring is added to the agent prompt and its functions become tools")
 
 	@property
 	def config(self) -> Annotated[AgentConfig, FieldRole.OUTPUT]:

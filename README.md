@@ -142,7 +142,8 @@ These nodes wire together to define an AI agent:
 | **Memory Manager** | Agent memory (query, update, managed flags) |
 | **Session Manager** | Conversation session tracking |
 | **Knowledge Manager** | RAG pipeline (file upload, URL import, search) |
-| **Tool** | Tool function reference (e.g., `app.tools.list_directory`) |
+| **Tool** | Tool function reference (e.g., `tools.list_directory`) |
+| **Toolkit** | Toolkit module providing multiple related tools with shared state (e.g., `mesh_tools`) |
 | **Agent Options** | Name, description, instructions, prompt override |
 | **Agent** | Main agent node — connects all config nodes together |
 

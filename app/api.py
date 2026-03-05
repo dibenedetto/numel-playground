@@ -1,6 +1,7 @@
 # api
 
 import base64
+import importlib
 import io
 import json
 import os
@@ -1378,6 +1379,70 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 		return '\n'.join(out_lines)
 
+	def _build_tools_catalog() -> str:
+		"""Build a catalog of available tool functions and toolkits for the LLM."""
+		import inspect
+		lines = []
+
+		# Individual tools from tools.py
+		lines.append("### Tools (use with tool_config, name='tools.<function>')")
+		try:
+			import tools as tools_mod
+			for name in sorted(dir(tools_mod)):
+				if name.startswith('_'):
+					continue
+				fn = getattr(tools_mod, name)
+				if not callable(fn) or inspect.isclass(fn) or inspect.ismodule(fn):
+					continue
+				sig = ""
+				try:
+					sig = str(inspect.signature(fn))
+				except (ValueError, TypeError):
+					pass
+				doc = (fn.__doc__ or "").strip().split('\n')[0]
+				lines.append(f"  tools.{name}{sig} – {doc}")
+		except ImportError:
+			lines.append("  (no tools module found)")
+		lines.append("")
+
+		# Toolkits
+		lines.append("### Toolkits (use with toolkit_config, name='<module>')")
+		toolkit_modules = ["toolkits.file_toolkit"]
+		for mod_name in toolkit_modules:
+			try:
+				md = importlib.import_module(mod_name)
+				# Find toolkit class
+				tk_cls = None
+				for attr_name in dir(md):
+					attr = getattr(md, attr_name)
+					if isinstance(attr, type) and getattr(attr, '__toolkit__', False):
+						tk_cls = attr
+						break
+				if tk_cls is None:
+					continue
+				# Module description (first line of class docstring)
+				doc = (tk_cls.__doc__ or "").strip().split('\n')[0]
+				lines.append(f"  {mod_name} – {doc}")
+				# List public methods
+				for mname in sorted(dir(tk_cls)):
+					if mname.startswith('_'):
+						continue
+					method = getattr(tk_cls, mname)
+					if not callable(method):
+						continue
+					sig = ""
+					try:
+						sig = str(inspect.signature(method))
+					except (ValueError, TypeError):
+						pass
+					mdoc = (method.__doc__ or "").strip().split('\n')[0]
+					lines.append(f"    .{mname}{sig} – {mdoc}")
+			except ImportError:
+				lines.append(f"  {mod_name} – (not installed)")
+		lines.append("")
+
+		return '\n'.join(lines)
+
 	_GENERATE_SYSTEM_PROMPT = """You generate workflow JSON for a visual node-graph AI workflow editor.
 
 ## Runtime Model
@@ -1630,6 +1695,15 @@ Register a source: timer_source_flow or webhook_source_flow → registered_id ou
 Listen: registered_id → event_listener_flow, target_slot="sources.<key>" (dotted MULTI_INPUT).
 event_listener_flow.event carries the received event payload.
 
+### Toolkits (toolkit_config)
+A toolkit provides multiple related tools with shared state (e.g. a sandboxed filesystem).
+Wire like tools: toolkit_config.config → agent_config, target_slot="toolkits.<key>".
+The toolkit's description is automatically added to the agent prompt; each function becomes a tool.
+Example: toolkit_config with name="toolkits.file_toolkit" → agent gets list_directory, read_file, write_file, etc.
+
+## Available Tools and Toolkits
+{tools_catalog}
+
 ## Rules
 1. Always place start_flow at index 0. Always end with end_flow.
 2. source_slot must be an OUTPUT or MULTI_OUTPUT field name shown in the catalog "out:" line.
@@ -1843,7 +1917,8 @@ event_listener_flow.event carries the received event payload.
 		"""Return the generation system prompt (node catalog + instructions) for chat-based /gen."""
 		nonlocal schema_code
 		node_catalog = _build_node_catalog(schema_code)
-		prompt = _GENERATE_SYSTEM_PROMPT.replace("{node_catalog}", node_catalog)
+		tools_catalog = _build_tools_catalog()
+		prompt = _GENERATE_SYSTEM_PROMPT.replace("{node_catalog}", node_catalog).replace("{tools_catalog}", tools_catalog)
 		return {"prompt": prompt}
 
 	@app.post("/generate-workflow")
@@ -1853,7 +1928,8 @@ event_listener_flow.event carries the received event payload.
 		try:
 			# Build node catalog and system prompt
 			node_catalog = _build_node_catalog(schema_code)
-			system_prompt = _GENERATE_SYSTEM_PROMPT.replace("{node_catalog}", node_catalog)
+			tools_catalog = _build_tools_catalog()
+			system_prompt = _GENERATE_SYSTEM_PROMPT.replace("{node_catalog}", node_catalog).replace("{tools_catalog}", tools_catalog)
 
 			# Build user message with history context
 			user_message = ""
