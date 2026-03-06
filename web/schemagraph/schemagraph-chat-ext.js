@@ -23,6 +23,23 @@ const MessageRole = Object.freeze({
 });
 
 // ========================================================================
+// Helpers
+// ========================================================================
+
+const _CHAT_PREVIEW_EXT_MAP = {
+	png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', bmp: 'image', webp: 'image', svg: 'image',
+	mp3: 'audio', wav: 'audio', ogg: 'audio', flac: 'audio', aac: 'audio', m4a: 'audio',
+	mp4: 'video', webm: 'video', mov: 'video', avi: 'video', mkv: 'video',
+	glb: 'model3d', gltf: 'model3d', obj: 'model3d', fbx: 'model3d', stl: 'model3d',
+	txt: 'text', md: 'text', log: 'text', csv: 'text', json: 'text', xml: 'text',
+	py: 'text', js: 'text', html: 'text', css: 'text', yaml: 'text', yml: 'text',
+};
+
+function _chatPreviewTypeFromExt(ext) {
+	return _CHAT_PREVIEW_EXT_MAP[ext] || 'file';
+}
+
+// ========================================================================
 // Chat Node Mixin
 // ========================================================================
 
@@ -245,6 +262,80 @@ class ChatOverlayManager {
 				const msgId = mergeBtn.dataset.msgId;
 				const currentNode = getNode();
 				if (currentNode) this._handleWorkflowMerge(currentNode, msgId);
+				return;
+			}
+			const handle = e.target.closest('.sg-chat-preview-drag-handle');
+			if (handle) {
+				e.stopPropagation();
+				this._handleOpenOnGraph(handle.dataset.fileUrl, handle.dataset.fileName);
+				return;
+			}
+			const refreshBtn = e.target.closest('.sg-chat-preview-refresh-btn');
+			if (refreshBtn) {
+				e.stopPropagation();
+				this._refreshChatPreview(refreshBtn);
+			}
+		});
+
+		// Drag from chat to graph canvas
+		overlay.addEventListener('dragstart', (e) => {
+			// Preview drag handle
+			const handle = e.target.closest('.sg-chat-preview-drag-handle');
+			if (handle) {
+				e.dataTransfer.setData('text/x-sg-chat-preview', JSON.stringify({
+					fileUrl: handle.dataset.fileUrl,
+					fileName: handle.dataset.fileName,
+				}));
+				e.dataTransfer.effectAllowed = 'copy';
+				return;
+			}
+			// Message drag (text, numbers, etc.)
+			const msgEl = e.target.closest('.sg-chat-msg');
+			if (msgEl) {
+				const text = msgEl.dataset.msgText || '';
+				if (!text) { e.preventDefault(); return; }
+				e.dataTransfer.setData('text/x-sg-chat-message', text);
+				e.dataTransfer.setData('text/plain', text);
+				e.dataTransfer.effectAllowed = 'copy';
+			}
+		});
+
+		// Drop from graph onto chat (import preview into chat)
+		overlay.addEventListener('dragover', (e) => {
+			if (e.dataTransfer.types.includes('text/x-sg-graph-preview') || e.dataTransfer.types.includes('Files')) {
+				e.preventDefault();
+				e.dataTransfer.dropEffect = 'copy';
+				overlay.classList.add('sg-chat-drop-active');
+			}
+		});
+		overlay.addEventListener('dragleave', (e) => {
+			const rect = overlay.getBoundingClientRect();
+			if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
+				overlay.classList.remove('sg-chat-drop-active');
+			}
+		});
+		overlay.addEventListener('drop', (e) => {
+			overlay.classList.remove('sg-chat-drop-active');
+			const currentNode = getNode();
+			if (!currentNode) return;
+
+			// Drop from graph preview node
+			const graphData = e.dataTransfer.getData('text/x-sg-graph-preview');
+			if (graphData) {
+				e.preventDefault();
+				try {
+					const info = JSON.parse(graphData);
+					this._handleGraphToChat(currentNode, info);
+				} catch (err) {
+					console.error('[ChatOverlay] Graph drop parse error:', err);
+				}
+				return;
+			}
+
+			// Drop external files
+			if (e.dataTransfer.files?.length) {
+				e.preventDefault();
+				this._handleFileDropOnChat(currentNode, Array.from(e.dataTransfer.files));
 			}
 		});
 	}
@@ -529,8 +620,12 @@ class ChatOverlayManager {
 			`;
 		}
 
+		// Escape raw content for data attribute (strip preview markers for plain text drag)
+		const rawText = (msg.content || '').replace(/<<preview:\w+:.+?>>/g, '').trim();
+		const escapedRaw = rawText.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 		return `
-			<div class="sg-chat-msg ${roleClass}" data-msg-id="${msg.id}">
+			<div class="sg-chat-msg ${roleClass}" data-msg-id="${msg.id}" draggable="true" data-msg-text="${escapedRaw}">
 				<div class="sg-chat-msg-header">
 					<span class="sg-chat-msg-role">${this._getRoleName(msg.role)}</span>
 					${timestamp}
@@ -567,10 +662,17 @@ class ChatOverlayManager {
 
 		// Inline preview markers: <<preview:type:path>>
 		html = html.replace(/&lt;&lt;preview:(\w+):(.+?)&gt;&gt;/g, (match, type, filePath) => {
-			const baseUrl = this.app?.chatManager?._baseUrl || '';
-			const fileUrl = `${baseUrl}/file/${filePath}`;
-			const ts = Date.now(); // cache-bust for refresh
-			return this._renderPreviewEmbed(type, fileUrl, filePath, ts);
+			// Unescape HTML entities that were applied earlier
+			const raw = filePath.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+			let fileUrl;
+			if (raw.startsWith('data:')) {
+				fileUrl = raw; // data URL — use directly
+			} else {
+				const baseUrl = this.app?.chatManager?._baseUrl || '';
+				fileUrl = `${baseUrl}/file/${raw}`;
+			}
+			const ts = Date.now();
+			return this._renderPreviewEmbed(type, fileUrl, raw, ts);
 		});
 
 		html = html.replace(/\n/g, '<br>');
@@ -579,42 +681,39 @@ class ChatOverlayManager {
 	}
 
 	_renderPreviewEmbed(type, fileUrl, filePath, ts) {
-		const fileName = filePath.split('/').pop().split('\\').pop();
-		const bustUrl = `${fileUrl}?t=${ts}`;
+		const isDataUrl = filePath.startsWith('data:');
+		const fileName = isDataUrl ? `preview.${type}` : filePath.split('/').pop().split('\\').pop();
+		const bustUrl = isDataUrl ? fileUrl : `${fileUrl}?t=${ts}`;
 		const previewId = `sgpv_${ts}_${Math.random().toString(36).slice(2, 6)}`;
 
+		// Header with refresh + draggable export handle
+		const hdr = `<div class="sg-chat-preview-header">`
+			+ `<span class="sg-chat-preview-filename">${fileName}</span>`
+			+ `<span class="sg-chat-preview-actions">`
+			+ `<span class="sg-chat-preview-refresh-btn" data-file-url="${fileUrl}" data-file-name="${fileName}" data-preview-type="${type}" title="Refresh preview">&#8635;</span>`
+			+ `<span class="sg-chat-preview-drag-handle" draggable="true" data-file-url="${fileUrl}" data-file-name="${fileName}" title="Drag to graph or click to open on graph">&#8663;</span>`
+			+ `</span></div>`;
+
+		let body = '';
 		switch (type) {
 			case 'image':
-				return `<div class="sg-chat-preview">
-					<div class="sg-chat-preview-header">${fileName}</div>
-					<img class="sg-chat-preview-img" src="${bustUrl}" alt="${fileName}" loading="lazy">
-				</div>`;
-
+				body = `<img class="sg-chat-preview-img" src="${bustUrl}" alt="${fileName}" loading="lazy">`;
+				break;
 			case 'audio':
-				return `<div class="sg-chat-preview">
-					<div class="sg-chat-preview-header">${fileName}</div>
-					<audio class="sg-chat-preview-audio" controls src="${bustUrl}"></audio>
-				</div>`;
-
+				body = `<audio class="sg-chat-preview-audio" controls src="${bustUrl}"></audio>`;
+				break;
 			case 'video':
-				return `<div class="sg-chat-preview">
-					<div class="sg-chat-preview-header">${fileName}</div>
-					<video class="sg-chat-preview-video" controls src="${bustUrl}"></video>
-				</div>`;
-
+				body = `<video class="sg-chat-preview-video" controls src="${bustUrl}"></video>`;
+				break;
 			case 'model3d':
 				setTimeout(() => {
 					const canvasEl = document.getElementById(previewId);
 					if (!canvasEl || !window.ThreeViewer) return;
 					this._init3DPreview(canvasEl, bustUrl);
 				}, 0);
-				return `<div class="sg-chat-preview sg-chat-preview-3d">
-					<div class="sg-chat-preview-header">${fileName}</div>
-					<canvas id="${previewId}" class="sg-chat-preview-3d-canvas"></canvas>
-				</div>`;
-
+				body = `<canvas id="${previewId}" class="sg-chat-preview-3d-canvas"></canvas>`;
+				break;
 			case 'text':
-				// Fetch text content after render via deferred load
 				setTimeout(() => {
 					const el = document.getElementById(previewId);
 					if (!el) return;
@@ -625,19 +724,15 @@ class ChatOverlayManager {
 						el.innerHTML = `<span style="color:#f44">Failed to load file</span>`;
 					});
 				}, 0);
-				return `<div class="sg-chat-preview">
-					<div class="sg-chat-preview-header">${fileName}</div>
-					<div id="${previewId}" class="sg-chat-preview-text-body">Loading...</div>
-				</div>`;
-
+				body = `<div id="${previewId}" class="sg-chat-preview-text-body">Loading...</div>`;
+				break;
 			default:
-				return `<div class="sg-chat-preview">
-					<div class="sg-chat-preview-header">${fileName}</div>
-					<div class="sg-chat-preview-text-placeholder">
-						<a href="${bustUrl}" target="_blank" download="${fileName}">Download ${fileName}</a>
-					</div>
-				</div>`;
+				body = `<div class="sg-chat-preview-text-placeholder"><a href="${bustUrl}" target="_blank" download="${fileName}">Download ${fileName}</a></div>`;
+				break;
 		}
+
+		const cls = type === 'model3d' ? 'sg-chat-preview sg-chat-preview-3d' : 'sg-chat-preview';
+		return `<div class="${cls}">${hdr}${body}</div>`;
 	}
 
 	_init3DPreview(canvas, modelUrl) {
@@ -705,6 +800,126 @@ class ChatOverlayManager {
 			}
 		});
 		observer.observe(canvas.parentElement || document.body, { childList: true, subtree: true });
+	}
+
+	async _openFileOnGraph(fileUrl, fileName) {
+		const app = this.app;
+		try {
+			const response = await fetch(fileUrl);
+			if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+			const blob = await response.blob();
+			const file = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
+			const [cx, cy] = this._getViewportCenter();
+			await app._handleCanvasFileDrop([file], cx, cy);
+			app.draw();
+		} catch (err) {
+			console.error('[ChatPreview] Open on graph failed:', err);
+		}
+	}
+
+	async _handleOpenOnGraph(fileUrl, fileName) {
+		await this._openFileOnGraph(fileUrl, fileName);
+	}
+
+	_refreshChatPreview(btn) {
+		const previewEl = btn.closest('.sg-chat-preview');
+		if (!previewEl) return;
+
+		const fileUrl = btn.dataset.fileUrl;
+		const fileName = btn.dataset.fileName;
+		const type = btn.dataset.previewType;
+		const ts = Date.now();
+		const isDataUrl = fileUrl.startsWith('data:');
+		const bustUrl = isDataUrl ? fileUrl : `${fileUrl}?t=${ts}`;
+
+		// Refresh the content below the header
+		switch (type) {
+			case 'image': {
+				const img = previewEl.querySelector('.sg-chat-preview-img');
+				if (img) img.src = bustUrl;
+				break;
+			}
+			case 'audio': {
+				const audio = previewEl.querySelector('.sg-chat-preview-audio');
+				if (audio) { audio.src = bustUrl; audio.load(); }
+				break;
+			}
+			case 'video': {
+				const video = previewEl.querySelector('.sg-chat-preview-video');
+				if (video) { video.src = bustUrl; video.load(); }
+				break;
+			}
+			case 'text': {
+				const body = previewEl.querySelector('.sg-chat-preview-text-body');
+				if (body) {
+					body.innerHTML = 'Loading...';
+					fetch(bustUrl).then(r => r.text()).then(text => {
+						const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+						body.innerHTML = `<pre class="sg-chat-preview-text-content">${escaped}</pre>`;
+					}).catch(() => {
+						body.innerHTML = `<span style="color:#f44">Failed to load file</span>`;
+					});
+				}
+				break;
+			}
+			case 'model3d': {
+				const canvas = previewEl.querySelector('.sg-chat-preview-3d-canvas');
+				if (canvas && window.ThreeViewer) {
+					this._init3DPreview(canvas, bustUrl);
+				}
+				break;
+			}
+		}
+
+		// Visual feedback
+		btn.style.opacity = '0.3';
+		setTimeout(() => { btn.style.opacity = ''; }, 300);
+	}
+
+	_handleGraphToChat(node, info) {
+		// info: { fileData, fileName, mimeType } from graph preview node
+		const baseUrl = this.app?.chatManager?._baseUrl || '';
+		if (info.fileUrl) {
+			const ext = (info.fileName || '').split('.').pop()?.toLowerCase() || '';
+			const type = _chatPreviewTypeFromExt(ext);
+			const marker = `<<preview:${type}:${info.fileUrl}>>`;
+			this.app.api.chat?.addMessage(node, MessageRole.SYSTEM, marker);
+		} else if (info.fileData && info.fileName) {
+			// Graph node has inline data — serve it through a temp object URL
+			// For data URLs, extract the path or create a blob URL
+			const ext = info.fileName.split('.').pop()?.toLowerCase() || '';
+			const type = _chatPreviewTypeFromExt(ext);
+			const marker = `<<preview:${type}:${info.fileData}>>`;
+			this.app.api.chat?.addMessage(node, MessageRole.SYSTEM, marker);
+		}
+	}
+
+	async _handleFileDropOnChat(node, files) {
+		const baseUrl = this.app?.chatManager?._baseUrl || '';
+		for (const file of files) {
+			const ext = file.name.split('.').pop()?.toLowerCase() || '';
+			const type = _chatPreviewTypeFromExt(ext);
+			// Read file as data URL for inline display
+			const dataUrl = await new Promise((resolve) => {
+				const reader = new FileReader();
+				reader.onload = () => resolve(reader.result);
+				reader.onerror = () => resolve(null);
+				reader.readAsDataURL(file);
+			});
+			if (dataUrl) {
+				const marker = `<<preview:${type}:${dataUrl}>>`;
+				this.app.api.chat?.addMessage(node, MessageRole.SYSTEM, marker);
+			}
+		}
+	}
+
+	_getViewportCenter() {
+		const app = this.app;
+		const canvas = app.canvas;
+		const g = app.graph;
+		const sw = canvas?.width || 800;
+		const sh = canvas?.height || 600;
+		return app.screenToWorld?.(sw / 2, sh / 2) || [0, 0];
 	}
 
 	bringToFront(chatId) {
@@ -828,6 +1043,39 @@ class ChatExtension extends SchemaGraphExtension {
 			this._cleanupOrphanedOverlays();
 		});
 
+		// Receive preview data from graph nodes (Send to Chat button)
+		this.on('preview:sendToChat', (e) => {
+			this._handleReceivePreview(e);
+		});
+
+		// Detect canvas node dropped over a chat overlay
+		this.on('mouse:up', (data) => {
+			const dragNode = this.app.dragNode;
+			if (!dragNode) return;
+			const screenX = data.event?.clientX;
+			const screenY = data.event?.clientY;
+			if (screenX == null || screenY == null) return;
+			const chatNode = this._findChatOverlayAtPoint(screenX, screenY);
+			if (!chatNode) return;
+
+			// Get preview data from the dragged node
+			const previewData = this.app._getPreviewData?.(dragNode);
+			if (previewData?.value) {
+				this._handleReceivePreview({
+					type: previewData.type,
+					value: previewData.value,
+					fileName: dragNode.extra?.fileName || dragNode.displayTitle || dragNode.title || 'preview',
+					meta: previewData.meta,
+				}, chatNode);
+			} else {
+				// Not a preview node — try to get any text output
+				const text = dragNode.extra?.fileData || this._getNodeTextContent(dragNode);
+				if (text) {
+					this.app.api.chat?.addMessage(chatNode, MessageRole.SYSTEM, String(text));
+				}
+			}
+		});
+
 		this.on('camera:moved', () => this.overlayManager.updateAllPositions());
 		this.on('camera:zoomed', () => this.overlayManager.updateAllPositions());
 		this.on('node:moved', (e) => {
@@ -875,6 +1123,46 @@ class ChatExtension extends SchemaGraphExtension {
 		}
 		for (const chatId of toRemove) {
 			this.overlayManager.removeOverlay(chatId);
+		}
+	}
+
+	_findChatOverlayAtPoint(clientX, clientY) {
+		for (const [chatId, overlay] of this.overlayManager.overlays) {
+			const rect = overlay.getBoundingClientRect();
+			if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
+				return this.overlayManager.nodeRefs.get(chatId);
+			}
+		}
+		return null;
+	}
+
+	_getNodeTextContent(node) {
+		// Try output data from the node's first output slot
+		for (let i = 0; i < (node.outputs?.length || 0); i++) {
+			const data = node.getOutputData?.(i);
+			if (data != null) return typeof data === 'object' ? JSON.stringify(data, null, 2) : String(data);
+		}
+		return null;
+	}
+
+	_handleReceivePreview(e, targetChatNode) {
+		const chatNode = targetChatNode || this.graph.nodes.find(n => n.isChat && n.chatId);
+		if (!chatNode) return;
+
+		const dataType = e.type || 'file';
+		const value = e.value || '';
+
+		// Map graph preview type to chat preview type
+		const typeMap = { image: 'image', audio: 'audio', video: 'video', model3d: 'model3d' };
+		const previewType = typeMap[dataType] || 'text';
+
+		// For data URLs, create preview marker with inline data
+		if (typeof value === 'string' && value.startsWith('data:')) {
+			const marker = `<<preview:${previewType}:${value}>>`;
+			this.app.api.chat?.addMessage(chatNode, MessageRole.SYSTEM, marker);
+		} else if (typeof value === 'string') {
+			// Plain text content — add directly as text message
+			this.app.api.chat?.addMessage(chatNode, MessageRole.SYSTEM, value);
 		}
 	}
 
@@ -1115,6 +1403,10 @@ class ChatExtension extends SchemaGraphExtension {
 				border-radius: 8px;
 				word-wrap: break-word;
 				line-height: 1.4;
+				cursor: grab;
+			}
+			.sg-chat-msg:active {
+				cursor: grabbing;
 			}
 
 			.sg-chat-msg-user {
@@ -1322,18 +1614,59 @@ class ChatExtension extends SchemaGraphExtension {
 				color: rgba(255,255,255,0.5);
 				background: rgba(0,0,0,0.15);
 			}
-			.sg-chat-preview-open-btn {
-				font-size: 9px;
-				padding: 2px 6px;
-				border: 1px solid rgba(255,255,255,0.2);
-				border-radius: 3px;
-				background: rgba(255,255,255,0.1);
-				color: rgba(255,255,255,0.7);
-				cursor: pointer;
+			.sg-chat-preview-filename {
+				overflow: hidden;
+				text-overflow: ellipsis;
+				white-space: nowrap;
+				flex: 1;
+				min-width: 0;
 			}
-			.sg-chat-preview-open-btn:hover {
-				background: rgba(255,255,255,0.2);
+			.sg-chat-preview-actions {
+				display: flex;
+				gap: 2px;
+				flex-shrink: 0;
+			}
+			.sg-chat-preview-refresh-btn {
+				display: inline-flex;
+				align-items: center;
+				justify-content: center;
+				width: 20px;
+				height: 18px;
+				font-size: 14px;
+				line-height: 1;
+				cursor: pointer;
+				color: rgba(255,255,255,0.4);
+				border-radius: 3px;
+				user-select: none;
+				transition: opacity 0.2s;
+			}
+			.sg-chat-preview-refresh-btn:hover {
 				color: #fff;
+				background: rgba(255,255,255,0.15);
+			}
+			.sg-chat-preview-drag-handle {
+				display: inline-flex;
+				align-items: center;
+				justify-content: center;
+				width: 20px;
+				height: 18px;
+				font-size: 14px;
+				line-height: 1;
+				cursor: grab;
+				color: rgba(255,255,255,0.4);
+				border-radius: 3px;
+				user-select: none;
+			}
+			.sg-chat-preview-drag-handle:hover {
+				color: #fff;
+				background: rgba(255,255,255,0.15);
+			}
+			.sg-chat-preview-drag-handle:active {
+				cursor: grabbing;
+			}
+			.sg-chat-overlay.sg-chat-drop-active {
+				outline: 2px dashed rgba(74, 144, 217, 0.7);
+				outline-offset: -2px;
 			}
 			.sg-chat-preview-img {
 				display: block;

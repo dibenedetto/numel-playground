@@ -2033,8 +2033,10 @@ class SchemaGraphApp {
 			<div class="sg-preview-text-header">
 				<span class="sg-preview-text-title">${this._escapeHtml(title)}</span>
 				<div class="sg-preview-text-actions">
+					<button class="sg-preview-text-btn sg-preview-refresh-btn" title="Refresh">&#8635;</button>
 					<button class="sg-preview-text-btn sg-preview-copy-btn" title="Copy to clipboard">📋</button>
 					<button class="sg-preview-text-btn sg-preview-dl-btn" title="Download">⬇</button>
+					<button class="sg-preview-text-btn sg-preview-send-chat-btn" title="Send to Chat">💬</button>
 					<button class="sg-preview-text-btn sg-preview-close-btn" title="Collapse">▲</button>
 				</div>
 			</div>
@@ -2066,6 +2068,18 @@ class SchemaGraphApp {
 		dlBtn?.addEventListener('click', (e) => {
 			e.stopPropagation();
 			this._triggerPreviewDownload(node, previewData);
+		});
+
+		const chatBtn = overlay.querySelector('.sg-preview-send-chat-btn');
+		chatBtn?.addEventListener('click', (e) => {
+			e.stopPropagation();
+			this._sendPreviewToChat(node, previewData);
+		});
+
+		const refreshBtn = overlay.querySelector('.sg-preview-refresh-btn');
+		refreshBtn?.addEventListener('click', (e) => {
+			e.stopPropagation();
+			this._refreshPreview(node);
 		});
 
 		// Position overlay fixed over the node content area
@@ -2182,11 +2196,17 @@ class SchemaGraphApp {
 		bar.id = `sg-preview-imgact-${node.id}`;
 		bar.innerHTML = `
 			<span class="sg-preview-img-title">${this._escapeHtml(title)}</span>
+			<button class="sg-preview-text-btn sg-preview-refresh-btn" title="Refresh">&#8635;</button>
 			${hasDl ? '<button class="sg-preview-text-btn sg-preview-dl-btn" title="Download">⬇</button>' : ''}
+			${hasDl ? '<button class="sg-preview-text-btn sg-preview-send-chat-btn" title="Send to Chat">💬</button>' : ''}
 			<button class="sg-preview-text-btn sg-preview-img-collapse-btn" title="Collapse">▲</button>`;
 
+		bar.querySelector('.sg-preview-refresh-btn')
+			?.addEventListener('click', (e) => { e.stopPropagation(); this._refreshPreview(node); });
 		bar.querySelector('.sg-preview-dl-btn')
 			?.addEventListener('click', (e) => { e.stopPropagation(); this._triggerPreviewDownload(node, data); });
+		bar.querySelector('.sg-preview-send-chat-btn')
+			?.addEventListener('click', (e) => { e.stopPropagation(); this._sendPreviewToChat(node, data); });
 		bar.querySelector('.sg-preview-img-collapse-btn')
 			?.addEventListener('click', (e) => { e.stopPropagation(); this._togglePreviewExpanded(node); });
 
@@ -2277,6 +2297,47 @@ class SchemaGraphApp {
 		a.remove();
 	}
 
+	_refreshPreview(node) {
+		if (!node?.extra) return;
+		const wasExpanded = node.extra.previewExpanded;
+
+		// Close existing overlays
+		this._closePreviewTextOverlay(node);
+		this._closePreviewMediaOverlay(node);
+		this._closePreviewImageActions(node);
+
+		// Re-read preview data and re-create overlays
+		this._recalculatePreviewNodeSize(node);
+		this.draw();
+
+		if (wasExpanded) {
+			const previewData = this._getPreviewData(node);
+			const textTypes  = ['text', 'json', 'list', 'dict', 'integer', 'float', 'boolean'];
+			const mediaTypes = ['audio', 'video'];
+			if (previewData && textTypes.includes(previewData.type)) {
+				this._createPreviewTextOverlay(node);
+			} else if (previewData && mediaTypes.includes(previewData.type)) {
+				this._createPreviewMediaOverlay(node, previewData);
+			} else {
+				this._createPreviewImageActions(node, previewData);
+			}
+		}
+
+		this.eventBus.emit('preview:refreshed', { nodeId: node.id });
+	}
+
+	_sendPreviewToChat(node, data) {
+		if (!data?.value) return;
+		this.eventBus.emit('preview:sendToChat', {
+			nodeId: node.id,
+			type: data.type,
+			value: data.value,
+			fileName: node.extra?.fileName || (node.displayTitle || node.title || 'preview'),
+			mimeType: node.extra?.mimeType || '',
+			meta: data.meta,
+		});
+	}
+
 	// ── Media preview overlays (audio / video with native browser controls) ───
 
 	_createPreviewMediaOverlay(node, data) {
@@ -2297,7 +2358,9 @@ class SchemaGraphApp {
 		header.className = 'sg-preview-text-header';  // reuse text overlay header style
 		header.innerHTML = `
 			<span class="sg-preview-text-title">${this._escapeHtml(title)}</span>
+			<button class="sg-preview-text-btn sg-preview-refresh-btn" title="Refresh">&#8635;</button>
 			<button class="sg-preview-text-btn sg-preview-dl-btn" title="Download">⬇</button>
+			<button class="sg-preview-text-btn sg-preview-send-chat-btn" title="Send to Chat">💬</button>
 			<button class="sg-preview-text-btn sg-preview-media-close-btn" title="Collapse">▲</button>`;
 
 		const media = document.createElement(isVideo ? 'video' : 'audio');
@@ -2316,8 +2379,12 @@ class SchemaGraphApp {
 		header.querySelector('.sg-preview-media-close-btn')
 			?.addEventListener('click', () => this._togglePreviewExpanded(node));
 		header.addEventListener('dblclick', () => this._togglePreviewExpanded(node));
+		header.querySelector('.sg-preview-refresh-btn')
+			?.addEventListener('click', (e) => { e.stopPropagation(); this._refreshPreview(node); });
 		header.querySelector('.sg-preview-dl-btn')
 			?.addEventListener('click', (e) => { e.stopPropagation(); this._triggerPreviewDownload(node, data); });
+		header.querySelector('.sg-preview-send-chat-btn')
+			?.addEventListener('click', (e) => { e.stopPropagation(); this._sendPreviewToChat(node, data); });
 
 		this._updatePreviewMediaOverlayPosition(node, wrapper);
 
@@ -6015,6 +6082,14 @@ class SchemaGraphApp {
 			if (this.isLocked) return;
 			const rect = canvas.getBoundingClientRect();
 			const [wx, wy] = this.screenToWorld((e.clientX - rect.left) / rect.width * canvas.width, (e.clientY - rect.top) / rect.height * canvas.height);
+
+			// Accept chat drags (previews or text messages)
+			if (e.dataTransfer.types.includes('text/x-sg-chat-preview') || e.dataTransfer.types.includes('text/x-sg-chat-message')) {
+				e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
+				if (!this._canvasDropHighlight) { this._canvasDropHighlight = true; this.draw(); }
+				return;
+			}
+
 			const node = this._findDropTargetNode(wx, wy);
 			if (node && node._dropZone?.enabled) {
 				e.preventDefault(); e.stopImmediatePropagation(); e.dataTransfer.dropEffect = 'copy';
@@ -6043,6 +6118,27 @@ class SchemaGraphApp {
 			const rect = canvas.getBoundingClientRect();
 			const [wx, wy] = this.screenToWorld((e.clientX - rect.left) / rect.width * canvas.width, (e.clientY - rect.top) / rect.height * canvas.height);
 			const node = this._findDropTargetNode(wx, wy);
+
+			// Chat preview drop (drag from chat overlay to canvas)
+			const chatPreviewData = e.dataTransfer.getData('text/x-sg-chat-preview');
+			if (chatPreviewData) {
+				e.preventDefault(); e.stopImmediatePropagation();
+				try {
+					const info = JSON.parse(chatPreviewData);
+					this._handleChatPreviewDrop(info, wx, wy);
+				} catch (err) {
+					console.error('[SchemaGraph] Chat preview drop error:', err);
+				}
+				this._activeDropNode = null; this._canvasDropHighlight = false; this.draw(); return;
+			}
+
+			// Chat message text drop (drag text/numbers from chat to canvas)
+			const chatMessageText = e.dataTransfer.getData('text/x-sg-chat-message');
+			if (chatMessageText) {
+				e.preventDefault(); e.stopImmediatePropagation();
+				this._handleChatTextDrop(chatMessageText, wx, wy);
+				this._activeDropNode = null; this._canvasDropHighlight = false; this.draw(); return;
+			}
 
 			// Node-level drop (existing behavior)
 			if (node && node._dropZone?.enabled) {
@@ -6114,6 +6210,25 @@ class SchemaGraphApp {
 	 * @param {number} wx - World X coordinate of drop location
 	 * @param {number} wy - World Y coordinate of drop location
 	 */
+	_handleChatTextDrop(text, wx, wy) {
+		// Create a text file and use the standard canvas drop pipeline
+		const blob = new Blob([text], { type: 'text/plain' });
+		const file = new File([blob], 'message.txt', { type: 'text/plain' });
+		this._handleCanvasFileDrop([file], wx, wy);
+	}
+
+	async _handleChatPreviewDrop(info, wx, wy) {
+		try {
+			const response = await fetch(info.fileUrl);
+			if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+			const blob = await response.blob();
+			const file = new File([blob], info.fileName, { type: blob.type || 'application/octet-stream' });
+			await this._handleCanvasFileDrop([file], wx, wy);
+		} catch (err) {
+			console.error('[SchemaGraph] Chat preview drop failed:', err);
+		}
+	}
+
 	async _handleCanvasFileDrop(files, wx, wy) {
 		let offsetY = 0;
 		for (const file of files) {
