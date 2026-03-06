@@ -260,15 +260,44 @@ class ChatOverlayManager {
 		}
 	}
 
-	updateMessages(node) {
+	updateMessages(node, lastOnly = false) {
 		const overlay = this.overlays.get(node.chatId);
 		if (!overlay) return;
 
 		const container = overlay.querySelector('.sg-chat-messages');
 		if (!container) return;
 
-		container.innerHTML = (node.chatMessages || []).map(msg => this._renderMessage(msg, node)).join('');
-		container.scrollTop = container.scrollHeight;
+		const scrollThreshold = 40;
+		const wasAtBottom = (container.scrollHeight - container.scrollTop - container.clientHeight) < scrollThreshold;
+
+		const messages = node.chatMessages || [];
+		const domCount = container.children.length;
+
+		if (lastOnly && messages.length > 0 && domCount === messages.length) {
+			// Incremental: only update the last message element's content
+			const lastEl = container.lastElementChild;
+			const lastMsg = messages[messages.length - 1];
+			if (lastEl && lastMsg) {
+				const contentEl = lastEl.querySelector('.sg-chat-msg-content');
+				if (contentEl) {
+					contentEl.innerHTML = this._renderContent(lastMsg.content);
+				}
+			}
+		} else if (messages.length > domCount && domCount > 0) {
+			// Append only new messages (preserves existing DOM including previews)
+			const newMessages = messages.slice(domCount);
+			const frag = document.createRange().createContextualFragment(
+				newMessages.map(msg => this._renderMessage(msg, node)).join('')
+			);
+			container.appendChild(frag);
+		} else {
+			// Full rebuild (first render, clear, or message count decreased)
+			container.innerHTML = messages.map(msg => this._renderMessage(msg, node)).join('');
+		}
+
+		if (wasAtBottom) {
+			container.scrollTop = container.scrollHeight;
+		}
 	}
 
 	updateStatus(node) {
@@ -535,9 +564,147 @@ class ChatOverlayManager {
 		html = html.replace(/`([^`]+)`/g, '<code class="sg-chat-inline-code">$1</code>');
 		html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 		html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+		// Inline preview markers: <<preview:type:path>>
+		html = html.replace(/&lt;&lt;preview:(\w+):(.+?)&gt;&gt;/g, (match, type, filePath) => {
+			const baseUrl = this.app?.chatManager?._baseUrl || '';
+			const fileUrl = `${baseUrl}/file/${filePath}`;
+			const ts = Date.now(); // cache-bust for refresh
+			return this._renderPreviewEmbed(type, fileUrl, filePath, ts);
+		});
+
 		html = html.replace(/\n/g, '<br>');
 
 		return html;
+	}
+
+	_renderPreviewEmbed(type, fileUrl, filePath, ts) {
+		const fileName = filePath.split('/').pop().split('\\').pop();
+		const bustUrl = `${fileUrl}?t=${ts}`;
+		const previewId = `sgpv_${ts}_${Math.random().toString(36).slice(2, 6)}`;
+
+		switch (type) {
+			case 'image':
+				return `<div class="sg-chat-preview">
+					<div class="sg-chat-preview-header">${fileName}</div>
+					<img class="sg-chat-preview-img" src="${bustUrl}" alt="${fileName}" loading="lazy">
+				</div>`;
+
+			case 'audio':
+				return `<div class="sg-chat-preview">
+					<div class="sg-chat-preview-header">${fileName}</div>
+					<audio class="sg-chat-preview-audio" controls src="${bustUrl}"></audio>
+				</div>`;
+
+			case 'video':
+				return `<div class="sg-chat-preview">
+					<div class="sg-chat-preview-header">${fileName}</div>
+					<video class="sg-chat-preview-video" controls src="${bustUrl}"></video>
+				</div>`;
+
+			case 'model3d':
+				setTimeout(() => {
+					const canvasEl = document.getElementById(previewId);
+					if (!canvasEl || !window.ThreeViewer) return;
+					this._init3DPreview(canvasEl, bustUrl);
+				}, 0);
+				return `<div class="sg-chat-preview sg-chat-preview-3d">
+					<div class="sg-chat-preview-header">${fileName}</div>
+					<canvas id="${previewId}" class="sg-chat-preview-3d-canvas"></canvas>
+				</div>`;
+
+			case 'text':
+				// Fetch text content after render via deferred load
+				setTimeout(() => {
+					const el = document.getElementById(previewId);
+					if (!el) return;
+					fetch(bustUrl).then(r => r.text()).then(text => {
+						const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+						el.innerHTML = `<pre class="sg-chat-preview-text-content">${escaped}</pre>`;
+					}).catch(() => {
+						el.innerHTML = `<span style="color:#f44">Failed to load file</span>`;
+					});
+				}, 0);
+				return `<div class="sg-chat-preview">
+					<div class="sg-chat-preview-header">${fileName}</div>
+					<div id="${previewId}" class="sg-chat-preview-text-body">Loading...</div>
+				</div>`;
+
+			default:
+				return `<div class="sg-chat-preview">
+					<div class="sg-chat-preview-header">${fileName}</div>
+					<div class="sg-chat-preview-text-placeholder">
+						<a href="${bustUrl}" target="_blank" download="${fileName}">Download ${fileName}</a>
+					</div>
+				</div>`;
+		}
+	}
+
+	_init3DPreview(canvas, modelUrl) {
+		const { THREE, OrbitControls, GLTFLoader } = window.ThreeViewer;
+		if (!THREE) return;
+
+		const w = canvas.clientWidth || 280;
+		const h = canvas.clientHeight || 200;
+
+		const scene = new THREE.Scene();
+		scene.background = new THREE.Color(0x1a1a2e);
+
+		const camera = new THREE.PerspectiveCamera(45, w / h, 0.01, 1000);
+		camera.position.set(2, 1.5, 3);
+
+		const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+		renderer.setSize(w, h, false);
+		renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+		renderer.toneMapping = THREE.ACESFilmicToneMapping;
+
+		const controls = new OrbitControls(camera, canvas);
+		controls.enableDamping = true;
+		controls.dampingFactor = 0.1;
+
+		scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+		const dir = new THREE.DirectionalLight(0xffffff, 1.0);
+		dir.position.set(5, 10, 7);
+		scene.add(dir);
+		scene.add(new THREE.GridHelper(4, 8, 0x444466, 0x333355));
+
+		const loader = new GLTFLoader();
+		loader.load(modelUrl, (gltf) => {
+			const model = gltf.scene;
+			const box = new THREE.Box3().setFromObject(model);
+			const size = box.getSize(new THREE.Vector3());
+			const center = box.getCenter(new THREE.Vector3());
+			const maxDim = Math.max(size.x, size.y, size.z);
+			const scale = maxDim > 0 ? 2 / maxDim : 1;
+			model.scale.setScalar(scale);
+			model.position.sub(center.multiplyScalar(scale));
+			const newBox = new THREE.Box3().setFromObject(model);
+			model.position.y -= newBox.min.y;
+			scene.add(model);
+			const mc = new THREE.Box3().setFromObject(model).getCenter(new THREE.Vector3());
+			controls.target.copy(mc);
+			controls.update();
+		}, undefined, (err) => {
+			console.error('[ChatPreview3D] Load error:', err);
+		});
+
+		let animId = null;
+		const animate = () => {
+			animId = requestAnimationFrame(animate);
+			controls.update();
+			renderer.render(scene, camera);
+		};
+		animate();
+
+		// Stop render loop when canvas is removed from DOM
+		const observer = new MutationObserver(() => {
+			if (!canvas.isConnected) {
+				cancelAnimationFrame(animId);
+				renderer.dispose();
+				observer.disconnect();
+			}
+		});
+		observer.observe(canvas.parentElement || document.body, { childList: true, subtree: true });
 	}
 
 	bringToFront(chatId) {
@@ -763,7 +930,7 @@ class ChatExtension extends SchemaGraphExtension {
 				const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
 				if (node?.isChat) {
 					node.updateLastMessage(content, append);
-					self.overlayManager.updateMessages(node);
+					self.overlayManager.updateMessages(node, true);
 				}
 			},
 			clearMessages: (nodeOrId) => {
@@ -822,7 +989,7 @@ class ChatExtension extends SchemaGraphExtension {
 				const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
 				if (node?.isChat) {
 					node.updateLastMessage(chunk, true);
-					self.overlayManager.updateMessages(node);
+					self.overlayManager.updateMessages(node, true);
 				}
 			},
 			endStreaming: (nodeOrId) => {
@@ -833,10 +1000,12 @@ class ChatExtension extends SchemaGraphExtension {
 				}
 			},
 
+			setBaseUrl: (url) => { self._baseUrl = url; },
 			ChatState,
 			MessageRole
 		};
 
+		this._baseUrl = '';
 		this.app.chatManager = this;
 	}
 
@@ -1134,6 +1303,92 @@ class ChatExtension extends SchemaGraphExtension {
 				border-radius: 3px;
 				margin-top: 4px;
 				white-space: pre;
+			}
+
+			/* Chat inline previews */
+			.sg-chat-preview {
+				margin: 6px 0;
+				border-radius: 6px;
+				overflow: hidden;
+				background: rgba(0,0,0,0.2);
+				border: 1px solid rgba(255,255,255,0.1);
+			}
+			.sg-chat-preview-header {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				padding: 4px 8px;
+				font-size: 10px;
+				color: rgba(255,255,255,0.5);
+				background: rgba(0,0,0,0.15);
+			}
+			.sg-chat-preview-open-btn {
+				font-size: 9px;
+				padding: 2px 6px;
+				border: 1px solid rgba(255,255,255,0.2);
+				border-radius: 3px;
+				background: rgba(255,255,255,0.1);
+				color: rgba(255,255,255,0.7);
+				cursor: pointer;
+			}
+			.sg-chat-preview-open-btn:hover {
+				background: rgba(255,255,255,0.2);
+				color: #fff;
+			}
+			.sg-chat-preview-img {
+				display: block;
+				max-width: 100%;
+				max-height: 200px;
+				object-fit: contain;
+			}
+			.sg-chat-preview-audio {
+				display: block;
+				width: 100%;
+				height: 36px;
+			}
+			.sg-chat-preview-video {
+				display: block;
+				max-width: 100%;
+				max-height: 200px;
+			}
+			.sg-chat-preview-3d-canvas {
+				display: block;
+				width: 100%;
+				height: 200px;
+				border-radius: 0 0 6px 6px;
+			}
+			.sg-chat-preview-3d-placeholder {
+				padding: 20px;
+				text-align: center;
+				font-size: 11px;
+				color: rgba(255,255,255,0.4);
+			}
+			.sg-chat-preview-text-placeholder {
+				padding: 8px;
+				font-size: 11px;
+			}
+			.sg-chat-preview-text-placeholder a {
+				color: #6db3f2;
+				text-decoration: none;
+			}
+			.sg-chat-preview-text-placeholder a:hover {
+				text-decoration: underline;
+			}
+			.sg-chat-preview-text-body {
+				padding: 6px 8px;
+				font-size: 10px;
+				color: rgba(255,255,255,0.5);
+			}
+			.sg-chat-preview-text-content {
+				margin: 0;
+				padding: 0;
+				font-size: 10px;
+				line-height: 1.4;
+				color: rgba(255,255,255,0.8);
+				white-space: pre-wrap;
+				word-wrap: break-word;
+				max-height: 200px;
+				overflow-y: auto;
 			}
 		`;
 

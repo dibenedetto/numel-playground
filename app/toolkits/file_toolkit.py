@@ -153,6 +153,45 @@ All operations are sandboxed to the root directory for safety."""
 			return "(no matches)"
 		return "\n".join(matches)
 
+	def open_preview(self, path: str) -> str:
+		"""Open a file in an inline preview within the chat. Supports text, images, audio, video, and 3D models.
+
+		Supported formats:
+		- Text: .txt, .md, .log, .csv, .json, .xml, .py, .js, .html, .css, .yaml, .yml, .toml, .ini, .cfg
+		- Images: .png, .jpg, .jpeg, .gif, .bmp, .webp, .svg
+		- Audio: .mp3, .wav, .ogg, .flac, .aac, .m4a
+		- Video: .mp4, .webm, .mov, .avi, .mkv
+		- 3D Models: .glb, .gltf, .obj, .fbx, .stl
+
+		Args:
+			path: File path relative to root.
+
+		Returns:
+			A preview marker that the chat UI renders as an inline media viewer.
+		"""
+		target = self._safe_resolve(path)
+		if not target.exists():
+			raise FileNotFoundError(f"File not found: {path}")
+		ext = target.suffix.lower()
+		preview_type = _detect_preview_type(ext)
+		abs_path = str(target).replace("\\", "/")
+		return f"<<preview:{preview_type}:{abs_path}>>"
+
+
+_PREVIEW_TYPE_MAP = {
+	".png": "image", ".jpg": "image", ".jpeg": "image", ".gif": "image", ".bmp": "image", ".webp": "image", ".svg": "image",
+	".mp3": "audio", ".wav": "audio", ".ogg": "audio", ".flac": "audio", ".aac": "audio", ".m4a": "audio",
+	".mp4": "video", ".webm": "video", ".mov": "video", ".avi": "video", ".mkv": "video",
+	".glb": "model3d", ".gltf": "model3d", ".obj": "model3d", ".fbx": "model3d", ".stl": "model3d",
+	".txt": "text", ".md": "text", ".log": "text", ".csv": "text", ".json": "text", ".xml": "text",
+	".py": "text", ".js": "text", ".html": "text", ".css": "text", ".yaml": "text", ".yml": "text",
+	".toml": "text", ".ini": "text", ".cfg": "text", ".sh": "text", ".bat": "text",
+}
+
+
+def _detect_preview_type(ext: str) -> str:
+	return _PREVIEW_TYPE_MAP.get(ext, "file")
+
 
 def _fmt_size(size: int) -> str:
 	for unit in ("B", "KB", "MB", "GB"):

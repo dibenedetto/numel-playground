@@ -11,6 +11,7 @@ import numpy as np
 from   PIL       import Image
 from   pathlib   import Path
 from   fastapi   import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, File, Form
+from   fastapi.responses import FileResponse
 from   inspect   import iscoroutinefunction
 from   pydantic  import BaseModel
 from   typing    import Any, Dict, List, Optional
@@ -130,6 +131,17 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 			"executions" : engine.get_all_execution_states(),
 		}
 		return result
+
+
+	@app.get("/file/{file_path:path}")
+	async def serve_file(file_path: str):
+		"""Serve a file from the workspace directory."""
+		import mimetypes
+		target = Path(file_path).resolve()
+		if not target.exists() or not target.is_file():
+			raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+		media_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
+		return FileResponse(str(target), media_type=media_type, filename=target.name)
 
 
 	@app.post("/ping")

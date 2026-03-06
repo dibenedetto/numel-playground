@@ -37,6 +37,41 @@ from   nodes                           import ImplementedBackend
 from   utils                           import add_middleware
 
 
+# Patch Agno's AG-UI utils: some model providers (e.g. Ollama) return None for
+# tool_call_id, which causes a Pydantic validation error in ToolCallStartEvent.
+# Generate a fallback UUID when the ID is missing.
+def _patch_agno_tool_call_id():
+	try:
+		import uuid
+		import agno.os.interfaces.agui.utils as _agui_utils
+		from agno.agent import RunEvent
+		_orig = _agui_utils._create_events_from_chunk
+		_pending_ids = []  # stack: start pushes, end pops
+		def _patched(chunk, message_id, message_started, event_buffer, **kw):
+			if hasattr(chunk, 'tool') and chunk.tool:
+				tc = chunk.tool
+				if hasattr(tc, 'tool_call_id') and tc.tool_call_id is None:
+					evt = getattr(chunk, 'event', None)
+					if evt in (RunEvent.tool_call_started,):
+						gen_id = f"tc_{uuid.uuid4().hex[:12]}"
+						tc.tool_call_id = gen_id
+						_pending_ids.append(gen_id)
+					else:
+						tc.tool_call_id = _pending_ids.pop() if _pending_ids else f"tc_{uuid.uuid4().hex[:12]}"
+			if hasattr(chunk, 'tool_calls') and chunk.tool_calls:
+				for tc in chunk.tool_calls:
+					if hasattr(tc, 'tool_call_id') and tc.tool_call_id is None:
+						gen_id = f"tc_{uuid.uuid4().hex[:12]}"
+						tc.tool_call_id = gen_id
+						_pending_ids.append(gen_id)
+			return _orig(chunk, message_id, message_started, event_buffer, **kw)
+		_agui_utils._create_events_from_chunk = _patched
+	except Exception:
+		pass
+
+_patch_agno_tool_call_id()
+
+
 def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 
 	def _get_search_type(value: str) -> SearchType:
@@ -209,10 +244,11 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		if not item_config.name:
 			raise ValueError("Agno toolkit needs name")
 		args = item_config.args or {}
+		module_name = item_config.name.replace("/", ".").replace("\\", ".")
 		try:
-			md = import_module(item_config.name)
+			md = import_module(module_name)
 		except (ImportError, ModuleNotFoundError) as e:
-			log_print(f"⚠️  Agno toolkit module not found: {item_config.name} ({e})")
+			log_print(f"⚠️  Agno toolkit module not found: {module_name} ({e})")
 			impl[index] = None
 			return
 		# Find the toolkit class: look for a class with __toolkit__ = True, or the first class with __doc__

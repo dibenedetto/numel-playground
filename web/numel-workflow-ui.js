@@ -448,6 +448,7 @@ async function connect() {
 		schemaGraph.api.generate.setBaseUrl(serverUrl);
 		schemaGraph.api.browserMedia?.setBaseUrl(serverUrl);
 		schemaGraph.api.docs?.setBaseUrl(serverUrl);
+		schemaGraph.api.chat?.setBaseUrl(serverUrl);
 
 		// Populate options panels now that schema is available
 		populateWorkflowOptionsPanel();

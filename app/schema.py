@@ -1295,6 +1295,7 @@ WorkflowNodeUnion = Union[
 	SessionManagerConfig,
 	KnowledgeManagerConfig,
 	ToolConfig,
+	ToolkitConfig,
 	AgentOptionsConfig,
 	AgentConfig,
 

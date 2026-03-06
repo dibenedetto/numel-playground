@@ -38,8 +38,15 @@ class AgentHandler {
 
 		this.onEvent?.(event);
 
-		const message = event.delta || event.error || event.tool_name || event.type || '<EMPTY>';
-		this.callbacks[event.type]?.(message);
+		const type = event.type;
+		if (type === AGUI.EventType.TOOL_CALL_START) {
+			this.callbacks[type]?.(event.toolCallName || event.type);
+		} else if (type === AGUI.EventType.TOOL_CALL_RESULT) {
+			this.callbacks[type]?.(event.toolCallName || event.toolCallId || event.type, event.content);
+		} else {
+			const message = event.delta || event.error || event.type || '<EMPTY>';
+			this.callbacks[type]?.(message);
+		}
 	}
 
 	connect(
@@ -398,16 +405,21 @@ class AgentChatManager {
 				const n = getNode();
 				if (n) api.addMessage(n, MessageRole.SYSTEM, `Tool: ${toolName}...`);
 			},
-			onToolCallResult: (toolName) => {
+			onToolCallResult: (_id, content) => {
 				const n = getNode();
 				if (!n) return;
 				const messages = n.chatMessages || [];
-				const lastSystem = [...messages].reverse().find(m =>
-					m.role === MessageRole.SYSTEM && m.content.includes(toolName)
+				const lastPending = [...messages].reverse().find(m =>
+					m.role === MessageRole.SYSTEM && m.content.startsWith('Tool:') && m.content.endsWith('...')
 				);
-				if (lastSystem) {
-					lastSystem.content = `Tool: ${toolName} done`;
-					api.updateLastMessage(n, lastSystem.content, false);
+				if (lastPending) {
+					const name = lastPending.content.slice(6, -3); // extract name from "Tool: NAME..."
+					lastPending.content = `Tool: ${name} done`;
+					api.updateLastMessage(n, lastPending.content, false);
+				}
+				// If tool result contains preview markers, add as a system message so they render inline
+				if (content && /<<preview:\w+:.+?>>/.test(content)) {
+					api.addMessage(n, MessageRole.SYSTEM, content);
 				}
 			},
 			onTextMessageStart: () => {
