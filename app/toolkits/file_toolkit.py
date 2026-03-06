@@ -2,9 +2,9 @@
 
 import stat
 
+
 from   datetime import datetime
 from   pathlib  import Path
-from   typing   import Any
 
 
 class FileToolkit:
@@ -63,25 +63,29 @@ All operations are sandboxed to the root directory for safety."""
 		return "\n".join(lines)
 
 	def read_file(self, path: str) -> str:
-		"""Read and return the contents of a text file.
+		"""Read and return the contents of a file.
 
 		Args:
 			path: File path relative to root.
 
 		Returns:
-			The full text contents of the file.
+			The full contents of the file.
 		"""
 		target = self._safe_resolve(path)
 		if not target.exists():
 			raise FileNotFoundError(f"File not found: {path}")
-		return target.read_text(encoding="utf-8")
+		if _is_text_file(target):
+			return target.read_text(encoding="utf-8")
+		with open(target, mode="rb") as file:
+			raw = file.read()
+		return raw
 
 	def write_file(self, path: str, content: str) -> str:
-		"""Write text content to a file, creating parent directories if needed.
+		"""Write content to a file, creating parent directories if needed.
 
 		Args:
 			path: File path relative to root.
-			content: The text content to write.
+			content: The content to write.
 
 		Returns:
 			Confirmation message with the number of bytes written.
@@ -89,7 +93,11 @@ All operations are sandboxed to the root directory for safety."""
 		target = self._safe_resolve(path)
 		self._safe_resolve(str(target.parent.relative_to(Path(self._root))))
 		target.parent.mkdir(parents=True, exist_ok=True)
-		n = target.write_text(str(content), encoding="utf-8")
+		if _is_text_file(target):
+			n = target.write_text(str(content), encoding="utf-8")
+		else:
+			with open(target, mode="wb") as file:
+				n = file.write(content)
 		return f"Wrote {n} bytes to {path}"
 
 	def file_info(self, path: str) -> str:
@@ -152,3 +160,8 @@ def _fmt_size(size: int) -> str:
 			return f"{size:.0f} {unit}" if unit == "B" else f"{size:.1f} {unit}"
 		size /= 1024
 	return f"{size:.1f} TB"
+
+
+def _is_text_file(path: Path) -> bool:
+	"""Heuristic check if a file is likely text based on extension."""
+	return path.suffix.lower() in {".txt", ".md", ".log", ".csv", ".json", ".xml"}
