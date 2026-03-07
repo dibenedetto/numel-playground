@@ -91,6 +91,7 @@ class SchemaGraphApp {
 		this.isLocked = false;
 		this.lockReason = null;
 		this.lockPending = false;
+		this.lockMovement = false;
 
 		this._hiddenFieldNames = [];
 
@@ -224,9 +225,10 @@ class SchemaGraphApp {
 	}
 
 	// === LOCK METHODS ===
-	lock(reason = 'Graph locked', pending = true) {
+	lock(reason = 'Graph locked', pending = true, { lockMovement = false } = {}) {
 		this.lockReason = reason;
 		this.lockPending = pending;
+		this.lockMovement = lockMovement;
 		if (!this.isLocked) {
 			this.isLocked = true;
 			this.connecting = null;
@@ -252,6 +254,7 @@ class SchemaGraphApp {
 		this.isLocked = false;
 		this.lockReason = null;
 		this.lockPending = false;
+		this.lockMovement = false;
 		document.getElementById('sg-lockOverlay')?.classList.remove('show', 'pending');
 		this.canvas.classList.remove('sg-locked');
 		this.eventBus.emit('graph:unlocked', {});
@@ -3239,7 +3242,7 @@ class SchemaGraphApp {
 			return;
 		}
 
-		if (this.dragNode && !this.connecting) {
+		if (this.dragNode && !this.connecting && !this.lockMovement) {
 			const [wx, wy] = this.screenToWorld(data.coords.screenX, data.coords.screenY);
 			const dx = wx - this.dragOffset[0] - this.dragNode.pos[0];
 			const dy = wy - this.dragOffset[1] - this.dragNode.pos[1];
@@ -9398,7 +9401,7 @@ class SchemaGraphApp {
 		const self = this;
 		return {
 			lock: {
-				lock: (r, p) => self.lock(r, p),
+				lock: (r, p, opts) => self.lock(r, p, opts),
 				unlock: () => self.unlock(),
 				isLocked: () => self.isLocked,
 				getReason: () => self.lockReason

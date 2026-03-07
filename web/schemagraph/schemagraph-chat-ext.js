@@ -404,6 +404,9 @@ class ChatOverlayManager {
 				if (contentEl) {
 					contentEl.innerHTML = this._renderContent(lastMsg.content);
 				}
+				// Keep drag data in sync with streamed content
+				const rawText = (lastMsg.content || '').replace(/<<preview:\w+:.+?>>/g, '').replace(/<<file_content:.+?>>\n?/g, '').trim();
+				lastEl.dataset.msgText = rawText;
 			}
 		} else if (messages.length > domCount && domCount > 0) {
 			// Append only new messages (preserves existing DOM including previews)
