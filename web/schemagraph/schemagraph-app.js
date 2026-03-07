@@ -2334,20 +2334,23 @@ class SchemaGraphApp {
 		a.remove();
 	}
 
-	_refreshPreview(node) {
+	async _refreshPreview(node) {
 		if (!node?.extra) return;
+
+		// Re-read file from disk if a FileSystemFileHandle is available
+		await this._reloadFromFileHandle(node);
+
 		const wasExpanded = node.extra.previewExpanded;
+		const savedSize = node.size ? [...node.size] : null;
 
 		// Close existing overlays (these set previewExpanded=false internally)
 		this._closePreviewTextOverlay(node);
 		this._closePreviewMediaOverlay(node);
 		this._closePreviewImageActions(node);
 
-		// Restore expanded state so _recalculatePreviewNodeSize preserves size
+		// Restore expanded state and preserve current node size
 		node.extra.previewExpanded = wasExpanded;
-
-		// Re-read preview data and re-create overlays
-		this._recalculatePreviewNodeSize(node);
+		if (savedSize) node.size = savedSize;
 		this.draw();
 
 		if (wasExpanded) {
@@ -2364,6 +2367,54 @@ class SchemaGraphApp {
 		}
 
 		this.eventBus.emit('preview:refreshed', { nodeId: node.id });
+	}
+
+	/**
+	 * Re-read file from disk using stored FileSystemFileHandle.
+	 * Checks the node itself and its upstream source nodes for a handle.
+	 */
+	async _reloadFromFileHandle(node) {
+		// Find the node that holds the file data (could be upstream source)
+		const dataNode = this._findUpstreamFileNode(node) || (node.extra?._fileHandle ? node : null);
+		if (!dataNode?.extra?._fileHandle) return;
+		try {
+			const handle = dataNode.extra._fileHandle;
+			const file = await handle.getFile();
+			const isText = file.type.startsWith('text/') || file.type === 'application/json';
+			const result = await new Promise((resolve, reject) => {
+				const reader = new FileReader();
+				reader.onload = () => resolve(reader.result);
+				reader.onerror = () => reject(reader.error);
+				if (isText) reader.readAsText(file);
+				else reader.readAsDataURL(file);
+			});
+			dataNode.extra.fileData = result;
+			dataNode.extra.fileSize = file.size;
+		} catch (err) {
+			console.warn('[SchemaGraph] Failed to re-read file from disk:', err);
+		}
+	}
+
+	/**
+	 * Walk upstream from a preview node to find the source node with file data.
+	 */
+	_findUpstreamFileNode(node, visited = new Set()) {
+		if (visited.has(node.id)) return null;
+		visited.add(node.id);
+		if (node.extra?._fileHandle) return node;
+		// Check input connections
+		for (let i = 0; i < (node.inputs?.length || 0); i++) {
+			const link = node.inputs[i]?.link;
+			if (!link) continue;
+			const linkObj = this.graph.links[link];
+			if (!linkObj) continue;
+			const sourceNode = this.graph.getNodeById(linkObj.origin_id);
+			if (sourceNode) {
+				const found = this._findUpstreamFileNode(sourceNode, visited);
+				if (found) return found;
+			}
+		}
+		return null;
 	}
 
 	_sendPreviewToChat(node, data) {
@@ -6239,10 +6290,25 @@ class SchemaGraphApp {
 			if (this._canvasDropConfig.enabled && this.api.canvasDrop.getStatus().isReady) {
 				e.preventDefault(); e.stopImmediatePropagation();
 				const files = Array.from(e.dataTransfer.files);
-				const filtered = this._filterCanvasDropFiles(files);
-				if (filtered.length > 0) {
-					this._handleCanvasFileDrop(filtered, wx, wy);
-				}
+				// Capture FileSystemFileHandles for disk re-read on refresh (Chromium only)
+				const items = Array.from(e.dataTransfer.items || []);
+				Promise.all(items.map(item =>
+					item.getAsFileSystemHandle ? item.getAsFileSystemHandle().catch(() => null) : Promise.resolve(null)
+				)).then(handles => {
+					for (let i = 0; i < files.length && i < handles.length; i++) {
+						if (handles[i]?.kind === 'file') files[i]._fileHandle = handles[i];
+					}
+					const filtered = this._filterCanvasDropFiles(files);
+					if (filtered.length > 0) {
+						this._handleCanvasFileDrop(filtered, wx, wy);
+					}
+				}).catch(() => {
+					// Fallback: no handles, proceed without re-read capability
+					const filtered = this._filterCanvasDropFiles(files);
+					if (filtered.length > 0) {
+						this._handleCanvasFileDrop(filtered, wx, wy);
+					}
+				});
 			}
 
 			this._activeDropNode = null; this._canvasDropHighlight = false; this.draw();
@@ -6500,6 +6566,8 @@ class SchemaGraphApp {
 				node.extra.fileName = file.name;
 				node.extra.mimeType = file.type;
 				node.extra.fileSize = file.size;
+				// Store FileSystemFileHandle for disk re-read on refresh
+				if (file._fileHandle) node.extra._fileHandle = file._fileHandle;
 
 				this.eventBus.emit('node:dataLoaded', {
 					nodeId: node.id,

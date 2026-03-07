@@ -294,7 +294,10 @@ class WorkflowVisualizer {
 		if (effectiveLayout) {
 			this.schemaGraph.api.layout.apply(effectiveLayout);
 		}
-		this.schemaGraph.api.view.center();
+		// Don't reset camera/zoom when syncing — preserve user's current view
+		if (!sync) {
+			this.schemaGraph.api.view.center();
+		}
 
 		// Update implicit role badges after the full graph is loaded
 		this.schemaGraph._updateImplicitRoles?.();

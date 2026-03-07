@@ -64,6 +64,14 @@ function _storePreviewData(data) {
 function _getPreviewData(id) {
 	return _previewDataCache.get(id);
 }
+// Store FileSystemFileHandles keyed by cache ID for disk re-read on refresh
+const _previewHandleCache = new Map();
+function _storePreviewHandle(cacheId, handle) {
+	if (handle) _previewHandleCache.set(cacheId, handle);
+}
+function _getPreviewHandle(cacheId) {
+	return _previewHandleCache.get(cacheId);
+}
 
 // ========================================================================
 // Chat Node Mixin
@@ -415,7 +423,19 @@ class ChatOverlayManager {
 			// Drop external files
 			if (e.dataTransfer.files?.length) {
 				e.preventDefault();
-				this._handleFileDropOnChat(currentNode, Array.from(e.dataTransfer.files));
+				const files = Array.from(e.dataTransfer.files);
+				// Capture FileSystemFileHandles for disk re-read on refresh (Chromium only)
+				const items = Array.from(e.dataTransfer.items || []);
+				Promise.all(items.map(item =>
+					item.getAsFileSystemHandle ? item.getAsFileSystemHandle().catch(() => null) : Promise.resolve(null)
+				)).then(handles => {
+					for (let i = 0; i < files.length && i < handles.length; i++) {
+						if (handles[i]?.kind === 'file') files[i]._fileHandle = handles[i];
+					}
+					this._handleFileDropOnChat(currentNode, files);
+				}).catch(() => {
+					this._handleFileDropOnChat(currentNode, files);
+				});
 			}
 		}, sig);
 	}
@@ -820,12 +840,32 @@ class ChatOverlayManager {
 			case 'model3d': {
 				// Append filename hint for format detection on data URLs
 				const modelUrl = (isDataUrl && fileName) ? `${bustUrl}#${encodeURIComponent(fileName)}` : bustUrl;
+				const resetId = `${previewId}_reset`;
 				setTimeout(() => {
 					const canvasEl = document.getElementById(previewId);
 					if (!canvasEl || !window.ThreeViewer) return;
 					this._init3DPreview(canvasEl, modelUrl);
+					const resetBtn = document.getElementById(resetId);
+					if (resetBtn) {
+						resetBtn.addEventListener('click', (ev) => {
+							ev.stopPropagation();
+							const ctx = canvasEl._sg3dCtx;
+							if (!ctx) return;
+							if (ctx.initialCameraPos) {
+								ctx.camera.position.copy(ctx.initialCameraPos);
+								ctx.controls.target.copy(ctx.initialTarget);
+							} else {
+								ctx.camera.position.set(2, 1.5, 3);
+								ctx.controls.target.set(0, 0, 0);
+							}
+							ctx.controls.update();
+						});
+					}
 				}, 0);
-				body = `<canvas id="${previewId}" class="sg-chat-preview-3d-canvas"></canvas>`;
+				body = `<div class="sg-chat-preview-3d-wrapper">`
+					+ `<canvas id="${previewId}" class="sg-chat-preview-3d-canvas"></canvas>`
+					+ `<button id="${resetId}" class="sg-chat-preview-3d-reset-btn" title="Reset camera">Reset</button>`
+					+ `</div>`;
 				break;
 			}
 			case 'text':
@@ -863,6 +903,15 @@ class ChatOverlayManager {
 	_init3DPreview(canvas, modelUrl) {
 		const { THREE, OrbitControls, GLTFLoader, PLYLoader, OBJLoader, STLLoader, FBXLoader } = window.ThreeViewer;
 		if (!THREE) return;
+
+		// Clean up previous context on this canvas (e.g. on refresh)
+		const prev = canvas._sg3dCtx;
+		if (prev) {
+			if (prev.animId != null) cancelAnimationFrame(prev.animId);
+			prev.renderer?.dispose();
+			prev.observer?.disconnect();
+			canvas._sg3dCtx = null;
+		}
 
 		const w = canvas.clientWidth || 280;
 		const h = canvas.clientHeight || 200;
@@ -908,6 +957,14 @@ class ChatOverlayManager {
 				if (hintFallback) ext = hintFallback[1].toLowerCase();
 			}
 		}
+		// Last resort: sniff content from data URL prefix
+		if (!ext && modelUrl.startsWith('data:')) {
+			ext = this._sniff3DFormat(modelUrl) || '';
+		}
+
+		// Store context on canvas element for reset button and cleanup on refresh
+		const ctx = { camera, controls, renderer, initialCameraPos: null, initialTarget: null, animId: null, observer: null };
+		canvas._sg3dCtx = ctx;
 
 		const _addModel = (model) => {
 			const box = new THREE.Box3().setFromObject(model);
@@ -923,6 +980,9 @@ class ChatOverlayManager {
 			const mc = new THREE.Box3().setFromObject(model).getCenter(new THREE.Vector3());
 			controls.target.copy(mc);
 			controls.update();
+			// Store initial camera state for reset
+			ctx.initialCameraPos = camera.position.clone();
+			ctx.initialTarget = mc.clone();
 		};
 
 		const onError = (err) => { console.error('[ChatPreview3D] Load error:', err); };
@@ -936,7 +996,25 @@ class ChatOverlayManager {
 		// Strip fragment hint before passing to loader
 		const loadUrl = modelUrl.replace(/#.*$/, '');
 
-		if (ext === 'ply' && PLYLoader) {
+		if (ext === 'mesh_dict') {
+			// JSON mesh dictionary — decode from data URL and build geometry
+			try {
+				const commaIdx = loadUrl.indexOf(',');
+				const isB64 = loadUrl.slice(0, commaIdx).includes(';base64');
+				const payload = loadUrl.slice(commaIdx + 1);
+				const dict = JSON.parse(isB64 ? atob(payload) : decodeURIComponent(payload));
+				const geometry = this._buildMeshFromDict(dict, THREE);
+				if (geometry) {
+					const hasColors = geometry.hasAttribute('color');
+					const material = new THREE.MeshStandardMaterial({
+						color: hasColors ? 0xffffff : 0x8899aa,
+						vertexColors: hasColors,
+						flatShading: !dict.normals && !dict.vertex_normals,
+					});
+					_addModel(new THREE.Mesh(geometry, material));
+				} else { onError(new Error('Invalid mesh dictionary')); }
+			} catch (e) { onError(e); }
+		} else if (ext === 'ply' && PLYLoader) {
 			new PLYLoader().load(loadUrl, onLoadGeometry, undefined, onError);
 		} else if (ext === 'stl' && STLLoader) {
 			new STLLoader().load(loadUrl, onLoadGeometry, undefined, onError);
@@ -948,23 +1026,98 @@ class ChatOverlayManager {
 			new GLTFLoader().load(loadUrl, (gltf) => _addModel(gltf.scene), undefined, onError);
 		}
 
-		let animId = null;
 		const animate = () => {
-			animId = requestAnimationFrame(animate);
+			ctx.animId = requestAnimationFrame(animate);
 			controls.update();
 			renderer.render(scene, camera);
 		};
 		animate();
 
 		// Stop render loop when canvas is removed from DOM
-		const observer = new MutationObserver(() => {
+		ctx.observer = new MutationObserver(() => {
 			if (!canvas.isConnected) {
-				cancelAnimationFrame(animId);
+				cancelAnimationFrame(ctx.animId);
 				renderer.dispose();
-				observer.disconnect();
+				ctx.observer.disconnect();
+				canvas._sg3dCtx = null;
 			}
 		});
-		observer.observe(canvas.parentElement || document.body, { childList: true, subtree: true });
+		ctx.observer.observe(canvas.parentElement || document.body, { childList: true, subtree: true });
+	}
+
+	/** Sniff 3D model format from a data URL by decoding a small prefix. */
+	_sniff3DFormat(dataUrl) {
+		try {
+			const commaIdx = dataUrl.indexOf(',');
+			if (commaIdx < 0) return null;
+			const isBase64 = dataUrl.slice(0, commaIdx).includes(';base64');
+			const payload = dataUrl.slice(commaIdx + 1);
+			let header;
+			if (isBase64) {
+				// Decode just the first 24 bytes (32 base64 chars)
+				header = atob(payload.slice(0, 32));
+			} else {
+				header = decodeURIComponent(payload.slice(0, 40));
+			}
+			if (header.startsWith('ply\n') || header.startsWith('ply\r')) return 'ply';
+			if (header.startsWith('solid ')) return 'stl';
+			if (header.startsWith('glTF')) return 'glb';
+			if (header.startsWith('Kaydara FBX')) return 'fbx';
+			// OBJ: look for lines starting with v/f/vn
+			if (/^(v |vn |vt |f |# )/.test(header)) return 'obj';
+			// JSON mesh dict: {"vertices":... or {"points":...
+			const trimmed = header.trimStart();
+			if (trimmed.startsWith('{') && /["'](vertices|points|positions)["']/.test(trimmed)) return 'mesh_dict';
+		} catch (_) {}
+		return null;
+	}
+
+	/**
+	 * Build a Three.js BufferGeometry from a mesh dictionary.
+	 * Accepts: { vertices|points|positions: [[x,y,z],...], faces|triangles: [[i,j,k],...],
+	 *            normals?: [...], colors?: [...], uvs?: [...] }
+	 * Flat arrays (e.g. vertices: [x,y,z,x,y,z,...]) are also supported.
+	 */
+	_buildMeshFromDict(dict, THREE) {
+		const geometry = new THREE.BufferGeometry();
+
+		const rawVerts = dict.vertices || dict.points || dict.positions;
+		if (!rawVerts || !rawVerts.length) return null;
+
+		const flatVerts = Array.isArray(rawVerts[0]) ? rawVerts.flat() : rawVerts;
+		geometry.setAttribute('position', new THREE.Float32BufferAttribute(flatVerts, 3));
+
+		const rawFaces = dict.faces || dict.triangles || dict.indices;
+		if (rawFaces && rawFaces.length) {
+			const flatFaces = Array.isArray(rawFaces[0]) ? rawFaces.flat() : rawFaces;
+			geometry.setIndex(Array.from(flatFaces));
+		}
+
+		const rawNormals = dict.normals || dict.vertex_normals;
+		if (rawNormals && rawNormals.length) {
+			const flatNormals = Array.isArray(rawNormals[0]) ? rawNormals.flat() : rawNormals;
+			geometry.setAttribute('normal', new THREE.Float32BufferAttribute(flatNormals, 3));
+		} else {
+			geometry.computeVertexNormals();
+		}
+
+		const rawColors = dict.colors || dict.vertex_colors;
+		if (rawColors && rawColors.length) {
+			const flatColors = Array.isArray(rawColors[0]) ? rawColors.flat() : rawColors;
+			const maxVal = flatColors.reduce((m, v) => Math.max(m, v), 0);
+			const scale = maxVal > 1 ? 1 / 255 : 1;
+			const itemSize = Array.isArray(rawColors[0]) ? rawColors[0].length : (flatColors.length / (flatVerts.length / 3));
+			const scaledColors = scale === 1 ? flatColors : flatColors.map(c => c * scale);
+			geometry.setAttribute('color', new THREE.Float32BufferAttribute(scaledColors, itemSize >= 4 ? 4 : 3));
+		}
+
+		const rawUVs = dict.uvs || dict.uv || dict.texcoords;
+		if (rawUVs && rawUVs.length) {
+			const flatUVs = Array.isArray(rawUVs[0]) ? rawUVs.flat() : rawUVs;
+			geometry.setAttribute('uv', new THREE.Float32BufferAttribute(flatUVs, 2));
+		}
+
+		return geometry;
 	}
 
 	async _openFileOnGraph(fileUrl, fileName) {
@@ -987,14 +1140,35 @@ class ChatOverlayManager {
 		await this._openFileOnGraph(fileUrl, fileName);
 	}
 
-	_refreshChatPreview(btn) {
+	async _refreshChatPreview(btn) {
 		const previewEl = btn.closest('.sg-chat-preview');
 		if (!previewEl) return;
 
+		const cacheId = btn.dataset.cacheId;
 		let fileUrl = btn.dataset.fileUrl;
+		// Re-read from disk via FileSystemFileHandle if available
+		const fileHandle = cacheId ? _getPreviewHandle(cacheId) : null;
+		if (fileHandle) {
+			try {
+				const file = await fileHandle.getFile();
+				const isText = file.type.startsWith('text/') || file.type === 'application/json';
+				const freshData = await new Promise((resolve, reject) => {
+					const reader = new FileReader();
+					reader.onload = () => resolve(reader.result);
+					reader.onerror = () => reject(reader.error);
+					if (isText) reader.readAsText(file);
+					else reader.readAsDataURL(file);
+				});
+				// Update the cache with fresh data
+				_previewDataCache.set(cacheId, freshData);
+				fileUrl = freshData;
+			} catch (err) {
+				console.warn('[ChatPreview] Failed to re-read file from disk:', err);
+			}
+		}
 		// Resolve cached data URL if needed
-		if (!fileUrl && btn.dataset.cacheId) {
-			fileUrl = _getPreviewData(btn.dataset.cacheId) || '';
+		if (!fileUrl && cacheId) {
+			fileUrl = _getPreviewData(cacheId) || '';
 		}
 		const fileName = btn.dataset.fileName;
 		const type = btn.dataset.previewType;
@@ -1036,7 +1210,9 @@ class ChatOverlayManager {
 			case 'model3d': {
 				const canvas = previewEl.querySelector('.sg-chat-preview-3d-canvas');
 				if (canvas && window.ThreeViewer) {
-					this._init3DPreview(canvas, bustUrl);
+					// Append filename hint for format detection (same as initial render)
+					const modelUrl = (isDataUrl && fileName) ? `${bustUrl}#${encodeURIComponent(fileName)}` : bustUrl;
+					this._init3DPreview(canvas, modelUrl);
 				}
 				break;
 			}
@@ -1056,17 +1232,26 @@ class ChatOverlayManager {
 			const marker = `<<preview:${type}:${info.fileUrl}>>`;
 			this.app.api.chat?.addMessage(node, MessageRole.SYSTEM, marker);
 		} else if (info.fileData != null && info.fileName) {
-			const dataStr = typeof info.fileData === 'string' ? info.fileData : JSON.stringify(info.fileData, null, 2);
+			let dataStr = typeof info.fileData === 'string' ? info.fileData : JSON.stringify(info.fileData, null, 2);
 
-			// Text-type previews: use file_content marker (raw text, not a data URL)
-			const textTypes = ['text', 'json', 'dict', 'list', 'integer', 'float', 'boolean'];
-			if (textTypes.includes(type) || !dataStr.startsWith('data:')) {
-				const marker = `<<file_content:${info.fileName}>>\n${dataStr}`;
-				this.app.api.chat?.addMessage(node, MessageRole.SYSTEM, marker);
-			} else {
-				// Binary preview types (image, model3d, audio, video): cache data URL
+			// Binary preview types need data URLs — convert non-data-URL values
+			const binaryTypes = ['image', 'model3d', 'audio', 'video'];
+			if (binaryTypes.includes(type) && !dataStr.startsWith('data:')) {
+				// Encode raw content (e.g. mesh dict JSON) as a data URL
+				const bytes = new TextEncoder().encode(dataStr);
+				let bin = '';
+				for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+				dataStr = `data:application/json;base64,${btoa(bin)}`;
+			}
+
+			if (dataStr.startsWith('data:')) {
+				// Cache data URL and create preview marker
 				const cacheId = _storePreviewData(dataStr);
 				const marker = `<<preview:${type}:cached:${cacheId}:${info.fileName}>>`;
+				this.app.api.chat?.addMessage(node, MessageRole.SYSTEM, marker);
+			} else {
+				// Text-type previews: use file_content marker
+				const marker = `<<file_content:${info.fileName}>>\n${dataStr}`;
 				this.app.api.chat?.addMessage(node, MessageRole.SYSTEM, marker);
 			}
 		}
@@ -1102,6 +1287,7 @@ class ChatOverlayManager {
 			});
 			if (dataUrl) {
 				const cacheId = _storePreviewData(dataUrl);
+				if (file._fileHandle) _storePreviewHandle(cacheId, file._fileHandle);
 				const marker = `<<preview:${type}:cached:${cacheId}:${file.name}>>`;
 				this.app.api.chat?.addMessage(node, MessageRole.SYSTEM, marker);
 			}
@@ -1919,11 +2105,32 @@ class ChatExtension extends SchemaGraphExtension {
 				max-width: 100%;
 				max-height: 200px;
 			}
+			.sg-chat-preview-3d-wrapper {
+				position: relative;
+			}
 			.sg-chat-preview-3d-canvas {
 				display: block;
 				width: 100%;
 				height: 200px;
 				border-radius: 0 0 6px 6px;
+			}
+			.sg-chat-preview-3d-reset-btn {
+				position: absolute;
+				bottom: 6px;
+				right: 6px;
+				padding: 2px 8px;
+				font-size: 10px;
+				line-height: 1.4;
+				background: rgba(0,0,0,0.5);
+				color: rgba(255,255,255,0.7);
+				border: 1px solid rgba(255,255,255,0.2);
+				border-radius: 3px;
+				cursor: pointer;
+				z-index: 1;
+			}
+			.sg-chat-preview-3d-reset-btn:hover {
+				background: rgba(0,0,0,0.7);
+				color: #fff;
 			}
 			.sg-chat-preview-3d-placeholder {
 				padding: 20px;

@@ -170,9 +170,14 @@ class Model3DOverlayManager {
 			const fnMatch = node.extra.fileName.match(/\.(\w+)$/i);
 			if (fnMatch) ext = fnMatch[1].toLowerCase();
 		}
+		// Last resort: sniff content from data URL prefix
+		if (!ext && typeof value === 'string' && value.startsWith('data:')) {
+			ext = this._sniff3DFormat(value) || '';
+		}
 
+		const isMeshDict = ext === 'mesh_dict';
 		// Returns true if loader result is a scene (GLTF/FBX), false if geometry (PLY/STL/OBJ)
-		const isGltf = !ext || ext === 'glb' || ext === 'gltf';
+		const isGltf = !isMeshDict && (!ext || ext === 'glb' || ext === 'gltf');
 		const isFbx = ext === 'fbx';
 		const isObj = ext === 'obj';
 		const isPly = ext === 'ply';
@@ -231,7 +236,35 @@ class Model3DOverlayManager {
 		else if (isFbx && FBXLoader) { loader = new FBXLoader(); onLoad = onLoadFbx; }
 		else                         { loader = new GLTFLoader(); onLoad = onLoadGltf; }
 
-		if (typeof value === 'string') {
+		// Mesh dict: value is an object with vertices/faces keys, or a data URL containing JSON
+		if (isMeshDict) {
+			try {
+				let dict = value;
+				if (typeof value === 'string') {
+					// May be a JSON string or data URL containing JSON
+					if (value.startsWith('data:')) {
+						const commaIdx = value.indexOf(',');
+						const isB64 = value.slice(0, commaIdx).includes(';base64');
+						const payload = value.slice(commaIdx + 1);
+						dict = JSON.parse(isB64 ? atob(payload) : decodeURIComponent(payload));
+					} else {
+						dict = JSON.parse(value);
+					}
+				}
+				const geometry = this._buildMeshFromDict(dict, THREE);
+				if (geometry) {
+					const hasColors = geometry.hasAttribute('color');
+					const material = new THREE.MeshStandardMaterial({
+						color: hasColors ? 0xffffff : 0x8899aa,
+						vertexColors: hasColors,
+						flatShading: !dict.normals && !dict.vertex_normals,
+					});
+					_addModel(new THREE.Mesh(geometry, material));
+				} else {
+					onError(new Error('Invalid mesh dictionary'));
+				}
+			} catch (e) { onError(e); }
+		} else if (typeof value === 'string') {
 			if (value.startsWith('data:')) {
 				// Data URL — convert to ArrayBuffer
 				try {
@@ -254,6 +287,22 @@ class Model3DOverlayManager {
 		} else if (value instanceof ArrayBuffer) {
 			if (isGltf) loader.parse(value, '', onLoad, onError);
 			else onLoad(loader.parse(value));
+		} else if (typeof value === 'object' && (value.vertices || value.points || value.positions)) {
+			// Plain object mesh dict (no format detection needed)
+			try {
+				const geometry = this._buildMeshFromDict(value, THREE);
+				if (geometry) {
+					const hasColors = geometry.hasAttribute('color');
+					const material = new THREE.MeshStandardMaterial({
+						color: hasColors ? 0xffffff : 0x8899aa,
+						vertexColors: hasColors,
+						flatShading: !value.normals && !value.vertex_normals,
+					});
+					_addModel(new THREE.Mesh(geometry, material));
+				} else {
+					onError(new Error('Invalid mesh dictionary'));
+				}
+			} catch (e) { onError(e); }
 		} else {
 			if (statusText) statusText.textContent = 'Unsupported format';
 			this._addPlaceholderCube(ctx.scene);
@@ -304,6 +353,85 @@ class Model3DOverlayManager {
 			ctx.controls.target.set(0, 0, 0);
 		}
 		ctx.controls.update();
+	}
+
+	/** Sniff 3D model format from a data URL by decoding a small prefix. */
+	_sniff3DFormat(dataUrl) {
+		try {
+			const commaIdx = dataUrl.indexOf(',');
+			if (commaIdx < 0) return null;
+			const isBase64 = dataUrl.slice(0, commaIdx).includes(';base64');
+			const payload = dataUrl.slice(commaIdx + 1);
+			let header;
+			if (isBase64) {
+				header = atob(payload.slice(0, 32));
+			} else {
+				header = decodeURIComponent(payload.slice(0, 40));
+			}
+			if (header.startsWith('ply\n') || header.startsWith('ply\r')) return 'ply';
+			if (header.startsWith('solid ')) return 'stl';
+			if (header.startsWith('glTF')) return 'glb';
+			if (header.startsWith('Kaydara FBX')) return 'fbx';
+			if (/^(v |vn |vt |f |# )/.test(header)) return 'obj';
+			// JSON mesh dict: {"vertices":... or {"points":...
+			const trimmed = header.trimStart();
+			if (trimmed.startsWith('{') && /["'](vertices|points|positions)["']/.test(trimmed)) return 'mesh_dict';
+		} catch (_) {}
+		return null;
+	}
+
+	/**
+	 * Build a Three.js BufferGeometry from a mesh dictionary.
+	 * Accepts: { vertices|points|positions: [[x,y,z],...], faces|triangles: [[i,j,k],...],
+	 *            normals?: [...], colors?: [...], uvs?: [...] }
+	 * Flat arrays (e.g. vertices: [x,y,z,x,y,z,...]) are also supported.
+	 */
+	_buildMeshFromDict(dict, THREE) {
+		const geometry = new THREE.BufferGeometry();
+
+		// Resolve vertex data (accept multiple key names)
+		const rawVerts = dict.vertices || dict.points || dict.positions;
+		if (!rawVerts || !rawVerts.length) return null;
+
+		// Normalise to flat Float32Array
+		const flatVerts = Array.isArray(rawVerts[0]) ? rawVerts.flat() : rawVerts;
+		geometry.setAttribute('position', new THREE.Float32BufferAttribute(flatVerts, 3));
+
+		// Faces / indices
+		const rawFaces = dict.faces || dict.triangles || dict.indices;
+		if (rawFaces && rawFaces.length) {
+			const flatFaces = Array.isArray(rawFaces[0]) ? rawFaces.flat() : rawFaces;
+			geometry.setIndex(Array.from(flatFaces));
+		}
+
+		// Optional normals
+		const rawNormals = dict.normals || dict.vertex_normals;
+		if (rawNormals && rawNormals.length) {
+			const flatNormals = Array.isArray(rawNormals[0]) ? rawNormals.flat() : rawNormals;
+			geometry.setAttribute('normal', new THREE.Float32BufferAttribute(flatNormals, 3));
+		} else {
+			geometry.computeVertexNormals();
+		}
+
+		// Optional vertex colors (RGB or RGBA, 0-1 or 0-255)
+		const rawColors = dict.colors || dict.vertex_colors;
+		if (rawColors && rawColors.length) {
+			const flatColors = Array.isArray(rawColors[0]) ? rawColors.flat() : rawColors;
+			const maxVal = flatColors.reduce((m, v) => Math.max(m, v), 0);
+			const scale = maxVal > 1 ? 1 / 255 : 1;
+			const itemSize = Array.isArray(rawColors[0]) ? rawColors[0].length : (flatColors.length / (flatVerts.length / 3));
+			const scaledColors = scale === 1 ? flatColors : flatColors.map(c => c * scale);
+			geometry.setAttribute('color', new THREE.Float32BufferAttribute(scaledColors, itemSize >= 4 ? 4 : 3));
+		}
+
+		// Optional UVs
+		const rawUVs = dict.uvs || dict.uv || dict.texcoords;
+		if (rawUVs && rawUVs.length) {
+			const flatUVs = Array.isArray(rawUVs[0]) ? rawUVs.flat() : rawUVs;
+			geometry.setAttribute('uv', new THREE.Float32BufferAttribute(flatUVs, 2));
+		}
+
+		return geometry;
 	}
 
 	// ================================================================
@@ -446,6 +574,21 @@ class Model3DExtension extends SchemaGraphExtension {
 				}
 			} else {
 				this.overlayManager.removeOverlay(e.nodeId);
+			}
+		});
+
+		// Refresh: tear down and recreate 3D overlay
+		this.on('preview:refreshed', (e) => {
+			const node = this.graph.getNodeById(e.nodeId);
+			if (!node) return;
+			this.overlayManager.removeOverlay(e.nodeId);
+			if (node.extra?.previewExpanded) {
+				const previewData = this.app._getPreviewData(node);
+				if (previewData?.type === 'model3d') {
+					requestAnimationFrame(() => {
+						this.overlayManager.createOverlay(node, previewData);
+					});
+				}
 			}
 		});
 
