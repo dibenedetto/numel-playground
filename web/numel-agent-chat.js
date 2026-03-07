@@ -42,7 +42,7 @@ class AgentHandler {
 		if (type === AGUI.EventType.TOOL_CALL_START) {
 			this.callbacks[type]?.(event.toolCallName || event.type);
 		} else if (type === AGUI.EventType.TOOL_CALL_RESULT) {
-			this.callbacks[type]?.(event.toolCallName || event.toolCallId || event.type, event.content);
+			this.callbacks[type]?.(event.toolCallId, event.content);
 		} else {
 			const message = event.delta || event.error || event.type || '<EMPTY>';
 			this.callbacks[type]?.(message);
@@ -385,9 +385,18 @@ class AgentChatManager {
 
 		const getNode = () => this._findNodeByChatId(chatId);
 
+		// Track pending tool calls to render read_file results as inline previews
+		const pendingTools = {};
+
 		return {
 			onEvent: (event) => {
 				console.debug(`[AgentChat:${chatId}]`, event);
+				// Track tool call name and args across events
+				if (event.type === AGUI.EventType.TOOL_CALL_START) {
+					pendingTools[event.toolCallId] = { name: event.toolCallName, args: '' };
+				} else if (event.type === AGUI.EventType.TOOL_CALL_ARGS && pendingTools[event.toolCallId]) {
+					pendingTools[event.toolCallId].args += event.delta || '';
+				}
 			},
 			onRunStarted: () => { },
 			onRunFinished: () => {
@@ -412,6 +421,12 @@ class AgentChatManager {
 				const lastPending = [...messages].reverse().find(m =>
 					m.role === MessageRole.SYSTEM && m.content.startsWith('Tool:') && m.content.endsWith('...')
 				);
+				// Resolve tool info from tracked pending calls
+				const toolInfo = pendingTools[_id] || {};
+				const toolName = toolInfo.name || _id;
+				let toolArgs = {};
+				try { toolArgs = JSON.parse(toolInfo.args || '{}'); } catch {}
+
 				if (lastPending) {
 					const name = lastPending.content.slice(6, -3); // extract name from "Tool: NAME..."
 					lastPending.content = `Tool: ${name} done`;
@@ -420,6 +435,11 @@ class AgentChatManager {
 				// If tool result contains preview markers, add as a system message so they render inline
 				if (content && /<<preview:\w+:.+?>>/.test(content)) {
 					api.addMessage(n, MessageRole.SYSTEM, content);
+				}
+				// read_file result: show file content as inline collapsible preview
+				else if (toolName === 'read_file' && content && toolArgs.path) {
+					const fileName = toolArgs.path.split('/').pop().split('\\').pop();
+					api.addMessage(n, MessageRole.SYSTEM, `<<file_content:${fileName}>>\n${content}`);
 				}
 			},
 			onTextMessageStart: () => {

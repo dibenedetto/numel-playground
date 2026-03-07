@@ -167,6 +167,17 @@ class ChatOverlayManager {
 		this.overlays.set(chatId, overlay);
 		this.nodeRefs.set(chatId, node);
 
+		// Auto-scroll when async content (images, video) finishes loading inside messages
+		const msgContainer = overlay.querySelector('.sg-chat-messages');
+		if (msgContainer) {
+			msgContainer.addEventListener('load', () => {
+				const threshold = 80;
+				if ((msgContainer.scrollHeight - msgContainer.scrollTop - msgContainer.clientHeight) < threshold) {
+					msgContainer.scrollTop = msgContainer.scrollHeight;
+				}
+			}, true); // capture phase to catch img/video/audio load events
+		}
+
 		this._bindOverlayEvents(node, overlay);
 		this._updateOverlayPosition(node, overlay);
 
@@ -177,14 +188,20 @@ class ChatOverlayManager {
 		const input = overlay.querySelector('.sg-chat-input');
 		const sendBtn = overlay.querySelector('.sg-chat-send-btn');
 		const clearBtn = overlay.querySelector('.sg-chat-clear-btn');
+		const toggleSysBtn = overlay.querySelector('.sg-chat-toggle-sys-btn');
 
 		const newSendBtn = sendBtn?.cloneNode(true);
 		const newClearBtn = clearBtn?.cloneNode(true);
 		const newInput = input?.cloneNode(true);
+		const newToggleSysBtn = toggleSysBtn?.cloneNode(true);
 
 		sendBtn?.parentNode?.replaceChild(newSendBtn, sendBtn);
 		clearBtn?.parentNode?.replaceChild(newClearBtn, clearBtn);
 		input?.parentNode?.replaceChild(newInput, input);
+		toggleSysBtn?.parentNode?.replaceChild(newToggleSysBtn, toggleSysBtn);
+
+		// Abort previous overlay-level listeners before re-adding
+		if (overlay._chatAbort) overlay._chatAbort.abort();
 
 		this._bindOverlayEvents(node, overlay);
 	}
@@ -196,6 +213,11 @@ class ChatOverlayManager {
 		const clearBtn = overlay.querySelector('.sg-chat-clear-btn');
 
 		const getNode = () => this.nodeRefs.get(chatId);
+
+		// AbortController for overlay-level listeners (so rebind can remove them)
+		const ac = new AbortController();
+		overlay._chatAbort = ac;
+		const sig = { signal: ac.signal };
 
 		sendBtn?.addEventListener('click', () => {
 			const currentNode = getNode();
@@ -226,6 +248,15 @@ class ChatOverlayManager {
 			}
 		});
 
+		const toggleSysBtn = overlay.querySelector('.sg-chat-toggle-sys-btn');
+		toggleSysBtn?.addEventListener('click', () => {
+			const msgContainer = overlay.querySelector('.sg-chat-messages');
+			if (msgContainer) {
+				msgContainer.classList.toggle('sg-chat-hide-system');
+				toggleSysBtn.classList.toggle('sg-chat-btn-active');
+			}
+		});
+
 		overlay.addEventListener('mousedown', (e) => {
 			const currentNode = getNode();
 			if (currentNode) {
@@ -242,9 +273,9 @@ class ChatOverlayManager {
 				y > edgeThreshold && y < rect.height - edgeThreshold) {
 				e.stopPropagation();
 			}
-		});
+		}, sig);
 
-		overlay.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true });
+		overlay.addEventListener('wheel', (e) => e.stopPropagation(), { passive: true, signal: ac.signal });
 
 		// Workflow import/merge button delegation (for /gen results)
 		overlay.addEventListener('click', (e) => {
@@ -275,7 +306,7 @@ class ChatOverlayManager {
 				e.stopPropagation();
 				this._refreshChatPreview(refreshBtn);
 			}
-		});
+		}, sig);
 
 		// Drag from chat to graph canvas
 		overlay.addEventListener('dragstart', (e) => {
@@ -298,7 +329,7 @@ class ChatOverlayManager {
 				e.dataTransfer.setData('text/plain', text);
 				e.dataTransfer.effectAllowed = 'copy';
 			}
-		});
+		}, sig);
 
 		// Drop from graph onto chat (import preview into chat)
 		overlay.addEventListener('dragover', (e) => {
@@ -307,13 +338,13 @@ class ChatOverlayManager {
 				e.dataTransfer.dropEffect = 'copy';
 				overlay.classList.add('sg-chat-drop-active');
 			}
-		});
+		}, sig);
 		overlay.addEventListener('dragleave', (e) => {
 			const rect = overlay.getBoundingClientRect();
 			if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
 				overlay.classList.remove('sg-chat-drop-active');
 			}
-		});
+		}, sig);
 		overlay.addEventListener('drop', (e) => {
 			overlay.classList.remove('sg-chat-drop-active');
 			const currentNode = getNode();
@@ -337,7 +368,7 @@ class ChatOverlayManager {
 				e.preventDefault();
 				this._handleFileDropOnChat(currentNode, Array.from(e.dataTransfer.files));
 			}
-		});
+		}, sig);
 	}
 
 	getNodeByChatId(chatId) {
@@ -388,6 +419,11 @@ class ChatOverlayManager {
 
 		if (wasAtBottom) {
 			container.scrollTop = container.scrollHeight;
+			// Previews (images, fetched text, 3D) load asynchronously and add height
+			// after the initial DOM update. Re-scroll after they settle.
+			requestAnimationFrame(() => { container.scrollTop = container.scrollHeight; });
+			setTimeout(() => { container.scrollTop = container.scrollHeight; }, 150);
+			setTimeout(() => { container.scrollTop = container.scrollHeight; }, 500);
 		}
 	}
 
@@ -451,10 +487,11 @@ class ChatOverlayManager {
 					<span class="sg-chat-status-indicator"></span>
 					<span class="sg-chat-status-text">${this._getStatusText(node)}</span>
 					<div class="sg-chat-status-actions">
+						<button class="sg-chat-btn sg-chat-toggle-sys-btn" title="Show system messages">S</button>
 						<button class="sg-chat-btn sg-chat-clear-btn" title="Clear chat">&#128465;</button>
 					</div>
 				</div>
-				<div class="sg-chat-messages"></div>
+				<div class="sg-chat-messages sg-chat-hide-system"></div>
 				<div class="sg-chat-input-container">
 					<textarea
 						class="sg-chat-input"
@@ -621,11 +658,13 @@ class ChatOverlayManager {
 		}
 
 		// Escape raw content for data attribute (strip preview markers for plain text drag)
-		const rawText = (msg.content || '').replace(/<<preview:\w+:.+?>>/g, '').trim();
+		const rawText = (msg.content || '').replace(/<<preview:\w+:.+?>>/g, '').replace(/<<file_content:.+?>>\n?/g, '').trim();
 		const escapedRaw = rawText.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+		const hasPreview = /<<preview:\w+:.+?>>|<<file_content:.+?>>/.test(msg.content || '');
+		const previewClass = hasPreview ? ' sg-chat-msg-has-preview' : '';
 
 		return `
-			<div class="sg-chat-msg ${roleClass}" data-msg-id="${msg.id}" draggable="true" data-msg-text="${escapedRaw}">
+			<div class="sg-chat-msg ${roleClass}${previewClass}" data-msg-id="${msg.id}" draggable="true" data-msg-text="${escapedRaw}">
 				<div class="sg-chat-msg-header">
 					<span class="sg-chat-msg-role">${this._getRoleName(msg.role)}</span>
 					${timestamp}
@@ -673,6 +712,15 @@ class ChatOverlayManager {
 			}
 			const ts = Date.now();
 			return this._renderPreviewEmbed(type, fileUrl, raw, ts);
+		});
+
+		// Inline file content markers: <<file_content:filename>>\ncontent
+		html = html.replace(/&lt;&lt;file_content:(.+?)&gt;&gt;\n([\s\S]*)$/, (match, fileName, fileContent) => {
+			const name = fileName.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+			return `<div class="sg-chat-preview">`
+				+ `<div class="sg-chat-preview-header"><span class="sg-chat-preview-filename">${name}</span></div>`
+				+ `<div class="sg-chat-preview-text-body"><pre class="sg-chat-preview-text-content">${fileContent}</pre></div>`
+				+ `</div>`;
 		});
 
 		html = html.replace(/\n/g, '<br>');
@@ -1386,6 +1434,11 @@ class ChatExtension extends SchemaGraphExtension {
 				color: var(--sg-text-primary, #fff);
 			}
 
+			.sg-chat-btn-active {
+				background: var(--sg-accent, rgba(100, 149, 237, 0.3));
+				color: var(--sg-text-primary, #fff);
+			}
+
 			.sg-chat-messages {
 				flex: 1;
 				overflow-y: auto;
@@ -1429,6 +1482,10 @@ class ChatExtension extends SchemaGraphExtension {
 				color: var(--sg-text-tertiary, #888);
 				font-style: italic;
 				font-size: 11px;
+			}
+
+			.sg-chat-hide-system > .sg-chat-msg-system:not(.sg-chat-msg-has-preview) {
+				display: none;
 			}
 
 			.sg-chat-msg-error {

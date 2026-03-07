@@ -1282,7 +1282,8 @@ WorkflowNodeUnion = Union[
 	NativeList,
 	NativeDictionary,
 
-	# Tensor nodes
+	# Meta / Tensor nodes
+	SourceMeta,
 	DataTensor,
 
 	# Config nodes
