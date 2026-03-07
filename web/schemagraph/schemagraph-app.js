@@ -7,6 +7,33 @@
 
 console.log('[SchemaGraph] Loading app module...');
 
+/** Map MIME type → file extension for all supported preview media formats. */
+function _mimeToExt(mime) {
+	const _map = {
+		// images
+		'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp',
+		'image/gif': 'gif', 'image/bmp': 'bmp', 'image/svg+xml': 'svg',
+		// audio
+		'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/mpeg': 'mp3',
+		'audio/ogg': 'ogg', 'audio/flac': 'flac', 'audio/aac': 'aac', 'audio/mp4': 'm4a',
+		// video
+		'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov',
+		'video/x-msvideo': 'avi', 'video/x-matroska': 'mkv',
+		// 3d models
+		'model/gltf-binary': 'glb', 'model/gltf+json': 'gltf',
+		'model/obj': 'obj', 'model/stl': 'stl', 'model/ply': 'ply', 'model/fbx': 'fbx',
+		'application/octet-stream': null, // ambiguous — let caller fall back
+		// text / structured
+		'application/json': 'json', 'text/plain': 'txt',
+		'text/html': 'html', 'text/css': 'css', 'text/csv': 'csv',
+		'text/xml': 'xml', 'application/xml': 'xml',
+		'application/x-yaml': 'yaml', 'text/yaml': 'yaml',
+		'text/javascript': 'js', 'application/javascript': 'js',
+		'text/x-python': 'py',
+	};
+	return _map[mime] || null;
+}
+
 // ========================================================================
 // SCHEMA GRAPH APP CLASS
 // ========================================================================
@@ -1915,6 +1942,12 @@ class SchemaGraphApp {
 				background: var(--sg-bg-tertiary, rgba(255,255,255,0.1));
 				color: var(--sg-text-primary, #ffffff);
 			}
+			.sg-preview-send-chat-btn {
+				cursor: grab;
+			}
+			.sg-preview-send-chat-btn:active {
+				cursor: grabbing;
+			}
 			.sg-preview-text-content {
 				flex: 1;
 				overflow: auto;
@@ -2039,7 +2072,7 @@ class SchemaGraphApp {
 					<button class="sg-preview-text-btn sg-preview-refresh-btn" title="Refresh">&#8635;</button>
 					<button class="sg-preview-text-btn sg-preview-copy-btn" title="Copy to clipboard">📋</button>
 					<button class="sg-preview-text-btn sg-preview-dl-btn" title="Download">⬇</button>
-					<button class="sg-preview-text-btn sg-preview-send-chat-btn" title="Send to Chat">💬</button>
+					<span class="sg-preview-text-btn sg-preview-send-chat-btn" draggable="true" title="Drag to Chat">💬</span>
 					<button class="sg-preview-text-btn sg-preview-close-btn" title="Collapse">▲</button>
 				</div>
 			</div>
@@ -2074,9 +2107,10 @@ class SchemaGraphApp {
 		});
 
 		const chatBtn = overlay.querySelector('.sg-preview-send-chat-btn');
-		chatBtn?.addEventListener('click', (e) => {
+		chatBtn?.addEventListener('dragstart', (e) => {
 			e.stopPropagation();
-			this._sendPreviewToChat(node, previewData);
+			e.dataTransfer.setData('text/x-sg-graph-preview', JSON.stringify(this._getPreviewDragData(node, previewData)));
+			e.dataTransfer.effectAllowed = 'copy';
 		});
 
 		const refreshBtn = overlay.querySelector('.sg-preview-refresh-btn');
@@ -2201,7 +2235,7 @@ class SchemaGraphApp {
 			<span class="sg-preview-img-title">${this._escapeHtml(title)}</span>
 			<button class="sg-preview-text-btn sg-preview-refresh-btn" title="Refresh">&#8635;</button>
 			${hasDl ? '<button class="sg-preview-text-btn sg-preview-dl-btn" title="Download">⬇</button>' : ''}
-			${hasDl ? '<button class="sg-preview-text-btn sg-preview-send-chat-btn" title="Send to Chat">💬</button>' : ''}
+			${hasDl ? '<span class="sg-preview-text-btn sg-preview-send-chat-btn" draggable="true" title="Drag to Chat">💬</span>' : ''}
 			<button class="sg-preview-text-btn sg-preview-img-collapse-btn" title="Collapse">▲</button>`;
 
 		bar.querySelector('.sg-preview-refresh-btn')
@@ -2209,7 +2243,7 @@ class SchemaGraphApp {
 		bar.querySelector('.sg-preview-dl-btn')
 			?.addEventListener('click', (e) => { e.stopPropagation(); this._triggerPreviewDownload(node, data); });
 		bar.querySelector('.sg-preview-send-chat-btn')
-			?.addEventListener('click', (e) => { e.stopPropagation(); this._sendPreviewToChat(node, data); });
+			?.addEventListener('dragstart', (e) => { e.stopPropagation(); e.dataTransfer.setData('text/x-sg-graph-preview', JSON.stringify(this._getPreviewDragData(node, data))); e.dataTransfer.effectAllowed = 'copy'; });
 		bar.querySelector('.sg-preview-img-collapse-btn')
 			?.addEventListener('click', (e) => { e.stopPropagation(); this._togglePreviewExpanded(node); });
 
@@ -2273,7 +2307,7 @@ class SchemaGraphApp {
 			a.download = `${title}.${ext}`;
 		} else if (data.type === 'model3d') {
 			a.href = data.value;
-			const knownExts = ['glb','gltf','obj','fbx','stl','3ds'];
+			const knownExts = ['glb','gltf','obj','fbx','stl','ply','3ds'];
 			const fmt = (data.meta?.format || '').toLowerCase();
 			const ext3d = knownExts.includes(fmt) ? fmt : 'glb';
 			a.download = `${title}.${ext3d}`;
@@ -2304,10 +2338,13 @@ class SchemaGraphApp {
 		if (!node?.extra) return;
 		const wasExpanded = node.extra.previewExpanded;
 
-		// Close existing overlays
+		// Close existing overlays (these set previewExpanded=false internally)
 		this._closePreviewTextOverlay(node);
 		this._closePreviewMediaOverlay(node);
 		this._closePreviewImageActions(node);
+
+		// Restore expanded state so _recalculatePreviewNodeSize preserves size
+		node.extra.previewExpanded = wasExpanded;
 
 		// Re-read preview data and re-create overlays
 		this._recalculatePreviewNodeSize(node);
@@ -2341,6 +2378,42 @@ class SchemaGraphApp {
 		});
 	}
 
+	_getPreviewDragData(node, data) {
+		let fileName = node.extra?.fileName || (node.displayTitle || node.title || 'preview');
+		const previewType = data?.type || 'file';
+		// Ensure fileName has an extension matching the preview type
+		if (!fileName.includes('.')) {
+			const ext = this._inferPreviewExt(previewType, data, node);
+			fileName = `${fileName}.${ext}`;
+		}
+		// Store large data in a temp slot to avoid DataTransfer size limits
+		this._pendingPreviewDrag = {
+			fileData: data?.value || '',
+			fileName,
+			mimeType: node.extra?.mimeType || '',
+			previewType,
+		};
+		return { fileName, mimeType: node.extra?.mimeType || '', previewType, _usePending: true };
+	}
+
+	/** Infer file extension from preview metadata, MIME type, or data URL. */
+	_inferPreviewExt(previewType, data, node) {
+		// 1. meta.format (e.g. 'ply', 'obj', 'wav') — set by SourceMeta / DataTensor
+		const fmt = (data?.meta?.format || '').toLowerCase();
+		if (fmt) return fmt;
+		// 2. node.extra.mimeType or data URL MIME → extension
+		const mime = node?.extra?.mimeType
+			|| (typeof data?.value === 'string' && data.value.startsWith('data:')
+				? data.value.slice(5, data.value.indexOf(';')) : '');
+		if (mime) {
+			const ext = _mimeToExt(mime);
+			if (ext) return ext;
+		}
+		// 3. Fallback by preview type
+		const fallback = { image: 'png', model3d: 'glb', audio: 'mp3', video: 'mp4', text: 'txt', json: 'json' };
+		return fallback[previewType] || 'bin';
+	}
+
 	// ── Media preview overlays (audio / video with native browser controls) ───
 
 	_createPreviewMediaOverlay(node, data) {
@@ -2363,7 +2436,7 @@ class SchemaGraphApp {
 			<span class="sg-preview-text-title">${this._escapeHtml(title)}</span>
 			<button class="sg-preview-text-btn sg-preview-refresh-btn" title="Refresh">&#8635;</button>
 			<button class="sg-preview-text-btn sg-preview-dl-btn" title="Download">⬇</button>
-			<button class="sg-preview-text-btn sg-preview-send-chat-btn" title="Send to Chat">💬</button>
+			<span class="sg-preview-text-btn sg-preview-send-chat-btn" draggable="true" title="Drag to Chat">💬</span>
 			<button class="sg-preview-text-btn sg-preview-media-close-btn" title="Collapse">▲</button>`;
 
 		const media = document.createElement(isVideo ? 'video' : 'audio');
@@ -2387,7 +2460,7 @@ class SchemaGraphApp {
 		header.querySelector('.sg-preview-dl-btn')
 			?.addEventListener('click', (e) => { e.stopPropagation(); this._triggerPreviewDownload(node, data); });
 		header.querySelector('.sg-preview-send-chat-btn')
-			?.addEventListener('click', (e) => { e.stopPropagation(); this._sendPreviewToChat(node, data); });
+			?.addEventListener('dragstart', (e) => { e.stopPropagation(); e.dataTransfer.setData('text/x-sg-graph-preview', JSON.stringify(this._getPreviewDragData(node, data))); e.dataTransfer.effectAllowed = 'copy'; });
 
 		this._updatePreviewMediaOverlayPosition(node, wrapper);
 
@@ -6086,6 +6159,11 @@ class SchemaGraphApp {
 			const rect = canvas.getBoundingClientRect();
 			const [wx, wy] = this.screenToWorld((e.clientX - rect.left) / rect.width * canvas.width, (e.clientY - rect.top) / rect.height * canvas.height);
 
+			// Graph-to-chat drag: only accept on chat overlays, not the canvas
+			if (e.dataTransfer.types.includes('text/x-sg-graph-preview')) {
+				return;
+			}
+
 			// Accept chat drags (previews or text messages)
 			if (e.dataTransfer.types.includes('text/x-sg-chat-preview') || e.dataTransfer.types.includes('text/x-sg-chat-message')) {
 				e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
@@ -6127,7 +6205,12 @@ class SchemaGraphApp {
 			if (chatPreviewData) {
 				e.preventDefault(); e.stopImmediatePropagation();
 				try {
-					const info = JSON.parse(chatPreviewData);
+					let info = JSON.parse(chatPreviewData);
+					// Resolve pending large data from temp slot
+					if (info._usePending && this._pendingChatPreviewDrag) {
+						info = this._pendingChatPreviewDrag;
+						this._pendingChatPreviewDrag = null;
+					}
 					this._handleChatPreviewDrop(info, wx, wy);
 				} catch (err) {
 					console.error('[SchemaGraph] Chat preview drop error:', err);
@@ -6222,9 +6305,18 @@ class SchemaGraphApp {
 
 	async _handleChatPreviewDrop(info, wx, wy) {
 		try {
-			const response = await fetch(info.fileUrl);
-			if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
-			const blob = await response.blob();
+			const url = info.fileUrl;
+			if (!url) throw new Error('No file URL');
+			let blob;
+			if (url.startsWith('data:')) {
+				// Convert data URL to blob directly
+				const response = await fetch(url);
+				blob = await response.blob();
+			} else {
+				const response = await fetch(url);
+				if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
+				blob = await response.blob();
+			}
 			const file = new File([blob], info.fileName, { type: blob.type || 'application/octet-stream' });
 			await this._handleCanvasFileDrop([file], wx, wy);
 		} catch (err) {
@@ -7921,7 +8013,7 @@ class SchemaGraphApp {
 		const audioExts = ['mp3', 'wav', 'ogg', 'flac', 'aac', 'm4a'];
 		const videoExts = ['mp4', 'webm', 'mov', 'avi', 'mkv'];
 		const textExts = ['txt', 'md', 'csv', 'xml', 'html'];
-		const model3dExts = ['glb', 'gltf', 'obj', 'fbx', 'stl', '3ds'];
+		const model3dExts = ['glb', 'gltf', 'obj', 'fbx', 'stl', 'ply', '3ds'];
 
 		if (imageExts.includes(format)) return 'image';
 		if (audioExts.includes(format)) return 'audio';
@@ -7965,7 +8057,7 @@ class SchemaGraphApp {
 			if (data.startsWith('data:video/')) return 'video';
 			if (data.startsWith('data:model/')) return 'model3d';
 			// Check if it's a 3D model URL
-			if (/\.(glb|gltf)(\?|#|$)/i.test(data)) return 'model3d';
+			if (/\.(glb|gltf|obj|ply|stl|fbx)(\?|#|$)/i.test(data)) return 'model3d';
 			// Check if it's JSON
 			try {
 				const parsed = JSON.parse(data);

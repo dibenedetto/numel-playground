@@ -30,13 +30,39 @@ const _CHAT_PREVIEW_EXT_MAP = {
 	png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', bmp: 'image', webp: 'image', svg: 'image',
 	mp3: 'audio', wav: 'audio', ogg: 'audio', flac: 'audio', aac: 'audio', m4a: 'audio',
 	mp4: 'video', webm: 'video', mov: 'video', avi: 'video', mkv: 'video',
-	glb: 'model3d', gltf: 'model3d', obj: 'model3d', fbx: 'model3d', stl: 'model3d',
+	glb: 'model3d', gltf: 'model3d', obj: 'model3d', fbx: 'model3d', stl: 'model3d', ply: 'model3d',
 	txt: 'text', md: 'text', log: 'text', csv: 'text', json: 'text', xml: 'text',
 	py: 'text', js: 'text', html: 'text', css: 'text', yaml: 'text', yml: 'text',
 };
 
 function _chatPreviewTypeFromExt(ext) {
 	return _CHAT_PREVIEW_EXT_MAP[ext] || 'file';
+}
+
+/** Map MIME type → file extension for preview format detection. */
+function _mimeToExt(mime) {
+	const m = {
+		'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp',
+		'image/gif': 'gif', 'image/bmp': 'bmp', 'image/svg+xml': 'svg',
+		'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/mpeg': 'mp3',
+		'audio/ogg': 'ogg', 'audio/flac': 'flac', 'audio/aac': 'aac', 'audio/mp4': 'm4a',
+		'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov',
+		'model/gltf-binary': 'glb', 'model/gltf+json': 'gltf',
+		'model/obj': 'obj', 'model/stl': 'stl', 'model/ply': 'ply', 'model/fbx': 'fbx',
+		'application/json': 'json', 'text/plain': 'txt',
+	};
+	return m[mime] || null;
+}
+
+// Temporary cache for large preview data (data URLs) to avoid embedding in chat messages
+const _previewDataCache = new Map();
+function _storePreviewData(data) {
+	const id = `pdc_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+	_previewDataCache.set(id, data);
+	return id;
+}
+function _getPreviewData(id) {
+	return _previewDataCache.get(id);
 }
 
 // ========================================================================
@@ -298,7 +324,11 @@ class ChatOverlayManager {
 			const handle = e.target.closest('.sg-chat-preview-drag-handle');
 			if (handle) {
 				e.stopPropagation();
-				this._handleOpenOnGraph(handle.dataset.fileUrl, handle.dataset.fileName);
+				let url = handle.dataset.fileUrl;
+				if (!url && handle.dataset.cacheId) {
+					url = _getPreviewData(handle.dataset.cacheId) || '';
+				}
+				this._handleOpenOnGraph(url, handle.dataset.fileName);
 				return;
 			}
 			const refreshBtn = e.target.closest('.sg-chat-preview-refresh-btn');
@@ -313,9 +343,23 @@ class ChatOverlayManager {
 			// Preview drag handle
 			const handle = e.target.closest('.sg-chat-preview-drag-handle');
 			if (handle) {
+				const fileUrl = handle.dataset.fileUrl;
+				const cacheId = handle.dataset.cacheId;
+				const fileName = handle.dataset.fileName;
+				// For cached data URLs, store in app temp slot (DataTransfer has size limits)
+				if (cacheId) {
+					const dataUrl = _getPreviewData(cacheId);
+					if (dataUrl) {
+						this.app._pendingChatPreviewDrag = { fileUrl: dataUrl, fileName };
+						e.dataTransfer.setData('text/x-sg-chat-preview', JSON.stringify({
+							fileName, _usePending: true,
+						}));
+						e.dataTransfer.effectAllowed = 'copy';
+						return;
+					}
+				}
 				e.dataTransfer.setData('text/x-sg-chat-preview', JSON.stringify({
-					fileUrl: handle.dataset.fileUrl,
-					fileName: handle.dataset.fileName,
+					fileUrl, fileName,
 				}));
 				e.dataTransfer.effectAllowed = 'copy';
 				return;
@@ -355,7 +399,12 @@ class ChatOverlayManager {
 			if (graphData) {
 				e.preventDefault();
 				try {
-					const info = JSON.parse(graphData);
+					let info = JSON.parse(graphData);
+					// Resolve pending large data from app temp slot
+					if (info._usePending && this.app._pendingPreviewDrag) {
+						info = this.app._pendingPreviewDrag;
+						this.app._pendingPreviewDrag = null;
+					}
 					this._handleGraphToChat(currentNode, info);
 				} catch (err) {
 					console.error('[ChatOverlay] Graph drop parse error:', err);
@@ -706,15 +755,23 @@ class ChatOverlayManager {
 		html = html.replace(/&lt;&lt;preview:(\w+):(.+?)&gt;&gt;/g, (match, type, filePath) => {
 			// Unescape HTML entities that were applied earlier
 			const raw = filePath.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
-			let fileUrl;
-			if (raw.startsWith('data:')) {
-				fileUrl = raw; // data URL — use directly
+			let fileUrl, displayPath;
+			// Cached data URL reference: cached:ID:filename
+			const cachedMatch = raw.match(/^cached:([^:]+):(.+)$/);
+			if (cachedMatch) {
+				const cachedData = _getPreviewData(cachedMatch[1]);
+				fileUrl = cachedData || '';
+				displayPath = cachedMatch[2]; // filename for display & format detection
+			} else if (raw.startsWith('data:')) {
+				fileUrl = raw;
+				displayPath = raw;
 			} else {
 				const baseUrl = this.app?.chatManager?._baseUrl || '';
 				fileUrl = `${baseUrl}/file/${raw}`;
+				displayPath = raw;
 			}
 			const ts = Date.now();
-			return this._renderPreviewEmbed(type, fileUrl, raw, ts);
+			return this._renderPreviewEmbed(type, fileUrl, displayPath, ts);
 		});
 
 		// Inline file content markers: <<file_content:filename>>\ncontent
@@ -732,17 +789,21 @@ class ChatOverlayManager {
 	}
 
 	_renderPreviewEmbed(type, fileUrl, filePath, ts) {
-		const isDataUrl = filePath.startsWith('data:');
-		const fileName = isDataUrl ? `preview.${type}` : filePath.split('/').pop().split('\\').pop();
+		const isDataUrl = fileUrl.startsWith('data:');
+		const fileName = filePath.startsWith('data:') ? `preview.${type}` : filePath.split('/').pop().split('\\').pop();
 		const bustUrl = isDataUrl ? fileUrl : `${fileUrl}?t=${ts}`;
 		const previewId = `sgpv_${ts}_${Math.random().toString(36).slice(2, 6)}`;
+
+		// For data URLs, don't embed them in HTML attributes — store in cache
+		const headerUrl = isDataUrl ? '' : fileUrl;
+		const cacheId = isDataUrl ? _storePreviewData(fileUrl) : '';
 
 		// Header with refresh + draggable export handle
 		const hdr = `<div class="sg-chat-preview-header">`
 			+ `<span class="sg-chat-preview-filename">${fileName}</span>`
 			+ `<span class="sg-chat-preview-actions">`
-			+ `<span class="sg-chat-preview-refresh-btn" data-file-url="${fileUrl}" data-file-name="${fileName}" data-preview-type="${type}" title="Refresh preview">&#8635;</span>`
-			+ `<span class="sg-chat-preview-drag-handle" draggable="true" data-file-url="${fileUrl}" data-file-name="${fileName}" title="Drag to graph or click to open on graph">&#8663;</span>`
+			+ `<span class="sg-chat-preview-refresh-btn" data-file-url="${headerUrl}" data-file-name="${fileName}" data-preview-type="${type}" data-cache-id="${cacheId}" title="Refresh preview">&#8635;</span>`
+			+ `<span class="sg-chat-preview-drag-handle" draggable="true" data-file-url="${headerUrl}" data-file-name="${fileName}" data-cache-id="${cacheId}" title="Drag to graph or click to open on graph">&#8663;</span>`
 			+ `</span></div>`;
 
 		let body = '';
@@ -756,24 +817,37 @@ class ChatOverlayManager {
 			case 'video':
 				body = `<video class="sg-chat-preview-video" controls src="${bustUrl}"></video>`;
 				break;
-			case 'model3d':
+			case 'model3d': {
+				// Append filename hint for format detection on data URLs
+				const modelUrl = (isDataUrl && fileName) ? `${bustUrl}#${encodeURIComponent(fileName)}` : bustUrl;
 				setTimeout(() => {
 					const canvasEl = document.getElementById(previewId);
 					if (!canvasEl || !window.ThreeViewer) return;
-					this._init3DPreview(canvasEl, bustUrl);
+					this._init3DPreview(canvasEl, modelUrl);
 				}, 0);
 				body = `<canvas id="${previewId}" class="sg-chat-preview-3d-canvas"></canvas>`;
 				break;
+			}
 			case 'text':
 				setTimeout(() => {
 					const el = document.getElementById(previewId);
 					if (!el) return;
-					fetch(bustUrl).then(r => r.text()).then(text => {
+					const showText = (text) => {
 						const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 						el.innerHTML = `<pre class="sg-chat-preview-text-content">${escaped}</pre>`;
-					}).catch(() => {
-						el.innerHTML = `<span style="color:#f44">Failed to load file</span>`;
-					});
+					};
+					if (isDataUrl) {
+						// Decode text from data URL directly (fetch may not support data: in all browsers)
+						try {
+							const commaIdx = bustUrl.indexOf(',');
+							const isBase64 = bustUrl.slice(0, commaIdx).includes(';base64');
+							const payload = bustUrl.slice(commaIdx + 1);
+							showText(isBase64 ? atob(payload) : decodeURIComponent(payload));
+						} catch { el.innerHTML = `<span style="color:#f44">Failed to decode text</span>`; }
+					} else {
+						fetch(bustUrl).then(r => r.text()).then(showText)
+							.catch(() => { el.innerHTML = `<span style="color:#f44">Failed to load file</span>`; });
+					}
 				}, 0);
 				body = `<div id="${previewId}" class="sg-chat-preview-text-body">Loading...</div>`;
 				break;
@@ -787,7 +861,7 @@ class ChatOverlayManager {
 	}
 
 	_init3DPreview(canvas, modelUrl) {
-		const { THREE, OrbitControls, GLTFLoader } = window.ThreeViewer;
+		const { THREE, OrbitControls, GLTFLoader, PLYLoader, OBJLoader, STLLoader, FBXLoader } = window.ThreeViewer;
 		if (!THREE) return;
 
 		const w = canvas.clientWidth || 280;
@@ -814,9 +888,28 @@ class ChatOverlayManager {
 		scene.add(dir);
 		scene.add(new THREE.GridHelper(4, 8, 0x444466, 0x333355));
 
-		const loader = new GLTFLoader();
-		loader.load(modelUrl, (gltf) => {
-			const model = gltf.scene;
+		// Detect format from URL, fragment hint, or data URL mime type
+		let ext = '';
+		const extMatch = modelUrl.match(/\.(\w+)(?:\?|#|$)/i);
+		if (extMatch) {
+			ext = extMatch[1].toLowerCase();
+		}
+		if (!ext) {
+			// Check fragment hint (e.g. data:...#model.ply)
+			const hashMatch = modelUrl.match(/#.*\.(\w+)$/i);
+			if (hashMatch) ext = hashMatch[1].toLowerCase();
+		}
+		if (!ext && modelUrl.startsWith('data:')) {
+			const mimeMatch = modelUrl.match(/^data:model\/([^;,]+)/);
+			if (mimeMatch) ext = mimeMatch[1].replace('gltf-binary', 'glb').replace('gltf+json', 'gltf').toLowerCase();
+			if (!ext || ext === 'octet-stream') {
+				// Try application/octet-stream with filename hint in fragment
+				const hintFallback = modelUrl.match(/#.*\.(\w+)$/i);
+				if (hintFallback) ext = hintFallback[1].toLowerCase();
+			}
+		}
+
+		const _addModel = (model) => {
 			const box = new THREE.Box3().setFromObject(model);
 			const size = box.getSize(new THREE.Vector3());
 			const center = box.getCenter(new THREE.Vector3());
@@ -830,9 +923,30 @@ class ChatOverlayManager {
 			const mc = new THREE.Box3().setFromObject(model).getCenter(new THREE.Vector3());
 			controls.target.copy(mc);
 			controls.update();
-		}, undefined, (err) => {
-			console.error('[ChatPreview3D] Load error:', err);
-		});
+		};
+
+		const onError = (err) => { console.error('[ChatPreview3D] Load error:', err); };
+
+		const onLoadGeometry = (geometry) => {
+			geometry.computeVertexNormals();
+			const material = new THREE.MeshStandardMaterial({ color: 0x8899aa, flatShading: true });
+			_addModel(new THREE.Mesh(geometry, material));
+		};
+
+		// Strip fragment hint before passing to loader
+		const loadUrl = modelUrl.replace(/#.*$/, '');
+
+		if (ext === 'ply' && PLYLoader) {
+			new PLYLoader().load(loadUrl, onLoadGeometry, undefined, onError);
+		} else if (ext === 'stl' && STLLoader) {
+			new STLLoader().load(loadUrl, onLoadGeometry, undefined, onError);
+		} else if (ext === 'obj' && OBJLoader) {
+			new OBJLoader().load(loadUrl, _addModel, undefined, onError);
+		} else if (ext === 'fbx' && FBXLoader) {
+			new FBXLoader().load(loadUrl, _addModel, undefined, onError);
+		} else {
+			new GLTFLoader().load(loadUrl, (gltf) => _addModel(gltf.scene), undefined, onError);
+		}
 
 		let animId = null;
 		const animate = () => {
@@ -855,6 +969,7 @@ class ChatOverlayManager {
 
 	async _openFileOnGraph(fileUrl, fileName) {
 		const app = this.app;
+		if (!fileUrl) return;
 		try {
 			const response = await fetch(fileUrl);
 			if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
@@ -876,9 +991,14 @@ class ChatOverlayManager {
 		const previewEl = btn.closest('.sg-chat-preview');
 		if (!previewEl) return;
 
-		const fileUrl = btn.dataset.fileUrl;
+		let fileUrl = btn.dataset.fileUrl;
+		// Resolve cached data URL if needed
+		if (!fileUrl && btn.dataset.cacheId) {
+			fileUrl = _getPreviewData(btn.dataset.cacheId) || '';
+		}
 		const fileName = btn.dataset.fileName;
 		const type = btn.dataset.previewType;
+		if (!fileUrl) return; // nothing to refresh
 		const ts = Date.now();
 		const isDataUrl = fileUrl.startsWith('data:');
 		const bustUrl = isDataUrl ? fileUrl : `${fileUrl}?t=${ts}`;
@@ -928,29 +1048,52 @@ class ChatOverlayManager {
 	}
 
 	_handleGraphToChat(node, info) {
-		// info: { fileData, fileName, mimeType } from graph preview node
-		const baseUrl = this.app?.chatManager?._baseUrl || '';
+		// info: { fileData, fileName, mimeType, previewType } from graph preview node
+		const ext = (info.fileName || '').split('.').pop()?.toLowerCase() || '';
+		const type = info.previewType || _chatPreviewTypeFromExt(ext);
+
 		if (info.fileUrl) {
-			const ext = (info.fileName || '').split('.').pop()?.toLowerCase() || '';
-			const type = _chatPreviewTypeFromExt(ext);
 			const marker = `<<preview:${type}:${info.fileUrl}>>`;
 			this.app.api.chat?.addMessage(node, MessageRole.SYSTEM, marker);
-		} else if (info.fileData && info.fileName) {
-			// Graph node has inline data — serve it through a temp object URL
-			// For data URLs, extract the path or create a blob URL
-			const ext = info.fileName.split('.').pop()?.toLowerCase() || '';
-			const type = _chatPreviewTypeFromExt(ext);
-			const marker = `<<preview:${type}:${info.fileData}>>`;
-			this.app.api.chat?.addMessage(node, MessageRole.SYSTEM, marker);
+		} else if (info.fileData != null && info.fileName) {
+			const dataStr = typeof info.fileData === 'string' ? info.fileData : JSON.stringify(info.fileData, null, 2);
+
+			// Text-type previews: use file_content marker (raw text, not a data URL)
+			const textTypes = ['text', 'json', 'dict', 'list', 'integer', 'float', 'boolean'];
+			if (textTypes.includes(type) || !dataStr.startsWith('data:')) {
+				const marker = `<<file_content:${info.fileName}>>\n${dataStr}`;
+				this.app.api.chat?.addMessage(node, MessageRole.SYSTEM, marker);
+			} else {
+				// Binary preview types (image, model3d, audio, video): cache data URL
+				const cacheId = _storePreviewData(dataStr);
+				const marker = `<<preview:${type}:cached:${cacheId}:${info.fileName}>>`;
+				this.app.api.chat?.addMessage(node, MessageRole.SYSTEM, marker);
+			}
 		}
 	}
 
 	async _handleFileDropOnChat(node, files) {
-		const baseUrl = this.app?.chatManager?._baseUrl || '';
 		for (const file of files) {
 			const ext = file.name.split('.').pop()?.toLowerCase() || '';
 			const type = _chatPreviewTypeFromExt(ext);
-			// Read file as data URL for inline display
+
+			// Text-type files: read as text and use file_content marker
+			const textTypes = ['text', 'json'];
+			if (textTypes.includes(type)) {
+				const text = await new Promise((resolve) => {
+					const reader = new FileReader();
+					reader.onload = () => resolve(reader.result);
+					reader.onerror = () => resolve(null);
+					reader.readAsText(file);
+				});
+				if (text != null) {
+					const marker = `<<file_content:${file.name}>>\n${text}`;
+					this.app.api.chat?.addMessage(node, MessageRole.SYSTEM, marker);
+				}
+				continue;
+			}
+
+			// Binary files: read as data URL and cache
 			const dataUrl = await new Promise((resolve) => {
 				const reader = new FileReader();
 				reader.onload = () => resolve(reader.result);
@@ -958,7 +1101,8 @@ class ChatOverlayManager {
 				reader.readAsDataURL(file);
 			});
 			if (dataUrl) {
-				const marker = `<<preview:${type}:${dataUrl}>>`;
+				const cacheId = _storePreviewData(dataUrl);
+				const marker = `<<preview:${type}:cached:${cacheId}:${file.name}>>`;
 				this.app.api.chat?.addMessage(node, MessageRole.SYSTEM, marker);
 			}
 		}
@@ -1202,18 +1346,37 @@ class ChatExtension extends SchemaGraphExtension {
 
 		const dataType = e.type || 'file';
 		const value = e.value || '';
+		let fileName = e.fileName || 'preview';
+
+		// Ensure fileName has an extension (use metadata when available)
+		if (!fileName.includes('.')) {
+			const fmt = (e.meta?.format || '').toLowerCase();
+			if (fmt) {
+				fileName = `${fileName}.${fmt}`;
+			} else if (typeof value === 'string' && value.startsWith('data:')) {
+				// Infer from data URL MIME type
+				const mime = value.slice(5, value.indexOf(';'));
+				const ext = _mimeToExt(mime);
+				fileName = `${fileName}.${ext || 'bin'}`;
+			} else {
+				const extMap = { image: 'png', model3d: 'glb', audio: 'mp3', video: 'mp4', text: 'txt', json: 'json' };
+				fileName = `${fileName}.${extMap[dataType] || 'bin'}`;
+			}
+		}
 
 		// Map graph preview type to chat preview type
 		const typeMap = { image: 'image', audio: 'audio', video: 'video', model3d: 'model3d' };
 		const previewType = typeMap[dataType] || 'text';
 
-		// For data URLs, create preview marker with inline data
 		if (typeof value === 'string' && value.startsWith('data:')) {
-			const marker = `<<preview:${previewType}:${value}>>`;
+			// Store large data URL in cache, reference by ID in marker
+			const cacheId = _storePreviewData(value);
+			const marker = `<<preview:${previewType}:cached:${cacheId}:${fileName}>>`;
 			this.app.api.chat?.addMessage(chatNode, MessageRole.SYSTEM, marker);
 		} else if (typeof value === 'string') {
-			// Plain text content — add directly as text message
-			this.app.api.chat?.addMessage(chatNode, MessageRole.SYSTEM, value);
+			// Plain text / structured content — use file_content marker
+			const marker = `<<file_content:${fileName}>>\n${value}`;
+			this.app.api.chat?.addMessage(chatNode, MessageRole.SYSTEM, marker);
 		}
 	}
 
@@ -1724,9 +1887,21 @@ class ChatExtension extends SchemaGraphExtension {
 			.sg-chat-preview-drag-handle:active {
 				cursor: grabbing;
 			}
+			@keyframes sg-chat-drop-dash {
+				0%   { background-position: 0 0, 100% 0, 100% 100%, 0 100%; }
+				100% { background-position: 20px 0, calc(100% - 20px) 0, calc(100% - 20px) 100%, 20px 100%; }
+			}
 			.sg-chat-overlay.sg-chat-drop-active {
-				outline: 2px dashed rgba(74, 144, 217, 0.7);
-				outline-offset: -2px;
+				outline: none;
+				background-image:
+					repeating-linear-gradient(90deg, rgba(74,144,217,0.8) 0, rgba(74,144,217,0.8) 6px, transparent 6px, transparent 12px),
+					repeating-linear-gradient(90deg, rgba(74,144,217,0.8) 0, rgba(74,144,217,0.8) 6px, transparent 6px, transparent 12px),
+					repeating-linear-gradient(0deg, rgba(74,144,217,0.8) 0, rgba(74,144,217,0.8) 6px, transparent 6px, transparent 12px),
+					repeating-linear-gradient(0deg, rgba(74,144,217,0.8) 0, rgba(74,144,217,0.8) 6px, transparent 6px, transparent 12px);
+				background-size: 20px 2px, 20px 2px, 2px 20px, 2px 20px;
+				background-position: 0 0, 0 100%, 0 0, 100% 0;
+				background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
+				animation: sg-chat-drop-dash 0.4s linear infinite;
 			}
 			.sg-chat-preview-img {
 				display: block;

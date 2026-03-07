@@ -142,7 +142,7 @@ class Model3DOverlayManager {
 		const ctx = this.renderers.get(nodeId);
 		if (!ctx) return;
 
-		const { THREE, GLTFLoader } = window.ThreeViewer;
+		const { THREE, GLTFLoader, PLYLoader, OBJLoader, STLLoader, FBXLoader } = window.ThreeViewer;
 		const overlay = this.overlays.get(nodeId);
 		const statusText = overlay?.querySelector('.sg-3d-status-text');
 		const statusIndicator = overlay?.querySelector('.sg-3d-status-indicator');
@@ -154,11 +154,31 @@ class Model3DOverlayManager {
 			return;
 		}
 
-		const loader = new GLTFLoader();
+		// Detect format from URL/path extension or metadata
+		const fmt = (data.meta?.format || '').toLowerCase();
+		let ext = fmt;
+		if (!ext && typeof value === 'string' && !value.startsWith('data:')) {
+			const m = value.match(/\.(\w+)(?:\?|#|$)/);
+			if (m) ext = m[1].toLowerCase();
+		}
+		if (!ext && typeof value === 'string' && value.startsWith('data:')) {
+			const mimeMatch = value.match(/^data:model\/([^;,]+)/);
+			if (mimeMatch) ext = mimeMatch[1].replace('gltf-binary', 'glb').replace('gltf+json', 'gltf').toLowerCase();
+		}
+		// application/octet-stream or unknown MIME — try fileName hint
+		if (!ext && node?.extra?.fileName) {
+			const fnMatch = node.extra.fileName.match(/\.(\w+)$/i);
+			if (fnMatch) ext = fnMatch[1].toLowerCase();
+		}
 
-		const onLoad = (gltf) => {
-			const model = gltf.scene;
+		// Returns true if loader result is a scene (GLTF/FBX), false if geometry (PLY/STL/OBJ)
+		const isGltf = !ext || ext === 'glb' || ext === 'gltf';
+		const isFbx = ext === 'fbx';
+		const isObj = ext === 'obj';
+		const isPly = ext === 'ply';
+		const isStl = ext === 'stl';
 
+		const _addModel = (model) => {
 			// Center and scale model to fit viewport
 			const box = new THREE.Box3().setFromObject(model);
 			const size = box.getSize(new THREE.Vector3());
@@ -179,8 +199,22 @@ class Model3DOverlayManager {
 			ctx.controls.target.copy(modelCenter);
 			ctx.controls.update();
 
+			// Store initial camera state for reset
+			ctx.initialCameraPos = ctx.camera.position.clone();
+			ctx.initialTarget = modelCenter.clone();
+
 			if (statusText) statusText.textContent = 'Model loaded';
 			if (statusIndicator) statusIndicator.classList.add('sg-3d-loaded');
+		};
+
+		const onLoadGltf = (gltf) => _addModel(gltf.scene);
+		const onLoadFbx = (object) => _addModel(object);
+		const onLoadObj = (object) => _addModel(object);
+		const onLoadGeometry = (geometry) => {
+			geometry.computeVertexNormals();
+			const material = new THREE.MeshStandardMaterial({ color: 0x8899aa, flatShading: true });
+			const mesh = new THREE.Mesh(geometry, material);
+			_addModel(mesh);
 		};
 
 		const onError = (err) => {
@@ -188,6 +222,14 @@ class Model3DOverlayManager {
 			if (statusText) statusText.textContent = 'Load error';
 			this._addPlaceholderCube(ctx.scene);
 		};
+
+		// Select loader and callback
+		let loader, onLoad;
+		if (isPly && PLYLoader)      { loader = new PLYLoader(); onLoad = onLoadGeometry; }
+		else if (isStl && STLLoader) { loader = new STLLoader(); onLoad = onLoadGeometry; }
+		else if (isObj && OBJLoader) { loader = new OBJLoader(); onLoad = onLoadObj; }
+		else if (isFbx && FBXLoader) { loader = new FBXLoader(); onLoad = onLoadFbx; }
+		else                         { loader = new GLTFLoader(); onLoad = onLoadGltf; }
 
 		if (typeof value === 'string') {
 			if (value.startsWith('data:')) {
@@ -200,7 +242,8 @@ class Model3DOverlayManager {
 					for (let i = 0; i < byteString.length; i++) {
 						ia[i] = byteString.charCodeAt(i);
 					}
-					loader.parse(ab, '', onLoad, onError);
+					if (isGltf) loader.parse(ab, '', onLoad, onError);
+					else onLoad(loader.parse(ab));
 				} catch (e) {
 					onError(e);
 				}
@@ -209,7 +252,8 @@ class Model3DOverlayManager {
 				loader.load(value, onLoad, undefined, onError);
 			}
 		} else if (value instanceof ArrayBuffer) {
-			loader.parse(value, '', onLoad, onError);
+			if (isGltf) loader.parse(value, '', onLoad, onError);
+			else onLoad(loader.parse(value));
 		} else {
 			if (statusText) statusText.textContent = 'Unsupported format';
 			this._addPlaceholderCube(ctx.scene);
@@ -252,8 +296,13 @@ class Model3DOverlayManager {
 	_resetCamera(nodeId) {
 		const ctx = this.renderers.get(nodeId);
 		if (!ctx) return;
-		ctx.camera.position.set(2, 1.5, 3);
-		ctx.controls.target.set(0, 0, 0);
+		if (ctx.initialCameraPos) {
+			ctx.camera.position.copy(ctx.initialCameraPos);
+			ctx.controls.target.copy(ctx.initialTarget);
+		} else {
+			ctx.camera.position.set(2, 1.5, 3);
+			ctx.controls.target.set(0, 0, 0);
+		}
 		ctx.controls.update();
 	}
 

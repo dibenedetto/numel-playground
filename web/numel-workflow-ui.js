@@ -170,7 +170,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			'Tutorial'       : '#e67e22',  // Orange (tutorial extension)
 		});
 
-		schemaGraph.api.canvasDrop.setAccept("image/*,audio/*,video/*,text/*,model/*,application/json,application/octet-stream,.glb,.gltf,.obj,.fbx,.stl");
+		schemaGraph.api.canvasDrop.setAccept("image/*,audio/*,video/*,text/*,model/*,application/json,application/octet-stream,.glb,.gltf,.obj,.fbx,.stl,.ply");
 
 		// schemaGraph.api.canvasDrop.setCreationCallback(async (file, x, y, app) => {
 		// 	const metaNode = app.api.node.create(sourceMetaTypeName, x, y);
