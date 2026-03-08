@@ -1,0 +1,38 @@
+{
+  "type": "workflow",
+  "nodes": [
+    { "type": "toolkit_config", "name": "contrib.toolkits.mesh_toolkit" },
+    { "type": "start_flow" },
+    { "type": "tool_flow", "method": "load_mesh", "args": { "path": "docs/bun_zipper.ply" } },
+    { "type": "tool_flow", "method": "export_preview" },
+    { "type": "preview_flow", "hint": "model3d" },
+    { "type": "tool_flow", "method": "decimate", "args": { "target_percent": 0.7 } },
+    { "type": "tool_flow", "method": "export_preview" },
+    { "type": "preview_flow", "hint": "model3d" },
+    { "type": "tool_flow", "method": "smooth", "args": { "iterations": 5 } },
+    { "type": "tool_flow", "method": "export_preview" },
+    { "type": "preview_flow", "hint": "model3d" },
+    { "type": "tool_flow", "method": "save_mesh", "args": { "path": "docs/mesh_output.ply" } },
+    { "type": "end_flow" }
+  ],
+  "edges": [
+    { "source": 0, "target": 2,  "source_slot": "config",   "target_slot": "config" },
+    { "source": 0, "target": 3,  "source_slot": "config",   "target_slot": "config" },
+    { "source": 0, "target": 5,  "source_slot": "config",   "target_slot": "config" },
+    { "source": 0, "target": 6,  "source_slot": "config",   "target_slot": "config" },
+    { "source": 0, "target": 8,  "source_slot": "config",   "target_slot": "config" },
+    { "source": 0, "target": 9,  "source_slot": "config",   "target_slot": "config" },
+    { "source": 0, "target": 11, "source_slot": "config",   "target_slot": "config" },
+    { "source": 1, "target": 2,  "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 2, "target": 3,  "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 3, "target": 4,  "source_slot": "output",   "target_slot": "flow_in" },
+    { "source": 4, "target": 5,  "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 5, "target": 6,  "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 6, "target": 7,  "source_slot": "output",   "target_slot": "flow_in" },
+    { "source": 7, "target": 8,  "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 8, "target": 9,  "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 9, "target": 10, "source_slot": "output",   "target_slot": "flow_in" },
+    { "source": 10, "target": 11, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 11, "target": 12, "source_slot": "flow_out", "target_slot": "flow_in" }
+  ]
+}

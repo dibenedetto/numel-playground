@@ -320,6 +320,31 @@ Supported export formats: OBJ, PLY, STL, DAE, OFF, X3D (note: GLB/GLTF export is
 			return f"Filter '{filter_name}' applied. Result: {result}. {summary}"
 		return f"Filter '{filter_name}' applied. {summary}"
 
+	def export_preview(self, format: str = "ply") -> str:
+		"""Export the current mesh as a base64 data URL for inline preview rendering.
+
+		Args:
+			format: Export format - 'ply' (default, lightweight) or 'obj'
+
+		Returns:
+			Data URL string (data:model/ply;base64,...) suitable for 3D preview.
+		"""
+		import base64, tempfile, os
+		ext = format.lower()
+		if ext not in ("ply", "obj", "stl"):
+			ext = "ply"
+		mime = {"ply": "model/ply", "obj": "model/obj", "stl": "model/stl"}.get(ext, "application/octet-stream")
+		with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp:
+			tmp_path = tmp.name
+		try:
+			self._ms.save_current_mesh(tmp_path)
+			with open(tmp_path, "rb") as f:
+				raw = f.read()
+			b64 = base64.b64encode(raw).decode("ascii")
+			return f"data:{mime};base64,{b64}"
+		finally:
+			os.unlink(tmp_path)
+
 	def _mesh_summary(self) -> str:
 		if self._ms.mesh_number() == 0:
 			return "No meshes loaded."

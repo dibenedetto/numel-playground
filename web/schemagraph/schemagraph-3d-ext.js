@@ -166,6 +166,7 @@ class Model3DOverlayManager {
 			if (mimeMatch) ext = mimeMatch[1].replace('gltf-binary', 'glb').replace('gltf+json', 'gltf').toLowerCase();
 		}
 		// application/octet-stream or unknown MIME — try fileName hint
+		const node = this.app?.graph?.getNodeById(nodeId);
 		if (!ext && node?.extra?.fileName) {
 			const fnMatch = node.extra.fileName.match(/\.(\w+)$/i);
 			if (fnMatch) ext = fnMatch[1].toLowerCase();
@@ -603,6 +604,7 @@ class Model3DExtension extends SchemaGraphExtension {
 		// Graph lifecycle
 		this.on('graph:cleared', () => this.overlayManager.removeAllOverlays());
 		this.on('workflow:imported', () => this.overlayManager.removeAllOverlays());
+		this.on('workflow:loaded', () => this.overlayManager.removeAllOverlays());
 		this.on('workflow:synced', () => this.overlayManager.removeAllOverlays());
 
 		// Position sync

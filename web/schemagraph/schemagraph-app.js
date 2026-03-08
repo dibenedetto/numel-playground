@@ -2253,19 +2253,20 @@ class SchemaGraphApp {
 	}
 
 	closeAllPreviewTextOverlays() {
-		if (!this._previewTextOverlays) return;
-		for (const [nodeId, overlay] of this._previewTextOverlays) {
-			// Clean up event listeners
-			overlay._cleanupDrag?.();
-			overlay._cleanupResize?.();
-			overlay.remove();
-			// Also reset the node's expanded state
-			const node = this.graph.getNodeById(nodeId);
-			if (node?.extra) {
-				node.extra.previewExpanded = false;
+		if (this._previewTextOverlays) {
+			for (const [nodeId, overlay] of this._previewTextOverlays) {
+				// Clean up event listeners
+				overlay._cleanupDrag?.();
+				overlay._cleanupResize?.();
+				overlay.remove();
+				// Also reset the node's expanded state
+				const node = this.graph.getNodeById(nodeId);
+				if (node?.extra) {
+					node.extra.previewExpanded = false;
+				}
 			}
+			this._previewTextOverlays.clear();
 		}
-		this._previewTextOverlays.clear();
 		this.closeAllPreviewMediaOverlays();
 		this.closeAllPreviewImageActions();
 	}
@@ -2332,7 +2333,11 @@ class SchemaGraphApp {
 
 	closeAllPreviewImageActions() {
 		if (!this._previewImageActions) return;
-		for (const [, bar] of this._previewImageActions) bar.remove();
+		for (const [nodeId, bar] of this._previewImageActions) {
+			bar.remove();
+			const node = this.graph.getNodeById(nodeId);
+			if (node?.extra) node.extra.previewExpanded = false;
+		}
 		this._previewImageActions.clear();
 	}
 
@@ -2668,6 +2673,13 @@ class SchemaGraphApp {
 		this.eventBus.on('link:deleted', () => this._updateImplicitRoles());
 		this.eventBus.on('schema:registered', () => { this.ui?.update?.schemaList?.(); this.ui?.update?.nodeTypesList?.(); this.draw(); });
 		this.eventBus.on('schema:removed', () => { this.ui?.update?.schemaList?.(); this.ui?.update?.nodeTypesList?.(); this.draw(); });
+
+		// Clean up preview overlays on graph lifecycle events
+		const _closeAllPreviews = () => this.closeAllPreviewTextOverlays();
+		this.eventBus.on('workflow:imported', _closeAllPreviews);
+		this.eventBus.on('workflow:loaded', _closeAllPreviews);
+		this.eventBus.on('graph:cleared', _closeAllPreviews);
+		this.eventBus.on('graph:imported', _closeAllPreviews);
 
 		const nodeInput = document.getElementById('sg-nodeInput');
 		nodeInput?.addEventListener('blur', () => this.handleInputBlur());
@@ -9805,7 +9817,7 @@ class SchemaGraphApp {
 				export: (includeCamera = true) => self.graph.serialize(includeCamera, self.camera),
 				import: (data, restoreCamera = true) => { try { self._historyIgnore = true; self.graph.deserialize(data, restoreCamera, self.camera); self._historyIgnore = false; self._currentStateSnapshot = self._captureCurrentSnapshot(); self.ui?.update?.schemaList?.(); self.ui?.update?.nodeTypesList?.(); if (restoreCamera) self.eventBus.emit('ui:update', { id: 'zoomLevel', content: Math.round(self.camera.scale * 100) + '%' }); self._refreshAllCompleteness(); self.eventBus.emit('graph:imported', {}); return true; } catch (e) { self._historyIgnore = false; self.showError('Import failed: ' + e.message); return false; } },
 				download: () => self.exportGraph(),
-				clear: () => { self.graph.nodes = []; self.graph.links = {}; self.graph._nodes_by_id = {}; self.graph.last_link_id = 0; self.clearSelection(); self._currentStateSnapshot = self._captureCurrentSnapshot(); self.draw(); }
+				clear: () => { self.graph.nodes = []; self.graph.links = {}; self.graph._nodes_by_id = {}; self.graph.last_link_id = 0; self.clearSelection(); self._currentStateSnapshot = self._captureCurrentSnapshot(); self.eventBus.emit('graph:cleared', {}); self.draw(); }
 			},
 
 			workflow: {
