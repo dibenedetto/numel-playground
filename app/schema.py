@@ -59,7 +59,7 @@ class BaseType(BaseModel):
 
 
 @node_info(visible=False)
-class ComponentType(BaseModel):
+class ComponentType(BaseType):
 	type : Annotated[Literal["component_type"], FieldRole.CONSTANT] = "component_type"
 
 	# @property

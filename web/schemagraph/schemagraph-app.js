@@ -167,6 +167,7 @@ class SchemaGraphApp {
 		};
 		this._canvasDropCreationCallback = null;
 		this._canvasDropHighlight = false;
+		this._fileDragActive = false; // true while external files are being dragged over the canvas
 
 		// Edge preview configuration
 		this._edgePreviewConfig = {
@@ -4501,6 +4502,11 @@ class SchemaGraphApp {
 	removeNode(node) {
 		if (!node) return;
 
+		// Clean up any preview HTML overlays attached to this node
+		this._closePreviewTextOverlay(node);
+		this._closePreviewMediaOverlay(node);
+		this._closePreviewImageActions(node);
+
 		// If this is an edge preview node, use the restore method instead
 		if (node.extra?._isEdgePreview && this._isPreviewFlowNode(node)) {
 			this.removePreviewNodeAndRestore(node);
@@ -6143,6 +6149,7 @@ class SchemaGraphApp {
 		const dashOffset = (time * 30) % 20;
 
 		if (!isEnabled) {
+			if (!isActive) return;
 			ctx.fillStyle = 'rgba(220, 96, 104, 0.08)';
 			ctx.beginPath(); ctx.roundRect(bounds.x, bounds.y, bounds.w, bounds.h, 4); ctx.fill();
 			ctx.strokeStyle = 'rgba(220, 96, 104, 0.3)'; ctx.lineWidth = 1 / this.camera.scale;
@@ -6154,7 +6161,7 @@ class SchemaGraphApp {
 		}
 		if (!isActive) return;
 
-		// Semi-transparent fill
+		// Active (hovered) drop zone — bright highlight
 		ctx.fillStyle = 'rgba(146, 208, 80, 0.15)';
 		ctx.beginPath(); ctx.roundRect(bounds.x, bounds.y, bounds.w, bounds.h, 4); ctx.fill();
 
@@ -6218,9 +6225,12 @@ class SchemaGraphApp {
 			// Accept chat drags (previews or text messages)
 			if (e.dataTransfer.types.includes('text/x-sg-chat-preview') || e.dataTransfer.types.includes('text/x-sg-chat-message')) {
 				e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
-				if (!this._canvasDropHighlight) { this._canvasDropHighlight = true; this.draw(); }
+				if (!this._canvasDropHighlight) { this._canvasDropHighlight = true; this._fileDragActive = true; this.draw(); }
 				return;
 			}
+
+			// Mark file drag as active so all drop-enabled nodes show their zones
+			if (!this._fileDragActive) { this._fileDragActive = true; }
 
 			const node = this._findDropTargetNode(wx, wy);
 			if (node && node._dropZone?.enabled) {
@@ -6231,21 +6241,31 @@ class SchemaGraphApp {
 			} else if (this._canvasDropConfig.enabled && this.api.canvasDrop.getStatus().isReady) {
 				// Canvas-level drop allowed
 				e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
+				const hadActiveNode = !!this._activeDropNode;
 				if (this._activeDropNode) { this._activeDropNode = null; }
-				if (!this._canvasDropHighlight) { this._canvasDropHighlight = true; this.draw(); }
+				if (!this._canvasDropHighlight || hadActiveNode) { this._canvasDropHighlight = true; this.draw(); }
 			} else {
 				if (this._activeDropNode) { this._activeDropNode = null; this.draw(); }
 				if (this._canvasDropHighlight) { this._canvasDropHighlight = false; this.draw(); }
 			}
 		}, true);
 		canvas.addEventListener('dragleave', (e) => {
-			const rect = canvas.getBoundingClientRect();
-			if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
-				if (this._activeDropNode) { this._activeDropNode = null; this.draw(); }
-				if (this._canvasDropHighlight) { this._canvasDropHighlight = false; this.draw(); }
+			// Clear canvas highlights when cursor leaves canvas element
+			// (either off-screen or onto a sibling overlay like chat)
+			const entering = e.relatedTarget;
+			const leavingCanvas = !entering || !canvas.contains(entering);
+			if (leavingCanvas) {
+				const rect = canvas.getBoundingClientRect();
+				const offScreen = e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom;
+				// Only clear _fileDragActive when cursor actually leaves the viewport area
+				if (offScreen) this._fileDragActive = false;
+				if (this._activeDropNode) { this._activeDropNode = null; }
+				if (this._canvasDropHighlight) { this._canvasDropHighlight = false; }
+				this.draw();
 			}
 		});
 		canvas.addEventListener('drop', (e) => {
+			this._fileDragActive = false;
 			if (this.isLocked) return;
 			const rect = canvas.getBoundingClientRect();
 			const [wx, wy] = this.screenToWorld((e.clientX - rect.left) / rect.width * canvas.width, (e.clientY - rect.top) / rect.height * canvas.height);
@@ -6313,6 +6333,25 @@ class SchemaGraphApp {
 
 			this._activeDropNode = null; this._canvasDropHighlight = false; this.draw();
 		}, true);
+
+		// Clean up drag state when a drag operation ends anywhere (cancel, drop off-screen, etc.)
+		document.addEventListener('dragend', () => {
+			if (this._fileDragActive || this._canvasDropHighlight || this._activeDropNode) {
+				this._fileDragActive = false;
+				this._activeDropNode = null;
+				this._canvasDropHighlight = false;
+				this.draw();
+			}
+		});
+		document.addEventListener('drop', () => {
+			// Also clean up when drop lands on a non-canvas element (e.g., chat overlay)
+			if (this._fileDragActive || this._canvasDropHighlight || this._activeDropNode) {
+				this._fileDragActive = false;
+				this._activeDropNode = null;
+				this._canvasDropHighlight = false;
+				this.draw();
+			}
+		});
 	}
 
 	// ========================================================================

@@ -388,17 +388,17 @@ class ChatOverlayManager {
 			if (e.dataTransfer.types.includes('text/x-sg-graph-preview') || e.dataTransfer.types.includes('Files')) {
 				e.preventDefault();
 				e.dataTransfer.dropEffect = 'copy';
-				overlay.classList.add('sg-chat-drop-active');
+				this._showDropHighlight(overlay);
 			}
 		}, sig);
 		overlay.addEventListener('dragleave', (e) => {
 			const rect = overlay.getBoundingClientRect();
 			if (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) {
-				overlay.classList.remove('sg-chat-drop-active');
+				this._hideDropHighlight(overlay);
 			}
 		}, sig);
 		overlay.addEventListener('drop', (e) => {
-			overlay.classList.remove('sg-chat-drop-active');
+			this._hideDropHighlight(overlay);
 			const currentNode = getNode();
 			if (!currentNode) return;
 
@@ -1354,6 +1354,32 @@ class ChatOverlayManager {
 			app.showError?.('Merge failed: ' + err.message);
 		}
 	}
+
+	_showDropHighlight(overlay) {
+		if (overlay._dropHighlight) return;
+		const w = overlay.offsetWidth, h = overlay.offsetHeight;
+		if (!w || !h) return;
+		const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+		svg.setAttribute('class', 'sg-chat-drop-highlight');
+		svg.setAttribute('width', w);
+		svg.setAttribute('height', h);
+		svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+		const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+		rect.setAttribute('x', '1'); rect.setAttribute('y', '1');
+		rect.setAttribute('width', w - 2); rect.setAttribute('height', h - 2);
+		rect.setAttribute('rx', '4'); rect.setAttribute('ry', '4');
+		rect.setAttribute('fill', 'rgba(218,186,60,0.06)');
+		rect.setAttribute('stroke', 'rgba(218,186,60,0.9)');
+		rect.setAttribute('stroke-width', '2');
+		rect.setAttribute('stroke-dasharray', '6 4');
+		svg.appendChild(rect);
+		overlay.appendChild(svg);
+		overlay._dropHighlight = svg;
+	}
+
+	_hideDropHighlight(overlay) {
+		if (overlay._dropHighlight) { overlay._dropHighlight.remove(); overlay._dropHighlight = null; }
+	}
 }
 
 // ========================================================================
@@ -2073,21 +2099,19 @@ class ChatExtension extends SchemaGraphExtension {
 			.sg-chat-preview-drag-handle:active {
 				cursor: grabbing;
 			}
-			@keyframes sg-chat-drop-dash {
-				0%   { background-position: 0 0, 100% 0, 100% 100%, 0 100%; }
-				100% { background-position: 20px 0, calc(100% - 20px) 0, calc(100% - 20px) 100%, 20px 100%; }
+			@keyframes sg-chat-drop-march {
+				from { stroke-dashoffset: 0; }
+				to   { stroke-dashoffset: -20; }
 			}
-			.sg-chat-overlay.sg-chat-drop-active {
-				outline: none;
-				background-image:
-					repeating-linear-gradient(90deg, rgba(74,144,217,0.8) 0, rgba(74,144,217,0.8) 6px, transparent 6px, transparent 12px),
-					repeating-linear-gradient(90deg, rgba(74,144,217,0.8) 0, rgba(74,144,217,0.8) 6px, transparent 6px, transparent 12px),
-					repeating-linear-gradient(0deg, rgba(74,144,217,0.8) 0, rgba(74,144,217,0.8) 6px, transparent 6px, transparent 12px),
-					repeating-linear-gradient(0deg, rgba(74,144,217,0.8) 0, rgba(74,144,217,0.8) 6px, transparent 6px, transparent 12px);
-				background-size: 20px 2px, 20px 2px, 2px 20px, 2px 20px;
-				background-position: 0 0, 0 100%, 0 0, 100% 0;
-				background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
-				animation: sg-chat-drop-dash 0.4s linear infinite;
+			.sg-chat-drop-highlight {
+				position: absolute;
+				inset: 0;
+				pointer-events: none;
+				z-index: 9999;
+				overflow: visible;
+			}
+			.sg-chat-drop-highlight rect {
+				animation: sg-chat-drop-march 0.67s linear infinite;
 			}
 			.sg-chat-preview-img {
 				display: block;
