@@ -3,7 +3,7 @@
 // Foundation: Enums, EventBus, Node, Link, Graph base classes
 // ========================================================================
 
-console.log('[SchemaGraph] Loading core module... v2-subtype');
+console.log('[SchemaGraph] Loading core module...');
 
 // ========================================================================
 // FIELD ROLES & ENUMS
