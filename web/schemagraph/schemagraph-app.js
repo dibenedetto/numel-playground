@@ -1993,10 +1993,10 @@ class SchemaGraphApp {
 				background: var(--sg-bg-tertiary, rgba(255,255,255,0.1));
 				color: var(--sg-text-primary, #ffffff);
 			}
-			.sg-preview-send-chat-btn {
+			.sg-preview-drag-btn {
 				cursor: grab;
 			}
-			.sg-preview-send-chat-btn:active {
+			.sg-preview-drag-btn:active {
 				cursor: grabbing;
 			}
 			.sg-preview-text-content {
@@ -2123,7 +2123,7 @@ class SchemaGraphApp {
 					<button class="sg-preview-text-btn sg-preview-refresh-btn" title="Refresh">&#8635;</button>
 					<button class="sg-preview-text-btn sg-preview-copy-btn" title="Copy to clipboard">📋</button>
 					<button class="sg-preview-text-btn sg-preview-dl-btn" title="Download">⬇</button>
-					<span class="sg-preview-text-btn sg-preview-send-chat-btn" draggable="true" title="Drag to Chat">💬</span>
+					<span class="sg-preview-text-btn sg-preview-drag-btn" draggable="true" title="Drag to canvas, chat, or drop zone">⇱</span>
 					<button class="sg-preview-text-btn sg-preview-close-btn" title="Collapse">▲</button>
 				</div>
 			</div>
@@ -2157,7 +2157,7 @@ class SchemaGraphApp {
 			this._triggerPreviewDownload(node, previewData);
 		});
 
-		const chatBtn = overlay.querySelector('.sg-preview-send-chat-btn');
+		const chatBtn = overlay.querySelector('.sg-preview-drag-btn');
 		chatBtn?.addEventListener('dragstart', (e) => {
 			e.stopPropagation();
 			e.dataTransfer.setData('text/x-sg-graph-preview', JSON.stringify(this._getPreviewDragData(node, previewData)));
@@ -2286,14 +2286,14 @@ class SchemaGraphApp {
 			<span class="sg-preview-img-title">${this._escapeHtml(title)}</span>
 			<button class="sg-preview-text-btn sg-preview-refresh-btn" title="Refresh">&#8635;</button>
 			${hasDl ? '<button class="sg-preview-text-btn sg-preview-dl-btn" title="Download">⬇</button>' : ''}
-			${hasDl ? '<span class="sg-preview-text-btn sg-preview-send-chat-btn" draggable="true" title="Drag to Chat">💬</span>' : ''}
+			${hasDl ? '<span class="sg-preview-text-btn sg-preview-drag-btn" draggable="true" title="Drag to canvas, chat, or drop zone">⇱</span>' : ''}
 			<button class="sg-preview-text-btn sg-preview-img-collapse-btn" title="Collapse">▲</button>`;
 
 		bar.querySelector('.sg-preview-refresh-btn')
 			?.addEventListener('click', (e) => { e.stopPropagation(); this._refreshPreview(node); });
 		bar.querySelector('.sg-preview-dl-btn')
 			?.addEventListener('click', (e) => { e.stopPropagation(); this._triggerPreviewDownload(node, data); });
-		bar.querySelector('.sg-preview-send-chat-btn')
+		bar.querySelector('.sg-preview-drag-btn')
 			?.addEventListener('dragstart', (e) => { e.stopPropagation(); e.dataTransfer.setData('text/x-sg-graph-preview', JSON.stringify(this._getPreviewDragData(node, data))); e.dataTransfer.effectAllowed = 'copy'; });
 		bar.querySelector('.sg-preview-img-collapse-btn')
 			?.addEventListener('click', (e) => { e.stopPropagation(); this._togglePreviewExpanded(node); });
@@ -2538,7 +2538,7 @@ class SchemaGraphApp {
 			<span class="sg-preview-text-title">${this._escapeHtml(title)}</span>
 			<button class="sg-preview-text-btn sg-preview-refresh-btn" title="Refresh">&#8635;</button>
 			<button class="sg-preview-text-btn sg-preview-dl-btn" title="Download">⬇</button>
-			<span class="sg-preview-text-btn sg-preview-send-chat-btn" draggable="true" title="Drag to Chat">💬</span>
+			<span class="sg-preview-text-btn sg-preview-drag-btn" draggable="true" title="Drag to canvas, chat, or drop zone">⇱</span>
 			<button class="sg-preview-text-btn sg-preview-media-close-btn" title="Collapse">▲</button>`;
 
 		const media = document.createElement(isVideo ? 'video' : 'audio');
@@ -2561,7 +2561,7 @@ class SchemaGraphApp {
 			?.addEventListener('click', (e) => { e.stopPropagation(); this._refreshPreview(node); });
 		header.querySelector('.sg-preview-dl-btn')
 			?.addEventListener('click', (e) => { e.stopPropagation(); this._triggerPreviewDownload(node, data); });
-		header.querySelector('.sg-preview-send-chat-btn')
+		header.querySelector('.sg-preview-drag-btn')
 			?.addEventListener('dragstart', (e) => { e.stopPropagation(); e.dataTransfer.setData('text/x-sg-graph-preview', JSON.stringify(this._getPreviewDragData(node, data))); e.dataTransfer.effectAllowed = 'copy'; });
 
 		this._updatePreviewMediaOverlayPosition(node, wrapper);
@@ -6174,6 +6174,25 @@ class SchemaGraphApp {
 		return null;
 	}
 
+	_dragWouldAccept(node, e) {
+		const accept = node._dropZone?.accept;
+		if (!accept || accept === '*' || accept === '*/*') return true;
+		// For same-page preview drags, check pending drag info
+		const pending = this._pendingPreviewDrag || this._pendingChatPreviewDrag;
+		if (!pending) return true; // can't check, allow optimistically
+		const fileName = (pending.fileName || '').toLowerCase();
+		const mimeType = pending.mimeType || '';
+		const acceptList = Array.isArray(accept) ? accept : accept.split(',').map(s => s.trim());
+		for (const acc of acceptList) {
+			if (acc.startsWith('.') && fileName.endsWith(acc.toLowerCase())) return true;
+			if (acc.includes('/')) {
+				if (acc.endsWith('/*') && mimeType.startsWith(acc.slice(0, -1))) return true;
+				if (mimeType === acc) return true;
+			}
+		}
+		return false;
+	}
+
 	_filterFilesByAccept(files, accept) {
 		if (!accept || accept === '*' || accept === '*/*') return files;
 		const acceptList = Array.isArray(accept) ? accept : accept.split(',').map(s => s.trim());
@@ -6267,15 +6286,19 @@ class SchemaGraphApp {
 			const rect = canvas.getBoundingClientRect();
 			const [wx, wy] = this.screenToWorld((e.clientX - rect.left) / rect.width * canvas.width, (e.clientY - rect.top) / rect.height * canvas.height);
 
-			// Graph-to-chat drag: only accept on chat overlays, not the canvas
-			if (e.dataTransfer.types.includes('text/x-sg-graph-preview')) {
-				return;
-			}
-
-			// Accept chat drags (previews or text messages)
-			if (e.dataTransfer.types.includes('text/x-sg-chat-preview') || e.dataTransfer.types.includes('text/x-sg-chat-message')) {
+			// Accept chat drags and graph preview drags (previews or text messages)
+			if (e.dataTransfer.types.includes('text/x-sg-chat-preview') || e.dataTransfer.types.includes('text/x-sg-chat-message') || e.dataTransfer.types.includes('text/x-sg-graph-preview')) {
 				e.preventDefault(); e.dataTransfer.dropEffect = 'copy';
-				if (!this._canvasDropHighlight) { this._canvasDropHighlight = true; this._fileDragActive = true; this.draw(); }
+				if (!this._fileDragActive) { this._fileDragActive = true; }
+				const node = this._findDropTargetNode(wx, wy);
+				if (node && node._dropZone?.enabled && this._dragWouldAccept(node, e)) {
+					canvas.classList.remove('sg-file-drag-over');
+					this._canvasDropHighlight = false;
+					if (this._activeDropNode !== node) { this._activeDropNode = node; this.draw(); }
+				} else {
+					if (this._activeDropNode) { this._activeDropNode = null; }
+					if (!this._canvasDropHighlight) { this._canvasDropHighlight = true; this.draw(); }
+				}
 				return;
 			}
 
@@ -6335,6 +6358,23 @@ class SchemaGraphApp {
 					this._handleChatPreviewDrop(info, wx, wy);
 				} catch (err) {
 					console.error('[SchemaGraph] Chat preview drop error:', err);
+				}
+				this._activeDropNode = null; this._canvasDropHighlight = false; this.draw(); return;
+			}
+
+			// Graph preview drop (drag from preview overlay to canvas or drop zone)
+			const graphPreviewData = e.dataTransfer.getData('text/x-sg-graph-preview');
+			if (graphPreviewData) {
+				e.preventDefault(); e.stopImmediatePropagation();
+				try {
+					let info = JSON.parse(graphPreviewData);
+					if (info._usePending && this._pendingPreviewDrag) {
+						info = this._pendingPreviewDrag;
+						this._pendingPreviewDrag = null;
+					}
+					this._handleGraphPreviewDrop(info, node, wx, wy);
+				} catch (err) {
+					console.error('[SchemaGraph] Graph preview drop error:', err);
 				}
 				this._activeDropNode = null; this._canvasDropHighlight = false; this.draw(); return;
 			}
@@ -6456,6 +6496,36 @@ class SchemaGraphApp {
 		const blob = new Blob([text], { type: 'text/plain' });
 		const file = new File([blob], 'message.txt', { type: 'text/plain' });
 		this._handleCanvasFileDrop([file], wx, wy);
+	}
+
+	async _handleGraphPreviewDrop(info, node, wx, wy) {
+		try {
+			const fileData = info.fileData || '';
+			const fileName = info.fileName || 'preview';
+			const mimeType = info.mimeType || 'application/octet-stream';
+			let blob;
+			if (typeof fileData === 'string' && fileData.startsWith('data:')) {
+				const response = await fetch(fileData);
+				blob = await response.blob();
+			} else if (typeof fileData === 'string') {
+				blob = new Blob([fileData], { type: mimeType || 'text/plain' });
+			} else {
+				blob = new Blob([JSON.stringify(fileData)], { type: 'application/json' });
+			}
+			const file = new File([blob], fileName, { type: blob.type || mimeType });
+			// Drop on node drop zone if hovering one
+			if (node && node._dropZone?.enabled) {
+				const filtered = this._filterFilesByAccept([file], node._dropZone.accept);
+				if (filtered.length && node._dropZone.callback) {
+					node._dropZone.callback(node, filtered);
+					return;
+				}
+			}
+			// Otherwise drop on canvas
+			await this._handleCanvasFileDrop([file], wx, wy);
+		} catch (err) {
+			console.error('[SchemaGraph] Graph preview drop error:', err);
+		}
 	}
 
 	async _handleChatPreviewDrop(info, wx, wy) {
@@ -9756,6 +9826,7 @@ class SchemaGraphApp {
 						isWorkflow: true,
 						fieldRoles: parsed.fieldRoles,
 						defaults: parsed.defaults,
+						parents: parsed.parents,
 						enabled: false
 					};
 

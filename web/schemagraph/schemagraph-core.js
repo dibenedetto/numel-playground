@@ -3,7 +3,7 @@
 // Foundation: Enums, EventBus, Node, Link, Graph base classes
 // ========================================================================
 
-console.log('[SchemaGraph] Loading core module...');
+console.log('[SchemaGraph] Loading core module... v2-subtype');
 
 // ========================================================================
 // FIELD ROLES & ENUMS
@@ -348,9 +348,26 @@ class Graph {
 			return output === inModel || this._areTypesCompatible(output, inModel);
 		}
 
+		// Check schema inheritance: output type is a subtype of input type
+		if (this._isSubtype(output, input)) return true;
+
 		if (output === 'int' && (input === 'Index' || input === 'integer')) return true;
 		if (input === 'int' && (output === 'Index' || output === 'integer')) return true;
 		if ((output === 'str' && input === 'string') || (input === 'str' && output === 'string')) return true;
+		return false;
+	}
+
+	_isSubtype(outputType, inputType) {
+		if (!this.schemas) return false;
+		for (const sk in this.schemas) {
+			const parents = this.schemas[sk].parents;
+			if (!parents) continue;
+			let current = outputType;
+			while (current) {
+				current = parents[current];
+				if (current === inputType) return true;
+			}
+		}
 		return false;
 	}
 

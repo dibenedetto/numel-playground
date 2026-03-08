@@ -52,7 +52,8 @@ class SchemaGraph extends Graph {
 				parsed: parsed.models,
 				isWorkflow: true,
 				fieldRoles: parsed.fieldRoles,
-				defaults: parsed.defaults
+				defaults: parsed.defaults,
+				parents: parsed.parents
 			};
 
 			const self = this;

@@ -222,7 +222,7 @@ class WorkflowSchemaParser {
 		}
 		this._saveRawModel(currentModel, currentParent, currentFields, currentRoles, currentDefaults);
 		for (const modelName in this.rawModels) this._resolveInheritance(modelName);
-		return { models: this.models, fieldRoles: this.fieldRoles, defaults: this.defaults };
+		return { models: this.models, fieldRoles: this.fieldRoles, defaults: this.defaults, parents: this.parents };
 	}
 
 	_saveRawModel(name, parent, fields, roles, defaults) {
@@ -295,7 +295,7 @@ class WorkflowSchemaParser {
 		for (const line of code.split('\n')) {
 			if (line.length > 0 && (line[0] === '\t' || line[0] === ' ')) continue;
 			const trimmed = line.trim();
-			const constMatch = trimmed.match(/^(DEFAULT_[A-Z_0-9]+|[A-Z][A-Z_0-9]*[A-Z0-9])\s*(?::\s*\w+)?\s*=\s*(.+)$/);
+			const constMatch = trimmed.match(/^(DEFAULT_[A-Z_0-9]+|[A-Z][A-Z_0-9]*[A-Z0-9])\s*(?::\s*[^=]+?)?\s*=\s*(.+)$/);
 			if (constMatch) constants[constMatch[1]] = this._parseConstantValue(constMatch[2].trim());
 		}
 		return constants;
