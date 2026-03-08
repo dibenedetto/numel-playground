@@ -519,6 +519,18 @@ DEFAULT_TOOL_MAX_WEB_SEARCH_RESULTS : int  = 5
 DEFAULT_TOOL_FALLBACK               : bool = False
 
 
+@node_info(visible=False)
+class ToolBaseConfig(ConfigType):
+	"""Base class for tool and toolkit configurations."""
+	type : Annotated[Literal["tool_base_config"], FieldRole.CONSTANT] = "tool_base_config"
+	name : Annotated[str                        , FieldRole.INPUT   ] = Field(default="", description="Python import path to the tool function or toolkit module")
+	args : Annotated[Optional[Dict[str, Any]]   , FieldRole.INPUT   ] = Field(default=None, description="Optional arguments passed to the tool or toolkit constructor")
+
+	@property
+	def config(self) -> Annotated[ToolBaseConfig, FieldRole.OUTPUT]:
+		return self
+
+
 @node_info(
 	title       = "Tool Provider",
 	description = "Handles tool usage",
@@ -526,11 +538,9 @@ DEFAULT_TOOL_FALLBACK               : bool = False
 	section     = "Configurations",
 	visible     = True
 )
-class ToolConfig(ConfigType):
+class ToolConfig(ToolBaseConfig):
 	"""External tool/function for agents. Set name to Python import path (e.g. 'tools.list_directory'). Wire get→agent_config.tools.<key> via MULTI_INPUT edge (target_slot='tools.<key>')."""
 	type     : Annotated[Literal["tool_config"]  , FieldRole.CONSTANT] = "tool_config"
-	name     : Annotated[str                     , FieldRole.INPUT   ] = Field(default="",   description="Python import path to the tool function (e.g. 'tools.search_web', 'tools.list_directory')")
-	args     : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = Field(default=None, description="Optional default arguments passed to the tool; merged with any runtime arguments")
 	lang     : Annotated[Optional[str]           , FieldRole.INPUT   ] = Field(default=None, description="Scripting language for inline script tools (e.g. 'python'); leave None when using name")
 	script   : Annotated[Optional[str]           , FieldRole.INPUT   ] = Field(default=None, description="Inline script body when lang is set; the return value or last expression becomes the result")
 	fallback : Annotated[bool                    , FieldRole.INPUT   ] = Field(default=DEFAULT_TOOL_FALLBACK, description="If true, skip this tool silently when unavailable instead of raising an error")
@@ -552,11 +562,9 @@ DEFAULT_AGENT_OPTIONS_MARKDOWN        : bool = True
 	section     = "Configurations",
 	visible     = True
 )
-class ToolkitConfig(ConfigType):
-	"""Toolkit module for agents. Set name to Python import path of a toolkit module (e.g. 'toolkits.file_toolkit'). The class docstring describes the toolkit to the agent; each public method becomes a tool. Wire get→agent_config.toolkits.<key> via MULTI_INPUT edge (target_slot='toolkits.<key>')."""
+class ToolkitConfig(ToolBaseConfig):
+	"""Toolkit module providing multiple related tools with shared state. Set name to Python import path (e.g. 'toolkits.file_toolkit'). Each public method becomes a callable tool. Usage: (1) With agents: wire config→agent_config, target_slot='toolkits.<key>'; description is added to prompt, methods become tools. (2) With tool_flow: wire config→tool_flow.config and set tool_flow.method='<method_name>'; multiple tool_flow nodes sharing the same toolkit_config use the same instance (shared state)."""
 	type     : Annotated[Literal["toolkit_config"], FieldRole.CONSTANT] = "toolkit_config"
-	name     : Annotated[str                      , FieldRole.INPUT   ] = Field(default="",   description="Python import path to the toolkit module (e.g. 'toolkits.file_toolkit')")
-	args     : Annotated[Optional[Dict[str, Any]] , FieldRole.INPUT   ] = Field(default=None, description="Optional arguments passed to the toolkit constructor")
 
 	@property
 	def config(self) -> Annotated[ToolkitConfig, FieldRole.OUTPUT]:
@@ -739,17 +747,25 @@ DEFAULT_TOOL_NODE_ARGS : Dict[str, Any] = {}
 
 @node_info(
 	title       = "Tool Proxy",
-	description = "Proxy for tool invocation",
+	description = "Proxy for tool or toolkit method invocation",
 	icon        = "👨🏻‍🔧",
 	section     = "Workflow",
 	visible     = True
 )
 class ToolFlow(FlowType):
-	"""Execute a tool within the flow graph. Wire tool_config→config. Keyword arguments go in 'args'; result appears on 'output'."""
+	"""Execute a tool or toolkit method within the flow graph.
+
+	For standalone tools: wire tool_config→config. The tool function is called directly.
+	For toolkit methods: wire toolkit_config→config and set 'method' to the public method name
+	(e.g. 'read_file'). Multiple ToolFlow nodes wired to the same ToolkitConfig share the
+	toolkit instance and its state.
+
+	Keyword arguments go in 'args'; result appears on 'output'."""
 	type   : Annotated[Literal["tool_flow"], FieldRole.CONSTANT] = "tool_flow"
-	config : Annotated[ToolConfig          , FieldRole.INPUT   ] = Field(default=None,                   description="ToolConfig describing which tool to invoke; wire from a tool_config node")
-	args   : Annotated[Dict[str, Any]      , FieldRole.INPUT   ] = Field(default=DEFAULT_TOOL_NODE_ARGS, description="Keyword arguments passed to the tool function")
-	output : Annotated[Any                 , FieldRole.OUTPUT  ] = Field(default=None,                   description="Result returned by the tool after execution")
+	config : Annotated[ToolBaseConfig                  , FieldRole.INPUT] = Field(default=None, description="ToolConfig or ToolkitConfig to invoke; wire from a tool_config or toolkit_config node")
+	method : Annotated[Optional[str]                   , FieldRole.INPUT] = Field(default=None, description="Toolkit method name to call (e.g. 'read_file'). Required when config is a ToolkitConfig; ignored for ToolConfig")
+	args   : Annotated[Dict[str, Any]                  , FieldRole.INPUT] = Field(default=DEFAULT_TOOL_NODE_ARGS, description="Keyword arguments passed to the tool function or toolkit method")
+	output : Annotated[Any                             , FieldRole.OUTPUT] = Field(default=None, description="Result returned by the tool or toolkit method after execution")
 
 
 @node_info(

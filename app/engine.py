@@ -1139,11 +1139,24 @@ class WorkflowEngine:
 		for i in with_reference:
 			node   = nodes[i]
 			impl   = backend.handles[i]
-			arg    = instances[links[i]["config"]].impl
-			fn     = backend.run_agent if node.type in ("agent_node", "agent_flow") else backend.run_tool
-			ref    = partial(fn, arg)
-			kwargs = {"ref": ref}
-			instances[i] = create_node(node, impl, **kwargs)
+			config_impl = instances[links[i]["config"]].impl
+
+			if node.type in ("agent_node", "agent_flow"):
+				ref = partial(backend.run_agent, config_impl)
+			elif isinstance(config_impl, dict) and "instance" in config_impl:
+				# Toolkit-backed tool_flow: resolve the method on the toolkit instance
+				method_name = getattr(node, 'method', None)
+				if not method_name:
+					raise ValueError(f"tool_flow node {i} is connected to a toolkit_config but has no 'method' specified")
+				toolkit_instance = config_impl["instance"]
+				method = getattr(toolkit_instance, method_name, None)
+				if method is None:
+					raise ValueError(f"Toolkit {toolkit_instance.__class__.__name__} has no method '{method_name}'")
+				ref = partial(backend.run_tool, method)
+			else:
+				ref = partial(backend.run_tool, config_impl)
+
+			instances[i] = create_node(node, impl, ref=ref)
 
 		return instances
 

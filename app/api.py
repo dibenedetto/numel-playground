@@ -1418,7 +1418,7 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		lines.append("")
 
 		# Toolkits
-		lines.append("### Toolkits (use with toolkit_config, name='<module>')")
+		lines.append("### Toolkits (use with toolkit_config, name='<module>'; wire to agent_config.toolkits.<key> or tool_flow.config with method='<method>')")
 		toolkit_modules = ["toolkits.file_toolkit"]
 		for mod_name in toolkit_modules:
 			try:
@@ -1709,9 +1709,18 @@ event_listener_flow.event carries the received event payload.
 
 ### Toolkits (toolkit_config)
 A toolkit provides multiple related tools with shared state (e.g. a sandboxed filesystem).
-Wire like tools: toolkit_config.config → agent_config, target_slot="toolkits.<key>".
-The toolkit's description is automatically added to the agent prompt; each function becomes a tool.
-Example: toolkit_config with name="toolkits.file_toolkit" → agent gets list_directory, read_file, write_file, etc.
+**With agents**: wire toolkit_config.config → agent_config, target_slot="toolkits.<key>".
+The toolkit's description is automatically added to the agent prompt; each public method becomes a tool.
+**With tool_flow (standalone)**: wire toolkit_config.config → tool_flow.config, and set
+tool_flow.method to the public method name (e.g. "read_file"). Multiple tool_flow nodes
+wired to the same toolkit_config share the toolkit instance and its state.
+
+### Tool invocation (tool_flow)
+tool_flow executes a standalone tool or a toolkit method within the workflow graph.
+**Standalone tool**: wire tool_config.config → tool_flow.config. The tool function is called with args.
+**Toolkit method**: wire toolkit_config.config → tool_flow.config, set tool_flow.method="<method_name>".
+Example: toolkit_config(name="toolkits.file_toolkit") → tool_flow(method="read_file", args={"path": "data.txt"})
+Multiple tool_flow nodes sharing the same toolkit_config use the same instance (shared state).
 
 ## Available Tools and Toolkits
 {tools_catalog}

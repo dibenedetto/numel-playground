@@ -329,6 +329,35 @@ class ChatOverlayManager {
 				if (currentNode) this._handleWorkflowMerge(currentNode, msgId);
 				return;
 			}
+			const copyBtn = e.target.closest('.sg-chat-workflow-copy-btn');
+			if (copyBtn) {
+				e.stopPropagation();
+				const currentNode = getNode();
+				if (currentNode) this._handleWorkflowCopy(currentNode, copyBtn.dataset.msgId, copyBtn);
+				return;
+			}
+			const openBtn = e.target.closest('.sg-chat-workflow-open-btn');
+			if (openBtn) {
+				e.stopPropagation();
+				const currentNode = getNode();
+				if (currentNode) this._handleWorkflowOpenTab(currentNode, openBtn.dataset.msgId);
+				return;
+			}
+			const retryBtn = e.target.closest('.sg-chat-workflow-retry-btn');
+			if (retryBtn) {
+				e.stopPropagation();
+				const currentNode = getNode();
+				if (currentNode) {
+					// Find the last /gen user message and re-send it
+					const msgs = currentNode.chatMessages || [];
+					const lastGen = [...msgs].reverse().find(m => m.role === 'user' && /^\/gen\s/.test(m.content));
+					if (lastGen) {
+						const sendCb = this._sendCallbacks.get(currentNode.chatId);
+						if (sendCb) sendCb(currentNode, lastGen.content, {});
+					}
+				}
+				return;
+			}
 			const handle = e.target.closest('.sg-chat-preview-drag-handle');
 			if (handle) {
 				e.stopPropagation();
@@ -472,6 +501,25 @@ class ChatOverlayManager {
 				const contentEl = lastEl.querySelector('.sg-chat-msg-content');
 				if (contentEl) {
 					contentEl.innerHTML = this._renderContent(lastMsg.content);
+				}
+				// Add workflow actions if the message now has a workflow (e.g. after /gen post-processing)
+				if (lastMsg.workflow && !lastEl.querySelector('.sg-chat-workflow-actions')) {
+					const jsonPreview = JSON.stringify(lastMsg.workflow, null, 2)
+						.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+					const actionsHtml = `
+						<div class="sg-chat-workflow-actions">
+							<button class="sg-chat-workflow-import-btn" data-msg-id="${lastMsg.id}">Import to Canvas</button>
+							<button class="sg-chat-workflow-merge-btn" data-msg-id="${lastMsg.id}">Merge into Canvas</button>
+							<button class="sg-chat-workflow-copy-btn" data-msg-id="${lastMsg.id}">Copy JSON</button>
+							<button class="sg-chat-workflow-open-btn" data-msg-id="${lastMsg.id}">Open in new Tab</button>
+							<button class="sg-chat-workflow-retry-btn" data-msg-id="${lastMsg.id}">Retry</button>
+							<details class="sg-chat-workflow-preview">
+								<summary>Preview JSON</summary>
+								<pre class="sg-chat-workflow-json">${jsonPreview}</pre>
+							</details>
+						</div>
+					`;
+					lastEl.insertAdjacentHTML('beforeend', actionsHtml);
 				}
 				// Keep drag data in sync with streamed content
 				const rawText = (lastMsg.content || '').replace(/<<preview:\w+:.+?>>/g, '').replace(/<<file_content:.+?>>\n?/g, '').trim();
@@ -721,6 +769,9 @@ class ChatOverlayManager {
 				<div class="sg-chat-workflow-actions">
 					<button class="sg-chat-workflow-import-btn" data-msg-id="${msg.id}">Import to Canvas</button>
 					<button class="sg-chat-workflow-merge-btn" data-msg-id="${msg.id}">Merge into Canvas</button>
+					<button class="sg-chat-workflow-copy-btn" data-msg-id="${msg.id}">Copy JSON</button>
+					<button class="sg-chat-workflow-open-btn" data-msg-id="${msg.id}">Open in new Tab</button>
+					<button class="sg-chat-workflow-retry-btn" data-msg-id="${msg.id}">Retry</button>
 					<details class="sg-chat-workflow-preview">
 						<summary>Preview JSON</summary>
 						<pre class="sg-chat-workflow-json">${jsonPreview}</pre>
@@ -1330,6 +1381,7 @@ class ChatOverlayManager {
 
 		try {
 			app.api.workflow.import(msg.workflow, schemas[0], {});
+			app.applyLayout?.('hierarchical-horizontal');
 			app.centerView?.();
 		} catch (err) {
 			app.showError?.('Import failed: ' + err.message);
@@ -1349,9 +1401,43 @@ class ChatOverlayManager {
 
 		try {
 			app.api.workflow.import(msg.workflow, schemas[0], { merge: true });
+			app.applyLayout?.('hierarchical-horizontal');
 			app.centerView?.();
 		} catch (err) {
 			app.showError?.('Merge failed: ' + err.message);
+		}
+	}
+
+	_handleWorkflowCopy(node, msgId, btn) {
+		const msg = node.chatMessages.find(m => m.id === msgId);
+		if (!msg?.workflow) return;
+		const json = JSON.stringify(msg.workflow, null, 2);
+		navigator.clipboard.writeText(json).then(() => {
+			const orig = btn.textContent;
+			btn.textContent = 'Copied!';
+			setTimeout(() => { btn.textContent = orig; }, 1500);
+		}).catch(err => {
+			this.app.showError?.('Copy failed: ' + err.message);
+		});
+	}
+
+	_handleWorkflowOpenTab(node, msgId) {
+		const msg = node.chatMessages.find(m => m.id === msgId);
+		if (!msg?.workflow) return;
+		const app = this.app;
+		const schemas = app.graph.getRegisteredSchemas().filter(s => app.graph.isWorkflowSchema(s));
+		if (schemas.length === 0) {
+			app.showError?.('No workflow schema registered');
+			return;
+		}
+		try {
+			const name = msg.workflow?.options?.name || 'Generated';
+			app.api.tabs.add(name);
+			app.api.workflow.import(msg.workflow, schemas[0], {});
+			app.applyLayout?.('hierarchical-horizontal');
+			app.centerView?.();
+		} catch (err) {
+			app.showError?.('Open in tab failed: ' + err.message);
 		}
 	}
 

@@ -551,8 +551,29 @@ class AgentChatManager {
 		if (workflow && workflow.nodes) {
 			lastAssistant.workflow = workflow;
 			node._lastGeneratedWorkflow = workflow;
-			// Trigger re-render so the Import button appears
-			this.app.api.chat.updateLastMessage(node, lastAssistant.content, false);
+
+			// Replace raw JSON in the message with a pretty-printed text preview
+			const prettyJson = JSON.stringify(workflow, null, 2);
+			const rawContent = lastAssistant.content || '';
+			// Strip the JSON block (```json...``` or raw {…}) from the content
+			let textPart = rawContent
+				.replace(/```(?:json)?\s*\n?[\s\S]*?\n?```/, '')
+				.trim();
+			if (!textPart || textPart === rawContent) {
+				// No code block found — try stripping raw JSON object
+				const start = rawContent.indexOf('{');
+				const end = rawContent.lastIndexOf('}');
+				if (start !== -1 && end > start) {
+					textPart = (rawContent.substring(0, start) + rawContent.substring(end + 1)).trim();
+				}
+			}
+			// Build content with optional prose + file_content preview
+			lastAssistant.content = (textPart ? textPart + '\n\n' : '')
+				+ `<<file_content:workflow.json>>\n${prettyJson}`;
+
+			// Force full re-render so the workflow action buttons appear
+			const overlayMgr = this.app.chatManager?.overlayManager;
+			if (overlayMgr) overlayMgr.updateMessages(node);
 		}
 	}
 

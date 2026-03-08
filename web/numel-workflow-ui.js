@@ -161,13 +161,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
 		// Configure section-based node header colors
 		schemaGraph.api.schemaTypes.setSectionColors({
-			'Data Sources'   : '#4a7c59',  // Forest green
-			'Native Types'   : '#9370db',  // Medium purple
-			'Configurations' : '#5c7caa',  // Steel blue
-			'Workflow'       : '#7a5c8a',  // Muted purple
-			'Interactive'    : '#c2714f',  // Terracotta
-			'Miscellanea'    : '#6b6b7a',  // Gray
-			'Tutorial'       : '#e67e22',  // Orange (tutorial extension)
+			'Data Sources'   : '#3d8b6e',  // Emerald
+			'Native Types'   : '#7c6caf',  // Soft violet
+			'Configurations' : '#4a7fa5',  // Ocean blue
+			'Endpoints'      : '#8b5e3c',  // Warm bronze
+			'Workflow'       : '#5c6d8e',  // Slate blue
+			'Loops'          : '#2e86ab',  // Cerulean
+			'Event Sources'  : '#a0522d',  // Sienna
+			'Interactive'    : '#c06050',  // Coral red
+			'Tutorial'       : '#d4882a',  // Amber
+			'Miscellanea'    : '#606070',  // Cool gray
 		});
 
 		schemaGraph.api.canvasDrop.setAccept("image/*,audio/*,video/*,text/*,model/*,application/json,application/octet-stream,.glb,.gltf,.obj,.fbx,.stl,.ply");

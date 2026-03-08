@@ -1150,6 +1150,8 @@ class SchemaGraphApp {
 					<div class="sg-generate-preview-actions">
 						<button id="sg-generateImport" class="sg-generate-btn">Import to Canvas</button>
 						<button id="sg-generateMerge" class="sg-generate-btn secondary">Merge into Canvas</button>
+						<button id="sg-generateCopy" class="sg-generate-btn secondary">Copy JSON</button>
+						<button id="sg-generateOpenTab" class="sg-generate-btn secondary">Open in new Tab</button>
 						<button id="sg-generateRetry" class="sg-generate-btn secondary">Retry</button>
 					</div>
 				</div>
@@ -1169,6 +1171,12 @@ class SchemaGraphApp {
 
 		// Wire merge button
 		document.getElementById('sg-generateMerge').addEventListener('click', () => this._handleGenerateMerge());
+
+		// Wire copy button
+		document.getElementById('sg-generateCopy').addEventListener('click', () => this._handleGenerateCopy());
+
+		// Wire open in tab button
+		document.getElementById('sg-generateOpenTab').addEventListener('click', () => this._handleGenerateOpenTab());
 
 		// Wire retry button
 		document.getElementById('sg-generateRetry').addEventListener('click', () => this._handleGenerate());
@@ -1643,6 +1651,7 @@ class SchemaGraphApp {
 
 		try {
 			this.api.workflow.import(this._lastGeneratedWorkflow, schemas[0], {});
+			this.applyLayout?.('hierarchical-horizontal');
 			this.centerView();
 			this._closeGenerateWorkflow();
 
@@ -1653,6 +1662,46 @@ class SchemaGraphApp {
 			document.getElementById('sg-generateStatus').textContent = '';
 		} catch (err) {
 			this.showError('Import failed: ' + err.message);
+		}
+	}
+
+	_handleGenerateCopy() {
+		if (!this._lastGeneratedWorkflow) {
+			this.showError('No generated workflow to copy');
+			return;
+		}
+		const json = JSON.stringify(this._lastGeneratedWorkflow, null, 2);
+		navigator.clipboard.writeText(json).then(() => {
+			const btn = document.getElementById('sg-generateCopy');
+			if (btn) {
+				const orig = btn.textContent;
+				btn.textContent = 'Copied!';
+				setTimeout(() => { btn.textContent = orig; }, 1500);
+			}
+		}).catch(err => {
+			this.showError('Copy failed: ' + err.message);
+		});
+	}
+
+	_handleGenerateOpenTab() {
+		if (!this._lastGeneratedWorkflow) {
+			this.showError('No generated workflow to open');
+			return;
+		}
+		const schemas = this.graph.getRegisteredSchemas().filter(s => this.graph.isWorkflowSchema(s));
+		if (schemas.length === 0) {
+			this.showError('No workflow schema registered');
+			return;
+		}
+		try {
+			const name = this._lastGeneratedWorkflow?.options?.name || 'Generated';
+			this.api.tabs.add(name);
+			this.api.workflow.import(this._lastGeneratedWorkflow, schemas[0], {});
+			this.applyLayout?.('hierarchical-horizontal');
+			this.centerView?.();
+			this._closeGenerateWorkflow();
+		} catch (err) {
+			this.showError('Open in tab failed: ' + err.message);
 		}
 	}
 
@@ -1670,6 +1719,7 @@ class SchemaGraphApp {
 
 		try {
 			this.api.workflow.import(this._lastGeneratedWorkflow, schemas[0], { merge: true });
+			this.applyLayout?.('hierarchical-horizontal');
 			this.centerView();
 			this._closeGenerateWorkflow();
 
@@ -6845,6 +6895,18 @@ class SchemaGraphApp {
 		tab.camera    = { x: this.camera.x, y: this.camera.y, scale: this.camera.scale };
 		tab.undoStack = this.history.undoStack.slice();
 		tab.redoStack = this.history.redoStack.slice();
+		// Save chat state per node ID so it survives tab switches
+		// (node.extra and chatId are not serialized, so key by node.id which is stable)
+		tab.chatState = {};
+		for (const node of this.graph.nodes) {
+			if (node.isChat && node.chatId) {
+				tab.chatState[node.id] = {
+					messages: node.chatMessages?.length ? JSON.parse(JSON.stringify(node.chatMessages)) : [],
+					state: node.chatState,
+					extra: node.extra ? JSON.parse(JSON.stringify(node.extra)) : null,
+				};
+			}
+		}
 	}
 
 	_loadTabState(tab) {
@@ -6858,6 +6920,16 @@ class SchemaGraphApp {
 			this.graph._nodes_by_id   = {};
 			this.graph.last_link_id   = 0;
 		}
+		// Restore node.extra before WORKFLOW_IMPORTED triggers chat init
+		// (extra contains chat_id which initChat uses to assign stable chatId)
+		if (tab.chatState) {
+			for (const node of this.graph.nodes) {
+				const saved = tab.chatState[node.id];
+				if (saved?.extra) {
+					node.extra = { ...(node.extra || {}), ...saved.extra };
+				}
+			}
+		}
 		this.camera.x     = tab.camera.x;
 		this.camera.y     = tab.camera.y;
 		this.camera.scale = tab.camera.scale;
@@ -6869,6 +6941,17 @@ class SchemaGraphApp {
 		this._updateHistoryButtons();
 		// Notify extensions (chat, media) to re-attach overlays
 		this.eventBus.emit(GraphEvents.WORKFLOW_IMPORTED, {});
+		// Restore chat messages after chat extension re-initializes nodes
+		if (tab.chatState) {
+			for (const node of this.graph.nodes) {
+				const saved = tab.chatState[node.id];
+				if (saved && node.isChat && node.chatId) {
+					node.chatMessages = saved.messages;
+					if (saved.state) node.chatState = saved.state;
+					this.chatManager?.overlayManager?.updateMessages(node);
+				}
+			}
+		}
 	}
 
 	_addTab(name) {

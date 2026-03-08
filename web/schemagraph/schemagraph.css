@@ -2233,8 +2233,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 120px;
-  max-height: 40vh;
+  min-height: 80px;
   background: var(--sg-bg-primary, #1e1e1e);
 }
 
@@ -2337,6 +2336,7 @@
 }
 
 .sg-generate-preview {
+  flex-shrink: 0;
   border-top: 1px solid var(--sg-border-color, #1a1a1a);
   padding: 10px;
   background: var(--sg-bg-secondary, #2a2a2a);
@@ -2372,6 +2372,7 @@
 }
 
 .sg-generate-status {
+  flex-shrink: 0;
   padding: 6px 14px;
   font-size: 11px;
   color: var(--sg-text-tertiary, #707070);
@@ -2532,21 +2533,35 @@
 .sg-chat-workflow-actions {
   margin-top: 6px;
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: 4px;
 }
-.sg-chat-workflow-import-btn {
-  background: var(--sg-accent-green, #5cb85c);
+.sg-chat-workflow-actions button {
   color: #fff;
   border: none;
   border-radius: 4px;
   padding: 4px 10px;
   font-size: 11px;
   cursor: pointer;
-  align-self: flex-start;
+  background: var(--sg-bg-quaternary, #404040);
 }
-.sg-chat-workflow-import-btn:hover {
+.sg-chat-workflow-actions button:hover {
   filter: brightness(1.15);
+}
+.sg-chat-workflow-import-btn {
+  background: var(--sg-accent-green, #5cb85c) !important;
+}
+.sg-chat-workflow-merge-btn {
+  background: var(--sg-accent-blue, #2d5a7b) !important;
+}
+.sg-chat-workflow-open-btn {
+  background: #7b5ea7 !important;
+}
+.sg-chat-workflow-copy-btn {
+  background: #5a8f7b !important;
+}
+.sg-chat-workflow-retry-btn {
+  background: var(--sg-accent-orange, #d89614) !important;
 }
 .sg-chat-workflow-preview summary {
   font-size: 10px;
