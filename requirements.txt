@@ -5,6 +5,7 @@ aiofiles
 debugpy
 fastapi
 httpx
+psutil
 pydantic
 pydantic-settings
 pypdf

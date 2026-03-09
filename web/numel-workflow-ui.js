@@ -622,6 +622,9 @@ function setupClientEvents() {
 		// Close any pending user-input dialog
 		closeModal();
 
+		// Clear all node execution states (spinners, colors)
+		visualizer?.clearNodeStates();
+
 		// UNLOCK GRAPH after cancellation
 		schemaGraph.api.lock.unlock();
 		schemaGraph.eventBus.emit('workflow:cancelled', event);

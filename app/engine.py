@@ -1397,7 +1397,7 @@ class WorkflowEngine:
 	async def cancel_execution(self, execution_id: Optional[str] = None):
 		"""Cancel a running workflow"""
 		if not execution_id:
-			return self._cancel_all_executions()
+			return await self._cancel_all_executions()
 		state = None
 		if execution_id in self.execution_tasks:
 			task = self.execution_tasks[execution_id]
@@ -1413,8 +1413,8 @@ class WorkflowEngine:
 				self.pending_user_inputs.pop(key, None)
 			for key in [k for k in self.pending_chat_responses if k.startswith(execution_id + ':')]:
 				self.pending_chat_responses.pop(key, None)
-			# Emit NODE_FAILED for every node still in running state
-			for node_idx in list(state.running_nodes):
+			# Emit NODE_FAILED for every node still in running or waiting state
+			for node_idx in set(list(state.running_nodes) + list(state.waiting_nodes)):
 				await self.event_bus.emit(
 					event_type   = EventType.NODE_FAILED,
 					workflow_id  = state.workflow_id,
@@ -1431,7 +1431,7 @@ class WorkflowEngine:
 		else:
 			await self.event_bus.emit(
 				event_type   = EventType.ERROR,
-				workflow_id  = state.workflow_id,
+				workflow_id  = None,
 				execution_id = execution_id
 			)
 		return state

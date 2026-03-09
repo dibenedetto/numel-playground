@@ -5,6 +5,7 @@ import platform
 import os
 import time
 
+
 from   datetime import datetime, timezone
 from   typing   import Optional
 
@@ -425,28 +426,21 @@ an agent's request so it can reason about the user's current situation."""
 		max_len = 500
 
 		try:
+			import subprocess
 			if system == "Windows":
-				import ctypes
-				user32 = ctypes.windll.user32
-				kernel32 = ctypes.windll.kernel32
-				if user32.OpenClipboard(0):
-					try:
-						handle = user32.GetClipboardData(13)  # CF_UNICODETEXT
-						if handle:
-							kernel32.GlobalLock.restype = ctypes.c_wchar_p
-							text = kernel32.GlobalLock(handle)
-							kernel32.GlobalUnlock(handle)
-					finally:
-						user32.CloseClipboard()
+				result = subprocess.run(
+					["powershell", "-NoProfile", "-Command", "Get-Clipboard"],
+					capture_output=True, text=True, timeout=3
+				)
+				if result.returncode == 0:
+					text = result.stdout.rstrip("\r\n")
 
 			elif system == "Darwin":
-				import subprocess
 				result = subprocess.run(["pbpaste"], capture_output=True, text=True, timeout=2)
 				if result.returncode == 0:
 					text = result.stdout
 
 			elif system == "Linux":
-				import subprocess
 				result = subprocess.run(["xclip", "-selection", "clipboard", "-o"],
 					capture_output=True, text=True, timeout=2)
 				if result.returncode == 0:
