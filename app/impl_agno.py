@@ -226,15 +226,26 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 				item = DuckDuckGoTools(fixed_max_results=max_results)
 		else:
 			module_path, func_name = item_config.name.rsplit(".", 1)
-			try:
-				md = import_module(module_path)
-				fn = getattr(md, func_name, None)
-				if not fn:
-					log_print(f"⚠️  Agno tool function not found: {item_config.name}")
-				else:
-					item = fn
-			except (ImportError, ModuleNotFoundError) as e:
-				log_print(f"⚠️  Agno tool module not found: {module_path} ({e})")
+			# Try the exact module, then fallback paths for convenience
+			candidates = [module_path]
+			if "." not in module_path:
+				candidates.append(f"toolkits.{module_path}")
+				candidates.append(f"contrib.toolkits.{module_path}")
+			elif module_path.startswith("toolkits.") and not module_path.startswith("contrib."):
+				candidates.append(f"contrib.{module_path}")
+			for candidate in candidates:
+				try:
+					md = import_module(candidate)
+					fn = getattr(md, func_name, None)
+					if fn:
+						item = fn
+						if candidate != module_path:
+							log_print(f"ℹ️  Resolved tool '{module_path}.{func_name}' → '{candidate}.{func_name}'")
+						break
+				except (ImportError, ModuleNotFoundError):
+					continue
+			if item is None:
+				log_print(f"⚠️  Agno tool not found: {item_config.name} (tried: {', '.join(c + '.' + func_name for c in candidates)})")
 		impl[index] = item
 
 
@@ -245,10 +256,26 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 			raise ValueError("Agno toolkit needs name")
 		args = item_config.args or {}
 		module_name = item_config.name.replace("/", ".").replace("\\", ".")
-		try:
-			md = import_module(module_name)
-		except (ImportError, ModuleNotFoundError) as e:
-			log_print(f"⚠️  Agno toolkit module not found: {module_name} ({e})")
+		# Try the exact name first, then fallback paths for convenience:
+		#   "mesh_toolkit"          → try "toolkits.mesh_toolkit", "contrib.toolkits.mesh_toolkit"
+		#   "toolkits.mesh_toolkit" → try "contrib.toolkits.mesh_toolkit"
+		candidates = [module_name]
+		if "." not in module_name:
+			candidates.append(f"toolkits.{module_name}")
+			candidates.append(f"contrib.toolkits.{module_name}")
+		elif module_name.startswith("toolkits.") and not module_name.startswith("contrib."):
+			candidates.append(f"contrib.{module_name}")
+		md = None
+		for candidate in candidates:
+			try:
+				md = import_module(candidate)
+				if candidate != module_name:
+					log_print(f"ℹ️  Resolved toolkit '{module_name}' → '{candidate}'")
+				break
+			except (ImportError, ModuleNotFoundError):
+				continue
+		if md is None:
+			log_print(f"⚠️  Agno toolkit module not found: {module_name} (tried: {', '.join(candidates)})")
 			impl[index] = None
 			return
 		# Find the toolkit class: look for a class with __toolkit__ = True, or the first class with __doc__

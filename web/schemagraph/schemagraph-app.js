@@ -1556,6 +1556,15 @@ class SchemaGraphApp {
 			if (tools.length > 0) config.tools = tools;
 		}
 
+		// Toolkits (collect from dynamic list)
+		const toolkitEls = document.querySelectorAll('.sg-gen-toolkit-row');
+		if (toolkitEls.length > 0) {
+			const toolkits = Array.from(toolkitEls)
+				.map(el => ({ name: el.querySelector('.sg-gen-toolkit-name')?.value?.trim() || '' }))
+				.filter(t => t.name);
+			if (toolkits.length > 0) config.toolkits = toolkits;
+		}
+
 		// Knowledge (only include if enabled)
 		if (chk('sg-genKnowEnabled')) {
 			const urls = val('sg-genKnowUrls');

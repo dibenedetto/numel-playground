@@ -514,8 +514,9 @@ class AgentChatManager {
 
 			api.setState(node, ChatState.SENDING);
 
-			// Fetch (cached) generation prompt with node catalog
-			const genPrompt = await this._getGenerationPrompt();
+			// Fetch generation prompt scoped to this agent's tools/toolkits
+			const { tool_names, toolkit_names } = this._collectAgentToolNames(node);
+			const genPrompt = await this._getGenerationPrompt(tool_names, toolkit_names);
 
 			// Mark node so callbacks know to post-process the response
 			node._pendingGeneration = true;
@@ -532,12 +533,72 @@ class AgentChatManager {
 		}
 	}
 
-	async _getGenerationPrompt() {
-		if (this._cachedGenPrompt) return this._cachedGenPrompt;
-		const resp = await fetch(this.url + '/generation-prompt', { method: 'POST' });
+	/**
+	 * Collect tool_config and toolkit_config module names connected to
+	 * the agent_config that feeds this chat node.
+	 */
+	_collectAgentToolNames(chatNode) {
+		const tool_names = [];
+		const toolkit_names = [];
+
+		// Find the agent_config node connected to chat.config
+		const configSlotIdx = chatNode.getInputSlotByName?.('config');
+		if (configSlotIdx < 0) return { tool_names, toolkit_names };
+
+		const input = chatNode.inputs?.[configSlotIdx];
+		if (!input?.link) return { tool_names, toolkit_names };
+
+		const link = this.app.graph.links[input.link];
+		if (!link) return { tool_names, toolkit_names };
+
+		const agentConfigNode = this.app.graph.getNodeById(link.origin_id);
+		if (!agentConfigNode) return { tool_names, toolkit_names };
+
+		// Walk all inputs on agent_config to find connected tool/toolkit configs
+		for (let i = 0; i < (agentConfigNode.inputs?.length || 0); i++) {
+			const inp = agentConfigNode.inputs[i];
+			if (!inp?.link && !inp?.links) continue;
+
+			// Handle both single-link and multi-link inputs
+			const linkIds = inp.links || (inp.link ? [inp.link] : []);
+			for (const lid of linkIds) {
+				const lnk = this.app.graph.links[lid];
+				if (!lnk) continue;
+				const srcNode = this.app.graph.getNodeById(lnk.origin_id);
+				if (!srcNode) continue;
+				const nodeType = srcNode.constantFields?.type || srcNode.type;
+				const name = srcNode.nativeInputs?.[srcNode.getInputSlotByName?.('name')]?.value
+				          || srcNode.constantFields?.name;
+				if (!name) continue;
+				if (nodeType === 'tool_config') {
+					tool_names.push(name);
+				} else if (nodeType === 'toolkit_config') {
+					toolkit_names.push(name);
+				}
+			}
+		}
+
+		return { tool_names, toolkit_names };
+	}
+
+	async _getGenerationPrompt(tool_names, toolkit_names) {
+		// Build a cache key from the agent's tool/toolkit names
+		const cacheKey = JSON.stringify({ tool_names, toolkit_names });
+		if (this._cachedGenPromptKey === cacheKey && this._cachedGenPrompt) {
+			return this._cachedGenPrompt;
+		}
+		const body = {};
+		if (tool_names?.length)    body.tool_names    = tool_names;
+		if (toolkit_names?.length) body.toolkit_names  = toolkit_names;
+		const resp = await fetch(this.url + '/generation-prompt', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body),
+		});
 		if (!resp.ok) throw new Error('Failed to fetch generation prompt');
 		const data = await resp.json();
-		this._cachedGenPrompt = data.prompt;
+		this._cachedGenPrompt    = data.prompt;
+		this._cachedGenPromptKey = cacheKey;
 		return this._cachedGenPrompt;
 	}
 

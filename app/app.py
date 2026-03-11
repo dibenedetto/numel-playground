@@ -19,10 +19,15 @@ import sys
 import uvicorn
 
 
-# Add project root to sys.path so contrib/ packages are importable
+# Add project root and app/ dir to sys.path so both internal packages
+# (tools, toolkits.*) and contrib packages (contrib.toolkits.*) are importable
+# regardless of which directory the process is started from.
 _project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_app_dir      = os.path.dirname(os.path.abspath(__file__))
 if _project_root not in sys.path:
 	sys.path.insert(0, _project_root)
+if _app_dir not in sys.path:
+	sys.path.insert(1, _app_dir)
 
 
 from   dotenv    import load_dotenv

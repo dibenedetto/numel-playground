@@ -96,6 +96,7 @@ class GenerateWorkflowRequest(BaseModel):
 	memory      : Optional[dict] = None   # MemoryManagerConfig fields {query, update, managed, prompt}
 	session     : Optional[dict] = None   # SessionManagerConfig fields {query, update, history_size, prompt}
 	tools       : Optional[List[dict]] = None  # List of ToolConfig fields [{name, args}]
+	toolkits    : Optional[List[dict]] = None  # List of ToolkitConfig fields [{name, args}]
 	knowledge   : Optional[dict] = None   # KnowledgeManagerConfig fields {query, description, max_results, urls, content_db, index_db}
 	# LLM params (separate from model config)
 	temperature : float = 0.3
@@ -1391,8 +1392,34 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 		return '\n'.join(out_lines)
 
-	def _build_tools_catalog() -> str:
-		"""Build a catalog of available tool functions and toolkits for the LLM."""
+	def _discover_all_toolkit_modules() -> List[str]:
+		"""Scan app/toolkits/ and contrib/toolkits/ for *_toolkit.py modules."""
+		import glob as _glob
+		result = []
+		try:
+			_app_dir      = os.path.dirname(os.path.abspath(__file__))
+			_project_root = os.path.dirname(_app_dir)
+			for prefix, base_dir in [("toolkits.", os.path.join(_app_dir, "toolkits")),
+			                         ("contrib.toolkits.", os.path.join(_project_root, "contrib", "toolkits"))]:
+				for fpath in sorted(_glob.glob(os.path.join(base_dir, "*_toolkit.py"))):
+					mod_name = prefix + os.path.basename(fpath).replace(".py", "")
+					if mod_name not in result:
+						result.append(mod_name)
+		except Exception:
+			pass
+		return result
+
+
+	def _build_tools_catalog(tool_names: Optional[List[str]] = None,
+	                         toolkit_names: Optional[List[str]] = None) -> str:
+		"""Build a catalog of available tool functions and toolkits for the LLM.
+
+		Args:
+			tool_names:    If provided, only list these tool module paths (e.g. ["tools.my_fn"]).
+			               If None, list all tools from tools.py.
+			toolkit_names: If provided, only list these toolkit modules (e.g. ["contrib.toolkits.mesh_toolkit"]).
+			               If None, list all discovered toolkits.
+		"""
 		import inspect
 		lines = []
 
@@ -1406,23 +1433,45 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 				fn = getattr(tools_mod, name)
 				if not callable(fn) or inspect.isclass(fn) or inspect.ismodule(fn):
 					continue
+				qualified = f"tools.{name}"
+				if tool_names is not None and qualified not in tool_names:
+					continue
 				sig = ""
 				try:
 					sig = str(inspect.signature(fn))
 				except (ValueError, TypeError):
 					pass
 				doc = (fn.__doc__ or "").strip().split('\n')[0]
-				lines.append(f"  tools.{name}{sig} – {doc}")
+				lines.append(f"  {qualified}{sig} – {doc}")
 		except ImportError:
-			lines.append("  (no tools module found)")
+			if tool_names is None:
+				lines.append("  (no tools module found)")
 		lines.append("")
 
 		# Toolkits
 		lines.append("### Toolkits (use with toolkit_config, name='<module>'; wire to agent_config.toolkits.<key> or tool_flow.config with method='<method>')")
-		toolkit_modules = ["toolkits.file_toolkit"]
+		if toolkit_names is not None:
+			toolkit_modules = list(toolkit_names)
+		else:
+			toolkit_modules = _discover_all_toolkit_modules()
 		for mod_name in toolkit_modules:
+			# Try exact name, then fallback paths (same logic as impl_agno)
+			md = None
+			candidates = [mod_name]
+			if "." not in mod_name:
+				candidates += [f"toolkits.{mod_name}", f"contrib.toolkits.{mod_name}"]
+			elif mod_name.startswith("toolkits.") and not mod_name.startswith("contrib."):
+				candidates.append(f"contrib.{mod_name}")
+			for candidate in candidates:
+				try:
+					md = importlib.import_module(candidate)
+					mod_name = candidate  # use resolved name in catalog
+					break
+				except (ImportError, ModuleNotFoundError):
+					continue
 			try:
-				md = importlib.import_module(mod_name)
+				if md is None:
+					raise ImportError(mod_name)
 				# Find toolkit class
 				tk_cls = None
 				for attr_name in dir(md):
@@ -1432,10 +1481,14 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 						break
 				if tk_cls is None:
 					continue
-				# Module description (first line of class docstring)
-				doc = (tk_cls.__doc__ or "").strip().split('\n')[0]
-				lines.append(f"  {mod_name} – {doc}")
-				# List public methods
+				# Full class docstring — the LLM needs the complete reference
+				cls_doc = (tk_cls.__doc__ or "").strip()
+				first_line = cls_doc.split('\n')[0]
+				lines.append(f"  {mod_name} – {first_line}")
+				if '\n' in cls_doc:
+					for dl in cls_doc.split('\n')[1:]:
+						lines.append(f"    {dl}")
+				# List public methods with full docstrings
 				for mname in sorted(dir(tk_cls)):
 					if mname.startswith('_'):
 						continue
@@ -1447,8 +1500,13 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 						sig = str(inspect.signature(method))
 					except (ValueError, TypeError):
 						pass
-					mdoc = (method.__doc__ or "").strip().split('\n')[0]
-					lines.append(f"    .{mname}{sig} – {mdoc}")
+					mdoc = (method.__doc__ or "").strip()
+					first_line = mdoc.split('\n')[0] if mdoc else ""
+					lines.append(f"    .{mname}{sig} – {first_line}")
+					# Include remaining docstring lines (Args, Returns, etc.)
+					if '\n' in mdoc:
+						for dl in mdoc.split('\n')[1:]:
+							lines.append(f"      {dl}")
 			except ImportError:
 				lines.append(f"  {mod_name} – (not installed)")
 		lines.append("")
@@ -1721,6 +1779,37 @@ tool_flow executes a standalone tool or a toolkit method within the workflow gra
 **Toolkit method**: wire toolkit_config.config → tool_flow.config, set tool_flow.method="<method_name>".
 Example: toolkit_config(name="toolkits.file_toolkit") → tool_flow(method="read_file", args={"path": "data.txt"})
 Multiple tool_flow nodes sharing the same toolkit_config use the same instance (shared state).
+**IMPORTANT**: The toolkit_config `name` field must be the EXACT Python module path as listed in the
+"Available Tools and Toolkits" section below. Do NOT guess or shorten module names — copy them verbatim
+(e.g. "contrib.toolkits.mesh_toolkit", NOT "toolkits.mesh_toolkit").
+**Dynamic args**: tool_flow.args is an INPUT slot (dict). For static args, set them inline in JSON.
+For dynamic args (e.g. user input), use a transform_flow to build the args dict and wire its output
+to tool_flow.args via an edge with target_slot="args":
+  user_input_flow.message → transform_flow (script: output = {"path": input}) → tool_flow.args
+Example (mesh processing with toolkit):
+{
+  "type": "workflow",
+  "nodes": [
+    { "type": "toolkit_config", "name": "contrib.toolkits.mesh_toolkit" },
+    { "type": "start_flow" },
+    { "type": "tool_flow", "method": "load_mesh", "args": { "path": "input.ply" } },
+    { "type": "tool_flow", "method": "decimate", "args": { "target_percent": 0.5 } },
+    { "type": "tool_flow", "method": "smooth", "args": { "iterations": 3 } },
+    { "type": "tool_flow", "method": "save_mesh", "args": { "path": "output.ply" } },
+    { "type": "end_flow" }
+  ],
+  "edges": [
+    { "source": 0, "target": 2, "source_slot": "config", "target_slot": "config" },
+    { "source": 0, "target": 3, "source_slot": "config", "target_slot": "config" },
+    { "source": 0, "target": 4, "source_slot": "config", "target_slot": "config" },
+    { "source": 0, "target": 5, "source_slot": "config", "target_slot": "config" },
+    { "source": 1, "target": 2, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 2, "target": 3, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 3, "target": 4, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 4, "target": 5, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 5, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in" }
+  ]
+}
 
 ## Available Tools and Toolkits
 {tools_catalog}
@@ -1735,6 +1824,10 @@ Multiple tool_flow nodes sharing the same toolkit_config use the same instance (
 7. Config nodes: use source_slot matching their "out:" slot (e.g. "config" for model_config).
 8. Omit node fields that keep their default values to keep JSON concise.
 9. Return ONLY the JSON object, nothing else.
+10. **PREFER toolkits over transform_flow**: When a toolkit provides a method that does what you need
+    (e.g. mesh operations, file I/O, context sensing), use toolkit_config + tool_flow instead of
+    writing inline Python in transform_flow. Toolkits handle errors, state, and edge cases properly.
+    Only use transform_flow for simple data reshaping or glue logic that no toolkit covers.
 
 ## Available Node Types
 {node_catalog}"""
@@ -1775,7 +1868,7 @@ Multiple tool_flow nodes sharing the same toolkit_config use the same instance (
 		"""
 		from schema import (
 			BackendConfig, ModelConfig, AgentOptionsConfig, AgentConfig,
-			MemoryManagerConfig, SessionManagerConfig, ToolConfig,
+			MemoryManagerConfig, SessionManagerConfig, ToolConfig, ToolkitConfig,
 			KnowledgeManagerConfig, ContentDBConfig, IndexDBConfig,
 			EmbeddingConfig, Edge, Workflow
 		)
@@ -1785,7 +1878,8 @@ Multiple tool_flow nodes sharing the same toolkit_config use the same instance (
 		config_hash = hash(json.dumps({
 			"backend": request.backend, "model": request.model, "options": request.options,
 			"memory": request.memory, "session": request.session, "tools": request.tools,
-			"knowledge": request.knowledge, "system_prompt": system_prompt,
+			"toolkits": request.toolkits, "knowledge": request.knowledge,
+			"system_prompt": system_prompt,
 		}, sort_keys=True, default=str))
 
 		cache = _generation_cache
@@ -1861,6 +1955,17 @@ Multiple tool_flow nodes sharing the same toolkit_config use the same instance (
 				tool_indices.append(next_idx)
 				next_idx += 1
 
+		# Optional: ToolkitConfig[] (multiple)
+		toolkit_indices = []
+		if request.toolkits:
+			for t in request.toolkits:
+				nodes.append(ToolkitConfig(
+					name = t.get("name", ""),
+					args = t.get("args", None),
+				))
+				toolkit_indices.append(next_idx)
+				next_idx += 1
+
 		# Optional: KnowledgeManagerConfig (needs ContentDB + IndexDB + Embedding)
 		knowledge_idx = None
 		if request.knowledge:
@@ -1923,6 +2028,9 @@ Multiple tool_flow nodes sharing the same toolkit_config use the same instance (
 		# Tools use dotted slot names for MULTI_INPUT: tools.0, tools.1, ...
 		for i, ti in enumerate(tool_indices):
 			edges.append(Edge(source=ti, target=agent_idx, source_slot="get", target_slot=f"tools.{i}"))
+		# Toolkits use dotted slot names for MULTI_INPUT: toolkits.0, toolkits.1, ...
+		for i, ti in enumerate(toolkit_indices):
+			edges.append(Edge(source=ti, target=agent_idx, source_slot="get", target_slot=f"toolkits.{i}"))
 		if knowledge_idx is not None:
 			edges.append(Edge(source=knowledge_idx, target=agent_idx, source_slot="get", target_slot="knowledge_mgr"))
 
@@ -1933,12 +2041,22 @@ Multiple tool_flow nodes sharing the same toolkit_config use the same instance (
 		cache.update({"config_hash": config_hash, "backend": backend, "agent_index": agent_idx})
 		return backend, agent_idx
 
+	class GenerationPromptRequest(BaseModel):
+		tool_names:    Optional[List[str]] = None  # e.g. ["tools.my_fn"]
+		toolkit_names: Optional[List[str]] = None  # e.g. ["contrib.toolkits.mesh_toolkit"]
+
 	@app.post("/generation-prompt")
-	async def get_generation_prompt():
-		"""Return the generation system prompt (node catalog + instructions) for chat-based /gen."""
+	async def get_generation_prompt(request: GenerationPromptRequest = GenerationPromptRequest()):
+		"""Return the generation system prompt (node catalog + instructions) for chat-based /gen.
+		When tool_names/toolkit_names are provided, only those are listed in the catalog."""
 		nonlocal schema_code
-		node_catalog = _build_node_catalog(schema_code)
-		tools_catalog = _build_tools_catalog()
+		tool_names    = request.tool_names
+		toolkit_names = request.toolkit_names
+		node_catalog  = _build_node_catalog(schema_code)
+		if True:
+			if tool_names is None: tool_names = []
+			if toolkit_names is None: toolkit_names = []
+		tools_catalog = _build_tools_catalog(tool_names=tool_names, toolkit_names=toolkit_names)
 		prompt = _GENERATE_SYSTEM_PROMPT.replace("{node_catalog}", node_catalog).replace("{tools_catalog}", tools_catalog)
 		return {"prompt": prompt}
 
@@ -1947,9 +2065,11 @@ Multiple tool_flow nodes sharing the same toolkit_config use the same instance (
 		nonlocal schema_code
 
 		try:
-			# Build node catalog and system prompt
-			node_catalog = _build_node_catalog(schema_code)
-			tools_catalog = _build_tools_catalog()
+			# Build node catalog and system prompt — only list the agent's own tools/toolkits
+			tool_names    = [t.get("name") for t in (request.tools or []) if t.get("name")]    or None
+			toolkit_names = [t.get("name") for t in (request.toolkits or []) if t.get("name")] or None
+			node_catalog  = _build_node_catalog(schema_code)
+			tools_catalog = _build_tools_catalog(tool_names=tool_names, toolkit_names=toolkit_names)
 			system_prompt = _GENERATE_SYSTEM_PROMPT.replace("{node_catalog}", node_catalog).replace("{tools_catalog}", tools_catalog)
 
 			# Build user message with history context

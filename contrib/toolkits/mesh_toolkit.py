@@ -8,25 +8,111 @@ from   typing    import Optional
 
 
 class MeshToolkit:
-	"""3D Mesh Processing Toolkit.
+	"""3D Mesh Processing Toolkit — shared workspace that persists across tool calls.
 
-You have access to a shared mesh workspace that persists across tool calls.
-Use load_mesh to import a 3D model, then apply operations like decimation,
-smoothing, repair, and remeshing. Use save_mesh to export the result.
+## Quick reference
 
-Typical workflow for mobile optimization:
-1. load_mesh (import the source model)
-2. get_info (check vertex/face counts, topology)
-3. repair (fix non-manifold edges, duplicates, degenerate faces)
-4. decimate (reduce polygon count, preserving texture if present)
-5. smooth (optional light pass to reduce decimation artifacts)
-6. recompute_normals (fix normals after geometry changes)
-7. remove_small_components (clean up floating fragments)
-8. get_info (verify final counts)
-9. save_mesh (export the optimized model)
+| Method                   | Purpose                                    | When to use                                    |
+|--------------------------|--------------------------------------------|------------------------------------------------|
+| load_mesh(path)          | Import a 3D model into the workspace       | Always first — nothing works without a mesh    |
+| save_mesh(path)          | Export the current mesh to a file           | When done processing; format from extension    |
+| get_info()               | Vertex/face counts, topology, bounding box  | Before and after operations to verify results  |
+| repair()                 | Fix duplicates, non-manifold, close holes   | Before decimation — bad topology = bad results |
+| decimate(target_percent) | Reduce polygon count (quadric collapse)     | To lower face count; 0.5 = keep 50% of faces  |
+| smooth(method, iters)    | Reduce surface noise / jagged edges         | After decimation to soften artifacts           |
+| remesh(target_edge_len)  | Create uniform triangulation                | When triangle quality matters (simulation)     |
+| recompute_normals()      | Fix face/vertex normals after edits         | After any geometry-modifying operation         |
+| remove_small_components()| Delete floating fragments                   | After repair or decimation                     |
+| simplify_for_mobile()    | One-step: repair+decimate+smooth+normals    | Quick optimization, less control               |
+| list_meshes()            | Show all loaded mesh layers                 | When working with multi-part models            |
+| set_current_mesh(index)  | Switch active mesh layer                    | To process a specific part of a multi-mesh     |
+| apply_filter(name, ...)  | Run any PyMeshLab filter by name            | Advanced ops not covered by other methods      |
+| export_preview()         | Mesh as base64 data URL for inline preview  | For visual inspection in UI preview nodes      |
 
-Supported import formats: OBJ, PLY, STL, GLB, GLTF, FBX, DAE, 3DS, OFF, and more.
-Supported export formats: OBJ, PLY, STL, DAE, OFF, X3D (note: GLB/GLTF export is not supported)."""
+## Key concepts
+
+- **Workspace**: All operations act on the *current mesh* in the MeshSet. If you load multiple
+  meshes, use `list_meshes` and `set_current_mesh` to switch between them.
+- **target_percent**: Fraction of faces to *keep*, not remove. 0.3 keeps 30%, removes 70%.
+- **Texture-aware decimation**: Automatically used when the mesh has texture coords. Preserves
+  UV mapping so textures don't distort.
+- **Operation order matters**: Always repair before decimation (bad topology causes artifacts).
+  Always recompute normals after geometry changes (lighting/shading depends on correct normals).
+
+## Common workflows
+
+**Optimization (reduce file size / poly count):**
+load_mesh → get_info → repair → decimate(0.3) → smooth(taubin, 2) → recompute_normals → remove_small_components → get_info → save_mesh
+
+**Quality inspection:**
+load_mesh → get_info (check is_two_manifold, holes, boundary_edges) → repair if needed → get_info
+
+**Format conversion:**
+load_mesh("model.glb") → save_mesh("model.obj")
+
+**Visual preview pipeline:**
+load_mesh → [any operations] → export_preview → (wire to preview_flow with hint=model3d)
+
+## Supported formats
+
+- **Import**: OBJ, PLY, STL, GLB, GLTF, FBX, DAE, 3DS, OFF, and more
+- **Export**: OBJ, PLY, STL, DAE, OFF, X3D (GLB/GLTF export is NOT supported)
+
+## Pitfalls to avoid
+
+- Do NOT decimate below 1% — extreme reduction produces unusable geometry.
+- Do NOT smooth more than 5-10 iterations — over-smoothing destroys detail.
+- Do NOT skip repair before decimation on meshes from 3D scans — they always have issues.
+- Do NOT call save_mesh with a .glb/.gltf extension — it will fail. Use .obj or .ply instead.
+- remesh changes face count unpredictably — it creates uniform triangles, not fewer triangles.
+
+## Example workflow
+
+Ask the user the path of mesh to operate on, load the mesh, decimate it to 30% of the original faces, apply light smoothing, preview after each step, and export the final mesh to a file:
+
+{
+  "type": "workflow",
+  "nodes": [
+    { "type": "toolkit_config", "name": "contrib.toolkits.mesh_toolkit" },
+    { "type": "user_input_flow", "query": "Enter the path of the mesh to process (e.g. '/data/model.obj'):" },
+    { "type": "transform_flow", "lang": "python", "script": "output = { 'path': str(input) }" },
+    { "type": "start_flow" },
+    { "type": "tool_flow", "method": "load_mesh" },
+    { "type": "tool_flow", "method": "export_preview" },
+    { "type": "preview_flow", "hint": "model3d" },
+    { "type": "tool_flow", "method": "decimate", "args": { "target_percent": 0.7 } },
+    { "type": "tool_flow", "method": "export_preview" },
+    { "type": "preview_flow", "hint": "model3d" },
+    { "type": "tool_flow", "method": "smooth", "args": { "iterations": 5 } },
+    { "type": "tool_flow", "method": "export_preview" },
+    { "type": "preview_flow", "hint": "model3d" },
+    { "type": "tool_flow", "method": "save_mesh", "args": { "path": "docs/mesh_output.ply" } },
+    { "type": "end_flow" }
+  ],
+  "edges": [
+    { "source": 0, "target": 4, "source_slot": "config", "target_slot": "config" },
+    { "source": 0, "target": 5, "source_slot": "config", "target_slot": "config" },
+    { "source": 0, "target": 7, "source_slot": "config", "target_slot": "config" },
+    { "source": 0, "target": 8, "source_slot": "config", "target_slot": "config" },
+    { "source": 0, "target": 10, "source_slot": "config", "target_slot": "config" },
+    { "source": 0, "target": 11, "source_slot": "config", "target_slot": "config" },
+    { "source": 0, "target": 13, "source_slot": "config", "target_slot": "config" },
+    { "source": 4, "target": 5, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 5, "target": 6, "source_slot": "output", "target_slot": "flow_in" },
+    { "source": 6, "target": 7, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 7, "target": 8, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 8, "target": 9, "source_slot": "output", "target_slot": "flow_in" },
+    { "source": 9, "target": 10, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 10, "target": 11, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 11, "target": 12, "source_slot": "output", "target_slot": "flow_in" },
+    { "source": 12, "target": 13, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 13, "target": 14, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 3, "target": 1, "source_slot": "flow_out","target_slot": "flow_in" },
+    { "source": 1, "target": 2, "source_slot": "message", "target_slot": "input" },
+    { "source": 2, "target": 4, "source_slot": "output", "target_slot": "args" }
+  ]
+}
+"""
 
 	__toolkit__ = True
 

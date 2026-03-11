@@ -1139,7 +1139,19 @@ class WorkflowEngine:
 		for i in with_reference:
 			node   = nodes[i]
 			impl   = backend.handles[i]
-			config_impl = instances[links[i]["config"]].impl
+
+			config_link = links[i].get("config")
+			if config_link is None:
+				raise ValueError(f"Node {i} ({node.type}) has no 'config' edge — wire a config node to it")
+
+			config_node = instances[config_link]
+			if config_node is None:
+				raise ValueError(f"Node {i} ({node.type}) references config node {config_link} which failed to initialize")
+
+			config_impl = config_node.impl
+			if config_impl is None:
+				config_name = getattr(nodes[config_link], 'name', None) or nodes[config_link].type
+				raise ValueError(f"Node {i} ({node.type}): config '{config_name}' failed to load — check the module name")
 
 			if node.type in ("agent_node", "agent_flow"):
 				ref = partial(backend.run_agent, config_impl)
