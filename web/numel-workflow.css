@@ -482,6 +482,40 @@ body {
 	color: var(--sg-text-primary);
 }
 
+/* Icon + text buttons */
+.nw-btn-with-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 5px;
+}
+
+.nw-btn-with-icon svg {
+	flex-shrink: 0;
+	opacity: 0.8;
+}
+
+.nw-btn-with-icon:hover:not(:disabled) svg {
+	opacity: 1;
+}
+
+/* 2-column button grid (import/download, copy/paste, clear) */
+.nw-btn-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 6px;
+	margin-top: 6px;
+}
+
+.nw-btn-grid .nw-btn {
+	padding: 6px 8px;
+	font-size: 11px;
+}
+
+.nw-btn-grid-full {
+	grid-column: 1 / -1;
+}
+
 /* ========================================================================
    SWITCH TOGGLE
    ======================================================================== */

@@ -52,13 +52,35 @@
 					<select id="workflowSelect" class="nw-select" disabled>
 						<option value="">-- Select workflow --</option>
 					</select>
-					<div class="nw-btn-row">
-						<button id="loadWorkflowBtn" class="nw-btn nw-btn-secondary" disabled>Load</button>
-						<button id="uploadWorkflowBtn" class="nw-btn nw-btn-secondary" disabled>Upload</button>
-						<button id="pasteWorkflowBtn" class="nw-btn nw-btn-secondary" disabled>Paste</button>
-						<button id="downloadWorkflowBtn" class="nw-btn nw-btn-secondary" disabled>Download</button>
-						<button id="copyWorkflowBtn" class="nw-btn nw-btn-secondary" disabled>Copy</button>
-						<button id="removeWorkflowBtn" class="nw-btn nw-btn-danger" disabled>Remove</button>
+					<div class="nw-btn-grid">
+						<button id="loadWorkflowBtn" class="nw-btn nw-btn-secondary nw-btn-with-icon" disabled title="Load workflow">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 15v4c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+							<span>Load</span>
+						</button>
+						<button id="removeWorkflowBtn" class="nw-btn nw-btn-danger nw-btn-with-icon" disabled title="Remove workflow">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+							<span>Remove</span>
+						</button>
+						<button id="uploadWorkflowBtn" class="nw-btn nw-btn-secondary nw-btn-with-icon" disabled title="Import from file">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/></svg>
+							<span>Import</span>
+						</button>
+						<button id="downloadWorkflowBtn" class="nw-btn nw-btn-secondary nw-btn-with-icon" disabled title="Download as JSON">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+							<span>Download</span>
+						</button>
+						<button id="copyWorkflowBtn" class="nw-btn nw-btn-secondary nw-btn-with-icon" disabled title="Copy to clipboard">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+							<span>Copy</span>
+						</button>
+						<button id="pasteWorkflowBtn" class="nw-btn nw-btn-secondary nw-btn-with-icon" disabled title="Paste from clipboard">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+							<span>Paste</span>
+						</button>
+						<button id="clearWorkflowBtn" class="nw-btn nw-btn-secondary nw-btn-with-icon nw-btn-grid-full" disabled title="Clear workflow">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 5.64"/><polyline points="1 4 5.64 5.64 4 10"/></svg>
+							<span>Clear</span>
+						</button>
 					</div>
 				</div>
 
@@ -68,18 +90,29 @@
 						<!-- <label>Current Workflow</label> -->
 						<div id="singleWorkflowName" class="nw-mono-text">None</div>
 					</div>
-					<div class="nw-btn-row">
-						<button id="singleImportBtn" class="nw-btn nw-btn-secondary" disabled>Import</button>
-						<button id="singlePasteBtn" class="nw-btn nw-btn-secondary" disabled>Paste</button>
-						<button id="singleDownloadBtn" class="nw-btn nw-btn-secondary" disabled>Download</button>
-						<button id="singleCopyBtn" class="nw-btn nw-btn-secondary" disabled>Copy</button>
+					<div class="nw-btn-grid">
+						<button id="singleImportBtn" class="nw-btn nw-btn-secondary nw-btn-with-icon" disabled title="Import from file">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/></svg>
+							<span>Import</span>
+						</button>
+						<button id="singleDownloadBtn" class="nw-btn nw-btn-secondary nw-btn-with-icon" disabled title="Download as JSON">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+							<span>Download</span>
+						</button>
+						<button id="singleCopyBtn" class="nw-btn nw-btn-secondary nw-btn-with-icon" disabled title="Copy to clipboard">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+							<span>Copy</span>
+						</button>
+						<button id="singlePasteBtn" class="nw-btn nw-btn-secondary nw-btn-with-icon" disabled title="Paste from clipboard">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+							<span>Paste</span>
+						</button>
+						<button id="clearWorkflowBtnSingle" class="nw-btn nw-btn-secondary nw-btn-with-icon nw-btn-grid-full" disabled title="Clear workflow">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 5.64"/><polyline points="1 4 5.64 5.64 4 10"/></svg>
+							<span>Clear</span>
+						</button>
 					</div>
 				</div>
-
-				<!-- Clear button (both modes) -->
-				<button id="clearWorkflowBtn" class="nw-btn nw-btn-secondary nw-btn-block" disabled style="margin-top: 8px;">
-					Clear
-				</button>
 
 				<!-- Workflow Options (Collapsible, inside Workflows section) -->
 				<div class="nw-collapsible nw-subsection">

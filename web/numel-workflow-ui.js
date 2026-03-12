@@ -335,8 +335,9 @@ function setupEventListeners() {
 	$('cancelRemoveBtn').addEventListener('click', closeRemoveModal);
 	$('closeRemoveModalBtn').addEventListener('click', closeRemoveModal);
 
-	// Clear workflow
+	// Clear workflow (both modes)
 	$('clearWorkflowBtn').addEventListener('click', clearWorkflow);
+	$('clearWorkflowBtnSingle').addEventListener('click', clearWorkflow);
 
 	// Mode switch
 	$('singleModeSwitch').addEventListener('change', toggleWorkflowMode);
@@ -397,7 +398,9 @@ function enableStart(enable) {
 function updateClearButtonState() {
 	const hasNodes = schemaGraph?.graph?.nodes?.length > 0;
 	const isConnected = client?.isConnected;
-	$('clearWorkflowBtn').disabled = !hasNodes || !isConnected;
+	const disabled = !hasNodes || !isConnected;
+	$('clearWorkflowBtn').disabled = disabled;
+	$('clearWorkflowBtnSingle').disabled = disabled;
 }
 
 // ========================================================================
