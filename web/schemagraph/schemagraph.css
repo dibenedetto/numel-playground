@@ -1223,6 +1223,24 @@
   cursor: grabbing !important;
 }
 
+/* Disable interaction on all HTML overlays when graph is locked */
+.sg-locked > .sg-preview-text-overlay,
+.sg-locked > .sg-preview-media-overlay,
+.sg-locked > .sg-node-input-overlay,
+.sg-locked > .sg-node-select-overlay-wrapper,
+.sg-locked > .sg-combo-box-wrapper,
+.sg-locked > .sg-3d-overlay,
+.sg-locked > .sg-chat-overlay {
+  pointer-events: none !important;
+  opacity: 0.6;
+}
+
+/* Media overlay lives on document.body — use body-level class */
+.sg-graph-locked > .sg-media-overlay {
+  pointer-events: none !important;
+  opacity: 0.6;
+}
+
 /* Lock overlay */
 .sg-lock-overlay {
   display: inline-flex;

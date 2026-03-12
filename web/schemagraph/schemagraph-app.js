@@ -271,6 +271,8 @@ class SchemaGraphApp {
 			document.getElementById('sg-contextMenu')?.classList.remove('show');
 			document.getElementById('sg-schemaDialog')?.classList.remove('show');
 			this.canvas.classList.add('sg-locked');
+			this.canvas.parentElement?.classList.add('sg-locked');
+			document.body.classList.add('sg-graph-locked');
 		}
 		const overlay = document.getElementById('sg-lockOverlay');
 		if (overlay && this._features.lockOverlay) {
@@ -290,6 +292,8 @@ class SchemaGraphApp {
 		this.lockMovement = false;
 		document.getElementById('sg-lockOverlay')?.classList.remove('show', 'pending');
 		this.canvas.classList.remove('sg-locked');
+		this.canvas.parentElement?.classList.remove('sg-locked');
+		document.body.classList.remove('sg-graph-locked');
 		this.eventBus.emit('graph:unlocked', {});
 		this.draw();
 	}
@@ -2865,6 +2869,7 @@ class SchemaGraphApp {
 		if (node) {
 			this.selectedNodes.add(node);
 			this.selectedNode = node;
+			this.bringToFront(node);
 
 			if (!prevSelection.has(node)) {
 				this.eventBus.emit(GraphEvents.NODE_SELECTED, { nodeId: node.id, node });
@@ -2892,6 +2897,27 @@ class SchemaGraphApp {
 
 	toggleNodeSelection(node) { this.selectedNodes.has(node) ? this.deselectNode(node) : this.selectNode(node, true); }
 	isNodeSelected(node) { return this.selectedNodes.has(node); }
+
+	/** Move node to end of the nodes array so it draws on top and gets picked first. */
+	bringToFront(node) {
+		const arr = this.graph.nodes;
+		const idx = arr.indexOf(node);
+		if (idx < 0 || idx === arr.length - 1) return;
+		arr.splice(idx, 1);
+		arr.push(node);
+	}
+
+	/** Move node(s) to end of the nodes array so they draw on top and get picked first. */
+	bringToFront(nodes) {
+		const set = nodes instanceof Set ? nodes : new Set(Array.isArray(nodes) ? nodes : [nodes]);
+		if (!set.size) return;
+		const arr = this.graph.nodes;
+		const kept = [], moved = [];
+		for (const n of arr) (set.has(n) ? moved : kept).push(n);
+		if (moved.length === 0) return;
+		arr.length = 0;
+		arr.push(...kept, ...moved);
+	}
 	deleteSelectedNodes() {
 		if (!this.selectedNodes.size) return;
 		const label = this.selectedNodes.size > 1 ? 'Delete Nodes' : 'Delete Node';
@@ -3288,7 +3314,8 @@ class SchemaGraphApp {
 				return;
 			}
 
-			for (const node of this.graph.nodes) {
+			for (let i = this.graph.nodes.length - 1; i >= 0; i--) {
+				const node = this.graph.nodes[i];
 				const layout = this._getButtonStackLayout(node);
 				for (const stack of [layout.top, layout.bottom]) {
 					if (!stack) continue;
@@ -3316,13 +3343,15 @@ class SchemaGraphApp {
 		if (data.button !== 0 || this.spacePressed) return;
 
 		if (!this.isLocked && this._features.linkCreation) {
-			for (const node of this.graph.nodes) {
+			for (let i = this.graph.nodes.length - 1; i >= 0; i--) {
+				const node = this.graph.nodes[i];
 				let visIdx = 0;
 				for (let j = 0; j < node.outputs.length; j++) {
 					if (this._isFieldHidden(node, j, true)) continue;
 					const slotY = node.pos[1] + 30 + visIdx * 25;
 					if (Math.sqrt(Math.pow(wx - (node.pos[0] + node.size[0]), 2) + Math.pow(wy - slotY, 2)) < 10) {
 						if (this._isMultiBaseOutputSlot(node, j)) { visIdx++; continue; }
+						this.bringToFront(node);
 						this.connecting = { node, slot: j, isOutput: true };
 						this.canvas.classList.add('connecting');
 						return;
@@ -3331,13 +3360,15 @@ class SchemaGraphApp {
 				}
 			}
 
-			for (const node of this.graph.nodes) {
+			for (let i = this.graph.nodes.length - 1; i >= 0; i--) {
+				const node = this.graph.nodes[i];
 				let visIdx = 0;
 				for (let j = 0; j < node.inputs.length; j++) {
 					if (this._isFieldHidden(node, j, false)) continue;
 					const slotY = node.pos[1] + 30 + visIdx * 25;
 					if (Math.sqrt(Math.pow(wx - node.pos[0], 2) + Math.pow(wy - slotY, 2)) < 10) {
 						if (this._isMultiBaseInputSlot(node, j)) { visIdx++; continue; }
+						this.bringToFront(node);
 						if (!node.multiInputs?.[j] && node.inputs[j].link && this._features.linkDeletion) this.removeLink(node.inputs[j].link, node, j);
 						this.connecting = { node, slot: j, isOutput: false };
 						this.canvas.classList.add('connecting');
@@ -3495,7 +3526,8 @@ class SchemaGraphApp {
 		let foundAdd = null;
 		let foundRemove = null;
 
-		for (const node of this.graph.nodes) {
+		for (let i = this.graph.nodes.length - 1; i >= 0; i--) {
+			const node = this.graph.nodes[i];
 			if (!node.isWorkflowNode) continue;
 
 			const addButtons = this._getMultiSlotAddButtons(node);
@@ -3530,7 +3562,8 @@ class SchemaGraphApp {
 		}
 
 		let foundButton = null;
-		for (const node of this.graph.nodes) {
+		for (let i = this.graph.nodes.length - 1; i >= 0; i--) {
+			const node = this.graph.nodes[i];
 			const layout = this._getButtonStackLayout(node);
 			for (const stack of [layout.top, layout.bottom]) {
 				if (!stack) continue;
@@ -3560,7 +3593,8 @@ class SchemaGraphApp {
 		let foundSlot = false;
 		let foundNodeHeader = null;
 
-		for (const node of this.graph.nodes) {
+		for (let i = this.graph.nodes.length - 1; i >= 0; i--) {
+			const node = this.graph.nodes[i];
 			const x = node.pos[0];
 			const y = node.pos[1];
 			const w = node.size[0];
@@ -3670,7 +3704,8 @@ class SchemaGraphApp {
 		if (this.connecting) {
 			this._startBatch();
 			let _connLinkCreated = false;
-			for (const node of this.graph.nodes) {
+			for (let _ci = this.graph.nodes.length - 1; _ci >= 0; _ci--) {
+				const node = this.graph.nodes[_ci];
 				if (this.connecting.isOutput) {
 					let visIdx = 0;
 					for (let j = 0; j < node.inputs.length; j++) {
@@ -3818,20 +3853,24 @@ class SchemaGraphApp {
 		if (Date.now() < (this._previewCollapseBlockUntil || 0)) return;
 
 		// Double-click on ANY node header → edit name (allowed even when locked)
-		for (const node of this.graph.nodes) {
+		for (let i = this.graph.nodes.length - 1; i >= 0; i--) {
+			const node = this.graph.nodes[i];
 			const nx = node.pos[0], ny = node.pos[1], nw = node.size[0];
 			if (wx >= nx && wx <= nx + nw && wy >= ny && wy < ny + 26) {
+				this.bringToFront(node);
 				this._showNodeNameEditor(node);
 				return;
 			}
 		}
 
 		// Double-click on PreviewFlow node body (below header) → toggle expand
-		for (const node of this.graph.nodes) {
+		for (let i = this.graph.nodes.length - 1; i >= 0; i--) {
+			const node = this.graph.nodes[i];
 			if (!this._isPreviewFlowNode(node)) continue;
 			const nx = node.pos[0], ny = node.pos[1];
 			const nw = node.size[0], nh = node.size[1];
 			if (wx >= nx && wx <= nx + nw && wy >= ny + 26 && wy <= ny + nh) {
+				this.bringToFront(node);
 				this._togglePreviewExpanded(node);
 				return;
 			}
@@ -3840,7 +3879,8 @@ class SchemaGraphApp {
 		// Block other double-click actions when locked
 		if (this.isLocked) return;
 
-		for (const node of this.graph.nodes) {
+		for (let i = this.graph.nodes.length - 1; i >= 0; i--) {
+			const node = this.graph.nodes[i];
 			if (node.nativeInputs) {
 				let visIdx = 0;
 				for (let j = 0; j < node.inputs.length; j++) {
@@ -3849,6 +3889,7 @@ class SchemaGraphApp {
 						const sy = node.pos[1] + 38 + visIdx * 25;
 						const boxX = node.pos[0] + 10, boxY = sy + 6, boxW = 70, boxH = 12;
 						if (wx >= boxX && wx <= boxX + boxW && wy >= boxY && wy <= boxY + boxH) {
+							this.bringToFront(node);
 							if (node.nativeInputs[j].type === 'bool') { node.nativeInputs[j].value = !node.nativeInputs[j].value; this.eventBus.emit(GraphEvents.FIELD_CHANGED, { nodeId: node.id, fieldName: node.inputs[j]?.name, value: node.nativeInputs[j].value }); this.draw(); return; }
 							this.showInputOverlay(node, j, boxX, boxY, data.coords.rect);
 							return;
@@ -3859,10 +3900,12 @@ class SchemaGraphApp {
 			}
 		}
 
-		for (const node of this.graph.nodes) {
+		for (let i = this.graph.nodes.length - 1; i >= 0; i--) {
+			const node = this.graph.nodes[i];
 			if (!node.isNative) continue;
 			const valueY = node.pos[1] + node.size[1] - 18;
 			if (wx >= node.pos[0] + 8 && wx <= node.pos[0] + node.size[0] - 8 && wy >= valueY && wy <= valueY + 20) {
+				this.bringToFront(node);
 				if (node.title === 'Boolean') { node.properties.value = !node.properties.value; this.eventBus.emit(GraphEvents.FIELD_CHANGED, { nodeId: node.id, fieldName: 'value', value: node.properties.value }); this.draw(); }
 				else this.showInputOverlay(node, null, node.pos[0] + 8, valueY, data.coords.rect);
 				return;
