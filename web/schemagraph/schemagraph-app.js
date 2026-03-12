@@ -109,6 +109,11 @@ class SchemaGraphApp {
 		this.customContextMenuHandler = null;
 		this.hoveredSlot = null;
 		this.tooltipEl = null;
+		this._tooltipDelay = 500;      // ms before tooltip appears
+		this._tooltipTimer = null;
+		this._tooltipPendingKind = null;
+		this._tooltipVisible = null;
+		this._tooltipTargetKey = null;
 
 		this._hoveredAddButton = null;
 		this._hoveredRemoveButton = null;
@@ -234,7 +239,7 @@ class SchemaGraphApp {
 		this.loadTextScalingMode();
 
 		// ---- Tabs ----
-		this.tabs        = [{ id: this._genTabId(), name: 'Graph 1', graphData: null, camera: { x: 0, y: 0, scale: 1.0 }, undoStack: [], redoStack: [] }];
+		this.tabs        = [{ id: this._genTabId(), name: 'Untitled', graphData: null, camera: { x: 0, y: 0, scale: 1.0 }, undoStack: [], redoStack: [] }];
 		this.activeTabId = this.tabs[0].id;
 
 		// ---- History ----
@@ -1913,7 +1918,7 @@ class SchemaGraphApp {
 		style.id = 'sg-interactive-styles';
 		style.textContent = `
 			.sg-file-drag-over { outline: 3px dashed #92d050 !important; outline-offset: -3px; }
-			.sg-tooltip { position: fixed; z-index: 10000; background: var(--sg-node-bg, #252540); border: 1px solid var(--sg-border-color, #404060); border-radius: 6px; padding: 8px 12px; max-width: 280px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); pointer-events: none; font-size: 12px; color: var(--sg-text-primary, #fff); }
+			.sg-tooltip { position: fixed; z-index: 10000; background: var(--sg-node-bg, #252540); border: 1px solid var(--sg-border-color, #404060); border-radius: 6px; padding: 8px 12px; max-width: 280px; box-shadow: 0 4px 16px rgba(0,0,0,0.4); pointer-events: none; font-size: 12px; color: var(--sg-text-primary, #fff); display: none; opacity: 0; transition: opacity 0.15s ease; }
 			.sg-tooltip-title { font-weight: 600; color: var(--sg-text-primary, #fff); margin-bottom: 4px; }
 			.sg-tooltip-desc { color: var(--sg-text-secondary, #b0b0c0); margin-bottom: 6px; line-height: 1.4; }
 			.sg-tooltip-field { font-family: 'Monaco', 'Menlo', monospace; font-size: 11px; color: var(--sg-text-tertiary, #808090); margin-bottom: 4px; }
@@ -1922,7 +1927,7 @@ class SchemaGraphApp {
 			.sg-tooltip-badge.multi { background: rgba(147, 112, 219, 0.2); color: var(--sg-accent-purple, #9370db); }
 			.sg-tooltip-badge.required { background: rgba(220, 96, 104, 0.2); color: var(--sg-accent-red, #dc6068); }
 			.sg-tooltip-badge.optional { background: rgba(80, 200, 120, 0.2); color: var(--sg-accent-green, #50c878); }
-			.sg-node-tooltip { position: fixed; z-index: 10000; background: var(--sg-node-bg, #252540); border: 1px solid var(--sg-border-color, #404060); border-radius: 8px; padding: 10px 14px; max-width: 320px; box-shadow: 0 6px 20px rgba(0,0,0,0.5); pointer-events: none; font-size: 12px; color: var(--sg-text-primary, #fff); }
+			.sg-node-tooltip { position: fixed; z-index: 10000; background: var(--sg-node-bg, #252540); border: 1px solid var(--sg-border-color, #404060); border-radius: 8px; padding: 10px 14px; max-width: 320px; box-shadow: 0 6px 20px rgba(0,0,0,0.5); pointer-events: none; font-size: 12px; color: var(--sg-text-primary, #fff); display: none; opacity: 0; transition: opacity 0.15s ease; }
 			.sg-node-tooltip-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 			.sg-node-tooltip-icon { font-size: 18px; }
 			.sg-node-tooltip-title { font-weight: 600; font-size: 14px; color: var(--sg-text-primary, #fff); }
@@ -3264,6 +3269,7 @@ class SchemaGraphApp {
 	// === MOUSE HANDLERS ===
 	handleMouseDown(data) {
 		this.isMouseDown = true;
+		this._dismissAllTooltips();
 		document.getElementById('sg-contextMenu')?.classList.remove('show');
 		this._hideComboBox();
 
@@ -3577,7 +3583,7 @@ class SchemaGraphApp {
 					const meta = node.inputMeta?.[j];
 					if (meta) {
 						const isRequired = this._isFieldRequired(node, j);
-						this._showTooltip(data.coords.clientX, data.coords.clientY, meta, isRequired);
+						this._showTooltip(data.coords.clientX, data.coords.clientY, meta, isRequired, node);
 						foundSlot = true;
 						break;
 					}
@@ -3599,7 +3605,7 @@ class SchemaGraphApp {
 				if (wx >= hitLeft && wx <= hitRight && wy >= hitTop && wy <= hitBottom) {
 					const meta = node.outputMeta?.[j];
 					if (meta) {
-						this._showTooltip(data.coords.clientX, data.coords.clientY, meta, false);
+						this._showTooltip(data.coords.clientX, data.coords.clientY, meta, false, node);
 						foundSlot = true;
 						break;
 					}
@@ -4221,6 +4227,7 @@ class SchemaGraphApp {
 	}
 
 	handleContextMenu(data) {
+		this._dismissAllTooltips();
 		if (this.isLocked || !this._features.contextMenu) { data.event.preventDefault(); return; }
 		const [wx, wy] = this.screenToWorld(data.coords.screenX, data.coords.screenY);
 		let clickedNode = null;
@@ -4668,121 +4675,195 @@ class SchemaGraphApp {
 		this.eventBus.emit('error', { message: text });
 	}
 
-	_showTooltip(clientX, clientY, meta, isRequired) {
-		if (!this._fieldTooltipsEnabled) return;
-		if (!this.tooltipEl) {
-			this.tooltipEl = document.createElement('div');
-			this.tooltipEl.className = 'sg-tooltip';
-			document.body.appendChild(this.tooltipEl);
-		}
-		let html = '';
-		if (meta.title) html += `<div class="sg-tooltip-title">${meta.title}</div>`;
-		if (meta.description) html += `<div class="sg-tooltip-desc">${meta.description}</div>`;
-		html += `<div class="sg-tooltip-field"><code>${meta.name}</code></div>`;
-		html += '<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">';
-		if (meta.type) html += `<span class="sg-tooltip-type">${meta.type}</span>`;
-		if (meta.isMulti) html += `<span class="sg-tooltip-badge multi">Multi-Slot</span>`;
-		if (isRequired) html += `<span class="sg-tooltip-badge required">Required</span>`;
-		else html += `<span class="sg-tooltip-badge optional">Optional</span>`;
-		html += '</div>';
-		this.tooltipEl.innerHTML = html;
-		let x = clientX + 15, y = clientY + 15;
-		if (x + 280 > window.innerWidth) x = clientX - 290;
-		if (y + 120 > window.innerHeight) y = clientY - 130;
-		this.tooltipEl.style.left = x + 'px';
-		this.tooltipEl.style.top = y + 'px';
-		this.tooltipEl.style.display = 'block';
+	// ── Tooltip delay & occlusion helpers ────────────────────────────
+	// Both field and node-header tooltips share a single delay/occlusion
+	// mechanism so they feel consistent.
+
+	_scheduleTooltip(kind, showFn, targetKey) {
+		// kind: 'field' | 'node', targetKey: unique id for what we're hovering
+		// Skip if already showing or pending for the same target
+		if (this._tooltipTargetKey === targetKey && (this._tooltipPendingKind === kind || this._tooltipVisible === kind)) return;
+		// Hide the currently visible tooltip before re-scheduling for a new target
+		if (this._tooltipVisible) this._dismissAllTooltips();
+		else this._cancelTooltipTimer();
+		this._tooltipPendingKind = kind;
+		this._tooltipTargetKey = targetKey;
+		this._tooltipTimer = setTimeout(() => {
+			this._tooltipTimer = null;
+			if (this._isTooltipOccluded()) return;
+			showFn();
+			this._tooltipVisible = kind;
+		}, this._tooltipDelay ?? 500);
 	}
 
-	_hideTooltip() { if (this.tooltipEl) this.tooltipEl.style.display = 'none'; }
+	_cancelTooltipTimer() {
+		if (this._tooltipTimer) { clearTimeout(this._tooltipTimer); this._tooltipTimer = null; }
+		this._tooltipPendingKind = null;
+		this._tooltipTargetKey = null;
+	}
+
+	/** Returns true if any overlay / dialog / context menu is visible on top of the canvas. */
+	_isTooltipOccluded() {
+		// Check for common occluders: dialogs, context menus, overlays, modals
+		const selectors = [
+			'.sg-input-dialog-overlay',
+			'.sg-context-menu',
+			'.sg-search-overlay',
+			'.sg-media-overlay',
+			'.sg-modal-overlay',
+			'[class*="dialog"][style*="display: block"]',
+			'[class*="dialog"][style*="display:block"]',
+			'dialog[open]',
+		];
+		for (const sel of selectors) {
+			const el = document.querySelector(sel);
+			if (el && el.offsetParent !== null) return true;
+		}
+		// Also check right-panel-spawned modals (nw-modal)
+		const modal = document.querySelector('.nw-modal-overlay');
+		if (modal && modal.style.display !== 'none') return true;
+		return false;
+	}
+
+	_dismissAllTooltips() {
+		this._cancelTooltipTimer();
+		this._tooltipVisible = null;
+		this._tooltipTargetKey = null;
+		if (this.tooltipEl) { this.tooltipEl.style.opacity = '0'; this.tooltipEl.style.display = 'none'; }
+		if (this._nodeHeaderTooltipEl) { this._nodeHeaderTooltipEl.style.opacity = '0'; this._nodeHeaderTooltipEl.style.display = 'none'; }
+	}
+
+	_showTooltip(clientX, clientY, meta, isRequired, node) {
+		if (!this._fieldTooltipsEnabled) return;
+		const targetKey = `field:${node?.id ?? ''}:${meta.name}`;
+		this._scheduleTooltip('field', () => {
+			if (!this.tooltipEl) {
+				this.tooltipEl = document.createElement('div');
+				this.tooltipEl.className = 'sg-tooltip';
+				document.body.appendChild(this.tooltipEl);
+			}
+			let html = '';
+			if (meta.title) html += `<div class="sg-tooltip-title">${meta.title}</div>`;
+			if (meta.description) html += `<div class="sg-tooltip-desc">${meta.description}</div>`;
+			html += `<div class="sg-tooltip-field"><code>${meta.name}</code></div>`;
+			html += '<div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;">';
+			if (meta.type) html += `<span class="sg-tooltip-type">${meta.type}</span>`;
+			if (meta.isMulti) html += `<span class="sg-tooltip-badge multi">Multi-Slot</span>`;
+			if (isRequired) html += `<span class="sg-tooltip-badge required">Required</span>`;
+			else html += `<span class="sg-tooltip-badge optional">Optional</span>`;
+			html += '</div>';
+			this.tooltipEl.innerHTML = html;
+			let x = clientX + 15, y = clientY + 15;
+			if (x + 280 > window.innerWidth) x = clientX - 290;
+			if (y + 120 > window.innerHeight) y = clientY - 130;
+			this.tooltipEl.style.left = x + 'px';
+			this.tooltipEl.style.top = y + 'px';
+			this.tooltipEl.style.display = 'block';
+			requestAnimationFrame(() => { if (this.tooltipEl) this.tooltipEl.style.opacity = '1'; });
+		}, targetKey);
+	}
+
+	_hideTooltip() {
+		if (this._tooltipPendingKind === 'field') this._cancelTooltipTimer();
+		if (this._tooltipVisible === 'field') this._tooltipVisible = null;
+		if (this.tooltipEl) { this.tooltipEl.style.opacity = '0'; this.tooltipEl.style.display = 'none'; }
+	}
 
 	_showNodeHeaderTooltip(clientX, clientY, node) {
 		if (!this._nodeTooltipsEnabled) return;
+		const targetKey = `node:${node.id}`;
+		this._scheduleTooltip('node', () => {
+			const info = this._schemaDecorators[node.schemaName]?.[node.modelName]?.info || {};
 
-		const info = this._schemaDecorators[node.schemaName]?.[node.modelName]?.info || {};
+			if (!this._nodeHeaderTooltipEl) {
+				this._nodeHeaderTooltipEl = document.createElement('div');
+				this._nodeHeaderTooltipEl.className = 'sg-node-tooltip';
+				document.body.appendChild(this._nodeHeaderTooltipEl);
+			}
 
-		if (!this._nodeHeaderTooltipEl) {
-			this._nodeHeaderTooltipEl = document.createElement('div');
-			this._nodeHeaderTooltipEl.className = 'sg-node-tooltip';
-			document.body.appendChild(this._nodeHeaderTooltipEl);
-		}
+			// Always compute fresh
+			const selfCompleteness = this._getNodeCompleteness(node);
+			const chainCompleteness = this._getChainCompleteness(node);
 
-		// Always compute fresh
-		const selfCompleteness = this._getNodeCompleteness(node);
-		const chainCompleteness = this._getChainCompleteness(node);
-
-		let html = '<div class="sg-node-tooltip-header">';
-		if (info.icon) {
-			html += `<span class="sg-node-tooltip-icon">${info.icon}</span>`;
-		}
-		const displayTitle = info.title || node.modelName || node.title;
-		html += `<span class="sg-node-tooltip-title">${displayTitle}</span>`;
-		html += '</div>';
-
-		if (info.description) {
-			html += `<div class="sg-node-tooltip-desc">${info.description}</div>`;
-		}
-
-		html += '<div class="sg-node-tooltip-meta">';
-		if (node.schemaName) {
-			html += `<div class="sg-node-tooltip-meta-item"><span class="sg-node-tooltip-meta-label">Schema:</span> ${node.schemaName}</div>`;
-		}
-		if (node.modelName) {
-			html += `<div class="sg-node-tooltip-meta-item"><span class="sg-node-tooltip-meta-label">Model:</span> ${node.modelName}</div>`;
-		}
-		if (info.section) {
-			html += `<div class="sg-node-tooltip-meta-item"><span class="sg-node-tooltip-meta-label">Section:</span> ${info.section}</div>`;
-		}
-		html += '</div>';
-
-		// Self completeness
-		const missingLen = selfCompleteness.missingFields.length;
-		if (missingLen > 0) {
-			html += '<div class="sg-node-tooltip-chain-missing">';
-			html += `⛔ ${missingLen} missing required field${missingLen > 1 ? 's' : ''}`;
-			html += `<br><small style="opacity:0.8">${selfCompleteness.missingFields.slice(0, 3).join(', ')}${missingLen > 3 ? '...' : ''}</small>`;
+			let html = '<div class="sg-node-tooltip-header">';
+			if (info.icon) {
+				html += `<span class="sg-node-tooltip-icon">${info.icon}</span>`;
+			}
+			const displayTitle = info.title || node.modelName || node.title;
+			html += `<span class="sg-node-tooltip-title">${displayTitle}</span>`;
 			html += '</div>';
-		} else {
-			html += `<div class="sg-node-tooltip-meta-item sg-node-tooltip-complete">✓ All required fields filled</div>`;
-		}
 
-		// Chain completeness - only show if upstream nodes are incomplete
-		const upstreamIncomplete = chainCompleteness.incompleteNodes.filter(id => id !== node.id);
-		if (upstreamIncomplete.length > 0) {
-			html += '<div class="sg-node-tooltip-chain-warning">';
-			html += `⚠ ${upstreamIncomplete.length} upstream node${upstreamIncomplete.length > 1 ? 's' : ''} incomplete`;
-			const incompleteNames = upstreamIncomplete.slice(0, 3).map(id => {
-				const n = this.graph.getNodeById(id);
-				return n ? (n.modelName || n.title) : id;
-			});
-			html += `<br><small style="opacity:0.8">${incompleteNames.join(', ')}${upstreamIncomplete.length > 3 ? '...' : ''}</small>`;
+			if (info.description) {
+				html += `<div class="sg-node-tooltip-desc">${info.description}</div>`;
+			}
+
+			html += '<div class="sg-node-tooltip-meta">';
+			if (node.schemaName) {
+				html += `<div class="sg-node-tooltip-meta-item"><span class="sg-node-tooltip-meta-label">Schema:</span> ${node.schemaName}</div>`;
+			}
+			if (node.modelName) {
+				html += `<div class="sg-node-tooltip-meta-item"><span class="sg-node-tooltip-meta-label">Model:</span> ${node.modelName}</div>`;
+			}
+			if (info.section) {
+				html += `<div class="sg-node-tooltip-meta-item"><span class="sg-node-tooltip-meta-label">Section:</span> ${info.section}</div>`;
+			}
 			html += '</div>';
-		} else if (selfCompleteness.complete && chainCompleteness.complete) {
-			html += '<div class="sg-node-tooltip-chain-ok">✓ Chain complete - ready</div>';
-		}
 
-		if (node.isNative) {
-			html += '<div class="sg-node-tooltip-badge-row"><span class="sg-node-tooltip-type-badge native">Native</span></div>';
-		}
-		if (node.isRootType) {
-			html += '<div class="sg-node-tooltip-badge-row"><span class="sg-node-tooltip-type-badge root">★ Root</span></div>';
-		}
+			// Self completeness
+			const missingLen = selfCompleteness.missingFields.length;
+			if (missingLen > 0) {
+				html += '<div class="sg-node-tooltip-chain-missing">';
+				html += `⛔ ${missingLen} missing required field${missingLen > 1 ? 's' : ''}`;
+				html += `<br><small style="opacity:0.8">${selfCompleteness.missingFields.slice(0, 3).join(', ')}${missingLen > 3 ? '...' : ''}</small>`;
+				html += '</div>';
+			} else {
+				html += `<div class="sg-node-tooltip-meta-item sg-node-tooltip-complete">✓ All required fields filled</div>`;
+			}
 
-		this._nodeHeaderTooltipEl.innerHTML = html;
+			// Chain completeness - only show if upstream nodes are incomplete
+			const upstreamIncomplete = chainCompleteness.incompleteNodes.filter(id => id !== node.id);
+			if (upstreamIncomplete.length > 0) {
+				html += '<div class="sg-node-tooltip-chain-warning">';
+				html += `⚠ ${upstreamIncomplete.length} upstream node${upstreamIncomplete.length > 1 ? 's' : ''} incomplete`;
+				const incompleteNames = upstreamIncomplete.slice(0, 3).map(id => {
+					const n = this.graph.getNodeById(id);
+					return n ? (n.modelName || n.title) : id;
+				});
+				html += `<br><small style="opacity:0.8">${incompleteNames.join(', ')}${upstreamIncomplete.length > 3 ? '...' : ''}</small>`;
+				html += '</div>';
+			} else if (selfCompleteness.complete && chainCompleteness.complete) {
+				html += '<div class="sg-node-tooltip-chain-ok">✓ Chain complete - ready</div>';
+			}
 
-		let x = clientX + 15;
-		let y = clientY + 15;
-		if (x + 320 > window.innerWidth) x = clientX - 330;
-		if (y + 250 > window.innerHeight) y = clientY - 260;
+			if (node.isNative) {
+				html += '<div class="sg-node-tooltip-badge-row"><span class="sg-node-tooltip-type-badge native">Native</span></div>';
+			}
+			if (node.isRootType) {
+				html += '<div class="sg-node-tooltip-badge-row"><span class="sg-node-tooltip-type-badge root">★ Root</span></div>';
+			}
 
-		this._nodeHeaderTooltipEl.style.left = x + 'px';
-		this._nodeHeaderTooltipEl.style.top = y + 'px';
-		this._nodeHeaderTooltipEl.style.display = 'block';
+			this._nodeHeaderTooltipEl.innerHTML = html;
+
+			let x = clientX + 15;
+			let y = clientY + 15;
+			if (x + 320 > window.innerWidth) x = clientX - 330;
+			if (y + 250 > window.innerHeight) y = clientY - 260;
+
+			this._nodeHeaderTooltipEl.style.left = x + 'px';
+			this._nodeHeaderTooltipEl.style.top = y + 'px';
+			this._nodeHeaderTooltipEl.style.display = 'block';
+			requestAnimationFrame(() => { if (this._nodeHeaderTooltipEl) this._nodeHeaderTooltipEl.style.opacity = '1'; });
+		}, targetKey);
 	}
 
-	_hideNodeHeaderTooltip() { if (this._nodeHeaderTooltipEl) this._nodeHeaderTooltipEl.style.display = 'none'; }
+	_hideNodeHeaderTooltip() {
+		if (this._tooltipPendingKind === 'node') this._cancelTooltipTimer();
+		if (this._tooltipVisible === 'node') this._tooltipVisible = null;
+		if (this._nodeHeaderTooltipEl) { this._nodeHeaderTooltipEl.style.opacity = '0'; this._nodeHeaderTooltipEl.style.display = 'none'; }
+	}
 
 	_showInputDialog(title, label, defaultValue = '') {
+		this._dismissAllTooltips();
 		return new Promise((resolve) => {
 			const overlay = document.createElement('div');
 			overlay.className = 'sg-input-dialog-overlay';
@@ -7045,11 +7126,21 @@ class SchemaGraphApp {
 		}
 	}
 
+	_nextUntitledName() {
+		const existing = new Set(this.tabs.map(t => t.name));
+		if (!existing.has('Untitled')) return 'Untitled';
+		for (let i = 2; ; i++) {
+			const candidate = `Untitled ${i}`;
+			if (!existing.has(candidate)) return candidate;
+		}
+	}
+
 	_addTab(name) {
+		this.eventBus.emit('tab:beforeSwitch', { fromTabId: this.activeTabId });
 		this._saveCurrentTabState();
 		const newTab = {
 			id: this._genTabId(),
-			name: name || `Graph ${this.tabs.length + 1}`,
+			name: name || this._nextUntitledName(),
 			graphData: null,
 			camera: { x: 0, y: 0, scale: 1.0 },
 			undoStack: [],
@@ -7059,15 +7150,18 @@ class SchemaGraphApp {
 		this.activeTabId = newTab.id;
 		this._loadTabState(newTab);
 		this._renderTabs();
+		this.eventBus.emit('tab:switched', { tabId: newTab.id, name: newTab.name });
 	}
 
 	_switchTab(tabId) {
 		if (tabId === this.activeTabId) return;
+		this.eventBus.emit('tab:beforeSwitch', { fromTabId: this.activeTabId });
 		this._saveCurrentTabState();
 		this.activeTabId = tabId;
 		const tab = this._getActiveTab();
 		if (tab) this._loadTabState(tab);
 		this._renderTabs();
+		this.eventBus.emit('tab:switched', { tabId, name: tab?.name });
 	}
 
 	_closeTab(tabId) {
@@ -7077,18 +7171,25 @@ class SchemaGraphApp {
 			tab.graphData = null;
 			tab.undoStack = [];
 			tab.redoStack = [];
+			this.eventBus.emit('tab:beforeSwitch', { fromTabId: this.activeTabId });
 			this._loadTabState(tab);
 			this._renderTabs();
+			this.eventBus.emit('tab:switched', { tabId: tab.id, name: tab.name });
 			return;
 		}
 		const idx = this.tabs.findIndex(t => t.id === tabId);
 		if (idx === -1) return;
 		this.tabs.splice(idx, 1);
 		if (this.activeTabId === tabId) {
+			this.eventBus.emit('tab:beforeSwitch', { fromTabId: tabId });
 			this.activeTabId = this.tabs[Math.max(0, idx - 1)].id;
-			this._loadTabState(this._getActiveTab());
+			const newTab = this._getActiveTab();
+			this._loadTabState(newTab);
+			this._renderTabs();
+			this.eventBus.emit('tab:switched', { tabId: this.activeTabId, name: newTab?.name });
+		} else {
+			this._renderTabs();
 		}
-		this._renderTabs();
 	}
 
 	_renameTab(tabId, name) {
@@ -7154,12 +7255,18 @@ class SchemaGraphApp {
 			el.innerHTML = `<span class="sg-tab-label" title="${tab.name}">${tab.name}</span><button class="sg-tab-close" title="Close tab">×</button>`;
 			list.appendChild(el);
 		}
-		// "+" button lives inside the list, right after the last tab
-		const addBtn = document.createElement('button');
-		addBtn.className = 'sg-tab-add';
-		addBtn.title = 'New tab (Ctrl+T)';
-		addBtn.textContent = '+';
-		list.appendChild(addBtn);
+		// "+" button — fixed after the scrollable list
+		let addBtn = list.parentElement.querySelector('.sg-tab-add');
+		if (!addBtn) {
+			addBtn = document.createElement('button');
+			addBtn.className = 'sg-tab-add';
+			addBtn.title = 'New tab (Ctrl+T)';
+			addBtn.textContent = '+';
+			list.after(addBtn);
+		}
+		// Scroll active tab into view
+		const activeEl = list.querySelector('.sg-tab--active');
+		if (activeEl) activeEl.scrollIntoView({ inline: 'nearest', block: 'nearest' });
 		this._updateHistoryButtons();
 	}
 
@@ -7198,7 +7305,7 @@ class SchemaGraphApp {
 				gap: 2px; flex-shrink:0; overflow:hidden; box-sizing:border-box; user-select:none;
 			}
 			.sg-tab-list {
-				display:flex; align-items:center; gap:1px; overflow-x:auto; flex:1; min-width:0; height:100%;
+				display:flex; align-items:center; gap:1px; overflow-x:auto; min-width:0; max-width:calc(100% - 120px); height:100%;
 			}
 			.sg-tab-list::-webkit-scrollbar { height:2px; }
 			.sg-tab-list::-webkit-scrollbar-thumb { background:var(--sg-border-color,#1a1a1a); border-radius:2px; }

@@ -189,11 +189,81 @@ class WorkflowVisualizer {
 	constructor(schemaGraphApp) {
 		this.schemaGraph = schemaGraphApp;
 		this.currentWorkflow = null;
-		this.currentWorkflowName = null;
+		this._workflowName = null;
+		this._nameChangeCallbacks = [];
 		this.graphNodes = [];
 		this.isReady = false;
 		this.defaultLayout = DEFAULT_WORKFLOW_LAYOUT;
+
+		// Per-tab workflow state: tabId → { workflow, workflowName, graphNodes }
+		this._tabWorkflowState = {};
+
+		// Save workflow state before tab switch
+		schemaGraphApp.eventBus.on('tab:beforeSwitch', (data) => {
+			if (data.fromTabId) {
+				this._tabWorkflowState[data.fromTabId] = {
+					workflow: this.currentWorkflow,
+					workflowName: this._workflowName,
+					graphNodes: this.graphNodes,
+				};
+			}
+		});
+
+		// Restore workflow state after tab switch
+		schemaGraphApp.eventBus.on('tab:switched', (data) => {
+			const saved = this._tabWorkflowState[data.tabId];
+			if (saved) {
+				this.currentWorkflow = saved.workflow;
+				this.graphNodes = saved.graphNodes;
+				// Use setter to sync UI (tab label, panel, callbacks)
+				this.currentWorkflowName = saved.workflowName;
+			} else {
+				// New/empty tab — use the tab name as the workflow name
+				this.currentWorkflow = null;
+				this.graphNodes = [];
+				this.currentWorkflowName = data.name || 'Untitled';
+			}
+		});
 	}
+
+	/**
+	 * The workflow name — setting it auto-syncs the left panel label,
+	 * the active tab, and the workflow options model.
+	 * Register listeners via onNameChanged(fn).
+	 */
+	get currentWorkflowName() { return this._workflowName; }
+	set currentWorkflowName(name) {
+		const prev = this._workflowName;
+		this._workflowName = name || null;
+		if (prev === this._workflowName) return;
+
+		// Sync the active tab label
+		const sg = this.schemaGraph;
+		if (name && sg) {
+			const tab = sg.tabs?.find(t => t.id === sg.activeTabId);
+			if (tab && tab.name !== name) {
+				tab.name = name;
+				sg._renderTabs?.();
+			}
+		}
+
+		// Sync workflow options model (if a workflow is loaded)
+		if (this.currentWorkflow) {
+			if (!this.currentWorkflow.options) this.currentWorkflow.options = { type: 'workflow_options' };
+			this.currentWorkflow.options.name = this._workflowName;
+		}
+
+		// Notify listeners
+		for (const cb of this._nameChangeCallbacks) {
+			try { cb(this._workflowName, prev); } catch (e) { console.error('onNameChanged callback error:', e); }
+		}
+	}
+
+	/** Register a callback invoked whenever the workflow name changes: fn(newName, oldName) */
+	onNameChanged(fn) { this._nameChangeCallbacks.push(fn); }
+
+	/** Remove a previously registered name-change callback */
+	offNameChanged(fn) { this._nameChangeCallbacks = this._nameChangeCallbacks.filter(cb => cb !== fn); }
 
 	configure(options = {}) {
 		if (options.defaultLayout !== undefined) this.defaultLayout = options.defaultLayout;
@@ -365,8 +435,8 @@ class WorkflowVisualizer {
 			...(this.currentWorkflow.options || {}),
 			...options
 		};
-		// Update name if changed
-		if (options.name) {
+		// Sync name via the setter (updates panel, tab, and fires callbacks)
+		if (options.name !== undefined) {
 			this.currentWorkflowName = options.name;
 		}
 		// Emit event to notify UI that options changed (triggers sync)

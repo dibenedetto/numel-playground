@@ -25,16 +25,10 @@ const $ = id => document.getElementById(id);
 // and the active tab label all in sync.
 // syncTab=false skips updating the tab (used when the change originated from the tab).
 // ========================================================================
-function _setWorkflowName(name, syncTab = true) {
+function _setWorkflowName(name) {
 	if (!visualizer) return;
+	// The setter auto-syncs tab label, workflow options, and fires onNameChanged callbacks.
 	visualizer.currentWorkflowName = name || null;
-	if ($('singleWorkflowName')) $('singleWorkflowName').textContent = name || 'None';
-	const nameInput = $('wfOpt_name');
-	if (nameInput && nameInput.value !== (name || '')) nameInput.value = name || '';
-	if (syncTab && name && schemaGraph) {
-		const tab = schemaGraph.tabs?.find(t => t.id === schemaGraph.activeTabId);
-		if (tab && tab.name !== name) { tab.name = name; schemaGraph._renderTabs?.(); }
-	}
 }
 
 // ========================================================================
@@ -100,7 +94,13 @@ document.addEventListener('DOMContentLoaded', () => {
 	// Tab rename → sync to currentWorkflowName and singleWorkflowName
 	schemaGraph.eventBus.on('tab:renamed', (data) => {
 		if (!data.active) return;
-		_setWorkflowName(data.name, false); // false = don't sync back to tab
+		_setWorkflowName(data.name);
+	});
+
+	// Tab switch → refresh options panel and button states for the new tab's workflow
+	schemaGraph.eventBus.on('tab:switched', () => {
+		populateWorkflowOptionsPanel();
+		updateClearButtonState();
 	});
 
 	// Refresh workflow options panel when a workflow is imported/loaded
@@ -252,6 +252,60 @@ document.addEventListener('DOMContentLoaded', () => {
 	visualizer.configure({
 		defaultLayout: 'hierarchical-horizontal',
 	});
+
+	// Keep left-panel label and options input in sync with the workflow name
+	visualizer.onNameChanged((name) => {
+		const el = $('singleWorkflowName');
+		if (el && !el._editing) el.textContent = name || 'None';
+		const nameInput = $('wfOpt_name');
+		if (nameInput && nameInput.value !== (name || '')) nameInput.value = name || '';
+	});
+
+	// Sync initial workflow name from the startup tab
+	const initTab = schemaGraph.tabs?.find(t => t.id === schemaGraph.activeTabId);
+	if (initTab) visualizer.currentWorkflowName = initTab.name;
+
+	// Click-to-edit workflow name on left panel label
+	{
+		const nameEl = $('singleWorkflowName');
+		if (nameEl) {
+			nameEl.style.cursor = 'text';
+			nameEl.title = 'Click to rename workflow';
+			nameEl.addEventListener('click', () => {
+				if (nameEl._editing) return;
+				nameEl._editing = true;
+				const current = visualizer?.currentWorkflowName || '';
+				const input = document.createElement('input');
+				input.type = 'text';
+				input.className = 'nw-input';
+				input.value = current;
+				input.placeholder = 'Workflow name...';
+				input.style.margin = '0';
+				input.style.padding = '2px 4px';
+				input.style.fontSize = 'inherit';
+				input.style.fontFamily = 'inherit';
+				nameEl.textContent = '';
+				nameEl.appendChild(input);
+				input.focus();
+				input.select();
+				const commit = () => {
+					if (!nameEl._editing) return;
+					nameEl._editing = false;
+					const newName = input.value.trim();
+					input.remove();
+					if (newName) {
+						_setWorkflowName(newName);
+					}
+					nameEl.textContent = visualizer?.currentWorkflowName || 'None';
+				};
+				input.addEventListener('blur', commit);
+				input.addEventListener('keydown', (e) => {
+					if (e.key === 'Enter') input.blur();
+					if (e.key === 'Escape') { nameEl._editing = false; input.remove(); nameEl.textContent = visualizer?.currentWorkflowName || 'None'; }
+				});
+			});
+		}
+	}
 
 	// Setup event listeners
 	setupEventListeners();
