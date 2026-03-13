@@ -878,7 +878,7 @@ async function handleFileUpload(event) {
 async function syncWorkflow(workflow = null, name = null, force = false) {
 	if (!force && !workflowDirty) return;
 
-	schemaGraph.api.lock.lock('Syncing workflow', true, { lockMovement: true });
+	schemaGraph.api.lock.lock('Syncing workflow', true, { lockMovement: true, lockOverlays: true });
 
 	try {
 		// Save chat state before reload

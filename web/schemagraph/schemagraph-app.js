@@ -124,6 +124,7 @@ class SchemaGraphApp {
 		this.lockReason = null;
 		this.lockPending = false;
 		this.lockMovement = false;
+		this.lockOverlays = false;
 
 		this._hiddenFieldNames = [];
 
@@ -217,6 +218,7 @@ class SchemaGraphApp {
 			preservePreviewLinks: true,
 			previewFlash: true,  // Flash animation when preview data updates
 			lockOverlay: true,  // Show lock status overlay when graph is locked
+			lockDisablesOverlays: true,  // Disable interaction on preview overlays when graph is locked
 			hiddenFields: true,  // Hide fields listed in _hiddenFieldNames from nodes
 			prettyFieldNames: true,  // Convert snake_case/camelCase field names to Title Case
 			loopEdgeOrthogonal: true,  // Use orthogonal routing for loop-back edges
@@ -258,10 +260,11 @@ class SchemaGraphApp {
 	}
 
 	// === LOCK METHODS ===
-	lock(reason = 'Graph locked', pending = true, { lockMovement = false } = {}) {
+	lock(reason = 'Graph locked', pending = true, { lockMovement = false, lockOverlays = false } = {}) {
 		this.lockReason = reason;
 		this.lockPending = pending;
 		this.lockMovement = lockMovement;
+		this.lockOverlays = lockOverlays;
 		if (!this.isLocked) {
 			this.isLocked = true;
 			this.connecting = null;
@@ -271,9 +274,8 @@ class SchemaGraphApp {
 			document.getElementById('sg-contextMenu')?.classList.remove('show');
 			document.getElementById('sg-schemaDialog')?.classList.remove('show');
 			this.canvas.classList.add('sg-locked');
-			this.canvas.parentElement?.classList.add('sg-locked');
-			document.body.classList.add('sg-graph-locked');
 		}
+		this._updateLockedOverlayState();
 		const overlay = document.getElementById('sg-lockOverlay');
 		if (overlay && this._features.lockOverlay) {
 			document.getElementById('sg-lockText').textContent = reason || 'Locked';
@@ -290,15 +292,22 @@ class SchemaGraphApp {
 		this.lockReason = null;
 		this.lockPending = false;
 		this.lockMovement = false;
+		this.lockOverlays = false;
 		document.getElementById('sg-lockOverlay')?.classList.remove('show', 'pending');
 		this.canvas.classList.remove('sg-locked');
-		this.canvas.parentElement?.classList.remove('sg-locked');
-		document.body.classList.remove('sg-graph-locked');
+		this._updateLockedOverlayState();
 		this.eventBus.emit('graph:unlocked', {});
 		this.draw();
 	}
 
 	isGraphLocked() { return this.isLocked; }
+
+	_updateLockedOverlayState() {
+		const disable = this.isLocked && (this.lockOverlays || this._features.lockDisablesOverlays);
+		const container = this.canvas?.parentElement;
+		if (container) container.classList.toggle('sg-overlays-locked', disable);
+		document.body.classList.toggle('sg-overlays-locked', disable);
+	}
 
 	// === HTML INJECTION ===
 	injectDialogHTML() {
@@ -559,6 +568,7 @@ class SchemaGraphApp {
 			'sg-feature-preservepreviewlinks': this._features.preservePreviewLinks,
 			'sg-feature-previewflash': this._features.previewFlash,
 			'sg-feature-lockoverlay': this._features.lockOverlay,
+			'sg-feature-lockdisablesoverlays': this._features.lockDisablesOverlays,
 			'sg-feature-hiddenfields': this._features.hiddenFields,
 			'sg-feature-prettyfieldnames': this._features.prettyFieldNames,
 			'sg-feature-autolayoutonimport': this._features.autoLayoutOnImport,
@@ -669,6 +679,11 @@ class SchemaGraphApp {
 						<input type="checkbox" id="sg-feature-lockoverlay" checked>
 						<span class="sg-toolbar-toggle-slider"></span>
 						<span class="sg-toolbar-toggle-text">Lock Overlay</span>
+					</label>
+					<label class="sg-toolbar-toggle-switch" title="Disable preview overlay interaction while graph is locked">
+						<input type="checkbox" id="sg-feature-lockdisablesoverlays" checked>
+						<span class="sg-toolbar-toggle-slider"></span>
+						<span class="sg-toolbar-toggle-text">Lock Disables Overlays</span>
 					</label>
 					<label class="sg-toolbar-toggle-switch" title="Hide specified fields (e.g. extra) from nodes">
 						<input type="checkbox" id="sg-feature-hiddenfields" checked>
@@ -11074,6 +11089,10 @@ class SchemaGraphApp {
 								overlay.classList.add('show');
 							}
 						}
+					});
+					document.getElementById('sg-feature-lockdisablesoverlays')?.addEventListener('change', (e) => {
+						self.api.features.set({ lockDisablesOverlays: e.target.checked });
+						self._updateLockedOverlayState();
 					});
 					document.getElementById('sg-feature-hiddenfields')?.addEventListener('change', (e) => {
 						self.api.features.set({ hiddenFields: e.target.checked });
