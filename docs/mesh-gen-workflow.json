@@ -149,7 +149,8 @@
 			"source": 1,
 			"target": 4,
 			"source_slot": "config",
-			"target_slot": "toolkits.mesh"
+			"target_slot": "toolkits.mesh",
+			"preview" : true
 		}
 	]
 }

@@ -128,7 +128,11 @@ class EventBus {
 		this.eventHistory = [];
 		this.maxHistory = 1000;
 		this.debug = false;
+		this._paused = false;
 	}
+
+	pause()  { this._paused = true; }
+	resume() { this._paused = false; }
 
 	on(event, callback, context = null) {
 		if (!this.listeners.has(event)) this.listeners.set(event, []);
@@ -162,6 +166,7 @@ class EventBus {
 	}
 
 	emit(event, data = null) {
+		if (this._paused) return;
 		const eventData = { event, data, timestamp: Date.now() };
 		this.eventHistory.push(eventData);
 		if (this.eventHistory.length > this.maxHistory) this.eventHistory.shift();

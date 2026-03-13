@@ -31,6 +31,64 @@ function _stripBookendNodes(workflow) {
 	};
 }
 
+// ─── Strip preview_flow nodes ────────────────────────────────────────────────
+// The backend may return preview_flow nodes created from preview:true edges.
+// Strip them so the frontend can re-insert them via insertPreviewOnLink.
+function _stripPreviewNodes(workflow) {
+	const nodes = workflow.nodes || [];
+	const edges = workflow.edges || [];
+	const previewIndices = new Set();
+	for (let i = 0; i < nodes.length; i++) {
+		if (nodes[i].type === 'preview_flow') previewIndices.add(i);
+	}
+	if (previewIndices.size === 0) return workflow;
+
+	// For each preview node, find its incoming and outgoing edges to reconstruct
+	// the original direct edge with preview: true
+	const bypassEdges = [];
+	for (const pi of previewIndices) {
+		const incoming = edges.filter(e => e.target === pi);
+		const outgoing = edges.filter(e => e.source === pi);
+		for (const inp of incoming) {
+			for (const out of outgoing) {
+				bypassEdges.push({
+					type: 'edge',
+					source: inp.source,
+					target: out.target,
+					source_slot: inp.source_slot,
+					target_slot: out.target_slot,
+					preview: true
+				});
+			}
+		}
+	}
+
+	// Remap indices
+	let shift = 0;
+	const remap = nodes.map((_, i) => {
+		if (previewIndices.has(i)) { shift++; return -1; }
+		return i - shift;
+	});
+
+	// Filter edges: remove edges to/from preview nodes, add bypass edges
+	const keptEdges = edges
+		.filter(e => !previewIndices.has(e.source) && !previewIndices.has(e.target))
+		.map(e => ({ ...e, source: remap[e.source], target: remap[e.target] }));
+
+	// Remap bypass edges
+	for (const be of bypassEdges) {
+		be.source = remap[be.source];
+		be.target = remap[be.target];
+		if (be.source >= 0 && be.target >= 0) keptEdges.push(be);
+	}
+
+	return {
+		...workflow,
+		nodes: nodes.filter((_, i) => !previewIndices.has(i)),
+		edges: keptEdges
+	};
+}
+
 // ========================================================================
 // WorkflowClient - Backend Communication
 // ========================================================================
@@ -327,6 +385,7 @@ class WorkflowVisualizer {
 		}
 
 		this.currentWorkflow = JSON.parse(JSON.stringify(workflow));
+		this.currentWorkflow = _stripPreviewNodes(this.currentWorkflow);
 		if (this.schemaGraph._features?.implicitStartEnd) {
 			this.currentWorkflow = _stripBookendNodes(this.currentWorkflow);
 		}

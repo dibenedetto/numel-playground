@@ -1075,8 +1075,12 @@ class WorkflowImporter {
 			createdNodes.push(node);
 		}
 
+		const previewLinks = [];
 		if (workflowData.edges) {
-			for (const edgeData of workflowData.edges) this._createEdge(edgeData, createdNodes);
+			for (const edgeData of workflowData.edges) {
+				const link = this._createEdge(edgeData, createdNodes);
+				if (link && edgeData.preview) previewLinks.push(link);
+			}
 		}
 
 		if (isMerge) {
@@ -1092,9 +1096,10 @@ class WorkflowImporter {
 
 		this.eventBus.emit('workflow:imported', {
 			nodeCount: this.graph.nodes.length,
-			linkCount: Object.keys(this.graph.links).length
+			linkCount: Object.keys(this.graph.links).length,
+			previewLinks
 		});
-		return true;
+		return { previewLinks };
 	}
 
 	_createNativeNode(nodeData, index) {
@@ -1307,7 +1312,26 @@ class WorkflowExporter {
 			includeLayout: options.includeLayout !== false
 		};
 		const workflow = { ...JSON.parse(JSON.stringify(workflowInfo)), type: 'workflow', nodes: [], edges: [] };
-		const exportableNodes = this.graph.nodes.filter(n => !n.isPreviewNode);
+		// Determine which preview nodes are pristine (auto-created, unmodified) vs customized
+		const pristinePreviewIds = new Set();
+		const customizedPreviewIds = new Set();
+		for (const node of this.graph.nodes) {
+			if (!node?.extra?._isEdgePreview) continue;
+			if (node.extra._autoEdgePreview) {
+				const snap = node.extra._autoPreviewSnapshot;
+				const currentName = node.extra?.name || node.title || null;
+				const currentDisplayTitle = node.displayTitle || null;
+				const currentHint = node.fields?.hint ?? 'auto';
+				if (snap && currentName === snap.name && currentDisplayTitle === snap.displayTitle && currentHint === snap.hint) {
+					pristinePreviewIds.add(node.id);
+					continue;
+				}
+			}
+			// Customized — export as regular node
+			customizedPreviewIds.add(node.id);
+		}
+
+		const exportableNodes = this.graph.nodes.filter(n => !pristinePreviewIds.has(n.id));
 
 		exportableNodes.sort((a, b) => {
 			if (a.workflowIndex !== undefined && b.workflowIndex !== undefined)
@@ -1321,10 +1345,66 @@ class WorkflowExporter {
 			workflow.nodes.push(this._exportNode(exportableNodes[i]));
 		}
 
+		// Export edges — skip edges to/from pristine preview nodes (handled as bypass edges below).
+		// Edges to/from customized preview nodes are exported normally since those nodes are in exportableNodes.
 		for (const linkId in this.graph.links) {
 			const link = this.graph.links[linkId];
+			if (pristinePreviewIds.has(link.origin_id) || pristinePreviewIds.has(link.target_id)) continue;
 			const edge = this._exportEdge(link, nodeToIndex);
 			if (edge) workflow.edges.push(edge);
+		}
+
+		// For each pristine preview node, reconstruct the original direct edge with preview: true
+		for (const previewId of pristinePreviewIds) {
+			const previewNode = this.graph.getNodeById(previewId);
+			if (!previewNode) continue;
+
+			// Find incoming link (real source → preview)
+			let inLink = null;
+			for (const inp of previewNode.inputs || []) {
+				if (inp.link && this.graph.links[inp.link]) { inLink = this.graph.links[inp.link]; break; }
+			}
+
+			// Find outgoing links (preview → real targets)
+			const outLinks = [];
+			for (const out of previewNode.outputs || []) {
+				for (const lid of (out.links || [])) {
+					if (this.graph.links[lid]) outLinks.push(this.graph.links[lid]);
+				}
+			}
+
+			if (!inLink || outLinks.length === 0) continue;
+
+			for (const outLink of outLinks) {
+				const sourceIdx = nodeToIndex.get(inLink.origin_id);
+				const targetIdx = nodeToIndex.get(outLink.target_id);
+				if (sourceIdx === undefined || targetIdx === undefined) continue;
+
+				const sourceNode = this.graph.getNodeById(inLink.origin_id);
+				const targetNode = this.graph.getNodeById(outLink.target_id);
+				if (!sourceNode || !targetNode) continue;
+
+				const edge = {
+					type: 'edge',
+					source: sourceIdx,
+					target: targetIdx,
+					source_slot: sourceNode.outputMeta?.[inLink.origin_slot]?.name || sourceNode.outputs[inLink.origin_slot]?.name || 'output',
+					target_slot: targetNode.inputMeta?.[outLink.target_slot]?.name || targetNode.inputs[outLink.target_slot]?.name || 'input',
+					preview: true
+				};
+				if (inLink.loop || outLink.loop) edge.loop = true;
+				workflow.edges.push(edge);
+			}
+		}
+
+		// Strip internal preview metadata from customized preview nodes in export
+		for (const node of workflow.nodes) {
+			if (node.extra) {
+				delete node.extra._isEdgePreview;
+				delete node.extra._autoEdgePreview;
+				delete node.extra._autoPreviewSnapshot;
+				delete node.extra._originalEdgeInfo;
+			}
 		}
 
 		return workflow;
@@ -1434,8 +1514,14 @@ class WorkflowExporter {
 		if (link.loop) edge.loop = true;  // Preserve loop-back edge marker
 		if (link.data && Object.keys(link.data).length > 0)
 			edge.data = JSON.parse(JSON.stringify(link.data));
-		if (link.extra && Object.keys(link.extra).length > 0)
-			edge.extra = JSON.parse(JSON.stringify(link.extra));
+		if (link.extra) {
+			const cleaned = {};
+			for (const [k, v] of Object.entries(link.extra)) {
+				if (!k.startsWith('_')) cleaned[k] = v;
+			}
+			if (Object.keys(cleaned).length > 0)
+				edge.extra = JSON.parse(JSON.stringify(cleaned));
+		}
 		return edge;
 	}
 

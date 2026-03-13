@@ -4665,9 +4665,13 @@ class SchemaGraphApp {
 			}
 		}
 
-		// If preserve preview links is enabled and this is a preview node, reconnect underlying nodes
-		if (this._features.preservePreviewLinks && this._isPreviewFlowNode(node)) {
-			this._preservePreviewNodeLinks(node);
+		// If preserve links is enabled, reconnect source→target bypassing this node
+		if (this._features.preservePreviewLinks) {
+			if (this._isPreviewFlowNode(node)) {
+				this._preservePreviewNodeLinks(node);
+			} else {
+				this._preserveNodeLinksByType(node);
+			}
 		}
 
 		for (let j = 0; j < node.inputs.length; j++) {
@@ -7663,17 +7667,20 @@ class SchemaGraphApp {
 
 		// Get the configured slot map (e.g., { 'input': 'get', 'data': 'output' })
 		const slotMap = this._schemaTypeRoles.previewSlotMap;
-		if (!slotMap || Object.keys(slotMap).length === 0) return;
+		console.log('[SG] _preservePreviewNodeLinks slotMap:', JSON.stringify(slotMap));
+		if (!slotMap || Object.keys(slotMap).length === 0) {
+			console.log('[SG] No slotMap, falling back to type-based');
+			this._preserveNodeLinksByType(node);
+			return;
+		}
 
 		// Process each configured input->output mapping
 		for (const [inputSlotName, outputSlotName] of Object.entries(slotMap)) {
-			// Find input slot index by name
 			const inputIdx = this._findInputSlotByName(node, inputSlotName);
-			if (inputIdx === null || inputIdx === undefined) continue;
-
-			// Find output slot index by name
 			const outputIdx = this._findOutputSlotByName(node, outputSlotName);
-			if (outputIdx === null || outputIdx === undefined) continue;
+			console.log('[SG] slot mapping:', inputSlotName, '→ idx', inputIdx, ',', outputSlotName, '→ idx', outputIdx);
+			if (inputIdx < 0) continue;
+			if (outputIdx < 0) continue;
 
 			// Get incoming links for this input (handle both single and multi-input)
 			const inLinkIds = node.multiInputs?.[inputIdx]?.links ||
@@ -7681,6 +7688,7 @@ class SchemaGraphApp {
 
 			// Get outgoing links for this output
 			const outLinkIds = node.outputs?.[outputIdx]?.links || [];
+			console.log('[SG] inLinkIds:', inLinkIds, 'outLinkIds:', outLinkIds);
 
 			// Create bypass links: source -> target (skipping preview node)
 			for (const inLinkId of inLinkIds) {
@@ -7697,7 +7705,52 @@ class SchemaGraphApp {
 					const tgt = this.graph.getNodeById(outLink.target_id);
 					if (!tgt) continue;
 
-					// Create direct link bypassing the preview node
+					this.graph.addLink(src.id, inLink.origin_slot, tgt.id, outLink.target_slot, inLink.type);
+				}
+			}
+		}
+	}
+
+	/**
+	 * Generic link preservation: for each input with a link, find a matching output
+	 * (by compatible type) that also has links, and create bypass connections.
+	 * Used for non-preview nodes when preservePreviewLinks is enabled.
+	 */
+	_preserveNodeLinksByType(node) {
+		if (!node?.inputs || !node?.outputs) return;
+
+		for (let i = 0; i < node.inputs.length; i++) {
+			const inLinkIds = node.multiInputs?.[i]?.links ||
+				(node.inputs[i]?.link ? [node.inputs[i].link] : []);
+			if (inLinkIds.length === 0) continue;
+
+			const inputType = node.inputs[i]?.type || 'Any';
+
+			// Find best matching output slot (same type, or 'Any')
+			let bestOutput = -1;
+			for (let o = 0; o < node.outputs.length; o++) {
+				const outType = node.outputs[o]?.type || 'Any';
+				if (node.outputs[o]?.links?.length > 0) {
+					if (outType === inputType || outType === 'Any' || inputType === 'Any') {
+						bestOutput = o;
+						break;
+					}
+				}
+			}
+			if (bestOutput < 0) continue;
+
+			const outLinkIds = node.outputs[bestOutput].links || [];
+			for (const inLinkId of inLinkIds) {
+				const inLink = this.graph.links[inLinkId];
+				if (!inLink) continue;
+				const src = this.graph.getNodeById(inLink.origin_id);
+				if (!src) continue;
+
+				for (const outLinkId of outLinkIds) {
+					const outLink = this.graph.links[outLinkId];
+					if (!outLink) continue;
+					const tgt = this.graph.getNodeById(outLink.target_id);
+					if (!tgt) continue;
 					this.graph.addLink(src.id, inLink.origin_slot, tgt.id, outLink.target_slot, inLink.type);
 				}
 			}
@@ -9188,18 +9241,35 @@ class SchemaGraphApp {
 		if (!preview.extra) preview.extra = {};
 		preview.extra._originalEdgeInfo = originalEdgeInfo;
 		preview.extra._isEdgePreview = true;
+		// Snapshot defaults so export can detect if user customized the node
+		preview.extra._autoEdgePreview = true;
+		preview.extra._autoPreviewSnapshot = {
+			name: preview.extra.name || preview.title || null,
+			displayTitle: preview.displayTitle || null,
+			hint: preview.fields?.hint ?? 'auto'
+		};
 
 		// Remove original link
 		this.graph.removeLink(link.id);
 
-		// Find the input slot on the preview node (named 'input')
-		const previewInputIdx = this._findInputSlotByName(preview, 'input') ?? 0;
-		// Find the output slot using previewSlotMap config, falling back to 'output' then 'get'
-		const slotMap = this._schemaTypeRoles.previewSlotMap || {};
-		const outputSlotName = slotMap['input'] || 'output';
-		let previewOutputIdx = this._findOutputSlotByName(preview, outputSlotName);
-		if (previewOutputIdx < 0) previewOutputIdx = this._findOutputSlotByName(preview, 'output');
-		if (previewOutputIdx < 0) previewOutputIdx = this._findOutputSlotByName(preview, 'get') ?? 0;
+		// Find the input slot on the preview node using previewSlotMap, with fallbacks
+		const insertSlotMap = this._schemaTypeRoles.previewSlotMap || {};
+		const insertInputNames = [...Object.keys(insertSlotMap), 'input', 'flow_in'];
+		const insertOutputNames = [...Object.values(insertSlotMap), 'get', 'output', 'flow_out'];
+
+		let previewInputIdx = -1;
+		for (const name of insertInputNames) {
+			previewInputIdx = this._findInputSlotByName(preview, name);
+			if (previewInputIdx >= 0) break;
+		}
+		if (previewInputIdx < 0) previewInputIdx = 0;
+
+		let previewOutputIdx = -1;
+		for (const name of insertOutputNames) {
+			previewOutputIdx = this._findOutputSlotByName(preview, name);
+			if (previewOutputIdx >= 0) break;
+		}
+		if (previewOutputIdx < 0) previewOutputIdx = 0;
 
 		// Create source -> preview link
 		const link1 = this.graph.addLink(
@@ -9218,6 +9288,7 @@ class SchemaGraphApp {
 			tgt.id, originalEdgeInfo.targetSlotIdx,
 			originalEdgeInfo.linkType
 		);
+
 		if (link2) {
 			if (!link2.extra) link2.extra = {};
 			link2.extra._isPreviewLink = true;
@@ -9241,14 +9312,34 @@ class SchemaGraphApp {
 		if (this.isLocked) return null;
 		if (!this._isPreviewFlowNode(node)) return null;
 
+		// Suppress events/redraws during the restore to avoid flashing other preview overlays
+		const savedIgnore = this._historyIgnore;
+		this._historyIgnore = true;
+		this.eventBus.pause?.();
+
 		const originalEdgeInfo = node.extra?._originalEdgeInfo;
 
-		// Find incoming link to preview
-		const inputSlotIdx = this._findInputSlotByName(node, 'input') ?? 0;
+		// Use previewSlotMap to find the correct slot names, with fallbacks
+		const slotMap = this._schemaTypeRoles.previewSlotMap || {};
+		const inputSlotNames = Object.keys(slotMap);
+		const outputSlotNames = Object.values(slotMap);
+
+		// Find incoming link to preview — try mapped names, then legacy fallbacks
+		let inputSlotIdx = -1;
+		for (const name of [...inputSlotNames, 'input', 'flow_in']) {
+			inputSlotIdx = this._findInputSlotByName(node, name);
+			if (inputSlotIdx >= 0) break;
+		}
+		if (inputSlotIdx < 0) inputSlotIdx = 0;
 		const inLinkId = node.inputs?.[inputSlotIdx]?.link;
 
-		// Find outgoing links from preview
-		const outputSlotIdx = this._findOutputSlotByName(node, 'get') ?? 0;
+		// Find outgoing links from preview — try mapped names, then legacy fallbacks
+		let outputSlotIdx = -1;
+		for (const name of [...outputSlotNames, 'get', 'output', 'flow_out']) {
+			outputSlotIdx = this._findOutputSlotByName(node, name);
+			if (outputSlotIdx >= 0) break;
+		}
+		if (outputSlotIdx < 0) outputSlotIdx = 0;
 		const outLinkIds = node.outputs?.[outputSlotIdx]?.links || [];
 
 		const inLink = inLinkId ? this.graph.links[inLinkId] : null;
@@ -9298,12 +9389,17 @@ class SchemaGraphApp {
 		// Remove preview node
 		this.graph.removeNode(node);
 
+		// Resume events and redraw once
+		this._historyIgnore = savedIgnore;
+		this.eventBus.resume?.();
+
 		this.eventBus.emit('edgePreview:removed', {
 			nodeId: node.id,
 			restoredLinkId: restoredLink?.id,
 			originalEdgeInfo
 		});
 
+		this._updateImplicitRoles();
 		this.draw();
 		return restoredLink;
 	}
@@ -10048,7 +10144,45 @@ class SchemaGraphApp {
 					return true;
 				},
 
-				import: (data, schemaName, options) => { try { self._historyIgnore = true; self.graph.importWorkflow(data, schemaName, options); self._historyIgnore = false; self._currentStateSnapshot = self._captureCurrentSnapshot(); self.ui?.update?.schemaList?.(); self.ui?.update?.nodeTypesList?.(); self._refreshAllCompleteness(); return true; } catch (e) { self._historyIgnore = false; self.showError('Workflow import failed: ' + e.message); return false; } },
+				import: (data, schemaName, options) => {
+					try {
+						self._historyIgnore = true;
+						const result = self.graph.importWorkflow(data, schemaName, options);
+						self._historyIgnore = false;
+						self._currentStateSnapshot = self._captureCurrentSnapshot();
+						self.ui?.update?.schemaList?.();
+						self.ui?.update?.nodeTypesList?.();
+						self._refreshAllCompleteness();
+						// Insert preview nodes on edges marked with preview: true
+						if (result?.previewLinks?.length) {
+							const wasLocked = self.isLocked;
+							const hadFeature = self._features.edgePreview;
+							if (wasLocked) self.isLocked = false;
+							self._features.edgePreview = true;
+							try {
+								for (const link of result.previewLinks) {
+									if (self.graph.links[link.id]) {
+										const src = self.graph.getNodeById(link.origin_id);
+										const tgt = self.graph.getNodeById(link.target_id);
+										if (src && tgt) {
+											const midX = (src.pos[0] + src.size[0] + tgt.pos[0]) / 2;
+											const midY = (src.pos[1] + tgt.pos[1]) / 2;
+											self.insertPreviewOnLink(link, midX, midY);
+										}
+									}
+								}
+							} finally {
+								self._features.edgePreview = hadFeature;
+								if (wasLocked) self.isLocked = true;
+							}
+						}
+						return true;
+					} catch (e) {
+						self._historyIgnore = false;
+						self.showError('Workflow import failed: ' + e.message);
+						return false;
+					}
+				},
 				export: (schemaName, workflowInfo, options) => self.graph.exportWorkflow(schemaName, workflowInfo, options),
 				download: (schemaName, workflowInfo = {}, options = {}) => {
 					const workflow = self.graph.exportWorkflow(schemaName, workflowInfo, options);

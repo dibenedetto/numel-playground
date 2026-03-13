@@ -888,9 +888,9 @@ async function syncWorkflow(workflow = null, name = null, force = false) {
 		schemaGraph.closeAllPreviewTextOverlays?.();
 
 		const workflowEmpty = workflow == null;
-		if (workflowEmpty) {
-			workflow = visualizer.exportWorkflow();
-		}
+		// Always re-export from graph to strip frontend-only nodes (e.g. preview_flow)
+		const exported = visualizer.exportWorkflow();
+		if (exported) workflow = exported;
 		
 		if (!name) {
 			name = workflow?.options?.name || visualizer.currentWorkflowName || 'custom_workflow';
@@ -902,13 +902,13 @@ async function syncWorkflow(workflow = null, name = null, force = false) {
 		if (response.status === 'added' || response.status === 'updated') {
 			// Clear handlers (node IDs will change)
 			agentChatManager?.disconnectAll();
-			
+
 			// Reload entire workflow from backend
 			if (response.workflow) {
 				const layout = workflowEmpty ? null : visualizer.defaultLayout;
 				visualizer.loadWorkflow(response.workflow, response.name, layout, true);
 			}
-			
+
 			// Restore chat messages
 			restoreChatState(chatState);
 			
@@ -1043,24 +1043,20 @@ async function pasteWorkflowFromClipboard() {
 		return;
 	}
 
+	schemaGraph.api.lock.lock('Pasting workflow');
+
 	try {
-		if (client) {
-			const response = await client.addWorkflow(workflow);
-			if (response.status === 'added') {
-				addLog('success', `📋 Uploaded "${response.name}" from clipboard`);
-				await refreshWorkflowList();
-				$('workflowSelect').value = response.name;
-				await loadSelectedWorkflow();
-			} else {
-				throw new Error('Upload failed');
-			}
-		} else {
-			const loaded = visualizer.loadWorkflow(workflow);
-			if (loaded) {
-				$('downloadWorkflowBtn').disabled = false;
-				$('copyWorkflowBtn').disabled = false;
-				addLog('success', '📋 Loaded workflow from clipboard');
-			}
+		schemaGraph.api.graph.clear();
+		schemaGraph.api.view.reset();
+
+		const name = workflow?.options?.name || 'Pasted Workflow';
+		const loaded = visualizer.loadWorkflow(workflow, name);
+		if (loaded) {
+			await syncWorkflow(workflow, name, true);
+			enableStart(true);
+			$('downloadWorkflowBtn').disabled = false;
+			$('copyWorkflowBtn').disabled = false;
+			addLog('success', `📋 Pasted "${visualizer.currentWorkflowName}"`);
 		}
 
 		if (singleMode) {
@@ -1071,6 +1067,8 @@ async function pasteWorkflowFromClipboard() {
 		updateClearButtonState();
 	} catch (err) {
 		addLog('error', `❌ Failed to paste workflow: ${err.message}`);
+	} finally {
+		schemaGraph.api.lock.unlock();
 	}
 }
 
