@@ -2,11 +2,11 @@
 
 import asyncio
 import copy
-# import json
+import json
 import uvicorn
 
 
-# from   pathlib   import Path
+from   pathlib   import Path
 from   typing    import Any, Callable, Dict, List, Optional
 
 
@@ -21,16 +21,16 @@ from   impl_agno import build_backend_agno
 
 class WorkflowManager:
 
-	# def __init__(self, event_bus: EventBus, storage_dir: str = "workflows"):
-	def __init__(self, port: int, event_bus: EventBus):
+	def __init__(self, port: int, event_bus: EventBus, storage_dir: Optional[Path] = None):
 		self._port            : int                 = port
 		self._event_bus       : EventBus            = event_bus
 		self._current_id      : int                 = 0
 		self._workflows       : Dict[str, Any     ] = {}
 		self._upload_handlers : Dict[str, Callable] = {}
+		self._storage_dir     : Optional[Path]      = Path(storage_dir) if storage_dir else None
 
-		# self._storage_dir = Path(storage_dir)
-		# self._storage_dir.mkdir(exist_ok=True)
+		if self._storage_dir:
+			self._storage_dir.mkdir(parents=True, exist_ok=True)
 
 
 	async def initialize(self):
@@ -223,50 +223,75 @@ class WorkflowManager:
 		return build_backend_agno(workflow)
 
 
-	# def load(self, filepath: str, name: Optional[str] = None) -> Workflow:
-	# 	try:
-	# 		with open(filepath, "r") as f:
-	# 			data = json.load(f)
-	# 		workflow = Workflow(**data)
-	# 	except Exception as e:
-	# 		log_print(f"Error reading workflow file: {e}")
-	# 		return None
-	# 	if not workflow.options:
-	# 		workflow.options = WorkflowOptions(name=filepath)
-	# 	if name:
-	# 		workflow.options.name = name
-	# 	elif not workflow.options.name:
-	# 		workflow.options.name = filepath
-	# 	self._workflows[workflow.options.name] = workflow
-	# 	return workflow
+	async def save(self, name: str, filepath: Optional[str] = None) -> bool:
+		"""Save a single workflow to disk as JSON."""
+		data = self._workflows.get(name)
+		if not data:
+			return False
+		wf = data["workflow"]
+		if filepath is None:
+			if not self._storage_dir:
+				return False
+			safe_name = name.lower().replace(" ", "_")
+			filepath  = self._storage_dir / f"{safe_name}.json"
+		else:
+			filepath = Path(filepath)
+		filepath.parent.mkdir(parents=True, exist_ok=True)
+		with open(filepath, "w") as f:
+			json.dump(wf.model_dump(), f, indent=2)
+		await self._event_bus.emit(
+			event_type = EventType.MANAGER_WORKFLOW_SAVED,
+			data       = {"name": name, "path": str(filepath)},
+		)
+		return True
 
 
-	# def load_all(self, directory: Optional[str] = None) -> bool:
-	# 	if directory is None:
-	# 		directory = self.storage_dir
-	# 	for filepath in Path(directory).glob("*.json"):
-	# 		try:
-	# 			self.load(str(filepath))
-	# 		except Exception as e:
-	# 			print(f"Error loading workflow {filepath}: {e}")
-	# 			return False
-	# 	return True
+	async def save_all(self) -> int:
+		"""Save all workflows to storage_dir. Returns count of saved workflows."""
+		if not self._storage_dir:
+			return 0
+		count = 0
+		for name in list(self._workflows.keys()):
+			if await self.save(name):
+				count += 1
+		return count
 
 
-	# def save(self, name: str, filepath: Optional[str] = None) -> bool:
-	# 	if filepath is None:
-	# 		filename = f"{workflow.options.name.lower().replace(' ', '_')}.json"
-	# 		filepath = self.storage_dir / filename
-	# 	with open(filepath, "w") as f:
-	# 		json.dump(workflow.model_dump(), f, indent=2)
+	async def load(self, filepath: str, name: Optional[str] = None) -> Optional[str]:
+		"""Load a workflow from a JSON file. Returns the workflow name."""
+		try:
+			with open(filepath, "r") as f:
+				data = json.load(f)
+			workflow = Workflow(**data)
+		except Exception as e:
+			from utils import log_print
+			log_print(f"Error reading workflow file: {e}")
+			return None
+		if not workflow.options:
+			workflow.options = WorkflowOptions(name=Path(filepath).stem)
+		if name:
+			workflow.options.name = name
+		elif not workflow.options.name:
+			workflow.options.name = Path(filepath).stem
+		loaded_name = await self.add(workflow, name or workflow.options.name)
+		await self._event_bus.emit(
+			event_type = EventType.MANAGER_WORKFLOW_LOADED,
+			data       = {"name": loaded_name, "path": filepath},
+		)
+		return loaded_name
 
 
-	# def save_all(self, workflow: Workflow, filepath: Optional[str] = None):
-	# 	if filepath is None:
-	# 		filename = f"{workflow.options.name.lower().replace(' ', '_')}.json"
-	# 		filepath = self.storage_dir / filename
-	# 	with open(filepath, "w") as f:
-	# 		json.dump(workflow.model_dump(), f, indent=2)
+	async def load_all(self, directory: Optional[str] = None) -> int:
+		"""Load all JSON workflow files from a directory. Returns count loaded."""
+		target = Path(directory) if directory else self._storage_dir
+		if not target or not target.is_dir():
+			return 0
+		count = 0
+		for filepath in sorted(target.glob("*.json")):
+			loaded = await self.load(str(filepath))
+			if loaded:
+				count += 1
+		return count
 
 
 async def _handle_knowledge_upload(impl: Any, node_index: int, button_id: str, files: List[Any]) -> Any:

@@ -40,10 +40,9 @@ import schema
 
 
 from   api       import setup_api
-from   engine    import WorkflowEngine
 from   event_bus import EventBus, get_event_bus
-from   manager   import WorkflowManager
 from   utils     import add_middleware, log_print, seed_everything
+from   workspace import WorkspaceManager as WSManager
 
 
 load_dotenv()
@@ -70,12 +69,15 @@ async def run_server(args: Any):
 	if args.seed != 0:
 		seed_everything(args.seed)
 
-	event_bus   : EventBus        = get_event_bus   ()
-	manager     : WorkflowManager = WorkflowManager (args.port, event_bus)
-	engine      : WorkflowEngine  = WorkflowEngine  (event_bus)
-	schema_code : str             = getsource       (schema)
+	event_bus     : EventBus  = get_event_bus()
+	workspace_mgr : WSManager = WSManager(
+		base_port    = args.port,
+		event_bus    = event_bus,
+		storage_root = os.path.join(_app_dir, "workspaces"),
+	)
+	await workspace_mgr.initialize()
 
-	await manager.initialize()
+	schema_code = getsource(schema)
 
 	app: FastAPI = FastAPI(title="App")
 	add_middleware(app)
@@ -85,10 +87,10 @@ async def run_server(args: Any):
 	config = uvicorn.Config(app, host=host, port=port)
 	server = uvicorn.Server(config)
 
-	setup_api(server, app, event_bus, schema_code, manager, engine)
+	setup_api(server, app, event_bus, schema_code, workspace_mgr)
 
-	await server  .serve  ()
-	await manager .remove ()
+	await server.serve()
+	await workspace_mgr.shutdown()
 
 	log_print("Server shut down.")
 

@@ -82,12 +82,32 @@ class EventType(str, Enum):
 	# Stream display events (ML overlay data pushed to browser)
 	STREAM_DISPLAY           = "stream.display"
 
+	# Persistence events
+	MANAGER_WORKFLOW_SAVED   = "manager.workflow_saved"
+	MANAGER_WORKFLOW_LOADED  = "manager.workflow_loaded"
+
+	# Workspace events
+	WORKSPACE_CREATED        = "workspace.created"
+	WORKSPACE_DELETED        = "workspace.deleted"
+
+	# Batch execution events
+	BATCH_STARTED            = "batch.started"
+	BATCH_COMPLETED          = "batch.completed"
+	BATCH_FAILED             = "batch.failed"
+
+	# Compose (pipeline) events
+	COMPOSE_STARTED          = "compose.started"
+	COMPOSE_STEP             = "compose.step"
+	COMPOSE_COMPLETED        = "compose.completed"
+	COMPOSE_FAILED           = "compose.failed"
+
 
 
 class WorkflowEvent(BaseModel):
 	event_id     : str
 	event_type   : EventType
 	timestamp    : str
+	workspace_id : Optional[str]            = None
 	workflow_id  : Optional[str]            = None
 	execution_id : Optional[str]            = None
 	node_id      : Optional[str]            = None
@@ -105,6 +125,7 @@ class EventBus:
 	def __init__(self):
 		self._subscribers       : Dict[EventType, List[Callable]] = {}
 		self._websocket_clients : Set[WebSocket]                  = set()
+		self._websocket_filters : Dict[WebSocket, Dict[str, Any]] = {}
 		self._event_history     : List[WorkflowEvent]             = []
 		self._max_history       : int                             = 1000
 		self._event_counter     : int                             = 0
@@ -145,8 +166,28 @@ class EventBus:
 		await self._broadcast_to_websockets(event)
 
 
+	def _event_matches_filter(self, event: WorkflowEvent, filters: Dict[str, Any]) -> bool:
+		"""Check if an event matches a client's filter spec. Empty filters = match all."""
+		if not filters:
+			return True
+		for key, value in filters.items():
+			if key == "workspace_id"  and event.workspace_id  != value: return False
+			if key == "execution_id"  and event.execution_id  != value: return False
+			if key == "workflow_id"   and event.workflow_id    != value: return False
+			if key == "event_type"    and event.event_type.value != value: return False
+		return True
+
+
+	def set_websocket_filter(self, websocket: WebSocket, filters: Optional[Dict[str, Any]]):
+		"""Set or clear event filters for a WebSocket client."""
+		if filters:
+			self._websocket_filters[websocket] = filters
+		else:
+			self._websocket_filters.pop(websocket, None)
+
+
 	async def _broadcast_to_websockets(self, event: WorkflowEvent):
-		"""Broadcast event to all connected WebSocket clients"""
+		"""Broadcast event to connected WebSocket clients (respecting per-client filters)"""
 		if not self._websocket_clients:
 			return
 
@@ -158,11 +199,15 @@ class EventBus:
 		dead_clients = set()
 		for client in self._websocket_clients:
 			try:
-				await client.send_text(message)
+				filters = self._websocket_filters.get(client, {})
+				if self._event_matches_filter(event, filters):
+					await client.send_text(message)
 			except Exception:
 				dead_clients.add(client)
 
 		# Remove dead clients
+		for c in dead_clients:
+			self._websocket_filters.pop(c, None)
 		self._websocket_clients -= dead_clients
 
 
@@ -183,9 +228,11 @@ class EventBus:
 	def remove_websocket_client(self, websocket: WebSocket):
 		"""Remove WebSocket client"""
 		self._websocket_clients.discard(websocket)
+		self._websocket_filters.pop(websocket, None)
 
 
 	def get_event_history(self,
+		workspace_id : Optional[str]       = None,
 		workflow_id  : Optional[str]       = None,
 		execution_id : Optional[str]       = None,
 		event_type   : Optional[EventType] = None,
@@ -194,6 +241,8 @@ class EventBus:
 		"""Get filtered event history"""
 		events = self._event_history
 
+		if workspace_id:
+			events = [e for e in events if e.workspace_id == workspace_id]
 		if workflow_id:
 			events = [e for e in events if e.workflow_id == workflow_id]
 		if execution_id:
@@ -218,6 +267,7 @@ class EventBus:
 
 	async def emit(self,
 		event_type   : EventType,
+		workspace_id : Optional[str]            = None,
 		workflow_id  : Optional[str]            = None,
 		execution_id : Optional[str]            = None,
 		node_id      : Optional[str]            = None,
@@ -230,6 +280,7 @@ class EventBus:
 			event_id     = self._generate_event_id(),
 			event_type   = event_type,
 			timestamp    = datetime.now().isoformat(),
+			workspace_id = workspace_id,
 			workflow_id  = workflow_id,
 			execution_id = execution_id,
 			node_id      = node_id,

@@ -87,6 +87,25 @@ class TemplateRenameRequest(BaseModel):
 	name : str
 
 
+class BatchStartRequest(BaseModel):
+	workflows : List[WorkflowStartRequest]
+
+
+class ComposeStep(BaseModel):
+	workflow_name : str
+	initial_data  : Optional[WorkflowExecutionOptions] = None
+	input_map     : Optional[Dict[str, str]] = None  # target_slot -> "node_idx.source_slot"
+
+
+class ComposeRequest(BaseModel):
+	pipeline : List[ComposeStep]
+
+
+class LoadWorkflowRequest(BaseModel):
+	filepath : str
+	name     : Optional[str] = None
+
+
 class GenerateWorkflowRequest(BaseModel):
 	prompt      : str
 	# Agent subgraph config (each maps to a schema config type)
@@ -104,7 +123,95 @@ class GenerateWorkflowRequest(BaseModel):
 	history     : Optional[List[dict]] = None
 
 
-def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, manager: WorkflowManager, engine: WorkflowEngine):
+async def _run_compose(compose_id, pipeline, manager, engine, event_bus):
+	"""Execute a composition pipeline — run workflows sequentially, wiring outputs."""
+	import asyncio as _asyncio
+	from engine import WorkflowNodeStatus
+
+	state       = engine.compose_states[compose_id]
+	prev_outputs = {}
+
+	for i, step in enumerate(pipeline):
+		if state["status"] == "cancelled":
+			break
+
+		state["current"] = i
+		step_info = {"index": i, "workflow_name": step.workflow_name, "status": "running", "execution_id": None, "error": None}
+		state["steps"].append(step_info)
+
+		await event_bus.emit(
+			event_type = EventType.COMPOSE_STEP,
+			data       = {"compose_id": compose_id, "step": i, "workflow_name": step.workflow_name},
+		)
+
+		try:
+			impl = await manager.impl(step.workflow_name)
+			if not impl:
+				raise ValueError(f"Workflow '{step.workflow_name}' not found")
+
+			# Build initial_data by merging step config with mapped outputs from previous step
+			initial_data = step.initial_data.model_dump() if step.initial_data else {}
+			if step.input_map and prev_outputs:
+				for target_key, source_key in step.input_map.items():
+					if source_key in prev_outputs:
+						initial_data[target_key] = prev_outputs[source_key]
+
+			exec_id = await engine.start_workflow(
+				workflow     = impl["workflow"],
+				backend      = impl["backend"],
+				initial_data = initial_data,
+			)
+			step_info["execution_id"] = exec_id
+
+			# Wait for completion
+			while True:
+				if state["status"] == "cancelled":
+					break
+				exec_state = engine.get_execution_state(exec_id)
+				if exec_state and exec_state.status in (WorkflowNodeStatus.COMPLETED, WorkflowNodeStatus.FAILED):
+					break
+				await _asyncio.sleep(0.3)
+
+			exec_state = engine.get_execution_state(exec_id)
+			if not exec_state or exec_state.status == WorkflowNodeStatus.FAILED:
+				step_info["status"] = "failed"
+				step_info["error"]  = exec_state.error if exec_state else "Unknown error"
+				state["status"]     = "failed"
+				state["error"]      = f"Step {i} failed: {step_info['error']}"
+				break
+
+			step_info["status"] = "completed"
+
+			# Collect outputs for next step
+			prev_outputs = {}
+			for node_idx, outputs in exec_state.node_outputs.items():
+				for key, value in outputs.items():
+					prev_outputs[key] = value
+					prev_outputs[f"{node_idx}.{key}"] = value
+
+		except Exception as e:
+			step_info["status"] = "failed"
+			step_info["error"]  = str(e)
+			state["status"]     = "failed"
+			state["error"]      = f"Step {i} failed: {e}"
+			break
+
+	if state["status"] == "running":
+		state["status"] = "completed"
+
+	event_type = EventType.COMPOSE_FAILED if state["status"] == "failed" else EventType.COMPOSE_COMPLETED
+	await event_bus.emit(
+		event_type = event_type,
+		data       = {"compose_id": compose_id, "status": state["status"]},
+	)
+
+
+def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr):
+
+	# Default workspace provides manager/engine for non-workspace-prefixed endpoints
+	_default_ws = workspace_mgr.get_default_workspace()
+	manager     = _default_ws.manager
+	engine      = _default_ws.engine
 
 	# Setup tutorial extension API (see docs/tutorial-extension.md)
 	setup_tutorial_api(app, manager)
@@ -357,6 +464,151 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		except Exception as e:
 			log_print(f"Error cancelling execution: {e}")
 			raise HTTPException(status_code=500, detail=str(e))
+
+
+	# ─── Execution Results ──────────────────────────────────────────────
+
+	@app.post("/exec_results/{execution_id}")
+	async def execution_results(execution_id: str):
+		nonlocal engine
+		results = engine.get_execution_results(execution_id)
+		if results is None:
+			raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' not found")
+		return results
+
+
+	# ─── Batch Execution ─────────────────────────────────────────────
+
+	@app.post("/batch/start")
+	async def batch_start(request: BatchStartRequest):
+		nonlocal engine, manager
+		try:
+			items = []
+			for wf_req in request.workflows:
+				impl = await manager.impl(wf_req.name)
+				if not impl:
+					raise HTTPException(status_code=404, detail=f"Workflow '{wf_req.name}' not found")
+				options      = wf_req.initial_data or WorkflowExecutionOptions()
+				initial_data = options.model_dump()
+				items.append({
+					"workflow"     : impl["workflow"],
+					"backend"      : impl["backend"],
+					"initial_data" : initial_data,
+				})
+			batch_state = await engine.start_batch(items)
+			return batch_state
+		except HTTPException:
+			raise
+		except Exception as e:
+			log_print(f"Error starting batch: {e}")
+			raise HTTPException(status_code=500, detail=str(e))
+
+
+	@app.post("/batch/state/{batch_id}")
+	async def batch_state(batch_id: str):
+		nonlocal engine
+		state = engine.get_batch_state(batch_id)
+		if state is None:
+			raise HTTPException(status_code=404, detail=f"Batch '{batch_id}' not found")
+		return state
+
+
+	@app.post("/batch/cancel/{batch_id}")
+	async def batch_cancel(batch_id: str):
+		nonlocal engine
+		state = await engine.cancel_batch(batch_id)
+		if state is None:
+			raise HTTPException(status_code=404, detail=f"Batch '{batch_id}' not found")
+		return state
+
+
+	# ─── Persistence ─────────────────────────────────────────────────
+
+	@app.post("/save/{name}")
+	async def save_workflow(name: str):
+		nonlocal manager
+		ok = await manager.save(name)
+		if not ok:
+			raise HTTPException(status_code=404, detail=f"Workflow '{name}' not found or no storage dir")
+		return {"name": name, "status": "saved"}
+
+
+	@app.post("/save_all")
+	async def save_all_workflows():
+		nonlocal manager
+		count = await manager.save_all()
+		return {"status": "saved", "count": count}
+
+
+	@app.post("/load")
+	async def load_workflow(request: LoadWorkflowRequest):
+		nonlocal manager
+		loaded_name = await manager.load(request.filepath, request.name)
+		if not loaded_name:
+			raise HTTPException(status_code=400, detail=f"Failed to load '{request.filepath}'")
+		return {"name": loaded_name, "status": "loaded"}
+
+
+	@app.post("/load_all")
+	async def load_all_workflows():
+		nonlocal manager
+		count = await manager.load_all()
+		return {"status": "loaded", "count": count}
+
+
+	# ─── Compose (Pipeline) ──────────────────────────────────────────
+
+	@app.post("/compose")
+	async def compose_workflows(request: ComposeRequest):
+		nonlocal engine, manager
+		import asyncio as _asyncio
+		compose_id = f"compose_{get_timestamp_str()}"
+		compose_state = {
+			"compose_id" : compose_id,
+			"pipeline"   : [s.model_dump() for s in request.pipeline],
+			"status"     : "running",
+			"steps"      : [],
+			"current"    : 0,
+			"error"      : None,
+		}
+		if not hasattr(engine, "compose_states"):
+			engine.compose_states = {}
+		engine.compose_states[compose_id] = compose_state
+		await event_bus.emit(
+			event_type = EventType.COMPOSE_STARTED,
+			data       = {"compose_id": compose_id},
+		)
+		_asyncio.create_task(_run_compose(compose_id, request.pipeline, manager, engine, event_bus))
+		return compose_state
+
+
+	@app.post("/compose/state/{compose_id}")
+	async def compose_state(compose_id: str):
+		nonlocal engine
+		if not hasattr(engine, "compose_states"):
+			raise HTTPException(status_code=404, detail="No compositions found")
+		state = engine.compose_states.get(compose_id)
+		if state is None:
+			raise HTTPException(status_code=404, detail=f"Composition '{compose_id}' not found")
+		return state
+
+
+	@app.post("/compose/cancel/{compose_id}")
+	async def compose_cancel(compose_id: str):
+		nonlocal engine
+		if not hasattr(engine, "compose_states"):
+			raise HTTPException(status_code=404, detail="No compositions found")
+		state = engine.compose_states.get(compose_id)
+		if state is None:
+			raise HTTPException(status_code=404, detail=f"Composition '{compose_id}' not found")
+		state["status"] = "cancelled"
+		# Cancel current execution if running
+		steps = state.get("steps", [])
+		if steps:
+			last = steps[-1]
+			if last.get("status") == "running":
+				await engine.cancel_execution(last.get("execution_id"))
+		return state
 
 
 	@app.post("/exec_input/{execution_id}")
@@ -661,12 +913,132 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		try:
 			while True:
 				data = await websocket.receive_text()
+				# Handle filter subscription messages
+				try:
+					msg = json.loads(data)
+					if isinstance(msg, dict):
+						msg_type = msg.get("type")
+						if msg_type == "subscribe":
+							filters = msg.get("filters", {})
+							event_bus.set_websocket_filter(websocket, filters)
+							await websocket.send_text(json.dumps({"type": "subscribed", "filters": filters}))
+							continue
+						elif msg_type == "unsubscribe":
+							event_bus.set_websocket_filter(websocket, None)
+							await websocket.send_text(json.dumps({"type": "unsubscribed"}))
+							continue
+				except (json.JSONDecodeError, TypeError):
+					pass
 				log_print(f"Received WebSocket message: {data}")
 		except WebSocketDisconnect:
 			log_print("WebSocket client disconnected")
 		except Exception as e:
 			log_print(f"WebSocket error: {e}")
 		event_bus.remove_websocket_client(websocket)
+
+
+	# =========================================================================
+	# WORKSPACE API
+	# =========================================================================
+
+	@app.post("/workspace/create")
+	async def workspace_create(name: str, description: Optional[str] = None):
+		ws = await workspace_mgr.create_workspace(name, description)
+		return ws.to_dict()
+
+	@app.post("/workspace/delete/{workspace_id}")
+	async def workspace_delete(workspace_id: str):
+		ok = await workspace_mgr.delete_workspace(workspace_id)
+		if not ok:
+			raise HTTPException(status_code=404, detail=f"Workspace '{workspace_id}' not found or is default")
+		return {"workspace_id": workspace_id, "status": "deleted"}
+
+	@app.post("/workspace/list")
+	async def workspace_list():
+		return {"workspaces": await workspace_mgr.list_workspaces()}
+
+	@app.post("/workspace/get/{workspace_id}")
+	async def workspace_get(workspace_id: str):
+		ws = await workspace_mgr.get_workspace(workspace_id)
+		if not ws:
+			raise HTTPException(status_code=404, detail=f"Workspace '{workspace_id}' not found")
+		return ws.to_dict()
+
+	# ── Workspace-scoped workflow endpoints ──────────────────────────
+
+	async def _get_ws(workspace_id: str):
+		ws = await workspace_mgr.get_workspace(workspace_id)
+		if not ws:
+			raise HTTPException(status_code=404, detail=f"Workspace '{workspace_id}' not found")
+		return ws
+
+	@app.post("/workspace/{workspace_id}/add")
+	async def ws_add_workflow(workspace_id: str, request: WorkflowUploadRequest):
+		ws   = await _get_ws(workspace_id)
+		name = await ws.manager.add(request.workflow, request.name)
+		impl = await ws.manager.impl(name)
+		wf   = impl["workflow"].model_dump() if impl else None
+		return {"name": name, "workflow": wf, "status": "added" if name else "failed"}
+
+	@app.post("/workspace/{workspace_id}/remove/{name}")
+	async def ws_remove_workflow(workspace_id: str, name: str):
+		ws     = await _get_ws(workspace_id)
+		status = await ws.manager.remove(name)
+		return {"name": name, "status": "removed" if status else "failed"}
+
+	@app.post("/workspace/{workspace_id}/get/{name}")
+	async def ws_get_workflow(workspace_id: str, name: str):
+		ws       = await _get_ws(workspace_id)
+		workflow = await ws.manager.get(name)
+		if workflow:
+			workflow = workflow.model_dump()
+		return {"name": name, "workflow": workflow}
+
+	@app.post("/workspace/{workspace_id}/list")
+	async def ws_list_workflows(workspace_id: str):
+		ws    = await _get_ws(workspace_id)
+		names = await ws.manager.list()
+		return {"names": names}
+
+	@app.post("/workspace/{workspace_id}/start")
+	async def ws_start_workflow(workspace_id: str, request: WorkflowStartRequest):
+		ws   = await _get_ws(workspace_id)
+		impl = await ws.manager.impl(request.name)
+		if not impl:
+			raise HTTPException(status_code=404, detail=f"Workflow '{request.name}' not found")
+		options      = request.initial_data or WorkflowExecutionOptions()
+		initial_data = options.model_dump()
+		execution_id = await ws.engine.start_workflow(
+			workflow     = impl["workflow"],
+			backend      = impl["backend"],
+			initial_data = initial_data,
+		)
+		return {"execution_id": execution_id, "status": "started"}
+
+	@app.post("/workspace/{workspace_id}/exec_results/{execution_id}")
+	async def ws_execution_results(workspace_id: str, execution_id: str):
+		ws      = await _get_ws(workspace_id)
+		results = ws.engine.get_execution_results(execution_id)
+		if results is None:
+			raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' not found")
+		return results
+
+	@app.post("/workspace/{workspace_id}/exec_state/{execution_id}")
+	async def ws_execution_state(workspace_id: str, execution_id: str):
+		ws    = await _get_ws(workspace_id)
+		state = ws.engine.get_execution_state(execution_id)
+		return {"execution_id": execution_id, "state": state}
+
+	@app.post("/workspace/{workspace_id}/exec_cancel/{execution_id}")
+	async def ws_cancel_execution(workspace_id: str, execution_id: str):
+		ws    = await _get_ws(workspace_id)
+		state = await ws.engine.cancel_execution(execution_id)
+		return {"execution_id": execution_id, "status": "cancelled" if state else "failed", "state": state}
+
+	@app.post("/workspace/{workspace_id}/exec_list")
+	async def ws_list_executions(workspace_id: str):
+		ws = await _get_ws(workspace_id)
+		return {"execution_ids": ws.engine.list_executions()}
 
 
 	# =========================================================================

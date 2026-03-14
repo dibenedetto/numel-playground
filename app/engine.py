@@ -1475,3 +1475,123 @@ class WorkflowEngine:
 
 	def list_executions(self) -> List[str]:
 		return list(self.executions.keys())
+
+
+	# === EXECUTION RESULTS ===
+
+	def get_execution_results(self, execution_id: str) -> Optional[Dict[str, Any]]:
+		"""Return final outputs of a completed (or failed) execution."""
+		state = self.executions.get(execution_id)
+		if not state:
+			return None
+		return {
+			"execution_id" : state.execution_id,
+			"workflow_id"  : state.workflow_id,
+			"status"       : state.status.value,
+			"start_time"   : state.start_time,
+			"end_time"     : state.end_time,
+			"error"        : state.error,
+			"node_outputs" : {str(k): v for k, v in state.node_outputs.items()},
+		}
+
+
+	# === BATCH EXECUTION ===
+
+	async def start_batch(self, items: List[Dict[str, Any]]) -> Dict[str, Any]:
+		"""Start multiple workflow executions in parallel.
+
+		items: list of {"workflow": Workflow, "backend": ImplementedBackend, "initial_data": dict}
+		Returns batch state dict with batch_id and individual execution_ids.
+		"""
+		batch_id      = f"batch_{uuid.uuid4().hex[:12]}"
+		execution_ids = []
+
+		for item in items:
+			exec_id = await self.start_workflow(
+				workflow     = item["workflow"],
+				backend      = item["backend"],
+				initial_data = item.get("initial_data"),
+			)
+			execution_ids.append(exec_id)
+
+		batch_state = {
+			"batch_id"      : batch_id,
+			"execution_ids" : execution_ids,
+			"status"        : "running",
+			"start_time"    : datetime.now().isoformat(),
+			"end_time"      : None,
+		}
+		if not hasattr(self, "batch_states"):
+			self.batch_states = {}
+		self.batch_states[batch_id] = batch_state
+
+		await self.event_bus.emit(
+			event_type = EventType.BATCH_STARTED,
+			data       = {"batch_id": batch_id, "execution_ids": execution_ids},
+		)
+
+		# Monitor batch completion in background
+		asyncio.create_task(self._monitor_batch(batch_id))
+		return batch_state
+
+
+	async def _monitor_batch(self, batch_id: str):
+		"""Wait for all executions in a batch to finish, then emit completion event."""
+		batch = self.batch_states.get(batch_id)
+		if not batch:
+			return
+
+		while True:
+			all_done  = True
+			any_fail  = False
+			for exec_id in batch["execution_ids"]:
+				state = self.executions.get(exec_id)
+				if not state:
+					continue
+				if state.status == WorkflowNodeStatus.RUNNING:
+					all_done = False
+				elif state.status == WorkflowNodeStatus.FAILED:
+					any_fail = True
+			if all_done:
+				break
+			await asyncio.sleep(0.5)
+
+		batch["end_time"] = datetime.now().isoformat()
+		batch["status"]   = "failed" if any_fail else "completed"
+
+		event_type = EventType.BATCH_FAILED if any_fail else EventType.BATCH_COMPLETED
+		await self.event_bus.emit(
+			event_type = event_type,
+			data       = {"batch_id": batch_id, "status": batch["status"]},
+		)
+
+
+	def get_batch_state(self, batch_id: str) -> Optional[Dict[str, Any]]:
+		"""Get batch execution status with individual execution states."""
+		if not hasattr(self, "batch_states"):
+			return None
+		batch = self.batch_states.get(batch_id)
+		if not batch:
+			return None
+		results = {}
+		for exec_id in batch["execution_ids"]:
+			state = self.executions.get(exec_id)
+			results[exec_id] = {
+				"status" : state.status.value if state else "unknown",
+				"error"  : state.error if state else None,
+			}
+		return {**batch, "results": results}
+
+
+	async def cancel_batch(self, batch_id: str) -> Optional[Dict[str, Any]]:
+		"""Cancel all executions in a batch."""
+		if not hasattr(self, "batch_states"):
+			return None
+		batch = self.batch_states.get(batch_id)
+		if not batch:
+			return None
+		for exec_id in batch["execution_ids"]:
+			await self.cancel_execution(exec_id)
+		batch["status"]   = "cancelled"
+		batch["end_time"] = datetime.now().isoformat()
+		return batch
