@@ -49,8 +49,8 @@ from   utils     import add_middleware, log_print, seed_everything
 load_dotenv()
 
 
-DEFAULT_APP_SEED : int = 777
-DEFAULT_APP_PORT : int = 8000
+DEFAULT_APP_SEED : int = 7
+DEFAULT_APP_PORT : int = 11360
 
 
 def _asyncio_exception_handler(loop, context):

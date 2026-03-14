@@ -337,7 +337,7 @@ _extendAPI() {
 For real-time updates, connect to the event WebSocket:
 
 ```javascript
-const ws = new WebSocket('ws://localhost:8000/events');
+const ws = new WebSocket('ws://localhost:11360/events');
 ws.onmessage = (e) => {
     const event = JSON.parse(e.data);
     if (event.type === 'counter:updated') {

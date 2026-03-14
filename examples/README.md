@@ -64,7 +64,7 @@ Shows:
 - Transform annotates the payload with a timestamp and extracts keys
 - `preview_flow` with `hint="json"` for pretty JSON display
 
-Test: `curl -X POST http://localhost:8000/hook/events -H "Content-Type: application/json" -d '{"msg":"hello"}'`
+Test: `curl -X POST http://localhost:11360/hook/events -H "Content-Type: application/json" -d '{"msg":"hello"}'`
 
 ---
 
