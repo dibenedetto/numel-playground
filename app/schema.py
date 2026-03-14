@@ -71,6 +71,7 @@ class ComponentType(BaseType):
 class Edge(ComponentType):
 	type        : Annotated[Literal["edge"], FieldRole.CONSTANT  ] = "edge"
 	preview     : Annotated[bool           , FieldRole.ANNOTATION] = False  # Whether to show a preview of the data flowing through this edge in the UI
+	preview_pos : Annotated[Optional[list] , FieldRole.ANNOTATION] = None   # [x, y] position of the preview node (preserved across sync)
 	loop        : Annotated[bool           , FieldRole.ANNOTATION] = False  # True for loop-back edges (visual hint)
 	source      : Annotated[int            , FieldRole.INPUT     ] = None
 	target      : Annotated[int            , FieldRole.INPUT     ] = None

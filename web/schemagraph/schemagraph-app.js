@@ -10165,9 +10165,17 @@ class SchemaGraphApp {
 										const src = self.graph.getNodeById(link.origin_id);
 										const tgt = self.graph.getNodeById(link.target_id);
 										if (src && tgt) {
-											const midX = (src.pos[0] + src.size[0] + tgt.pos[0]) / 2;
-											const midY = (src.pos[1] + tgt.pos[1]) / 2;
-											self.insertPreviewOnLink(link, midX, midY);
+											let px, py;
+											if (link._previewPos) {
+												// Saved positions are final node positions;
+												// insertPreviewOnLink applies -100,-60 offset, so compensate
+												px = link._previewPos[0] + 100;
+												py = link._previewPos[1] + 60;
+											} else {
+												px = (src.pos[0] + src.size[0] + tgt.pos[0]) / 2;
+												py = (src.pos[1] + tgt.pos[1]) / 2;
+											}
+											self.insertPreviewOnLink(link, px, py);
 										}
 									}
 								}

@@ -1079,7 +1079,10 @@ class WorkflowImporter {
 		if (workflowData.edges) {
 			for (const edgeData of workflowData.edges) {
 				const link = this._createEdge(edgeData, createdNodes);
-				if (link && edgeData.preview) previewLinks.push(link);
+				if (link && edgeData.preview) {
+					link._previewPos = edgeData.preview_pos || null;
+					previewLinks.push(link);
+				}
 			}
 		}
 
@@ -1390,7 +1393,8 @@ class WorkflowExporter {
 					target: targetIdx,
 					source_slot: sourceNode.outputMeta?.[inLink.origin_slot]?.name || sourceNode.outputs[inLink.origin_slot]?.name || 'output',
 					target_slot: targetNode.inputMeta?.[outLink.target_slot]?.name || targetNode.inputs[outLink.target_slot]?.name || 'input',
-					preview: true
+					preview: true,
+					preview_pos: [previewNode.pos[0], previewNode.pos[1]]
 				};
 				if (inLink.loop || outLink.loop) edge.loop = true;
 				workflow.edges.push(edge);

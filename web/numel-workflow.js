@@ -422,6 +422,8 @@ class WorkflowVisualizer {
 		}
 		if (effectiveLayout) {
 			this.schemaGraph.api.layout.apply(effectiveLayout);
+			// Layout may reposition preview nodes — restore their saved positions
+			this._restorePreviewPositionsFromEdges(workflow);
 		}
 		// Don't reset camera/zoom when syncing — preserve user's current view
 		if (!sync) {
@@ -454,6 +456,29 @@ class WorkflowVisualizer {
 		if (node.type?.startsWith(WORKFLOW_SCHEMA_NAME + '.')) return true;
 		if (node.schemaName === WORKFLOW_SCHEMA_NAME) return true;
 		return false;
+	}
+
+	/**
+	 * After layout, restore preview node positions from edge preview_pos data.
+	 * Preview nodes store _originalEdgeInfo which links back to source/target.
+	 * We match by iterating preview edges in workflow order (same order they were created).
+	 */
+	_restorePreviewPositionsFromEdges(workflow) {
+		if (!workflow?.edges) return;
+		const previewEdges = workflow.edges.filter(e => e.preview && e.preview_pos);
+		if (!previewEdges.length) return;
+
+		// Collect preview nodes in graph order
+		const previewNodes = this.schemaGraph.graph.nodes.filter(n => n?.extra?._isEdgePreview);
+		// Match by order (preview edges and preview nodes are created in the same sequence)
+		const count = Math.min(previewEdges.length, previewNodes.length);
+		for (let i = 0; i < count; i++) {
+			const pos = previewEdges[i].preview_pos;
+			if (pos && pos.length === 2) {
+				previewNodes[i].pos[0] = pos[0];
+				previewNodes[i].pos[1] = pos[1];
+			}
+		}
 	}
 
 	// --- Export ---
