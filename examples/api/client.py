@@ -161,6 +161,122 @@ class NumelClient:
 	async def ws_state(self, workspace_id: str, execution_id: str) -> dict:
 		return await self._post(f"/workspace/{workspace_id}/exec_state/{execution_id}")
 
+	# ── Schema & Generation ────────────────────────────────────────
+
+	async def schema(self) -> dict:
+		return await self._post("/schema")
+
+	async def generation_prompt(self, tool_names: List[str] = None, toolkit_names: List[str] = None) -> dict:
+		body = {}
+		if tool_names:    body["tool_names"]    = tool_names
+		if toolkit_names: body["toolkit_names"] = toolkit_names
+		return await self._post("/generation-prompt", body)
+
+	async def generate_workflow(self, description: str, **kwargs) -> dict:
+		body = {"description": description, **kwargs}
+		return await self._post("/generate-workflow", body)
+
+	# ── Tool Call ──────────────────────────────────────────────────
+
+	async def tool_call(self, node_index: int, args: dict = None) -> dict:
+		return await self._post("/tool_call", {"node_index": node_index, "args": args or {}})
+
+	# ── Templates ──────────────────────────────────────────────────
+
+	async def templates_list(self) -> List[dict]:
+		r = await self._post("/templates/list")
+		return r.get("templates", [])
+
+	async def templates_get(self, template_id: str) -> dict:
+		r = await self._post(f"/templates/get/{template_id}")
+		return r.get("template", {})
+
+	async def templates_save(self, template: dict) -> dict:
+		return await self._post("/templates/save", {"template": template})
+
+	async def templates_delete(self, template_id: str) -> dict:
+		return await self._post(f"/templates/delete/{template_id}")
+
+	async def templates_rename(self, template_id: str, new_name: str) -> dict:
+		return await self._post(f"/templates/rename/{template_id}", {"name": new_name})
+
+	# ── Event Sources ──────────────────────────────────────────────
+
+	async def event_sources_list(self) -> dict:
+		return await self._post("/event-sources/list")
+
+	async def event_sources_status(self) -> dict:
+		return await self._post("/event-sources/status")
+
+	async def event_source_get(self, source_id: str) -> dict:
+		return await self._post(f"/event-sources/get/{source_id}")
+
+	async def event_source_create_timer(self, interval: float, event_type: str = "timer", **kwargs) -> dict:
+		return await self._post("/event-sources/timer", {"interval": interval, "event_type": event_type, **kwargs})
+
+	async def event_source_start(self, source_id: str) -> dict:
+		return await self._post(f"/event-sources/{source_id}/start")
+
+	async def event_source_stop(self, source_id: str) -> dict:
+		return await self._post(f"/event-sources/{source_id}/stop")
+
+	async def event_source_delete(self, source_id: str) -> dict:
+		return await self._post(f"/event-sources/delete/{source_id}")
+
+	# ── Console Agent ──────────────────────────────────────────────
+
+	async def console_start(self, model_source: str = None, model_name: str = None,
+	                        toolkit_names: List[str] = None) -> dict:
+		body = {}
+		if model_source:  body["model_source"]  = model_source
+		if model_name:    body["model_name"]    = model_name
+		if toolkit_names: body["toolkit_names"] = toolkit_names
+		return await self._post("/console/start", body)
+
+	async def console_stop(self) -> dict:
+		return await self._post("/console/stop")
+
+	async def console_chat(self, message: str, session_id: str = None, include_context: bool = True) -> dict:
+		return await self._post("/console/chat", {
+			"message": message, "session_id": session_id, "include_context": include_context,
+		})
+
+	async def console_context(self) -> dict:
+		return await self._post("/console/context")
+
+	async def console_status(self) -> dict:
+		return await self._post("/console/status")
+
+	async def console_toolkits(self) -> List[dict]:
+		return await self._post("/console/toolkits")
+
+	# ── File Contents ──────────────────────────────────────────────
+
+	async def contents_list(self, node_index: int) -> dict:
+		return await self._post(f"/contents/list/{node_index}")
+
+	async def contents_remove(self, node_index: int, ids: List[str]) -> dict:
+		return await self._post(f"/contents/remove/{node_index}", {"ids": ids})
+
+	async def upload(self, node_index: int, filepath: str, node_type: str = None) -> dict:
+		"""Upload a file to a node."""
+		import os
+		with open(filepath, "rb") as f:
+			files = {"files": (os.path.basename(filepath), f)}
+			data  = {}
+			if node_type: data["node_type"] = node_type
+			resp = await self._http.post(f"/upload/{node_index}", files=files, data=data)
+			resp.raise_for_status()
+			return resp.json()
+
+	# ── Documentation ──────────────────────────────────────────────
+
+	async def docs_list(self) -> dict:
+		return await self._post("/docs")
+
+	async def docs_file(self, filename: str) -> dict:
+		return await self._post("/docs/file", {"filename": filename})
+
 	# ── Utility ────────────────────────────────────────────────────
 
 	async def ping(self) -> dict:

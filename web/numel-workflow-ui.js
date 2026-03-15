@@ -17,6 +17,7 @@ let singleMode         = true;
 let workflowDirty      = true;
 let fileUploadManager  = null;
 let consoleManager     = null;
+let api                = null;  // NumelAPI instance, shared across all managers
 
 // DOM Elements
 const $ = id => document.getElementById(id);
@@ -485,7 +486,9 @@ async function connect() {
 	addLog('info', `⏳ Connecting to ${serverUrl}...`);
 
 	try {
-		client = new WorkflowClient(serverUrl);
+		api = new NumelAPI(serverUrl);
+		window._numelAPI = api;  // expose for schemagraph library helpers
+		client = new WorkflowClient(serverUrl, api);
 
 		// Test connection
 		await client.ping();
@@ -518,7 +521,7 @@ async function connect() {
 		// visualizer.schemaGraph.api.workflow.debug();
 
 		// Initialize file upload manager
-		fileUploadManager = new FileUploadManager(serverUrl, schemaGraph, syncWorkflow, schemaGraph.eventBus);
+		fileUploadManager = new FileUploadManager(serverUrl, schemaGraph, syncWorkflow, schemaGraph.eventBus, api);
 		addLog('info', '📁 File upload manager initialized');
 
 		// Update overlay positions on camera changes
@@ -530,11 +533,11 @@ async function connect() {
 		});
 
 		// Initialize chat manager
-		agentChatManager = new AgentChatManager(serverUrl, schemaGraph, syncWorkflow);
+		agentChatManager = new AgentChatManager(serverUrl, schemaGraph, syncWorkflow, api);
 		addLog('info', '💬 Agent chat manager initialized');
 
 		// Initialize console manager
-		consoleManager = new AgentConsoleManager(serverUrl, syncWorkflow);
+		consoleManager = new AgentConsoleManager(serverUrl, syncWorkflow, api);
 		$('consoleToggleBtn').style.display = '';
 		addLog('info', '🤖 Console assistant initialized');
 
@@ -600,6 +603,9 @@ async function disconnect() {
 		client.disconnectWebSocket();
 		client = null;
 	}
+
+	api = null;
+	window._numelAPI = null;
 
 	// Clear graph
 	schemaGraph.api.graph.clear();
@@ -1559,22 +1565,7 @@ async function executeToolCall(toolCallNode) {
 
 		addLog('info', `🔧 Executing tool at node ${toolConfig.workflowIndex}...`);
 
-		const serverUrl = client.baseUrl;
-		// const response = await fetch(`${serverUrl}/tool_call/${visualizer.currentWorkflowName}`, {
-		const response = await fetch(`${serverUrl}/tool_call`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				node_index: toolConfig.workflowIndex,
-				args: args
-			})
-		});
-
-		const result = await response.json();
-
-		if (!response.ok) {
-			throw new Error(result.detail || 'Tool call failed');
-		}
+		const result = await client.api.toolCall(toolConfig.workflowIndex, args);
 
 		addLog('success', `✅ Tool "${result.tool_name}" executed successfully`);
 

@@ -73,6 +73,20 @@ function _getPreviewHandle(cacheId) {
 	return _previewHandleCache.get(cacheId);
 }
 
+/**
+ * Fetch a URL via POST and return a blob URL suitable for element src.
+ * For data: URLs, returns the URL as-is (no server call needed).
+ * Uses window._numelAPI.fetchBlobUrl if available, otherwise raw fetch.
+ */
+async function _fetchBlobUrl(url) {
+	if (url.startsWith('data:')) return url;
+	if (window._numelAPI?.fetchBlobUrl) return window._numelAPI.fetchBlobUrl(url);
+	const resp = await fetch(url, { method: 'POST' });
+	if (!resp.ok) throw new Error(`Fetch failed: ${resp.status}`);
+	const blob = await resp.blob();
+	return URL.createObjectURL(blob);
+}
+
 // ========================================================================
 // Chat Node Mixin
 // ========================================================================
@@ -880,21 +894,47 @@ class ChatOverlayManager {
 		let body = '';
 		switch (type) {
 			case 'image':
-				body = `<img class="sg-chat-preview-img" src="${bustUrl}" alt="${fileName}" loading="lazy">`;
+				body = `<img class="sg-chat-preview-img" id="${previewId}" alt="${fileName}" loading="lazy">`;
+				setTimeout(() => {
+					const img = document.getElementById(previewId);
+					if (!img) return;
+					_fetchBlobUrl(bustUrl).then(blobUrl => { img.src = blobUrl; })
+						.catch(() => { img.alt = 'Failed to load'; });
+				}, 0);
 				break;
 			case 'audio':
-				body = `<audio class="sg-chat-preview-audio" controls src="${bustUrl}"></audio>`;
+				body = `<audio class="sg-chat-preview-audio" id="${previewId}" controls></audio>`;
+				setTimeout(() => {
+					const audio = document.getElementById(previewId);
+					if (!audio) return;
+					_fetchBlobUrl(bustUrl).then(blobUrl => { audio.src = blobUrl; audio.load(); })
+						.catch(() => {});
+				}, 0);
 				break;
 			case 'video':
-				body = `<video class="sg-chat-preview-video" controls src="${bustUrl}"></video>`;
+				body = `<video class="sg-chat-preview-video" id="${previewId}" controls></video>`;
+				setTimeout(() => {
+					const video = document.getElementById(previewId);
+					if (!video) return;
+					_fetchBlobUrl(bustUrl).then(blobUrl => { video.src = blobUrl; video.load(); })
+						.catch(() => {});
+				}, 0);
 				break;
 			case 'model3d': {
-				// Append filename hint for format detection on data URLs
-				const modelUrl = (isDataUrl && fileName) ? `${bustUrl}#${encodeURIComponent(fileName)}` : bustUrl;
 				const resetId = `${previewId}_reset`;
-				setTimeout(() => {
+				setTimeout(async () => {
 					const canvasEl = document.getElementById(previewId);
 					if (!canvasEl || !window.ThreeViewer) return;
+					// For server URLs, POST-fetch to blob URL so Three.js loaders don't use GET
+					let modelUrl;
+					if (isDataUrl) {
+						modelUrl = fileName ? `${bustUrl}#${encodeURIComponent(fileName)}` : bustUrl;
+					} else {
+						try {
+							const blobUrl = await _fetchBlobUrl(bustUrl);
+							modelUrl = fileName ? `${blobUrl}#${encodeURIComponent(fileName)}` : blobUrl;
+						} catch { modelUrl = bustUrl; }
+					}
 					this._init3DPreview(canvasEl, modelUrl);
 					const resetBtn = document.getElementById(resetId);
 					if (resetBtn) {
@@ -1232,17 +1272,17 @@ class ChatOverlayManager {
 		switch (type) {
 			case 'image': {
 				const img = previewEl.querySelector('.sg-chat-preview-img');
-				if (img) img.src = bustUrl;
+				if (img) _fetchBlobUrl(bustUrl).then(blobUrl => { img.src = blobUrl; }).catch(() => {});
 				break;
 			}
 			case 'audio': {
 				const audio = previewEl.querySelector('.sg-chat-preview-audio');
-				if (audio) { audio.src = bustUrl; audio.load(); }
+				if (audio) _fetchBlobUrl(bustUrl).then(blobUrl => { audio.src = blobUrl; audio.load(); }).catch(() => {});
 				break;
 			}
 			case 'video': {
 				const video = previewEl.querySelector('.sg-chat-preview-video');
-				if (video) { video.src = bustUrl; video.load(); }
+				if (video) _fetchBlobUrl(bustUrl).then(blobUrl => { video.src = blobUrl; video.load(); }).catch(() => {});
 				break;
 			}
 			case 'text': {
@@ -1261,9 +1301,18 @@ class ChatOverlayManager {
 			case 'model3d': {
 				const canvas = previewEl.querySelector('.sg-chat-preview-3d-canvas');
 				if (canvas && window.ThreeViewer) {
-					// Append filename hint for format detection (same as initial render)
-					const modelUrl = (isDataUrl && fileName) ? `${bustUrl}#${encodeURIComponent(fileName)}` : bustUrl;
-					this._init3DPreview(canvas, modelUrl);
+					(async () => {
+						let modelUrl;
+						if (isDataUrl) {
+							modelUrl = fileName ? `${bustUrl}#${encodeURIComponent(fileName)}` : bustUrl;
+						} else {
+							try {
+								const blobUrl = await _fetchBlobUrl(bustUrl);
+								modelUrl = fileName ? `${blobUrl}#${encodeURIComponent(fileName)}` : blobUrl;
+							} catch { modelUrl = bustUrl; }
+						}
+						this._init3DPreview(canvas, modelUrl);
+					})();
 				}
 				break;
 			}

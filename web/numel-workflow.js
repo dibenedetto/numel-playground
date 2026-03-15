@@ -94,76 +94,27 @@ function _stripPreviewNodes(workflow) {
 // ========================================================================
 
 class WorkflowClient {
-	constructor(baseUrl) {
+	constructor(baseUrl, api = null) {
+		this.api = api || new NumelAPI(baseUrl);
 		this.baseUrl = baseUrl;
 		this.websocket = null;
 		this.eventHandlers = new Map();
 		this.isConnected = false;
 	}
 
-	// --- HTTP Methods ---
+	// --- HTTP Methods (delegate to NumelAPI) ---
 
-	async _post(endpoint, body = null) {
-		const response = await fetch(`${this.baseUrl}${endpoint}`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: body ? JSON.stringify(body) : null
-		});
-		if (!response.ok) {
-			let detail = response.statusText;
-			try { const err = await response.json(); detail = JSON.stringify(err.detail || err, null, 2); } catch {}
-			throw new Error(`${endpoint} failed: ${detail}`);
-		}
-		return response.json();
-	}
-
-	async ping() {
-		return this._post('/ping');
-	}
-
-	async getSchema() {
-		return this._post('/schema');
-	}
-
-	async listWorkflows() {
-		return this._post('/list');
-	}
-
-	async getWorkflow(name) {
-		const tail = (name == null) ? '' : `/${encodeURIComponent(name)}`;
-		return this._post(`/get${tail}`);
-	}
-
-	async addWorkflow(workflow, name = null) {
-		return this._post('/add', { workflow, name });
-	}
-
-	async removeWorkflow(name) {
-		const tail = (name == null) ? '' : `/${encodeURIComponent(name)}`;
-		return this._post(`/remove${tail}`);
-	}
-
-	async startWorkflow(name, initialData = null) {
-		return this._post('/start', { name, initial_data: initialData });
-	}
-
-	async getExecutionState(executionId) {
-		const tail = (executionId == null) ? '' : `/${executionId}`;
-		return this._post(`/exec_state${tail}`);
-	}
-
-	async cancelExecution(executionId) {
-		const tail = (executionId == null) ? '' : `/${executionId}`;
-		return this._post(`/exec_cancel${tail}`);
-	}
-
-	async listExecutions() {
-		return this._post('/exec_list');
-	}
-
-	async provideUserInput(executionId, nodeId, inputData) {
-		return this._post(`/exec_input/${executionId}`, { node_id: nodeId, input_data: inputData });
-	}
+	async ping()                                        { return this.api.ping(); }
+	async getSchema()                                   { return this.api.getSchema(); }
+	async listWorkflows()                               { return this.api.listWorkflows(); }
+	async getWorkflow(name)                             { return this.api.getWorkflow(name); }
+	async addWorkflow(workflow, name = null)             { return this.api.addWorkflow(workflow, name); }
+	async removeWorkflow(name)                          { return this.api.removeWorkflow(name); }
+	async startWorkflow(name, initialData = null)       { return this.api.startWorkflow(name, initialData); }
+	async getExecutionState(executionId)                { return this.api.getExecState(executionId); }
+	async cancelExecution(executionId)                  { return this.api.cancelExecution(executionId); }
+	async listExecutions()                              { return this.api.listExecutions(); }
+	async provideUserInput(executionId, nodeId, data)   { return this.api.provideUserInput(executionId, nodeId, data); }
 
 	// --- WebSocket ---
 

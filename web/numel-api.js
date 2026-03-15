@@ -1,0 +1,139 @@
+/* ========================================================================
+   NUMEL API CLIENT
+   Centralized HTTP client for all backend API calls.
+   All numel-* modules should use this instead of raw fetch().
+   ======================================================================== */
+
+console.log('[Numel] Loading API client...');
+
+class NumelAPI {
+	constructor(baseUrl) {
+		this.baseUrl = baseUrl;
+	}
+
+	// ── Core request methods ─────────────────────────────────────
+
+	/**
+	 * POST request returning the raw Response object.
+	 * Use this when you need access to headers, status, or streaming.
+	 */
+	async post(endpoint, body = null) {
+		const opts = { method: 'POST' };
+		if (body != null) {
+			opts.headers = { 'Content-Type': 'application/json' };
+			opts.body = JSON.stringify(body);
+		}
+		const resp = await fetch(`${this.baseUrl}${endpoint}`, opts);
+		if (!resp.ok) {
+			let detail = resp.statusText;
+			try { const err = await resp.json(); detail = JSON.stringify(err.detail || err, null, 2); } catch {}
+			throw new Error(`${endpoint} failed: ${detail}`);
+		}
+		return resp;
+	}
+
+	/** POST and parse response as JSON. */
+	async json(endpoint, body = null) {
+		return (await this.post(endpoint, body)).json();
+	}
+
+	/** POST and return response as Blob. */
+	async blob(endpoint, body = null) {
+		return (await this.post(endpoint, body)).blob();
+	}
+
+	/** POST and return response as text. */
+	async text(endpoint, body = null) {
+		return (await this.post(endpoint, body)).text();
+	}
+
+	/** POST with a raw URL (not endpoint-relative). Returns the raw Response. */
+	async postUrl(url) {
+		const resp = await fetch(url, { method: 'POST' });
+		if (!resp.ok) throw new Error(`Fetch failed: ${resp.status}`);
+		return resp;
+	}
+
+	/**
+	 * POST-fetch a URL and return a blob: URL suitable for element src.
+	 * For data: URLs, returns them as-is (no network call).
+	 */
+	async fetchBlobUrl(url) {
+		if (url.startsWith('data:')) return url;
+		const resp = await fetch(url, { method: 'POST' });
+		if (!resp.ok) throw new Error(`Fetch failed: ${resp.status}`);
+		const blob = await resp.blob();
+		return URL.createObjectURL(blob);
+	}
+
+	/** POST multipart/form-data (for file uploads). */
+	async upload(endpoint, formData) {
+		const resp = await fetch(`${this.baseUrl}${endpoint}`, {
+			method: 'POST',
+			body: formData,
+		});
+		if (!resp.ok) {
+			let detail = resp.statusText;
+			try { const err = await resp.json(); detail = JSON.stringify(err.detail || err, null, 2); } catch {}
+			throw new Error(`${endpoint} failed: ${detail}`);
+		}
+		return resp.json();
+	}
+
+	// ── Workflow API ─────────────────────────────────────────────
+
+	ping()                        { return this.json('/ping'); }
+	getSchema()                   { return this.json('/schema'); }
+	listWorkflows()               { return this.json('/list'); }
+	getWorkflow(name)             { return this.json(`/get${name != null ? '/' + encodeURIComponent(name) : ''}`); }
+	addWorkflow(workflow, name)   { return this.json('/add', { workflow, name }); }
+	removeWorkflow(name)          { return this.json(`/remove${name != null ? '/' + encodeURIComponent(name) : ''}`); }
+	startWorkflow(name, data)     { return this.json('/start', { name, initial_data: data }); }
+	getExecState(executionId)     { return this.json(`/exec_state${executionId != null ? '/' + executionId : ''}`); }
+	cancelExecution(executionId)  { return this.json(`/exec_cancel${executionId != null ? '/' + executionId : ''}`); }
+	listExecutions()              { return this.json('/exec_list'); }
+	provideUserInput(execId, nodeId, inputData) {
+		return this.json(`/exec_input/${execId}`, { node_id: nodeId, input_data: inputData });
+	}
+
+	// ── Tool Call ────────────────────────────────────────────────
+
+	toolCall(nodeIndex, args)     { return this.json('/tool_call', { node_index: nodeIndex, args }); }
+
+	// ── Generation ───────────────────────────────────────────────
+
+	generationPrompt(body = {})   { return this.json('/generation-prompt', body); }
+
+	// ── Console API ──────────────────────────────────────────────
+
+	consoleStart(opts = {})       { return this.json('/console/start', opts); }
+	consoleStop()                 { return this.json('/console/stop'); }
+	consoleContext()              { return this.json('/console/context'); }
+	consoleStatus()               { return this.json('/console/status'); }
+	consoleToolkits()             { return this.json('/console/toolkits'); }
+	consoleChat(message, sessionId = null, includeContext = true) {
+		return this.json('/console/chat', { message, session_id: sessionId, include_context: includeContext });
+	}
+
+	// ── File Upload / Contents ───────────────────────────────────
+
+	contentsList(nodeIndex)       { return this.json(`/contents/list/${nodeIndex}`); }
+	contentsRemove(nodeIndex, ids){ return this.json(`/contents/remove/${nodeIndex}`, { ids }); }
+	uploadFile(nodeIndex, formData) { return this.upload(`/upload/${nodeIndex}`, formData); }
+
+	// ── Chat Response ────────────────────────────────────────────
+
+	chatResponse(executionId, nodeId, response) {
+		return this.json(`/chat_response/${executionId}`, { node_id: String(nodeId), response });
+	}
+}
+
+// ========================================================================
+// EXPORTS
+// ========================================================================
+
+if (typeof window !== 'undefined') {
+	window.NumelAPI = NumelAPI;
+}
+
+console.log('[Numel] API client loaded');

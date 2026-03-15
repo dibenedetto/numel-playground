@@ -8,9 +8,10 @@
 console.log('[Numel] Loading console manager...');
 
 class AgentConsoleManager {
-	constructor(serverUrl, syncWorkflowFn) {
+	constructor(serverUrl, syncWorkflowFn, api) {
 		this.serverUrl      = serverUrl;
 		this.syncWorkflow   = syncWorkflowFn;
+		this.api            = api;  // NumelAPI instance
 		this.handler        = null;
 		this.agentPort      = null;
 		this.proactiveWs    = null;
@@ -111,9 +112,7 @@ class AgentConsoleManager {
 
 	async _fetchToolkits() {
 		try {
-			const resp = await fetch(`${this.serverUrl}/console/toolkits`, { method: 'POST' });
-			if (!resp.ok) return;
-			const toolkits = await resp.json();
+			const toolkits = await this.api.consoleToolkits();
 			this._toolkitList.innerHTML = '';
 			for (const tk of toolkits) {
 				const item = document.createElement('div');
@@ -151,13 +150,7 @@ class AgentConsoleManager {
 		try {
 			const { source, name } = this._getSelectedModel();
 			const toolkit_names = this._getSelectedToolkits();
-			const resp = await fetch(`${this.serverUrl}/console/start`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ model_source: source, model_name: name, toolkit_names }),
-			});
-			if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-			const data = await resp.json();
+			const data = await this.api.consoleStart({ model_source: source, model_name: name, toolkit_names });
 			this.agentPort = data.port;
 
 			this._connectAgent();
@@ -261,12 +254,9 @@ class AgentConsoleManager {
 		// Fetch context and prepend to the current user message
 		let augmented = text;
 		try {
-			const resp = await fetch(`${this.serverUrl}/console/context`, { method: 'POST' });
-			if (resp.ok) {
-				const ctx = await resp.json();
-				if (ctx.context) {
-					augmented = `[Current workspace state]\n${ctx.context}\n\n[User message]\n${text}`;
-				}
+			const ctx = await this.api.consoleContext();
+			if (ctx.context) {
+				augmented = `[Current workspace state]\n${ctx.context}\n\n[User message]\n${text}`;
 			}
 		} catch { /* proceed without context */ }
 
@@ -305,13 +295,7 @@ class AgentConsoleManager {
 
 		try {
 			// Fetch the generation prompt from the main server
-			const genResp = await fetch(`${this.serverUrl}/generation-prompt`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({}),
-			});
-			if (!genResp.ok) throw new Error('Failed to fetch generation prompt');
-			const { prompt: genPrompt } = await genResp.json();
+			const { prompt: genPrompt } = await this.api.generationPrompt();
 
 			const augmented = `${genPrompt}\n\n---\nGenerate a workflow for: ${description}`;
 			await this._sendWithHistory(augmented);
@@ -354,12 +338,7 @@ class AgentConsoleManager {
 			await window.loadAndSyncWorkflow(workflow, workflow.name || 'Generated Workflow');
 		} else {
 			// Fallback: post to backend
-			const resp = await fetch(`${this.serverUrl}/add`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(workflow),
-			});
-			if (!resp.ok) throw new Error(`/add failed: ${resp.status}`);
+			await this.api.addWorkflow(workflow);
 		}
 	}
 

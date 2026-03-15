@@ -241,9 +241,9 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		return result
 
 
-	@app.api_route("/file/{file_path:path}", methods=["GET", "POST"])
+	@app.post("/file/{file_path:path}")
 	async def serve_file(file_path: str):
-		"""Serve a file from the workspace directory (GET for media embeds, POST for fetch)."""
+		"""Serve a file from the workspace directory."""
 		import mimetypes
 		target = Path(file_path).resolve()
 		if not target.exists() or not target.is_file():

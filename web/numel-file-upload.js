@@ -29,8 +29,9 @@ const PhaseLabels = Object.freeze({
 
 
 class FileUploadManager {
-	constructor(baseUrl, app, syncCallback, eventBus) {
+	constructor(baseUrl, app, syncCallback, eventBus, api) {
 		this.baseUrl = baseUrl;
+		this.api = api;  // NumelAPI instance
 		this.app = app;
 		this.syncCallback = syncCallback || function() {};
 		this.eventBus = eventBus;
@@ -361,17 +362,7 @@ class FileUploadManager {
 		}
 
 		try {
-			const response = await fetch(`${this.baseUrl}/contents/list/${nodeIndex}`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-			});
-
-			if (!response.ok) {
-				const error = await response.text();
-				throw new Error(error || `List failed: ${response.status}`);
-			}
-
-			const result = await response.json();
+			const result = await this.api.contentsList(nodeIndex);
 			console.log('[FileUpload] Contents list:', result);
 
 			this._showContentsModal(node, result.contents || []);
@@ -404,17 +395,7 @@ class FileUploadManager {
 		}
 
 		try {
-			const response = await fetch(`${this.baseUrl}/contents/list/${nodeIndex}`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-			});
-
-			if (!response.ok) {
-				const error = await response.text();
-				throw new Error(error || `List failed: ${response.status}`);
-			}
-
-			const result = await response.json();
+			const result = await this.api.contentsList(nodeIndex);
 			this._showContentsModal(node, result.contents || [], true);
 
 		} catch (error) {
@@ -438,18 +419,7 @@ class FileUploadManager {
 		this._lockGraph('Removing contents');
 
 		try {
-			const response = await fetch(`${this.baseUrl}/contents/remove/${nodeIndex}`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ ids }),
-			});
-
-			if (!response.ok) {
-				const error = await response.text();
-				throw new Error(error || `Remove failed: ${response.status}`);
-			}
-
-			const result = await response.json();
+			const result = await this.api.contentsRemove(nodeIndex, ids);
 			console.log('[FileUpload] Remove result:', result);
 
 			this._flashNode(node, 'success');
@@ -641,17 +611,7 @@ class FileUploadManager {
 		}
 
 		try {
-			const response = await fetch(`${this.baseUrl}/upload/${nodeIndex}`, {
-				method: 'POST',
-				body: formData,
-			});
-
-			if (!response.ok) {
-				const error = await response.text();
-				throw new Error(error || `Upload failed: ${response.status}`);
-			}
-
-			const result = await response.json();
+			const result = await this.api.uploadFile(nodeIndex, formData);
 
 			// If no handler was invoked, complete immediately
 			if (!result.handler_result && result.status === 'completed') {

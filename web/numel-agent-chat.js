@@ -136,8 +136,9 @@ class AgentHandler {
 // ========================================================================
 
 class AgentChatManager {
-	constructor(url, app, syncWorkflowFn) {
+	constructor(url, app, syncWorkflowFn, api) {
 		this.url = url;
+		this.api = api;  // NumelAPI instance
 		this.app = app;
 		this.syncWorkflow = syncWorkflowFn;
 		this.handlers = new Map(); // chatId -> { handler, port, dirty }
@@ -486,11 +487,7 @@ class AgentChatManager {
 		if (nodeId == null) return;
 
 		try {
-			await fetch(`${this.url}/chat_response/${this.executionId}`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ node_id: String(nodeId), response })
-			});
+			await this.api.chatResponse(this.executionId, nodeId, response);
 		} catch (err) {
 			console.warn('[AgentChat] Failed to signal chat response:', err);
 		}
@@ -590,13 +587,7 @@ class AgentChatManager {
 		const body = {};
 		if (tool_names?.length)    body.tool_names    = tool_names;
 		if (toolkit_names?.length) body.toolkit_names  = toolkit_names;
-		const resp = await fetch(this.url + '/generation-prompt', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body),
-		});
-		if (!resp.ok) throw new Error('Failed to fetch generation prompt');
-		const data = await resp.json();
+		const data = await this.api.generationPrompt(body);
 		this._cachedGenPrompt    = data.prompt;
 		this._cachedGenPromptKey = cacheKey;
 		return this._cachedGenPrompt;
