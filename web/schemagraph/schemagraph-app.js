@@ -4665,8 +4665,8 @@ class SchemaGraphApp {
 			}
 		}
 
-		// If preserve links is enabled, reconnect source→target bypassing this node
-		if (this._features.preservePreviewLinks) {
+		// If preserve links is enabled, reconnect source→target bypassing preview nodes only
+		if (this._features.preservePreviewLinks && node.extra?._isEdgePreview) {
 			if (this._isPreviewFlowNode(node)) {
 				this._preservePreviewNodeLinks(node);
 			} else {

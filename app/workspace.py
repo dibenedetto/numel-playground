@@ -50,7 +50,7 @@ class WorkspaceManager:
 				 storage_root: Optional[Path] = None):
 		self._event_bus     : EventBus                   = event_bus
 		self._base_port     : int                        = base_port
-		self._next_port     : int                        = base_port + 1  # reserve base_port for main server
+		self._next_port     : int                        = base_port + 2  # +0 = main server, +1 = console agent
 		self._storage_root  : Optional[Path]             = Path(storage_root) if storage_root else None
 		self._workspaces    : Dict[str, WorkspaceState]  = {}
 		self._default_ws_id : Optional[str]              = None

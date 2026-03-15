@@ -16,6 +16,7 @@ let pendingRemoveName  = null;
 let singleMode         = true;
 let workflowDirty      = true;
 let fileUploadManager  = null;
+let consoleManager     = null;
 
 // DOM Elements
 const $ = id => document.getElementById(id);
@@ -532,6 +533,11 @@ async function connect() {
 		agentChatManager = new AgentChatManager(serverUrl, schemaGraph, syncWorkflow);
 		addLog('info', '💬 Agent chat manager initialized');
 
+		// Initialize console manager
+		consoleManager = new AgentConsoleManager(serverUrl, syncWorkflow);
+		$('consoleToggleBtn').style.display = '';
+		addLog('info', '🤖 Console assistant initialized');
+
 		// Connect WebSocket
 		client.connectWebSocket();
 		setupClientEvents();
@@ -584,6 +590,10 @@ async function disconnect() {
 
 	agentChatManager?.disconnectAll();
 	agentChatManager = null;
+
+	consoleManager?.destroy();
+	consoleManager = null;
+	$('consoleToggleBtn').style.display = 'none';
 
 	if (client) {
 		await client.removeWorkflow();
@@ -922,6 +932,20 @@ async function syncWorkflow(workflow = null, name = null, force = false) {
 		schemaGraph.api.lock.unlock();
 	}
 }
+
+// Global helper for console /gen — load + sync a workflow JSON object
+window.loadAndSyncWorkflow = async function(workflow, name) {
+	if (!visualizer || !schemaGraph) return;
+	schemaGraph.api.graph.clear();
+	schemaGraph.api.view.reset();
+	const n = name || workflow?.options?.name || 'Generated Workflow';
+	const loaded = visualizer.loadWorkflow(workflow, n);
+	if (loaded) {
+		await syncWorkflow(workflow, n, true);
+		enableStart(true);
+		addLog('success', `✅ Loaded "${visualizer.currentWorkflowName}"`);
+	}
+};
 
 function saveChatState() {
 	const state = new Map();

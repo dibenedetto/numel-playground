@@ -40,6 +40,7 @@ import schema
 
 
 from   api       import setup_api
+from   console   import ConsoleAgentManager, setup_console_api
 from   event_bus import EventBus, get_event_bus
 from   utils     import add_middleware, log_print, seed_everything
 from   workspace import WorkspaceManager as WSManager
@@ -87,9 +88,14 @@ async def run_server(args: Any):
 	config = uvicorn.Config(app, host=host, port=port)
 	server = uvicorn.Server(config)
 
+	console_mgr = ConsoleAgentManager(workspace_mgr, event_bus, port=args.port + 1)
+	console_mgr.setup_proactive_listeners()
+
 	setup_api(server, app, event_bus, schema_code, workspace_mgr)
+	setup_console_api(app, console_mgr)
 
 	await server.serve()
+	await console_mgr.stop()
 	await workspace_mgr.shutdown()
 
 	log_print("Server shut down.")
