@@ -111,7 +111,7 @@ class AgentConsoleManager {
 
 	async _fetchToolkits() {
 		try {
-			const resp = await fetch(`${this.serverUrl}/console/toolkits`);
+			const resp = await fetch(`${this.serverUrl}/console/toolkits`, { method: 'POST' });
 			if (!resp.ok) return;
 			const toolkits = await resp.json();
 			this._toolkitList.innerHTML = '';

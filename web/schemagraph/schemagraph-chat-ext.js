@@ -936,7 +936,7 @@ class ChatOverlayManager {
 							showText(isBase64 ? atob(payload) : decodeURIComponent(payload));
 						} catch { el.innerHTML = `<span style="color:#f44">Failed to decode text</span>`; }
 					} else {
-						fetch(bustUrl).then(r => r.text()).then(showText)
+						fetch(bustUrl, { method: 'POST' }).then(r => r.text()).then(showText)
 							.catch(() => { el.innerHTML = `<span style="color:#f44">Failed to load file</span>`; });
 					}
 				}, 0);
@@ -1175,7 +1175,7 @@ class ChatOverlayManager {
 		const app = this.app;
 		if (!fileUrl) return;
 		try {
-			const response = await fetch(fileUrl);
+			const response = await fetch(fileUrl, { method: 'POST' });
 			if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
 			const blob = await response.blob();
 			const file = new File([blob], fileName, { type: blob.type || 'application/octet-stream' });
@@ -1249,7 +1249,7 @@ class ChatOverlayManager {
 				const body = previewEl.querySelector('.sg-chat-preview-text-body');
 				if (body) {
 					body.innerHTML = 'Loading...';
-					fetch(bustUrl).then(r => r.text()).then(text => {
+					fetch(bustUrl, { method: 'POST' }).then(r => r.text()).then(text => {
 						const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 						body.innerHTML = `<pre class="sg-chat-preview-text-content">${escaped}</pre>`;
 					}).catch(() => {

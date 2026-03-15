@@ -397,7 +397,7 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 		except RuntimeError as e:
 			return {"error": str(e)}
 
-	@app.get("/console/toolkits")
+	@app.post("/console/toolkits")
 	async def console_list_toolkits():
 		"""List all available toolkits that can be attached to the console agent."""
 		import importlib

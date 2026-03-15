@@ -6702,7 +6702,7 @@ class SchemaGraphApp {
 				const response = await fetch(url);
 				blob = await response.blob();
 			} else {
-				const response = await fetch(url);
+				const response = await fetch(url, { method: 'POST' });
 				if (!response.ok) throw new Error(`Fetch failed: ${response.status}`);
 				blob = await response.blob();
 			}
