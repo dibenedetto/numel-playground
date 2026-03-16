@@ -201,6 +201,7 @@ class ChatOverlayManager {
 			const overlay = this.overlays.get(chatId);
 			this._rebindOverlayEvents(node, overlay);
 			this._updateOverlayPosition(node, overlay);
+			this.updateStatus(node);
 			return overlay;
 		}
 
@@ -228,6 +229,7 @@ class ChatOverlayManager {
 
 		this._bindOverlayEvents(node, overlay);
 		this._updateOverlayPosition(node, overlay);
+		this.updateStatus(node);
 
 		return overlay;
 	}
@@ -575,9 +577,16 @@ class ChatOverlayManager {
 		if (statusText) {
 			statusText.textContent = this._getStatusText(node);
 		}
-		if (sendBtn) {
-			const isBusy = node.chatState === ChatState.SENDING || node.chatState === ChatState.STREAMING;
-			sendBtn.disabled = isBusy;
+		const isReady = node.chatState === ChatState.READY;
+		const isBusy  = node.chatState === ChatState.SENDING || node.chatState === ChatState.STREAMING;
+		const canType = isReady || isBusy;  // allow typing while streaming, but not before connected
+
+		if (sendBtn) sendBtn.disabled = !isReady;
+
+		const chatInput = overlay.querySelector('.sg-chat-input');
+		if (chatInput) {
+			chatInput.disabled = !canType;
+			chatInput.placeholder = canType ? 'Type a message...' : this._getStatusText(node);
 		}
 	}
 
@@ -658,7 +667,7 @@ class ChatOverlayManager {
 		const text = input?.value?.trim();
 		if (!text) return;
 
-		if (node.chatState === ChatState.SENDING || node.chatState === ChatState.STREAMING) {
+		if (node.chatState !== ChatState.READY) {
 			return;
 		}
 
@@ -2070,6 +2079,11 @@ class ChatExtension extends SchemaGraphExtension {
 			.sg-chat-input:focus {
 				outline: none;
 				border-color: var(--sg-accent-blue, rgba(45, 90, 123, 0.8));
+			}
+
+			.sg-chat-input:disabled {
+				opacity: 0.5;
+				cursor: not-allowed;
 			}
 
 			.sg-chat-input::placeholder {

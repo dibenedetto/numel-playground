@@ -316,11 +316,15 @@ document.addEventListener('DOMContentLoaded', () => {
 	const _panel = document.querySelector('.nw-panel');
 	if (_panel) {
 		const h1 = _panel.querySelector('.nw-title');
-		// Wrap existing title content in a span so it can be hidden independently
+		const wsBadge = h1.querySelector('#wsStatus');
+		// Wrap existing title content (except status badge) in a span for collapse
 		const titleText = document.createElement('span');
 		titleText.className = 'nw-title-text';
-		Array.from(h1.childNodes).forEach(n => titleText.appendChild(n));
+		Array.from(h1.childNodes).forEach(n => {
+			if (n !== wsBadge) titleText.appendChild(n);
+		});
 		h1.appendChild(titleText);
+		if (wsBadge) h1.appendChild(wsBadge);
 
 		const panelToggle = document.createElement('button');
 		panelToggle.id = 'nw-panel-toggle';
@@ -366,6 +370,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	// Initial log
 	addLog('info', '🚀 Numel Playground ready');
+
+	// Auto-connect: derive server URL from the page origin (same host:port)
+	$('serverUrl').value = window.location.origin;
+	autoConnect();
 });
 
 window.addEventListener('beforeunload', (e) => {
@@ -375,9 +383,6 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 function setupEventListeners() {
-	// Connection
-	$('connectBtn').addEventListener('click', toggleConnection);
-
 	// Workflow management
 	$('refreshListBtn')?.addEventListener('click', refreshWorkflowList);
 	$('loadWorkflowBtn').addEventListener('click', loadSelectedWorkflow);
@@ -463,25 +468,27 @@ function updateClearButtonState() {
 // Connection Management
 // ========================================================================
 
-async function toggleConnection() {
-	if (client?.isConnected) {
-		await disconnect();
-	} else {
+const AUTO_CONNECT_MAX_RETRIES = 10;
+const AUTO_CONNECT_RETRY_DELAY = 2000;  // ms
+
+async function autoConnect(attempt = 1) {
+	if (client?.isConnected) return;
+	try {
 		await connect();
+	} catch (err) {
+		if (attempt < AUTO_CONNECT_MAX_RETRIES) {
+			addLog('info', `⏳ Retry ${attempt}/${AUTO_CONNECT_MAX_RETRIES} in ${AUTO_CONNECT_RETRY_DELAY / 1000}s...`);
+			setTimeout(() => autoConnect(attempt + 1), AUTO_CONNECT_RETRY_DELAY);
+		} else {
+			addLog('error', `❌ Could not connect after ${AUTO_CONNECT_MAX_RETRIES} attempts`);
+		}
 	}
 }
 
 async function connect() {
 	const serverUrl = $('serverUrl').value.trim();
-	if (!serverUrl) {
-		addLog('error', '⚠️ Please enter a server URL');
-		return;
-	}
+	if (!serverUrl) throw new Error('No server URL');
 
-	$('connectBtn').disabled = true;
-	$('connectBtn').textContent = 'Connecting...';
-	$('connectBtn').classList.remove('nw-btn-primary');
-	$('connectBtn').classList.add('nw-btn-danger');
 	setWsStatus('connecting');
 	addLog('info', `⏳ Connecting to ${serverUrl}...`);
 
@@ -551,9 +558,7 @@ async function connect() {
 		// Refresh workflow list
 		await refreshWorkflowList();
 
-		$('connectBtn').textContent = 'Disconnect';
 		$('workflowSelect').disabled = false;
-		$('serverUrl').disabled = true;
 		$('uploadWorkflowBtn').disabled = false;
 		$('pasteWorkflowBtn').disabled = false;
 		$('downloadWorkflowBtn').disabled = false;
@@ -574,9 +579,7 @@ async function connect() {
 		addLog('error', `❌ Connection failed: ${error.message}`);
 		setWsStatus('disconnected');
 		client = null;
-		$('connectBtn').textContent = 'Connect';
-	} finally {
-		$('connectBtn').disabled = false;
+		throw error;  // propagate to autoConnect for retry
 	}
 }
 
@@ -617,10 +620,6 @@ async function disconnect() {
 
 	currentExecutionId = null;
 	
-	$('connectBtn').textContent = 'Connect';
-	$('connectBtn').classList.remove('nw-btn-danger');
-	$('connectBtn').classList.add('nw-btn-primary');
-	$('serverUrl').disabled = false;
 	$('workflowSelect').disabled = true;
 	$('workflowSelect').innerHTML = '<option value="">-- Select workflow --</option>';
 	$('loadWorkflowBtn').disabled = true;

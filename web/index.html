@@ -14,22 +14,9 @@
 		<div class="nw-panel">
 			<h1 class="nw-title">
 				<span class="nw-brand">Numel</span> Playground
+				<span id="wsStatus" class="nw-ws-badge disconnected">●</span>
 			</h1>
-
-			<!-- Connection Section -->
-			<section class="nw-section">
-				<div class="nw-section-header">
-					<h3 class="nw-section-title">Connection</h3>
-					<span id="wsStatus" class="nw-ws-badge disconnected">●</span>
-				</div>
-				<div class="nw-field">
-					<label for="serverUrl">Server URL</label>
-					<input type="url" id="serverUrl" value="http://localhost:11360" placeholder="http://localhost:11360">
-				</div>
-				<button id="connectBtn" class="nw-btn nw-btn-primary nw-btn-block">
-					Connect
-				</button>
-			</section>
+			<input type="hidden" id="serverUrl">
 
 			<!-- Workflow Library Section -->
 			<section class="nw-section">
@@ -250,7 +237,7 @@
 			<div id="consoleMessages" class="nw-console-messages"></div>
 			<div class="nw-console-input-row">
 				<textarea id="consoleInput" class="nw-console-input" placeholder="Ask about your workflow..." rows="1"></textarea>
-				<button id="consoleSendBtn" class="nw-console-send">Send</button>
+				<button id="consoleSendBtn" class="nw-console-send" title="Send">&#10148;</button>
 			</div>
 		</div>
 

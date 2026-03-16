@@ -34,6 +34,7 @@ class AgentConsoleManager {
 
 		this._setupUI();
 		this._fetchToolkits();
+		this._setInputEnabled(false);
 	}
 
 	// ── UI Wiring ────────────────────────────────────────────────
@@ -95,6 +96,7 @@ class AgentConsoleManager {
 		this._disconnectProactive();
 		this.agentPort = null;
 		this._history = [];
+		this._setInputEnabled(false);
 	}
 
 	// ── Configuration (Model + Toolkits) ─────────────────────────
@@ -147,6 +149,7 @@ class AgentConsoleManager {
 
 	async _startAgent() {
 		this._setStatus('Starting...');
+		this._setInputEnabled(false);
 		try {
 			const { source, name } = this._getSelectedModel();
 			const toolkit_names = this._getSelectedToolkits();
@@ -157,9 +160,11 @@ class AgentConsoleManager {
 			this._connectProactive();
 			this._setStatus(`${data.model_source}/${data.model_name}`);
 			this._addMessage('system', 'Console agent connected.');
+			this._setInputEnabled(true);
 		} catch (err) {
 			this._setStatus('Error');
 			this._addMessage('error', `Failed to start agent: ${err.message}`);
+			this._setInputEnabled(false);
 		}
 	}
 
@@ -232,7 +237,7 @@ class AgentConsoleManager {
 
 	async _send() {
 		const text = this._input.value.trim();
-		if (!text || this._streaming) return;
+		if (!text || this._streaming || !this.handler?.isConnected()) return;
 
 		this._input.value = '';
 		this._input.style.height = 'auto';
@@ -245,11 +250,6 @@ class AgentConsoleManager {
 		}
 
 		this._addMessage('user', text);
-
-		if (!this.handler?.isConnected()) {
-			this._addMessage('error', 'Not connected to agent.');
-			return;
-		}
 
 		// Fetch context and prepend to the current user message
 		let augmented = text;
@@ -273,22 +273,19 @@ class AgentConsoleManager {
 		// Send full history so agent has memory of the conversation
 		this.handler.agent.setMessages([...this._history]);
 
-		this._sendBtn.disabled = true;
+		this._setInputEnabled(false);
 		try {
 			await this.handler.agent.runAgent({});
 		} catch (err) {
 			this._addMessage('error', `Send failed: ${err.message}`);
 		}
-		this._sendBtn.disabled = false;
+		this._setInputEnabled(true);
 	}
 
 	// ── /gen Command ─────────────────────────────────────────────
 
 	async _handleGenerate(description) {
-		if (!this.handler?.isConnected()) {
-			this._addMessage('error', 'Not connected to agent.');
-			return;
-		}
+		if (!this.handler?.isConnected()) return;
 
 		this._setStatus('Generating...');
 		this._pendingGen = true;
@@ -362,7 +359,7 @@ class AgentConsoleManager {
 
 	_onRunFinished() {
 		this._streaming = false;
-		this._sendBtn.disabled = false;
+		this._setInputEnabled(true);
 
 		// Capture the assistant response into history for memory
 		const lastAssistant = this._getLastAssistantContent();
@@ -393,7 +390,7 @@ class AgentConsoleManager {
 
 	_onRunError(error) {
 		this._streaming = false;
-		this._sendBtn.disabled = false;
+		this._setInputEnabled(true);
 		this._pendingGen = false;
 		const msg = error?.message || String(error) || 'Agent error';
 		this._addMessage('error', msg);
@@ -405,7 +402,7 @@ class AgentConsoleManager {
 
 	_onTextStart() {
 		this._streaming = true;
-		this._sendBtn.disabled = true;
+		this._setInputEnabled(false);
 		const el = this._addMessage('assistant', '');
 		el.classList.add('streaming');
 		el._streamContent = '';
@@ -415,7 +412,7 @@ class AgentConsoleManager {
 		const msgs = this._messages.querySelectorAll('.nw-console-msg.assistant.streaming');
 		for (const m of msgs) m.classList.remove('streaming');
 		this._streaming = false;
-		this._sendBtn.disabled = false;
+		this._setInputEnabled(true);
 	}
 
 	_onTextChunk(chunk) {
@@ -445,6 +442,16 @@ class AgentConsoleManager {
 
 	_setStatus(text) {
 		if (this._status) this._status.textContent = text;
+	}
+
+	_setInputEnabled(enabled) {
+		this._input.disabled = !enabled;
+		this._sendBtn.disabled = !enabled;
+		if (enabled) {
+			this._input.placeholder = 'Ask about your workflow...';
+		} else {
+			this._input.placeholder = 'Connecting to assistant...';
+		}
 	}
 }
 
