@@ -32,6 +32,7 @@ dependencies = [
     "psycopg",
     "sqlalchemy",
     # Web tools
+	"ddgs",
     "duckduckgo-search",
     # PyTorch (wheel selected automatically for CUDA / ROCm / CPU / MPS)
     "torch",
