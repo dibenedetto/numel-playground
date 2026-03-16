@@ -1,0 +1,56 @@
+[project]
+name = "numel-playground"
+version = "0.1.0"
+description = "A framework and visual editor for building and running agentic AI workflows."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    # Core server
+    "aiofiles",
+    "debugpy",
+    "fastapi",
+    "httpx",
+    "psutil",
+    "pydantic",
+    "pydantic-settings",
+    "pypdf",
+    "python-dotenv",
+    "python-multipart",
+    "uvicorn",
+    "watchdog",
+    # Data science
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "pillow",
+    "pydicom",
+    "pymeshlab",
+    # Database
+    "chromadb",
+    "lancedb",
+    "pgvector",
+    "psycopg",
+    "sqlalchemy",
+    # Web tools
+    "duckduckgo-search",
+    # PyTorch (wheel selected automatically for CUDA / ROCm / CPU / MPS)
+    "torch",
+    "torchvision",
+    "torchaudio",
+    # AI / ML
+    "agno",
+    "ag-ui-protocol",
+    "anthropic",
+    "langchain",
+    "langchain-text-splitters",
+    "mediapipe",
+    "ollama",
+    "openai",
+    "sentence-transformers",
+    "tantivy",
+    "transformers",
+]
+
+[tool.uv]
+python-downloads = "automatic"
+torch-backend = "auto"
