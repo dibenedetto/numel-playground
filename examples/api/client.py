@@ -330,34 +330,6 @@ class NumelClient:
 			"channel_id": channel_id, "recipient_id": recipient_id, "text": text,
 		})
 
-	# ── Gallery ────────────────────────────────────────────────────
-
-	async def gallery_list(self, category: str = None, tags: List[str] = None,
-						   search: str = None) -> List[dict]:
-		return await self._post("/gallery/list", {
-			"category": category, "tags": tags, "search": search,
-		})
-
-	async def gallery_get(self, id: str) -> dict:
-		return await self._post("/gallery/get", {"id": id})
-
-	async def gallery_publish(self, name: str, workflow: dict, description: str = "",
-							  author: str = "", tags: List[str] = None,
-							  category: str = "general") -> dict:
-		return await self._post("/gallery/publish", {
-			"name": name, "description": description, "workflow": workflow,
-			"author": author, "tags": tags or [], "category": category,
-		})
-
-	async def gallery_remove(self, id: str) -> dict:
-		return await self._post("/gallery/remove", {"id": id})
-
-	async def gallery_categories(self) -> List[dict]:
-		return await self._post("/gallery/categories")
-
-	async def gallery_tags(self) -> List[str]:
-		return await self._post("/gallery/tags")
-
 	# ── Utility ────────────────────────────────────────────────────
 
 	async def ping(self) -> dict:

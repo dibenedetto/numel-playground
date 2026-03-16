@@ -149,14 +149,6 @@ class NumelAPI {
 	channelSend(channelId, recipientId, text)  { return this.json('/channels/send', { channel_id: channelId, recipient_id: recipientId, text }); }
 	channelStatus(channelId)                   { return this.json('/channels/status', { channel_id: channelId }); }
 
-	// ── Gallery API ──────────────────────────────────────────────
-
-	galleryList(opts = {})                     { return this.json('/gallery/list', opts); }
-	galleryGet(id)                             { return this.json('/gallery/get', { id }); }
-	galleryPublish(opts)                       { return this.json('/gallery/publish', opts); }
-	galleryRemove(id)                          { return this.json('/gallery/remove', { id }); }
-	galleryCategories()                        { return this.json('/gallery/categories'); }
-	galleryTags()                              { return this.json('/gallery/tags'); }
 }
 
 // ========================================================================

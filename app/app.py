@@ -50,7 +50,6 @@ from   channels.discord_adapter   import DiscordAdapter
 from   channels.webhook_adapter   import WebhookChannelAdapter
 from   console   import ConsoleAgentManager, setup_console_api
 from   event_bus import EventBus, get_event_bus
-from   gallery   import GalleryManager, setup_gallery_api
 from   memory    import MemoryStore
 from   utils     import add_middleware, log_print, seed_everything
 from   workspace import WorkspaceManager as WSManager
@@ -131,15 +130,10 @@ async def run_server(args: Any):
 	ChannelRegistry.register_type("webhook",  WebhookChannelAdapter)
 	channel_registry.load()
 
-	# ── Workflow Gallery ──────────────────────────────────────
-	gallery_mgr = GalleryManager()
-	gallery_mgr.initialize()
-
 	# ── API Routes (order matters: specific routes before static mount) ──
 	setup_api(server, app, event_bus, schema_code, workspace_mgr)
 	setup_console_api(app, console_mgr)
 	setup_channel_api(app, channel_registry)
-	setup_gallery_api(app, gallery_mgr)
 
 	# Serve index.html at / and all static assets (JS, CSS, dist/*)
 	app.mount("/", StaticFiles(directory=_web_dir, html=True), name="static")
