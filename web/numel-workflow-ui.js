@@ -17,6 +17,7 @@ let singleMode         = true;
 let workflowDirty      = true;
 let fileUploadManager  = null;
 let consoleManager     = null;
+let galleryManager     = null;
 let api                = null;  // NumelAPI instance, shared across all managers
 
 // DOM Elements
@@ -547,6 +548,18 @@ async function connect() {
 		consoleManager = new AgentConsoleManager(serverUrl, syncWorkflow, api);
 		$('consoleToggleBtn').style.display = '';
 		addLog('info', '🤖 Console assistant initialized');
+
+		// Initialize gallery manager
+		if (typeof GalleryManager !== 'undefined') {
+			galleryManager = new GalleryManager(api, async (wf) => {
+				if (typeof window.loadAndSyncWorkflow === 'function') {
+					await window.loadAndSyncWorkflow(wf, wf.name || 'Gallery Workflow');
+				} else {
+					await api.addWorkflow(wf);
+				}
+			});
+			addLog('info', '📦 Workflow gallery initialized');
+		}
 
 		// Connect WebSocket
 		client.connectWebSocket();

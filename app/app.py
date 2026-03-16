@@ -42,8 +42,16 @@ import schema
 
 
 from   api       import setup_api
+from   channels  import ChannelRegistry
+from   channels.api            import setup_channel_api
+from   channels.telegram_adapter  import TelegramAdapter
+from   channels.whatsapp_adapter  import WhatsAppAdapter
+from   channels.discord_adapter   import DiscordAdapter
+from   channels.webhook_adapter   import WebhookChannelAdapter
 from   console   import ConsoleAgentManager, setup_console_api
 from   event_bus import EventBus, get_event_bus
+from   gallery   import GalleryManager, setup_gallery_api
+from   memory    import MemoryStore
 from   utils     import add_middleware, log_print, seed_everything
 from   workspace import WorkspaceManager as WSManager
 
@@ -93,11 +101,45 @@ async def run_server(args: Any):
 	config = uvicorn.Config(app, host=host, port=port)
 	server = uvicorn.Server(config)
 
-	console_mgr = ConsoleAgentManager(workspace_mgr, event_bus, port=args.port + 1)
+	# ── Persistent Memory ─────────────────────────────────────
+	memory_store = MemoryStore()
+	memory_store.initialize()
+
+	# ── Console Agent ─────────────────────────────────────────
+	console_mgr = ConsoleAgentManager(workspace_mgr, event_bus, port=args.port + 1,
+									  memory_store=memory_store)
 	console_mgr.setup_proactive_listeners()
 
+	# ── Channel Adapters ──────────────────────────────────────
+	async def channel_message_handler(msg):
+		"""Route incoming channel messages to the console agent."""
+		try:
+			result = await console_mgr.chat(
+				message    = msg.content,
+				session_id = msg.metadata.get("session_id") or f"ch_{msg.channel_type}_{msg.sender_id}",
+			)
+			return result.get("response", "")
+		except Exception as e:
+			return f"Error: {e}"
+
+	channel_registry = ChannelRegistry(message_handler=channel_message_handler,
+									   config_path=os.path.join(_app_dir, "channels.json"))
+	# Register adapter types
+	ChannelRegistry.register_type("telegram", TelegramAdapter)
+	ChannelRegistry.register_type("whatsapp", WhatsAppAdapter)
+	ChannelRegistry.register_type("discord",  DiscordAdapter)
+	ChannelRegistry.register_type("webhook",  WebhookChannelAdapter)
+	channel_registry.load()
+
+	# ── Workflow Gallery ──────────────────────────────────────
+	gallery_mgr = GalleryManager()
+	gallery_mgr.initialize()
+
+	# ── API Routes (order matters: specific routes before static mount) ──
 	setup_api(server, app, event_bus, schema_code, workspace_mgr)
 	setup_console_api(app, console_mgr)
+	setup_channel_api(app, channel_registry)
+	setup_gallery_api(app, gallery_mgr)
 
 	# Serve index.html at / and all static assets (JS, CSS, dist/*)
 	app.mount("/", StaticFiles(directory=_web_dir, html=True), name="static")
@@ -106,7 +148,13 @@ async def run_server(args: Any):
 	log_print(f"Frontend: {url}")
 	webbrowser.open(url)
 
+	# Start auto-start channels
+	await channel_registry.start_all()
+
 	await server.serve()
+
+	# Shutdown
+	await channel_registry.stop_all()
 	await console_mgr.stop()
 	await workspace_mgr.shutdown()
 

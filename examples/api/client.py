@@ -277,6 +277,87 @@ class NumelClient:
 	async def docs_file(self, filename: str) -> dict:
 		return await self._post("/docs/file", {"filename": filename})
 
+	# ── Memory ─────────────────────────────────────────────────────
+
+	async def memory_search(self, query: str, n: int = 5, type: str = None) -> List[dict]:
+		return await self._post("/console/memory/search", {"query": query, "n_results": n, "type": type})
+
+	async def memory_add(self, content: str, type: str = "general",
+						 metadata: dict = None, importance: float = 0.5) -> dict:
+		return await self._post("/console/memory/add", {
+			"content": content, "type": type,
+			"metadata": metadata or {}, "importance": importance,
+		})
+
+	async def memory_recent(self, n: int = 10, type: str = None) -> List[dict]:
+		return await self._post("/console/memory/recent", {"n": n, "type": type})
+
+	async def memory_delete(self, id: str) -> dict:
+		return await self._post("/console/memory/delete", {"id": id})
+
+	async def memory_clear(self) -> dict:
+		return await self._post("/console/memory/clear")
+
+	async def memory_stats(self) -> dict:
+		return await self._post("/console/memory/stats")
+
+	# ── Channels ───────────────────────────────────────────────────
+
+	async def channel_types(self) -> List[dict]:
+		return await self._post("/channels/types")
+
+	async def channel_list(self) -> List[dict]:
+		return await self._post("/channels/list")
+
+	async def channel_add(self, name: str, channel_type: str, token: str = None,
+						  auto_start: bool = False, **extras) -> dict:
+		return await self._post("/channels/add", {
+			"name": name, "channel_type": channel_type,
+			"token": token, "auto_start": auto_start, "extras": extras,
+		})
+
+	async def channel_remove(self, channel_id: str) -> dict:
+		return await self._post("/channels/remove", {"channel_id": channel_id})
+
+	async def channel_start(self, channel_id: str) -> dict:
+		return await self._post("/channels/start", {"channel_id": channel_id})
+
+	async def channel_stop(self, channel_id: str) -> dict:
+		return await self._post("/channels/stop", {"channel_id": channel_id})
+
+	async def channel_send(self, channel_id: str, recipient_id: str, text: str) -> dict:
+		return await self._post("/channels/send", {
+			"channel_id": channel_id, "recipient_id": recipient_id, "text": text,
+		})
+
+	# ── Gallery ────────────────────────────────────────────────────
+
+	async def gallery_list(self, category: str = None, tags: List[str] = None,
+						   search: str = None) -> List[dict]:
+		return await self._post("/gallery/list", {
+			"category": category, "tags": tags, "search": search,
+		})
+
+	async def gallery_get(self, id: str) -> dict:
+		return await self._post("/gallery/get", {"id": id})
+
+	async def gallery_publish(self, name: str, workflow: dict, description: str = "",
+							  author: str = "", tags: List[str] = None,
+							  category: str = "general") -> dict:
+		return await self._post("/gallery/publish", {
+			"name": name, "description": description, "workflow": workflow,
+			"author": author, "tags": tags or [], "category": category,
+		})
+
+	async def gallery_remove(self, id: str) -> dict:
+		return await self._post("/gallery/remove", {"id": id})
+
+	async def gallery_categories(self) -> List[dict]:
+		return await self._post("/gallery/categories")
+
+	async def gallery_tags(self) -> List[str]:
+		return await self._post("/gallery/tags")
+
 	# ── Utility ────────────────────────────────────────────────────
 
 	async def ping(self) -> dict:

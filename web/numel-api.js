@@ -126,6 +126,37 @@ class NumelAPI {
 	chatResponse(executionId, nodeId, response) {
 		return this.json(`/chat_response/${executionId}`, { node_id: String(nodeId), response });
 	}
+
+	// ── Memory API ───────────────────────────────────────────────
+
+	memorySearch(query, n = 5, type = null)   { return this.json('/console/memory/search', { query, n_results: n, type }); }
+	memoryAdd(content, type = 'general', metadata = {}, importance = 0.5) {
+		return this.json('/console/memory/add', { content, type, metadata, importance });
+	}
+	memoryRecent(n = 10, type = null)          { return this.json('/console/memory/recent', { n, type }); }
+	memoryDelete(id)                           { return this.json('/console/memory/delete', { id }); }
+	memoryClear()                              { return this.json('/console/memory/clear'); }
+	memoryStats()                              { return this.json('/console/memory/stats'); }
+
+	// ── Channel API ──────────────────────────────────────────────
+
+	channelTypes()                             { return this.json('/channels/types'); }
+	channelList()                              { return this.json('/channels/list'); }
+	channelAdd(opts)                           { return this.json('/channels/add', opts); }
+	channelRemove(channelId)                   { return this.json('/channels/remove', { channel_id: channelId }); }
+	channelStart(channelId)                    { return this.json('/channels/start', { channel_id: channelId }); }
+	channelStop(channelId)                     { return this.json('/channels/stop', { channel_id: channelId }); }
+	channelSend(channelId, recipientId, text)  { return this.json('/channels/send', { channel_id: channelId, recipient_id: recipientId, text }); }
+	channelStatus(channelId)                   { return this.json('/channels/status', { channel_id: channelId }); }
+
+	// ── Gallery API ──────────────────────────────────────────────
+
+	galleryList(opts = {})                     { return this.json('/gallery/list', opts); }
+	galleryGet(id)                             { return this.json('/gallery/get', { id }); }
+	galleryPublish(opts)                       { return this.json('/gallery/publish', opts); }
+	galleryRemove(id)                          { return this.json('/gallery/remove', { id }); }
+	galleryCategories()                        { return this.json('/gallery/categories'); }
+	galleryTags()                              { return this.json('/gallery/tags'); }
 }
 
 // ========================================================================

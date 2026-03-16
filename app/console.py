@@ -19,6 +19,7 @@ from   agno.os                         import AgentOS
 from   agno.os.interfaces.agui         import AGUI
 
 from   event_bus                       import EventBus
+from   memory                          import MemoryStore
 from   toolkits.console_toolkit        import ConsoleToolkit
 from   utils                           import add_middleware, log_print
 
@@ -105,11 +106,13 @@ class ConsoleAgentManager:
 	"""Manages the global console agent: lazy start, context gathering, chat sessions, proactive suggestions."""
 
 	def __init__(self, workspace_mgr, event_bus: EventBus, port: int,
-				 config_path: str = _CONFIG_PATH):
+				 config_path: str = _CONFIG_PATH,
+				 memory_store: Optional['MemoryStore'] = None):
 		self._ws_mgr       = workspace_mgr
 		self._event_bus     = event_bus
 		self._port          = port
 		self._config_path   = config_path
+		self._memory        = memory_store
 		self._agent         = None
 		self._app           = None
 		self._server        = None
@@ -245,13 +248,21 @@ class ConsoleAgentManager:
 			self._sessions[session_id] = []
 		history = self._sessions[session_id]
 
-		# Optionally prepend workspace context to the user message
+		# Optionally prepend workspace context and memory to the user message
 		augmented = message
 		if include_context:
 			try:
 				ctx = self.get_context()
+				parts = []
 				if ctx.get("context"):
-					augmented = f"[Current workspace state]\n{ctx['context']}\n\n[User message]\n{message}"
+					parts.append(f"[Current workspace state]\n{ctx['context']}")
+				# Retrieve relevant memories
+				if self._memory:
+					mem_ctx = self._memory.get_context_for_query(message)
+					if mem_ctx:
+						parts.append(mem_ctx)
+				if parts:
+					augmented = "\n\n".join(parts) + f"\n\n[User message]\n{message}"
 			except Exception:
 				pass
 
@@ -281,6 +292,13 @@ class ConsoleAgentManager:
 
 		# Add assistant response to history
 		history.append({"role": "assistant", "content": assistant_content})
+
+		# Save conversation to persistent memory (every N turns)
+		if self._memory and len(history) >= 6 and len(history) % 6 == 0:
+			try:
+				self._memory.summarize_and_store(history[-6:], session_id)
+			except Exception:
+				pass
 
 		return {
 			"session_id": session_id,
@@ -450,6 +468,64 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 			"toolkit_names": console_mgr._toolkit_names,
 			"sessions":      list(console_mgr._sessions.keys()),
 		}
+
+	# ── Memory Routes ─────────────────────────────────────────────
+
+	@app.post("/console/memory/search")
+	async def console_memory_search(request: dict):
+		"""Search agent memory."""
+		if not console_mgr._memory:
+			return {"error": "memory not available"}
+		query       = request.get("query", "")
+		n_results   = request.get("n_results", 5)
+		type_filter = request.get("type", None)
+		results = console_mgr._memory.search(query, n_results, type_filter)
+		return [{"entry": r.entry.model_dump(), "score": r.score} for r in results]
+
+	@app.post("/console/memory/add")
+	async def console_memory_add(request: dict):
+		"""Manually add a memory."""
+		if not console_mgr._memory:
+			return {"error": "memory not available"}
+		mem_id = console_mgr._memory.add(
+			content    = request.get("content", ""),
+			type       = request.get("type", "general"),
+			metadata   = request.get("metadata", {}),
+			importance = request.get("importance", 0.5),
+		)
+		return {"id": mem_id}
+
+	@app.post("/console/memory/recent")
+	async def console_memory_recent(request: dict):
+		"""Get recent memories."""
+		if not console_mgr._memory:
+			return {"error": "memory not available"}
+		n           = request.get("n", 10)
+		type_filter = request.get("type", None)
+		entries = console_mgr._memory.get_recent(n, type_filter)
+		return [e.model_dump() for e in entries]
+
+	@app.post("/console/memory/delete")
+	async def console_memory_delete(request: dict):
+		"""Delete a memory entry."""
+		if not console_mgr._memory:
+			return {"error": "memory not available"}
+		return {"deleted": console_mgr._memory.delete(request.get("id", ""))}
+
+	@app.post("/console/memory/clear")
+	async def console_memory_clear():
+		"""Clear all memories."""
+		if not console_mgr._memory:
+			return {"error": "memory not available"}
+		console_mgr._memory.clear()
+		return {"cleared": True}
+
+	@app.post("/console/memory/stats")
+	async def console_memory_stats():
+		"""Get memory store statistics."""
+		if not console_mgr._memory:
+			return {"error": "memory not available"}
+		return console_mgr._memory.get_stats()
 
 	@app.websocket("/ws/console")
 	async def console_ws(websocket: WebSocket):

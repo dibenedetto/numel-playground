@@ -8,6 +8,7 @@
 		<link rel="stylesheet" href="schemagraph/schemagraph.css">
 		<link rel="stylesheet" href="numel-workflow.css">
 		<link rel="stylesheet" href="numel-console.css">
+		<link rel="stylesheet" href="numel-gallery.css">
 	</head>
 	<body>
 		<!-- Left Panel: Controls -->
@@ -169,6 +170,10 @@
 					<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
 					<span id="consoleBadge" class="nw-console-badge" style="display:none"></span>
 				</button>
+				<!-- Gallery FAB -->
+				<button id="galleryToggleBtn" class="nw-gallery-fab" title="Workflow Gallery">
+					<svg viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
+				</button>
 			</div>
 		</div>
 
@@ -241,6 +246,38 @@
 			</div>
 		</div>
 
+		<!-- Gallery Panel -->
+		<div id="galleryPanel" class="nw-gallery-panel" style="display:none">
+			<div class="nw-gallery-header">
+				<div>
+					<span class="nw-gallery-title">Workflow Gallery</span>
+					<span id="galleryCount" class="nw-gallery-count"></span>
+				</div>
+				<button id="galleryCloseBtn" class="nw-gallery-close">&times;</button>
+			</div>
+			<div class="nw-gallery-toolbar">
+				<input id="gallerySearch" type="text" class="nw-gallery-search" placeholder="Search workflows...">
+				<select id="galleryCategory" class="nw-gallery-category-select">
+					<option value="">All categories</option>
+				</select>
+			</div>
+			<div id="galleryGrid" class="nw-gallery-grid"></div>
+		</div>
+
+		<!-- Channel Manager Panel -->
+		<div id="channelPanel" class="nw-channel-panel" style="display:none">
+			<div class="nw-channel-header">
+				<span class="nw-channel-title">Channels</span>
+				<button id="channelCloseBtn" class="nw-channel-close">&times;</button>
+			</div>
+			<div id="channelList" class="nw-channel-list"></div>
+			<div class="nw-channel-add">
+				<select id="channelTypeSelect" class="nw-channel-type-select">
+					<option value="">Add channel...</option>
+				</select>
+			</div>
+		</div>
+
 		<!-- Footer -->
 		<div class="nw-footer">
 			© 2025 - 2026 - <a href="mailto:marco.dibenedetto@isti.cnr.it">Marco Di Benedetto</a>
@@ -292,6 +329,7 @@
 		<script src="numel-console.js"></script>
 
 		<script src="numel-api.js"></script>
+		<script src="numel-gallery.js"></script>
 		<script src="numel-file-upload.js"></script>
 		<script src="numel-workflow.js"></script>
 		<script src="numel-workflow-ui.js"></script>
