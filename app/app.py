@@ -17,6 +17,8 @@ import asyncio
 import os
 import sys
 import uvicorn
+import webbrowser
+from   fastapi.staticfiles  import StaticFiles
 
 
 # Add project root and app/ dir to sys.path so both internal packages
@@ -83,6 +85,9 @@ async def run_server(args: Any):
 	app: FastAPI = FastAPI(title="App")
 	add_middleware(app)
 
+	# Serve the frontend from /web — must be mounted AFTER api routes are registered
+	_web_dir = os.path.join(_project_root, "web")
+
 	host   = "0.0.0.0"
 	port   = args.port
 	config = uvicorn.Config(app, host=host, port=port)
@@ -93,6 +98,13 @@ async def run_server(args: Any):
 
 	setup_api(server, app, event_bus, schema_code, workspace_mgr)
 	setup_console_api(app, console_mgr)
+
+	# Serve index.html at / and all static assets (JS, CSS, dist/*)
+	app.mount("/", StaticFiles(directory=_web_dir, html=True), name="static")
+
+	url = f"http://localhost:{port}/"
+	log_print(f"Frontend: {url}")
+	webbrowser.open(url)
 
 	await server.serve()
 	await console_mgr.stop()
