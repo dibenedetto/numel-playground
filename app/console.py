@@ -193,11 +193,17 @@ class ConsoleAgentManager:
 		).get_app()
 		add_middleware(self._app)
 
-		# Start uvicorn server
+		# Start uvicorn server and wait for it to actually bind the port
 		import uvicorn
-		uv_config = uvicorn.Config(self._app, host="0.0.0.0", port=self._port)
+		uv_config = uvicorn.Config(self._app, host="0.0.0.0", port=self._port, log_level="warning")
 		self._server = uvicorn.Server(uv_config)
 		self._server_task = asyncio.create_task(self._server.serve())
+
+		# Wait until uvicorn signals it has finished startup (port is bound)
+		for _ in range(40):  # up to 2 s
+			if self._server.started:
+				break
+			await asyncio.sleep(0.05)
 
 		self._started = True
 		log_print(f"Console agent started on port {self._port} ({source}/{name}) toolkits={toolkits}")

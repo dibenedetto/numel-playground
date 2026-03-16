@@ -165,11 +165,12 @@ class WorkflowManager:
 		apps     = [None] * len(backend.handles)
 		host     = "0.0.0.0"
 		port     = self._port + 1
+		servers  = []
 		for i, (node, handle) in enumerate(zip(workflow.nodes, backend.handles)):
 			if node.type != "agent_config":
 				continue
 			app    = backend.get_agent_app(handle)
-			config = uvicorn.Config(app, host=host, port=port)
+			config = uvicorn.Config(app, host=host, port=port, log_level="warning")
 			server = uvicorn.Server(config)
 			task   = asyncio.create_task(server.serve())
 			info   = {
@@ -180,7 +181,14 @@ class WorkflowManager:
 			}
 			apps[i]   = info
 			node.port = port
+			servers.append(server)
 			port += 1
+
+		# Wait for all agent servers to actually bind their ports before returning
+		for _ in range(40):  # up to 2 s
+			if all(s.started for s in servers):
+				break
+			await asyncio.sleep(0.05)
 		data["backend"] = backend
 		data["apps"   ] = apps
 		await self._event_bus.emit(
