@@ -578,10 +578,12 @@ class ChatOverlayManager {
 			statusText.textContent = this._getStatusText(node);
 		}
 		const isReady = node.chatState === ChatState.READY;
+		const isIdle  = node.chatState === ChatState.IDLE;
 		const isBusy  = node.chatState === ChatState.SENDING || node.chatState === ChatState.STREAMING;
-		const canType = isReady || isBusy;  // allow typing while streaming, but not before connected
+		const canType = isReady || isIdle || isBusy;
+		const canSend = isReady || isIdle;  // allow first send from IDLE (lazy connect)
 
-		if (sendBtn) sendBtn.disabled = !isReady;
+		if (sendBtn) sendBtn.disabled = !canSend;
 
 		const chatInput = overlay.querySelector('.sg-chat-input');
 		if (chatInput) {
@@ -667,7 +669,7 @@ class ChatOverlayManager {
 		const text = input?.value?.trim();
 		if (!text) return;
 
-		if (node.chatState !== ChatState.READY) {
+		if (node.chatState === ChatState.SENDING || node.chatState === ChatState.STREAMING) {
 			return;
 		}
 
@@ -1973,11 +1975,12 @@ class ChatExtension extends SchemaGraphExtension {
 			}
 
 			.sg-chat-msg {
-				max-width: 90%;
-				padding: 6px 10px;
-				border-radius: 8px;
+				max-width: 85%;
+				padding: 8px 12px;
+				border-radius: 4px;
 				word-wrap: break-word;
-				line-height: 1.4;
+				line-height: 1.5;
+				font-size: 14px;
 				cursor: grab;
 			}
 			.sg-chat-msg:active {
@@ -1986,24 +1989,27 @@ class ChatExtension extends SchemaGraphExtension {
 
 			.sg-chat-msg-user {
 				align-self: flex-end;
-				background: var(--sg-accent-blue, #2d5a7b);
+				background: rgba(45, 90, 123, 0.25);
 				color: var(--sg-text-primary, #fff);
-				border-bottom-right-radius: 2px;
+				border-right: 3px solid var(--sg-accent-blue, #2d5a7b);
+				border-radius: 4px 4px 2px 4px;
 			}
 
 			.sg-chat-msg-assistant {
 				align-self: flex-start;
-				background: var(--sg-bg-tertiary, #2d3136);
+				background: rgba(90, 158, 111, 0.15);
 				color: var(--sg-text-secondary, #e0e0e0);
-				border-bottom-left-radius: 2px;
+				border-left: 3px solid var(--sg-accent-green, #5a9e6f);
+				border-radius: 4px 4px 4px 2px;
 			}
 
 			.sg-chat-msg-system {
 				align-self: center;
-				background: var(--sg-bg-quaternary, rgba(255, 255, 255, 0.05));
+				background: rgba(255, 255, 255, 0.05);
 				color: var(--sg-text-tertiary, #888);
 				font-style: italic;
-				font-size: 11px;
+				font-size: 12px;
+				border-left: 3px solid var(--sg-text-quaternary, #555);
 			}
 
 			.sg-chat-hide-system > .sg-chat-msg-system:not(.sg-chat-msg-has-preview) {
@@ -2012,9 +2018,9 @@ class ChatExtension extends SchemaGraphExtension {
 
 			.sg-chat-msg-error {
 				align-self: center;
-				background: var(--sg-error-bg, rgba(217, 83, 79, 0.2));
+				background: rgba(217, 83, 79, 0.2);
 				color: var(--sg-error-text, #f88);
-				border: 1px solid var(--sg-error-border, rgba(217, 83, 79, 0.3));
+				border-left: 3px solid var(--sg-accent-red, #d9534f);
 			}
 
 			.sg-chat-msg-header {

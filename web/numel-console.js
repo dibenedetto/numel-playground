@@ -385,7 +385,7 @@ class AgentConsoleManager {
 	_getLastAssistantContent() {
 		const msgs = this._messages.querySelectorAll('.nw-console-msg.assistant');
 		const last = msgs[msgs.length - 1];
-		return last?._streamContent || last?.textContent || null;
+		return last?._rawContent || null;
 	}
 
 	_onRunError(error) {
@@ -420,7 +420,8 @@ class AgentConsoleManager {
 		const last = msgs[msgs.length - 1];
 		if (last) {
 			last._streamContent = (last._streamContent || '') + chunk;
-			last.textContent = last._streamContent;
+			last._rawContent = last._streamContent;
+			last.innerHTML = this._renderContent(last._streamContent);
 			this._scrollToBottom();
 		}
 	}
@@ -430,10 +431,25 @@ class AgentConsoleManager {
 	_addMessage(role, content) {
 		const el = document.createElement('div');
 		el.className = `nw-console-msg ${role}`;
-		el.textContent = content;
+		el.innerHTML = this._renderContent(content);
+		el._rawContent = content;
 		this._messages.appendChild(el);
 		this._scrollToBottom();
 		return el;
+	}
+
+	_renderContent(content) {
+		if (!content) return '';
+		let html = content
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;');
+		html = html.replace(/```(\w*)\n?([\s\S]*?)```/g,
+			'<pre class="nw-console-code"><code>$2</code></pre>');
+		html = html.replace(/`([^`]+)`/g, '<code class="nw-console-inline-code">$1</code>');
+		html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+		html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+		return html;
 	}
 
 	_scrollToBottom() {

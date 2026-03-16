@@ -195,49 +195,52 @@
 }
 
 .nw-console-msg {
-	padding: 6px 10px;
-	border-radius: 8px;
-	font-size: 12px;
-	line-height: 1.4;
-	max-width: 90%;
+	padding: 8px 12px;
+	border-radius: 4px;
+	font-size: 14px;
+	line-height: 1.5;
+	max-width: 85%;
 	word-wrap: break-word;
 	white-space: pre-wrap;
 }
 .nw-console-msg.user {
 	align-self: flex-end;
-	background: var(--sg-accent-blue, #2d5a7b);
+	background: rgba(45, 90, 123, 0.25);
 	color: var(--sg-text-primary, #fff);
-	border-bottom-right-radius: 2px;
+	border-right: 3px solid var(--sg-accent-blue, #2d5a7b);
+	border-radius: 4px 4px 2px 4px;
 }
 .nw-console-msg.assistant {
 	align-self: flex-start;
-	background: var(--sg-bg-tertiary, #2d3136);
+	background: rgba(90, 158, 111, 0.15);
 	color: var(--sg-text-secondary, #e0e0e0);
-	border-bottom-left-radius: 2px;
+	border-left: 3px solid var(--sg-accent-green, #5a9e6f);
+	border-radius: 4px 4px 4px 2px;
 }
 .nw-console-msg.system {
 	align-self: center;
-	background: var(--sg-bg-quaternary, rgba(255, 255, 255, 0.05));
+	background: rgba(255, 255, 255, 0.05);
 	color: var(--sg-text-tertiary, #888);
 	font-style: italic;
-	font-size: 11px;
+	font-size: 12px;
+	border-left: 3px solid var(--sg-text-quaternary, #555);
 }
 .nw-console-msg.error {
 	align-self: center;
-	background: var(--sg-error-bg, rgba(217, 83, 79, 0.2));
+	background: rgba(217, 83, 79, 0.2);
 	color: var(--sg-error-text, #f88);
-	border: 1px solid var(--sg-error-border, rgba(217, 83, 79, 0.3));
+	border-left: 3px solid var(--sg-accent-red, #d9534f);
 }
 .nw-console-msg.suggestion {
 	align-self: flex-start;
-	background: var(--sg-bg-tertiary, #2d3136);
+	background: rgba(45, 90, 123, 0.15);
 	color: var(--sg-accent-blue-light);
-	border-left: 3px solid var(--sg-accent-blue);
+	border-left: 3px solid var(--sg-accent-blue, #2d5a7b);
 }
 
 /* ── Streaming indicator ────────────────────────────────────── */
 .nw-console-msg.streaming::after {
-	content: '\25CC';
+	content: ' \25CC';
 	animation: nw-console-pulse 0.5s infinite;
 }
 @keyframes nw-console-pulse {
@@ -246,7 +249,7 @@
 }
 
 /* ── Markdown in messages ──────────────────────────────────── */
-.nw-console-msg pre {
+.nw-console-msg pre.nw-console-code {
 	background: var(--sg-bg-primary, rgba(0, 0, 0, 0.4));
 	padding: 6px;
 	border-radius: 3px;
@@ -254,8 +257,9 @@
 	margin: 6px 0;
 	font-size: 11px;
 	font-family: 'Monaco', 'Menlo', monospace;
+	white-space: pre;
 }
-.nw-console-msg code {
+.nw-console-msg code.nw-console-inline-code {
 	background: var(--sg-bg-primary, rgba(0, 0, 0, 0.3));
 	padding: 1px 4px;
 	border-radius: 2px;
