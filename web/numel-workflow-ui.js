@@ -17,6 +17,8 @@ let singleMode         = true;
 let workflowDirty      = true;
 let fileUploadManager  = null;
 let consoleManager     = null;
+let galleryManager     = null;
+let appsManager        = null;
 let api                = null;  // NumelAPI instance, shared across all managers
 
 // DOM Elements
@@ -548,6 +550,16 @@ async function connect() {
 		$('consoleToggleBtn').style.display = '';
 		addLog('info', '🤖 Console assistant initialized');
 
+		// Initialize gallery manager
+		galleryManager = new GalleryManager(serverUrl, api, window.loadAndSyncWorkflow);
+		$('galleryToggleBtn').style.display = '';
+
+		// Initialize published apps manager
+		appsManager = new AppsManager(serverUrl, api, () => ({
+			name: visualizer?.currentWorkflowName || '',
+		}));
+		$('appsToggleBtn').style.display = '';
+
 		// Connect WebSocket
 		client.connectWebSocket();
 		setupClientEvents();
@@ -652,7 +664,7 @@ function setupClientEvents() {
 	});
 
 	client.on('workflow.started', (event) => {
-		currentExecutionId = event.execution_id;
+		if (currentExecutionId !== event.execution_id) return;
 		setExecStatus('running', 'Running');
 		$('execId').textContent = event.execution_id.substring(0, 8) + '...';
 		enableStart(false);
@@ -666,6 +678,8 @@ function setupClientEvents() {
 	});
 
 	client.on('workflow.completed', (event) => {
+		if (event.execution_id !== currentExecutionId) return;
+		currentExecutionId = null;
 		setExecStatus('completed', 'Completed');
 		enableStart(true);
 
@@ -677,6 +691,8 @@ function setupClientEvents() {
 	});
 
 	client.on('workflow.failed', (event) => {
+		if (event.execution_id !== currentExecutionId) return;
+		currentExecutionId = null;
 		setExecStatus('failed', 'Failed');
 		enableStart(true);
 
@@ -688,6 +704,8 @@ function setupClientEvents() {
 	});
 
 	client.on('workflow.cancelled', (event) => {
+		if (event.execution_id !== currentExecutionId) return;
+		currentExecutionId = null;
 		setExecStatus('idle', 'Cancelled');
 		enableStart(true);
 
@@ -705,6 +723,7 @@ function setupClientEvents() {
 	});
 
 	client.on('node.started', (event) => {
+		if (event.execution_id !== currentExecutionId) return;
 		const idx = parseInt(event.node_id);
 		const label = event.data?.node_label || `Node ${idx}`;
 		visualizer?.updateNodeState(idx, 'running');
@@ -712,6 +731,7 @@ function setupClientEvents() {
 	});
 
 	client.on('node.completed', (event) => {
+		if (event.execution_id !== currentExecutionId) return;
 		const idx = parseInt(event.node_id);
 		const label = event.data?.node_label || `Node ${idx}`;
 		const outputs = event.data?.outputs;
@@ -725,6 +745,7 @@ function setupClientEvents() {
 	});
 
 	client.on('node.failed', (event) => {
+		if (event.execution_id !== currentExecutionId) return;
 		const idx = parseInt(event.node_id);
 		const label = event.data?.node_label || `Node ${idx}`;
 		visualizer?.updateNodeState(idx, 'failed');
@@ -732,6 +753,7 @@ function setupClientEvents() {
 	});
 
 	client.on('node.waiting', (event) => {
+		if (event.execution_id !== currentExecutionId) return;
 		const idx = parseInt(event.node_id);
 		const label = event.data?.node_label || `Node ${idx}`;
 		const waitType = event.data?.wait_type || 'unknown';
@@ -748,6 +770,7 @@ function setupClientEvents() {
 	});
 
 	client.on('node.resumed', (event) => {
+		if (event.execution_id !== currentExecutionId) return;
 		const idx = parseInt(event.node_id);
 		const label = event.data?.node_label || `Node ${idx}`;
 		visualizer?.updateNodeState(idx, 'running');
@@ -755,6 +778,7 @@ function setupClientEvents() {
 	});
 
 	client.on('user_input.requested', (event) => {
+		if (!currentExecutionId || event.execution_id !== currentExecutionId) return;
 		addLog('warning', `👤 User input requested`);
 		showUserInputModal(event);
 	});
@@ -1242,6 +1266,8 @@ async function startExecution() {
 		if (response.status !== 'started') {
 			throw new Error('Failed to start workflow');
 		}
+
+		currentExecutionId = response.execution_id;
 
 	} catch (error) {
 		enableStart(true);

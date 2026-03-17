@@ -858,7 +858,7 @@ class ForEachStartFlow(FlowType):
 	4. Moves to the next item
 	"""
 	type    : Annotated[Literal["for_each_start_flow"], FieldRole.CONSTANT] = "for_each_start_flow"
-	items   : Annotated[List[Any]                     , FieldRole.INPUT   ] = Field(default=None, description="List to iterate over; the loop body executes once for each element")
+	items   : Annotated[Optional[List[Any]]            , FieldRole.INPUT   ] = Field(default=None, description="List to iterate over; the loop body executes once for each element")
 	current : Annotated[Any                           , FieldRole.OUTPUT  ] = Field(default=None, description="The current item in the iteration, updated on each loop cycle")
 	index   : Annotated[int                           , FieldRole.OUTPUT  ] = Field(default=0,    description="Zero-based index of the current item within the list")
 
@@ -956,7 +956,7 @@ class GateFlow(FlowType):
 	condition     : Annotated[Optional[str]       , FieldRole.INPUT   ] = Field(default=None,                  description="Optional Python expression evaluated on each input; gate fires immediately when True")  # Python expression
 	reset_on_fire : Annotated[bool                , FieldRole.INPUT   ] = Field(default=DEFAULT_GATE_RESET,    description="If true, reset the counter and accumulated buffer after the gate fires")
 	count         : Annotated[int                 , FieldRole.OUTPUT  ] = Field(default=0,                     description="Number of inputs received since the last reset")
-	accumulated   : Annotated[List[Any]           , FieldRole.OUTPUT  ] = Field(default=None,                  description="List of all input values accumulated since the last reset")
+	accumulated   : Annotated[Optional[List[Any]] , FieldRole.OUTPUT  ] = Field(default=None,                  description="List of all input values accumulated since the last reset")
 	triggered     : Annotated[bool                , FieldRole.OUTPUT  ] = Field(default=False,                 description="True on the execution step when the gate fires; False otherwise")
 	output        : Annotated[Any                 , FieldRole.OUTPUT  ] = Field(default=None,                  description="The latest input value passed downstream when the gate fires")
 
