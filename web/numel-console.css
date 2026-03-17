@@ -140,54 +140,89 @@
 .nw-console-toolkit-list {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 4px 8px;
+	gap: 4px 6px;
 	flex: 1;
 }
 .nw-console-toolkit-item {
 	display: flex;
 	align-items: center;
-	gap: 4px;
 }
+/* Toolkit chips — pill-shaped toggle buttons */
 .nw-console-toolkit-item input[type="checkbox"] {
-	accent-color: var(--sg-accent-blue);
-	width: 13px;
-	height: 13px;
-	cursor: pointer;
+	display: none;
 }
 .nw-console-toolkit-item label {
 	font-size: 11px;
 	color: var(--sg-text-secondary);
 	cursor: pointer;
 	white-space: nowrap;
+	padding: 2px 8px;
+	border-radius: 10px;
+	border: 1px solid var(--sg-border-color);
+	background: transparent;
+	transition: background 0.15s, color 0.15s, border-color 0.15s;
+	user-select: none;
 }
 .nw-console-toolkit-item label:hover {
+	border-color: var(--sg-accent-blue);
 	color: var(--sg-text-primary);
 }
-.nw-console-toolkit-item.builtin label {
-	color: var(--sg-text-tertiary);
+.nw-console-toolkit-item input[type="checkbox"]:checked + label {
+	background: color-mix(in srgb, var(--sg-accent-blue) 20%, transparent);
+	border-color: var(--sg-accent-blue);
+	color: var(--sg-accent-blue);
 }
-.nw-console-toolkit-item.builtin input[type="checkbox"] {
+.nw-console-toolkit-item.builtin label {
+	opacity: 0.45;
+	cursor: default;
 	pointer-events: none;
-	opacity: 0.5;
 }
 
-/* ── Voice / TTS Toggle ───────────────────────────────────── */
+/* ── Toggle Switches (Voice, Stream) ─────────────────────── */
 
 .nw-console-toggle {
 	display: flex;
 	align-items: center;
-	gap: 6px;
+	gap: 7px;
 	cursor: pointer;
 }
+/* Hide native checkbox, replace with CSS switch */
 .nw-console-toggle input[type="checkbox"] {
-	accent-color: var(--sg-accent-blue);
-	width: 13px;
-	height: 13px;
+	appearance: none;
+	-webkit-appearance: none;
+	width: 28px;
+	height: 16px;
+	border-radius: 8px;
+	background: var(--sg-bg-quaternary, rgba(255,255,255,0.12));
+	border: 1px solid var(--sg-border-color);
 	cursor: pointer;
+	position: relative;
+	flex-shrink: 0;
+	transition: background 0.2s, border-color 0.2s;
+}
+.nw-console-toggle input[type="checkbox"]::after {
+	content: '';
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	background: var(--sg-text-secondary);
+	transition: transform 0.2s, background 0.2s;
+}
+.nw-console-toggle input[type="checkbox"]:checked {
+	background: color-mix(in srgb, var(--sg-accent-blue) 30%, transparent);
+	border-color: var(--sg-accent-blue);
+}
+.nw-console-toggle input[type="checkbox"]:checked::after {
+	transform: translateX(12px);
+	background: var(--sg-accent-blue);
 }
 .nw-console-toggle-label {
 	font-size: 11px;
 	color: var(--sg-text-secondary);
+	user-select: none;
 }
 .nw-console-voice-select {
 	background: var(--sg-bg-primary);

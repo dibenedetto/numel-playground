@@ -1,8 +1,11 @@
 /* ========================================================================
    NUMEL CONSOLE MANAGER
    Global AI assistant panel — slide-out chat with proactive suggestions.
-   Reuses AgentHandler from numel-agent-chat.js for AGUI protocol.
-   Features: model selection, session memory, /gen command.
+   Two chat modes:
+     - "streaming" (AGUI): Real-time token streaming via AgentHandler/AGUI protocol
+     - "rest" (REST API): Uses /console/chat endpoint, no streaming but more reliable
+       (avoids AGUI protocol errors with parallel tool calls)
+   Features: model selection, session memory, /gen command, TTS.
    ======================================================================== */
 
 console.log('[Numel] Loading console manager...');
@@ -12,14 +15,16 @@ class AgentConsoleManager {
 		this.serverUrl      = serverUrl;
 		this.syncWorkflow   = syncWorkflowFn;
 		this.api            = api;  // NumelAPI instance
-		this.handler        = null;
+		this.handler        = null;  // AgentHandler for AGUI mode
 		this.agentPort      = null;
 		this.proactiveWs    = null;
 		this._open          = false;
-		this._streaming     = false;
+		this._busy          = false;  // true while sending/streaming
 		this._pendingSuggestions = [];
-		this._history       = [];    // accumulated AGUI messages for session memory
-		this._pendingGen    = false; // tracks /gen command in flight
+		this._sessionId     = null;  // server-side session ID (REST mode)
+		this._history       = [];    // accumulated messages (AGUI mode)
+		this._pendingGen    = false;
+		this._streamingMode = true; // true = AGUI streaming (default), false = REST (reliable fallback)
 
 		this._panel       = document.getElementById('consolePanel');
 		this._messages    = document.getElementById('consoleMessages');
@@ -33,6 +38,7 @@ class AgentConsoleManager {
 		this._toolkitList  = document.getElementById('consoleToolkitList');
 		this._ttsToggle    = document.getElementById('consoleTtsToggle');
 		this._ttsVoiceSelect = document.getElementById('consoleTtsVoice');
+		this._streamToggle = document.getElementById('consoleStreamToggle');
 		this._ttsEnabled   = false;
 		this._ttsVoice     = null;
 
@@ -61,6 +67,18 @@ class AgentConsoleManager {
 		});
 		// Model selector change → restart agent
 		this._modelSelect.addEventListener('change', () => this._onConfigChanged());
+
+		// Streaming mode toggle
+		if (this._streamToggle) {
+			this._streamToggle.addEventListener('change', () => {
+				this._streamingMode = this._streamToggle.checked;
+				if (this._streamingMode && this.agentPort) {
+					this._connectAgent();
+				} else {
+					this._disconnectAgent();
+				}
+			});
+		}
 	}
 
 	// ── Toggle / Open / Close ────────────────────────────────────
@@ -100,6 +118,7 @@ class AgentConsoleManager {
 		this._disconnectAgent();
 		this._disconnectProactive();
 		this.agentPort = null;
+		this._sessionId = null;
 		this._history = [];
 		this._setInputEnabled(false);
 	}
@@ -134,7 +153,8 @@ class AgentConsoleManager {
 				else cb.addEventListener('change', () => this._onConfigChanged());
 				const lbl = document.createElement('label');
 				lbl.htmlFor = id;
-				lbl.textContent = tk.name.replace(/_/g, ' ').replace(' toolkit', '');
+				lbl.textContent = tk.name.replace(/_/g, ' ').replace(/\btoolkit\b/i, '').trim()
+				.replace(/\b\w/g, c => c.toUpperCase());
 				lbl.title = tk.description || tk.name;
 				item.appendChild(cb);
 				item.appendChild(lbl);
@@ -143,10 +163,17 @@ class AgentConsoleManager {
 		} catch { /* ignore — toolkits will use defaults */ }
 	}
 
-	async _onConfigChanged() {
+	_onConfigChanged() {
 		if (!this.agentPort) return;
+		// Debounce: wait 400ms after the last change before restarting
+		clearTimeout(this._configChangeTimer);
+		this._configChangeTimer = setTimeout(() => this._applyConfigChange(), 400);
+	}
+
+	async _applyConfigChange() {
 		this._addMessage('system', 'Reconfiguring agent...');
 		this._history = [];
+		this._sessionId = null;
 		await this._startAgent();
 	}
 
@@ -161,7 +188,10 @@ class AgentConsoleManager {
 			const data = await this.api.consoleStart({ model_source: source, model_name: name, toolkit_names });
 			this.agentPort = data.port;
 
-			this._connectAgent();
+			// Connect AGUI handler if streaming mode is on
+			if (this._streamingMode) {
+				this._connectAgent();
+			}
 			this._connectProactive();
 			this._setStatus(`${data.model_source}/${data.model_name}`);
 			this._addMessage('system', 'Console agent connected.');
@@ -172,6 +202,8 @@ class AgentConsoleManager {
 			this._setInputEnabled(false);
 		}
 	}
+
+	// ── AGUI Connection (streaming mode) ─────────────────────────
 
 	_connectAgent() {
 		if (!this.agentPort) return;
@@ -242,7 +274,7 @@ class AgentConsoleManager {
 
 	async _send() {
 		const text = this._input.value.trim();
-		if (!text || this._streaming || !this.handler?.isConnected()) return;
+		if (!text || this._busy) return;
 
 		this._input.value = '';
 		this._input.style.height = 'auto';
@@ -256,7 +288,51 @@ class AgentConsoleManager {
 
 		this._addMessage('user', text);
 
-		// Fetch context and prepend to the current user message
+		if (this._streamingMode && this.handler?.isConnected()) {
+			await this._sendViaAGUI(text);
+		} else {
+			await this._sendViaREST(text);
+		}
+	}
+
+	// ── REST mode (reliable, no streaming) ───────────────────────
+
+	async _sendViaREST(message) {
+		this._busy = true;
+		this._setInputEnabled(false);
+
+		try {
+			const result = await this.api.consoleChat(message, this._sessionId);
+
+			// Store session ID for conversation continuity
+			if (result.session_id) this._sessionId = result.session_id;
+
+			// Show tool calls if any
+			if (result.tool_calls?.length) {
+				for (const tc of result.tool_calls) {
+					this._addMessage('system', `Tool: ${tc.name}`);
+				}
+			}
+
+			// Show assistant response
+			if (result.response) {
+				this._addMessage('assistant', result.response);
+				this._speak(result.response);
+			} else if (result.error) {
+				this._addMessage('error', result.error);
+			}
+		} catch (err) {
+			this._addMessage('error', `Send failed: ${err.message}`);
+		}
+
+		this._busy = false;
+		this._setInputEnabled(true);
+	}
+
+	// ── AGUI mode (streaming) ────────────────────────────────────
+
+	async _sendViaAGUI(text) {
+		// Fetch context and prepend to the user message
 		let augmented = text;
 		try {
 			const ctx = await this.api.consoleContext();
@@ -265,33 +341,95 @@ class AgentConsoleManager {
 			}
 		} catch { /* proceed without context */ }
 
-		await this._sendWithHistory(augmented);
-	}
-
-	async _sendWithHistory(content) {
 		const messageId = AgentHandler._randomMessageId();
-		const userMessage = { id: messageId, role: 'user', content };
+		const userMessage = { id: messageId, role: 'user', content: augmented };
 
-		// Accumulate into session history
 		this._history.push(userMessage);
-
-		// Send full history so agent has memory of the conversation
 		this.handler.agent.setMessages([...this._history]);
 
 		this._setInputEnabled(false);
 		try {
 			await this.handler.agent.runAgent({});
 		} catch (err) {
-			this._addMessage('error', `Send failed: ${err.message}`);
+			// AGUI protocol error (e.g. parallel tool calls) → fall back to REST
+			this._addMessage('error', `Streaming error: ${err.message}. Retrying via REST...`);
+			// Remove the history entry we just added (the REST path manages its own session)
+			this._history.pop();
+			await this._sendViaREST(text);
 		}
+	}
+
+	// ── AGUI Callbacks ───────────────────────────────────────────
+
+	_onRunFinished() {
+		this._busy = false;
 		this._setInputEnabled(true);
+
+		// Capture the assistant response into history for memory
+		const lastAssistant = this._getLastAssistantContent();
+		if (lastAssistant) {
+			this._history.push({
+				id: AgentHandler._randomMessageId(),
+				role: 'assistant',
+				content: lastAssistant,
+			});
+		}
+
+		// Handle /gen response
+		if (this._pendingGen) {
+			this._pendingGen = false;
+			const { source, name } = this._getSelectedModel();
+			this._setStatus(`${source}/${name}`);
+			if (lastAssistant) {
+				this._processGenerationResponse(lastAssistant);
+			}
+		}
+	}
+
+	_onRunError(error) {
+		this._busy = false;
+		this._setInputEnabled(true);
+		this._pendingGen = false;
+		const msg = error?.message || String(error) || 'Agent error';
+		this._addMessage('error', msg);
+	}
+
+	_onToolCallStart(name) {
+		this._addMessage('system', `Tool: ${name}...`);
+	}
+
+	_onTextStart() {
+		this._busy = true;
+		this._setInputEnabled(false);
+		const el = this._addMessage('assistant', '');
+		el.classList.add('streaming');
+		el._streamContent = '';
+	}
+
+	_onTextEnd() {
+		const msgs = this._messages.querySelectorAll('.nw-console-msg.assistant.streaming');
+		for (const m of msgs) {
+			m.classList.remove('streaming');
+			if (m._rawContent) this._speak(m._rawContent);
+		}
+		this._busy = false;
+		this._setInputEnabled(true);
+	}
+
+	_onTextChunk(chunk) {
+		const msgs = this._messages.querySelectorAll('.nw-console-msg.assistant.streaming');
+		const last = msgs[msgs.length - 1];
+		if (last) {
+			last._streamContent = (last._streamContent || '') + chunk;
+			last._rawContent = last._streamContent;
+			last.innerHTML = this._renderContent(last._streamContent);
+			this._scrollToBottom();
+		}
 	}
 
 	// ── /gen Command ─────────────────────────────────────────────
 
 	async _handleGenerate(description) {
-		if (!this.handler?.isConnected()) return;
-
 		this._setStatus('Generating...');
 		this._pendingGen = true;
 
@@ -300,11 +438,25 @@ class AgentConsoleManager {
 			const { prompt: genPrompt } = await this.api.generationPrompt();
 
 			const augmented = `${genPrompt}\n\n---\nGenerate a workflow for: ${description}`;
-			await this._sendWithHistory(augmented);
+
+			if (this._streamingMode && this.handler?.isConnected()) {
+				await this._sendViaAGUI(augmented);
+				// _onRunFinished will handle _processGenerationResponse
+			} else {
+				await this._sendViaREST(augmented);
+				const lastContent = this._getLastAssistantContent();
+				if (lastContent) {
+					this._processGenerationResponse(lastContent);
+				}
+				this._pendingGen = false;
+				const { source, name } = this._getSelectedModel();
+				this._setStatus(`${source}/${name}`);
+			}
 		} catch (err) {
 			this._pendingGen = false;
 			this._addMessage('error', `Generation failed: ${err.message}`);
-			this._setStatus(`${this._getSelectedModel().source}/${this._getSelectedModel().name}`);
+			const { source, name } = this._getSelectedModel();
+			this._setStatus(`${source}/${name}`);
 		}
 	}
 
@@ -360,79 +512,10 @@ class AgentConsoleManager {
 		return null;
 	}
 
-	// ── AGUI Callbacks ───────────────────────────────────────────
-
-	_onRunFinished() {
-		this._streaming = false;
-		this._setInputEnabled(true);
-
-		// Capture the assistant response into history for memory
-		const lastAssistant = this._getLastAssistantContent();
-		if (lastAssistant) {
-			this._history.push({
-				id: AgentHandler._randomMessageId(),
-				role: 'assistant',
-				content: lastAssistant,
-			});
-		}
-
-		// Handle /gen response
-		if (this._pendingGen) {
-			this._pendingGen = false;
-			const { source, name } = this._getSelectedModel();
-			this._setStatus(`${source}/${name}`);
-			if (lastAssistant) {
-				this._processGenerationResponse(lastAssistant);
-			}
-		}
-	}
-
 	_getLastAssistantContent() {
 		const msgs = this._messages.querySelectorAll('.nw-console-msg.assistant');
 		const last = msgs[msgs.length - 1];
 		return last?._rawContent || null;
-	}
-
-	_onRunError(error) {
-		this._streaming = false;
-		this._setInputEnabled(true);
-		this._pendingGen = false;
-		const msg = error?.message || String(error) || 'Agent error';
-		this._addMessage('error', msg);
-	}
-
-	_onToolCallStart(name) {
-		this._addMessage('system', `Tool: ${name}...`);
-	}
-
-	_onTextStart() {
-		this._streaming = true;
-		this._setInputEnabled(false);
-		const el = this._addMessage('assistant', '');
-		el.classList.add('streaming');
-		el._streamContent = '';
-	}
-
-	_onTextEnd() {
-		const msgs = this._messages.querySelectorAll('.nw-console-msg.assistant.streaming');
-		for (const m of msgs) {
-			m.classList.remove('streaming');
-			// Speak completed assistant message
-			if (m._rawContent) this._speak(m._rawContent);
-		}
-		this._streaming = false;
-		this._setInputEnabled(true);
-	}
-
-	_onTextChunk(chunk) {
-		const msgs = this._messages.querySelectorAll('.nw-console-msg.assistant.streaming');
-		const last = msgs[msgs.length - 1];
-		if (last) {
-			last._streamContent = (last._streamContent || '') + chunk;
-			last._rawContent = last._streamContent;
-			last.innerHTML = this._renderContent(last._streamContent);
-			this._scrollToBottom();
-		}
 	}
 
 	// ── Message Display ──────────────────────────────────────────

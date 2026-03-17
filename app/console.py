@@ -123,14 +123,22 @@ class ConsoleAgentManager:
 		self._toolkit_names = []      # e.g. ["console_toolkit", "file_toolkit"]
 		self._proactive_ws  : Set[WebSocket] = set()
 		self._sessions      : Dict[str, List[dict]] = {}  # session_id → message history
+		self._start_lock    = asyncio.Lock()               # prevents concurrent start/stop
 
 	# ── Lifecycle ──────────────────────────────────────────────────
 
 	async def start(self, model_source: Optional[str] = None,
 					model_name: Optional[str] = None,
 					toolkit_names: Optional[List[str]] = None) -> int:
-		"""Start (or restart) the console agent server. Returns the port."""
+		"""Start (or restart) the console agent server. Returns the port.
+		Concurrent calls are serialized — a second call waits for the first to finish."""
 
+		async with self._start_lock:
+			return await self._start_impl(model_source, model_name, toolkit_names)
+
+	async def _start_impl(self, model_source: Optional[str] = None,
+						  model_name: Optional[str] = None,
+						  toolkit_names: Optional[List[str]] = None) -> int:
 		# Load config for defaults and instructions
 		with open(self._config_path) as f:
 			config = json.load(f)
@@ -235,7 +243,7 @@ class ConsoleAgentManager:
 
 	async def chat(self, message: str, session_id: Optional[str] = None,
 				   include_context: bool = True) -> dict:
-		"""Send a message and get a response. Maintains session history.
+		"""Send a message and get a response. Uses agno's built-in session history.
 		Returns { session_id, response, tool_calls }."""
 
 		if not self._started or not self._agent:
@@ -244,9 +252,6 @@ class ConsoleAgentManager:
 		# Resolve or create session
 		if not session_id:
 			session_id = str(uuid.uuid4())
-		if session_id not in self._sessions:
-			self._sessions[session_id] = []
-		history = self._sessions[session_id]
 
 		# Optionally prepend workspace context and memory to the user message
 		augmented = message
@@ -266,37 +271,52 @@ class ConsoleAgentManager:
 			except Exception:
 				pass
 
-		# Add user message to history
-		history.append({"role": "user", "content": augmented})
+		# Track turn count per session for memory persistence
+		if session_id not in self._sessions:
+			self._sessions[session_id] = 0
+		self._sessions[session_id] += 1
 
-		# Run the agent
-		response = self._agent.run(messages=history)
+		# Run the agent asynchronously with session_id for built-in history
+		response = await self._agent.arun(augmented, session_id=session_id)
 
 		# Extract the assistant response
 		assistant_content = ""
 		tool_calls = []
 
+		# Try response.content first (the main output)
+		if response and response.content:
+			assistant_content = response.get_content_as_string() if hasattr(response, 'get_content_as_string') else str(response.content)
+
+		# Extract tool call info from messages
 		if response and response.messages:
 			for msg in response.messages:
-				if msg.role == "assistant" and msg.content:
-					assistant_content = msg.content
-				elif msg.role == "tool":
+				role = getattr(msg, 'role', None)
+				if role == "tool":
 					tool_calls.append({
-						"name": getattr(msg, 'tool_name', None),
-						"result": msg.content[:200] if msg.content else None,
+						"name": getattr(msg, 'tool_name', None) or getattr(msg, 'tool_call_id', None),
+						"result": (msg.content[:200] if msg.content else None) if hasattr(msg, 'content') else None,
 					})
+				# Fallback: if content is empty, grab from last assistant message
+				if not assistant_content and role == "assistant" and getattr(msg, 'content', None):
+					assistant_content = msg.content
 
-		# If no structured response found, try response.content
-		if not assistant_content and hasattr(response, 'content') and response.content:
-			assistant_content = response.content
+		# Extract tool calls from response.tools if available
+		if response and response.tools and not tool_calls:
+			for tc in response.tools:
+				tool_calls.append({
+					"name": getattr(tc, 'tool_name', None) or getattr(tc, 'name', None),
+					"result": None,
+				})
 
-		# Add assistant response to history
-		history.append({"role": "assistant", "content": assistant_content})
-
-		# Save conversation to persistent memory (every N turns)
-		if self._memory and len(history) >= 6 and len(history) % 6 == 0:
+		# Save conversation to persistent memory (every 3 turns)
+		turn_count = self._sessions.get(session_id, 0)
+		if self._memory and turn_count >= 3 and turn_count % 3 == 0:
 			try:
-				self._memory.summarize_and_store(history[-6:], session_id)
+				self._memory.add(
+					content=f"User: {message}\nAssistant: {assistant_content[:500]}",
+					type="conversation",
+					metadata={"session_id": session_id},
+				)
 			except Exception:
 				pass
 
@@ -418,7 +438,8 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 				include_context = request.include_context,
 			)
 			return result
-		except RuntimeError as e:
+		except Exception as e:
+			log_print(f"Console chat error: {type(e).__name__}: {e}")
 			return {"error": str(e)}
 
 	@app.post("/console/toolkits")
