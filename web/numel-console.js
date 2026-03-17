@@ -31,9 +31,14 @@ class AgentConsoleManager {
 		this._status      = document.getElementById('consoleStatus');
 		this._modelSelect  = document.getElementById('consoleModelSelect');
 		this._toolkitList  = document.getElementById('consoleToolkitList');
+		this._ttsToggle    = document.getElementById('consoleTtsToggle');
+		this._ttsVoiceSelect = document.getElementById('consoleTtsVoice');
+		this._ttsEnabled   = false;
+		this._ttsVoice     = null;
 
 		this._setupUI();
 		this._fetchToolkits();
+		this._setupTTS();
 		this._setInputEnabled(false);
 	}
 
@@ -410,7 +415,11 @@ class AgentConsoleManager {
 
 	_onTextEnd() {
 		const msgs = this._messages.querySelectorAll('.nw-console-msg.assistant.streaming');
-		for (const m of msgs) m.classList.remove('streaming');
+		for (const m of msgs) {
+			m.classList.remove('streaming');
+			// Speak completed assistant message
+			if (m._rawContent) this._speak(m._rawContent);
+		}
 		this._streaming = false;
 		this._setInputEnabled(true);
 	}
@@ -467,6 +476,88 @@ class AgentConsoleManager {
 			this._input.placeholder = 'Ask about your workflow...';
 		} else {
 			this._input.placeholder = 'Connecting to assistant...';
+		}
+	}
+
+	// ── TTS (Text-to-Speech) ─────────────────────────────────────
+
+	_setupTTS() {
+		if (!('speechSynthesis' in window)) {
+			if (this._ttsToggle) this._ttsToggle.parentElement.style.display = 'none';
+			return;
+		}
+
+		// Populate voice selector
+		const populateVoices = () => {
+			const voices = speechSynthesis.getVoices();
+			if (!voices.length) return;
+			this._ttsVoiceSelect.innerHTML = '';
+			const preferred = ['Google', 'Microsoft', 'English'];
+			const sorted = [...voices].sort((a, b) => {
+				const aScore = preferred.some(p => a.name.includes(p)) ? 0 : 1;
+				const bScore = preferred.some(p => b.name.includes(p)) ? 0 : 1;
+				return aScore - bScore || a.name.localeCompare(b.name);
+			});
+			for (const voice of sorted) {
+				const opt = document.createElement('option');
+				opt.value = voice.name;
+				opt.textContent = `${voice.name} (${voice.lang})`;
+				this._ttsVoiceSelect.appendChild(opt);
+			}
+			// Default: first English voice
+			const english = sorted.find(v => v.lang.startsWith('en'));
+			if (english) this._ttsVoiceSelect.value = english.name;
+		};
+
+		speechSynthesis.onvoiceschanged = populateVoices;
+		populateVoices();
+
+		// Toggle handler
+		this._ttsToggle.addEventListener('change', () => {
+			this._ttsEnabled = this._ttsToggle.checked;
+			this._ttsVoiceSelect.style.display = this._ttsEnabled ? '' : 'none';
+		});
+
+		this._ttsVoiceSelect.addEventListener('change', () => {
+			this._ttsVoice = this._ttsVoiceSelect.value;
+		});
+	}
+
+	_speak(text) {
+		if (!this._ttsEnabled || !('speechSynthesis' in window)) return;
+		// Strip markdown/code for cleaner speech
+		let clean = text
+			.replace(/```[\s\S]*?```/g, ' code block ')
+			.replace(/`([^`]+)`/g, '$1')
+			.replace(/\*\*([^*]+)\*\*/g, '$1')
+			.replace(/\*([^*]+)\*/g, '$1')
+			.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+			.replace(/#{1,6}\s*/g, '')
+			.replace(/\n+/g, '. ')
+			.trim();
+
+		if (!clean) return;
+
+		// Cancel any ongoing speech
+		speechSynthesis.cancel();
+
+		const utterance = new SpeechSynthesisUtterance(clean);
+		utterance.rate = 1.0;
+		utterance.pitch = 1.0;
+
+		// Set selected voice
+		const voiceName = this._ttsVoice || this._ttsVoiceSelect?.value;
+		if (voiceName) {
+			const voice = speechSynthesis.getVoices().find(v => v.name === voiceName);
+			if (voice) utterance.voice = voice;
+		}
+
+		speechSynthesis.speak(utterance);
+	}
+
+	_stopSpeaking() {
+		if ('speechSynthesis' in window) {
+			speechSynthesis.cancel();
 		}
 	}
 }

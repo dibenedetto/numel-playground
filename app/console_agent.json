@@ -12,9 +12,12 @@
 			"Give specific, actionable advice based on what you see in the workspace.",
 			"When suggesting improvements, reference specific node names and connections.",
 			"If no workflow is loaded, help the user get started and explain available features.",
-			"Keep responses concise and practical."
+			"Keep responses concise and practical.",
+			"You can extend your own capabilities: when the user needs a tool you don't have, use create_toolkit to write a new Python toolkit. The toolkit will be saved to contrib/toolkits/ and the user can enable it from the toolkit picker.",
+			"When creating toolkits: define a class with __toolkit__ = True, add public methods with docstrings (these become tools), and use type hints on arguments.",
+			"You have persistent memory across sessions. Important user preferences, project context, and past conversation topics are recalled automatically."
 		],
 		"markdown": true
 	},
-	"toolkits": ["console_toolkit"]
+	"toolkits": ["console_toolkit", "code_toolkit"]
 }

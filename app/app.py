@@ -41,16 +41,22 @@ from   typing    import Any
 import schema
 
 
+from   agent_tasks import AgentTaskManager, setup_agent_tasks_api
 from   api       import setup_api
 from   channels  import ChannelRegistry
 from   channels.api            import setup_channel_api
 from   channels.telegram_adapter  import TelegramAdapter
 from   channels.whatsapp_adapter  import WhatsAppAdapter
 from   channels.discord_adapter   import DiscordAdapter
+from   channels.signal_adapter    import SignalAdapter
+from   channels.slack_adapter     import SlackAdapter
+from   channels.teams_adapter     import TeamsAdapter
 from   channels.webhook_adapter   import WebhookChannelAdapter
 from   console   import ConsoleAgentManager, setup_console_api
 from   event_bus import EventBus, get_event_bus
+from   gallery   import GalleryManager, setup_gallery_api
 from   memory    import MemoryStore
+from   published_apps import PublishedAppManager, setup_published_apps_api
 from   utils     import add_middleware, log_print, seed_everything
 from   workspace import WorkspaceManager as WSManager
 
@@ -127,13 +133,31 @@ async def run_server(args: Any):
 	ChannelRegistry.register_type("telegram", TelegramAdapter)
 	ChannelRegistry.register_type("whatsapp", WhatsAppAdapter)
 	ChannelRegistry.register_type("discord",  DiscordAdapter)
+	ChannelRegistry.register_type("slack",    SlackAdapter)
+	ChannelRegistry.register_type("signal",   SignalAdapter)
+	ChannelRegistry.register_type("teams",    TeamsAdapter)
 	ChannelRegistry.register_type("webhook",  WebhookChannelAdapter)
 	channel_registry.load()
+
+	# ── Workflow Gallery ──────────────────────────────────────
+	gallery_mgr = GalleryManager()
+	gallery_mgr.initialize()
+
+	# ── Autonomous Agent Tasks ────────────────────────────────
+	task_mgr = AgentTaskManager(console_mgr)
+	task_mgr.initialize(event_bus)
+
+	# ── Published Apps ────────────────────────────────────────
+	pub_app_mgr = PublishedAppManager(workspace_mgr)
+	pub_app_mgr.initialize()
 
 	# ── API Routes (order matters: specific routes before static mount) ──
 	setup_api(server, app, event_bus, schema_code, workspace_mgr)
 	setup_console_api(app, console_mgr)
 	setup_channel_api(app, channel_registry)
+	setup_gallery_api(app, gallery_mgr)
+	setup_agent_tasks_api(app, task_mgr)
+	setup_published_apps_api(app, pub_app_mgr)
 
 	# Serve index.html at / and all static assets (JS, CSS, dist/*)
 	app.mount("/", StaticFiles(directory=_web_dir, html=True), name="static")
@@ -148,6 +172,7 @@ async def run_server(args: Any):
 	await server.serve()
 
 	# Shutdown
+	await task_mgr.stop_all()
 	await channel_registry.stop_all()
 	await console_mgr.stop()
 	await workspace_mgr.shutdown()

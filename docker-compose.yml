@@ -1,0 +1,53 @@
+# Numel Playground — Docker Compose
+#
+# Usage:
+#   docker compose up              # Start Numel + Ollama
+#   docker compose up -d           # Detached mode
+#   docker compose --profile gpu up  # With GPU support
+#
+# Services:
+#   numel   — Main application (port 11360)
+#   ollama  — Local LLM server (port 11434)
+#   signal  — Signal CLI REST API (optional, for Signal channel)
+
+services:
+  numel:
+    build: .
+    ports:
+      - "${NUMEL_PORT:-11360}:11360"
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    volumes:
+      - numel-storage:/app/app/storage
+      - numel-workspaces:/app/app/workspaces
+      - numel-gallery:/app/app/gallery
+    depends_on:
+      - ollama
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    restart: unless-stopped
+
+  # Optional: Signal CLI REST API for Signal channel adapter
+  # Uncomment to enable:
+  # signal:
+  #   image: bbernhard/signal-cli-rest-api:latest
+  #   ports:
+  #     - "8080:8080"
+  #   volumes:
+  #     - signal-data:/home/.local/share/signal-cli
+  #   restart: unless-stopped
+
+volumes:
+  numel-storage:
+  numel-workspaces:
+  numel-gallery:
+  ollama-data:
+  # signal-data:

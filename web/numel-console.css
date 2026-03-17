@@ -171,6 +171,35 @@
 	opacity: 0.5;
 }
 
+/* ── Voice / TTS Toggle ───────────────────────────────────── */
+
+.nw-console-toggle {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	cursor: pointer;
+}
+.nw-console-toggle input[type="checkbox"] {
+	accent-color: var(--sg-accent-blue);
+	width: 13px;
+	height: 13px;
+	cursor: pointer;
+}
+.nw-console-toggle-label {
+	font-size: 11px;
+	color: var(--sg-text-secondary);
+}
+.nw-console-voice-select {
+	background: var(--sg-bg-primary);
+	border: 1px solid var(--sg-border-color);
+	border-radius: 4px;
+	color: var(--sg-text-primary);
+	padding: 3px 6px;
+	font-size: 11px;
+	font-family: inherit;
+	max-width: 180px;
+}
+
 /* ── Messages ───────────────────────────────────────────────── */
 /* Aligned with node chat overlay (.sg-chat-*) styles */
 

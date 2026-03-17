@@ -330,6 +330,84 @@ class NumelClient:
 			"channel_id": channel_id, "recipient_id": recipient_id, "text": text,
 		})
 
+	# ── Gallery ────────────────────────────────────────────────────
+
+	async def gallery_list(self, category: str = None, tags: List[str] = None,
+						   search: str = None) -> List[dict]:
+		body = {}
+		if category: body["category"] = category
+		if tags:     body["tags"]     = tags
+		if search:   body["search"]   = search
+		return await self._post("/gallery/list", body)
+
+	async def gallery_get(self, id: str) -> dict:
+		return await self._post("/gallery/get", {"id": id})
+
+	async def gallery_publish(self, workflow_name: str, title: str = None,
+							  description: str = None, category: str = None,
+							  tags: List[str] = None) -> dict:
+		body = {"workflow_name": workflow_name}
+		if title:       body["title"]       = title
+		if description: body["description"] = description
+		if category:    body["category"]    = category
+		if tags:        body["tags"]        = tags
+		return await self._post("/gallery/publish", body)
+
+	async def gallery_remove(self, id: str) -> dict:
+		return await self._post("/gallery/remove", {"id": id})
+
+	async def gallery_categories(self) -> List[str]:
+		return await self._post("/gallery/categories")
+
+	async def gallery_tags(self) -> List[str]:
+		return await self._post("/gallery/tags")
+
+	# ── Agent Tasks ────────────────────────────────────────────────
+
+	async def task_list(self) -> List[dict]:
+		return await self._post("/agent-tasks/list")
+
+	async def task_get(self, id: str) -> dict:
+		return await self._post("/agent-tasks/get", {"id": id})
+
+	async def task_create(self, name: str, prompt: str, trigger: str = "interval",
+						  interval_seconds: int = 3600, **kwargs) -> dict:
+		body = {
+			"name": name, "prompt": prompt,
+			"trigger": trigger, "interval_seconds": interval_seconds,
+			**kwargs,
+		}
+		return await self._post("/agent-tasks/create", body)
+
+	async def task_remove(self, id: str) -> dict:
+		return await self._post("/agent-tasks/remove", {"id": id})
+
+	async def task_start(self, id: str) -> dict:
+		return await self._post("/agent-tasks/start", {"id": id})
+
+	async def task_stop(self, id: str) -> dict:
+		return await self._post("/agent-tasks/stop", {"id": id})
+
+	async def task_run(self, id: str) -> dict:
+		"""Run a task immediately (one-shot)."""
+		return await self._post("/agent-tasks/run", {"id": id})
+
+	# ── Published Apps ─────────────────────────────────────────────
+
+	async def apps_list(self) -> List[dict]:
+		return await self._post("/apps/list")
+
+	async def apps_publish(self, workflow_name: str, slug: str = None,
+						   title: str = None, description: str = None) -> dict:
+		body = {"workflow_name": workflow_name}
+		if slug:        body["slug"]        = slug
+		if title:       body["title"]       = title
+		if description: body["description"] = description
+		return await self._post("/apps/publish", body)
+
+	async def apps_unpublish(self, slug: str) -> dict:
+		return await self._post("/apps/unpublish", {"slug": slug})
+
 	# ── Utility ────────────────────────────────────────────────────
 
 	async def ping(self) -> dict:

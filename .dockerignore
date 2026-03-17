@@ -1,0 +1,11 @@
+__pycache__
+*.pyc
+.git
+.env
+*.egg-info
+node_modules
+.vscode
+.idea
+tmp/
+*.tmp
+app/storage/memory/chromadb/

@@ -149,6 +149,31 @@ class NumelAPI {
 	channelSend(channelId, recipientId, text)  { return this.json('/channels/send', { channel_id: channelId, recipient_id: recipientId, text }); }
 	channelStatus(channelId)                   { return this.json('/channels/status', { channel_id: channelId }); }
 
+	// ── Gallery API ──────────────────────────────────────────────
+
+	galleryList(opts = {})                     { return this.json('/gallery/list', opts); }
+	galleryGet(id)                             { return this.json('/gallery/get', { id }); }
+	galleryPublish(opts)                       { return this.json('/gallery/publish', opts); }
+	galleryRemove(id)                          { return this.json('/gallery/remove', { id }); }
+	galleryCategories()                        { return this.json('/gallery/categories'); }
+	galleryTags()                              { return this.json('/gallery/tags'); }
+
+	// ── Agent Tasks API ──────────────────────────────────────────
+
+	taskList()                                 { return this.json('/agent-tasks/list'); }
+	taskGet(id)                                { return this.json('/agent-tasks/get', { id }); }
+	taskCreate(opts)                           { return this.json('/agent-tasks/create', opts); }
+	taskRemove(id)                             { return this.json('/agent-tasks/remove', { id }); }
+	taskStart(id)                              { return this.json('/agent-tasks/start', { id }); }
+	taskStop(id)                               { return this.json('/agent-tasks/stop', { id }); }
+	taskRun(id)                                { return this.json('/agent-tasks/run', { id }); }
+
+	// ── Published Apps API ───────────────────────────────────────
+
+	appsList()                                 { return this.json('/apps/list'); }
+	appsPublish(opts)                          { return this.json('/apps/publish', opts); }
+	appsUnpublish(slug)                        { return this.json('/apps/unpublish', { slug }); }
+
 }
 
 // ========================================================================
