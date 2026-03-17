@@ -149,6 +149,32 @@
 				</div>
 			</section>
 
+			<!-- Credentials Section -->
+			<section class="nw-section">
+				<div class="nw-collapsible nw-subsection">
+					<div class="nw-collapsible-header" data-target="credentialsContent">
+						<span class="nw-collapse-icon">▶</span>
+						<span class="nw-subsection-title">Credentials</span>
+						<button id="addCredentialBtn" class="nw-btn-icon nw-cred-add-btn" title="Add credential">＋</button>
+					</div>
+					<div id="credentialsContent" class="nw-collapsible-content" style="display: none;">
+						<div id="credentialsList" class="nw-credentials-list"></div>
+						<div id="credentialForm" class="nw-credential-form" style="display:none;">
+							<input id="credentialName"  type="text"     class="nw-input" placeholder="NAME (e.g. SLACK_TOKEN)" autocomplete="off" spellcheck="false">
+							<input id="credentialValue" type="password" class="nw-input" placeholder="Value" autocomplete="new-password">
+							<div class="nw-btn-row">
+								<button id="saveCredentialBtn"   class="nw-btn nw-btn-success nw-btn-sm">Save</button>
+								<button id="cancelCredentialBtn" class="nw-btn nw-btn-secondary nw-btn-sm">Cancel</button>
+							</div>
+						</div>
+						<div id="tunnelInfo" class="nw-tunnel-info" style="display:none;">
+							<span class="nw-tunnel-label">🌐 Public URL</span>
+							<a id="tunnelUrl" class="nw-tunnel-url" target="_blank"></a>
+						</div>
+					</div>
+				</div>
+			</section>
+
 			<!-- Event Log Section -->
 			<section class="nw-section nw-section-grow">
 				<div class="nw-section-header">

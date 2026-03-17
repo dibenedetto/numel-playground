@@ -579,6 +579,10 @@ async function connect() {
 		}));
 		$('appsToggleBtn').style.display = '';
 
+		// Initialize credential manager
+		const credMgr = new CredentialManager(serverUrl);
+		credMgr.init();
+
 		// Connect WebSocket
 		client.connectWebSocket();
 		setupClientEvents();
@@ -2377,9 +2381,11 @@ function initNodeSearch() {
 		if (!overlay || !input) return;
 
 		document.addEventListener('keydown', (e) => {
-			if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+			const isCtrlF = (e.ctrlKey || e.metaKey) && e.key === 'f';
+			const isSlash = e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey;
+			if (isCtrlF || isSlash) {
 				const tag = document.activeElement?.tagName;
-				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+				if (!isCtrlF && (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT')) return;
 				e.preventDefault();
 				overlay.style.display = '';
 				input.focus();
@@ -2671,6 +2677,118 @@ function renderNodeGroups() {
 			container.appendChild(el);
 		}
 	} catch (_e) {}
+}
+
+// ============================================================================
+// Credential Manager
+// ============================================================================
+
+class CredentialManager {
+	constructor(serverUrl) {
+		this._base = serverUrl;
+		this._names = [];
+	}
+
+	async init() {
+		await this._refresh();
+		this._bindEvents();
+		// Poll tunnel URL until available (only if server started with --tunnel)
+		this._pollTunnel();
+	}
+
+	async _refresh() {
+		try {
+			const r = await fetch(`${this._base}/credentials`);
+			const d = await r.json();
+			this._names = d.names || [];
+		} catch (_) { this._names = []; }
+		this._render();
+	}
+
+	_render() {
+		const list = $('credentialsList');
+		if (!list) return;
+		if (!this._names.length) {
+			list.innerHTML = '<div class="nw-credentials-empty">No credentials stored</div>';
+			return;
+		}
+		list.innerHTML = this._names.map(name => `
+			<div class="nw-credential-item">
+				<span class="nw-credential-name" title="Reference as \${${name}}">${name}</span>
+				<span class="nw-credential-hint">\${${name}}</span>
+				<div class="nw-credential-actions">
+					<button class="nw-btn-icon nw-cred-edit" data-name="${name}" title="Edit">✎</button>
+					<button class="nw-btn-icon nw-cred-delete" data-name="${name}" title="Delete">✕</button>
+				</div>
+			</div>`).join('');
+	}
+
+	_bindEvents() {
+		const addBtn    = $('addCredentialBtn');
+		const form      = $('credentialForm');
+		const nameInput = $('credentialName');
+		const valInput  = $('credentialValue');
+		const saveBtn   = $('saveCredentialBtn');
+		const cancelBtn = $('cancelCredentialBtn');
+		const list      = $('credentialsList');
+
+		const showForm = (name = '') => {
+			nameInput.value = name;
+			valInput.value  = '';
+			form.style.display = 'flex';
+			(name ? valInput : nameInput).focus();
+		};
+		const hideForm = () => { form.style.display = 'none'; };
+
+		addBtn?.addEventListener('click', (e) => { e.stopPropagation(); showForm(); });
+		cancelBtn?.addEventListener('click', hideForm);
+
+		saveBtn?.addEventListener('click', async () => {
+			const raw  = nameInput.value.trim();
+			const name = raw.replace(/\s+/g, '_').toUpperCase();
+			const val  = valInput.value;
+			if (!name) return;
+			await fetch(`${this._base}/credentials/${encodeURIComponent(name)}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ value: val }),
+			});
+			hideForm();
+			await this._refresh();
+		});
+
+		nameInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') valInput?.focus(); });
+		valInput?.addEventListener('keydown',  (e) => { if (e.key === 'Enter') saveBtn?.click(); });
+
+		list?.addEventListener('click', async (e) => {
+			const edit = e.target.closest('.nw-cred-edit');
+			const del  = e.target.closest('.nw-cred-delete');
+			if (edit) { showForm(edit.dataset.name); }
+			if (del) {
+				await fetch(`${this._base}/credentials/${encodeURIComponent(del.dataset.name)}`, { method: 'DELETE' });
+				await this._refresh();
+			}
+		});
+	}
+
+	async _pollTunnel() {
+		const info   = $('tunnelInfo');
+		const urlEl  = $('tunnelUrl');
+		if (!info || !urlEl) return;
+		for (let i = 0; i < 20; i++) {
+			await new Promise(r => setTimeout(r, 3000));
+			try {
+				const r = await fetch(`${this._base}/tunnel/url`);
+				const d = await r.json();
+				if (d.url) {
+					urlEl.textContent = d.url;
+					urlEl.href        = d.url;
+					info.style.display = 'flex';
+					return;
+				}
+			} catch (_) {}
+		}
+	}
 }
 
 // ============================================================================

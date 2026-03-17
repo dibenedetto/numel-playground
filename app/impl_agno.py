@@ -275,7 +275,8 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		assert item_config is not None and item_config.type == "toolkit_config", "Invalid Agno toolkit"
 		if not item_config.name:
 			raise ValueError("Agno toolkit needs name")
-		args = item_config.args or {}
+		import credentials as _creds
+		args = _creds.resolve_dict(item_config.args or {})
 		module_name = item_config.name.replace("/", ".").replace("\\", ".")
 		# Try the exact name first, then fallback paths for convenience:
 		#   "mesh_toolkit"          → try "toolkits.mesh_toolkit", "contrib.toolkits.mesh_toolkit"

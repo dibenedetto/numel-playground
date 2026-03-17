@@ -846,6 +846,97 @@ body {
 }
 
 /* ========================================================================
+   CREDENTIALS
+   ======================================================================== */
+
+.nw-cred-add-btn {
+	margin-left: auto;
+	font-size: 16px;
+	line-height: 1;
+	padding: 0 4px;
+}
+
+.nw-credentials-list {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	margin-bottom: 6px;
+}
+
+.nw-credential-item {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 6px;
+	border-radius: 4px;
+	background: var(--sg-bg-primary);
+	border: 1px solid var(--sg-border-color);
+	font-size: 12px;
+}
+
+.nw-credential-name {
+	flex: 1;
+	font-family: monospace;
+	color: var(--sg-text-primary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	cursor: default;
+}
+
+.nw-credential-hint {
+	font-size: 10px;
+	color: var(--sg-text-tertiary);
+	font-family: monospace;
+}
+
+.nw-credential-actions {
+	display: flex;
+	gap: 2px;
+	flex-shrink: 0;
+}
+
+.nw-credential-form {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	padding-top: 4px;
+}
+
+.nw-credentials-empty {
+	font-size: 11px;
+	color: var(--sg-text-tertiary);
+	text-align: center;
+	padding: 6px 0;
+}
+
+.nw-btn-sm {
+	padding: 4px 10px;
+	font-size: 11px;
+}
+
+.nw-tunnel-info {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	padding: 6px 0 2px;
+	border-top: 1px solid var(--sg-border-color);
+	margin-top: 6px;
+}
+
+.nw-tunnel-label {
+	font-size: 10px;
+	color: var(--sg-text-secondary);
+}
+
+.nw-tunnel-url {
+	font-size: 11px;
+	font-family: monospace;
+	color: var(--sg-accent-blue, #46a2da);
+	word-break: break-all;
+}
+
+/* ========================================================================
    MODAL
    ======================================================================== */
 

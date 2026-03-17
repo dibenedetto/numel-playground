@@ -44,9 +44,14 @@ from   typing    import Any, Optional
 import schema
 
 
+import re        as _re
+import subprocess
+import threading
+
 from   agent_tasks   import AgentTaskManager, setup_agent_tasks_api
 from   exec_history  import ExecHistoryManager
 from   api       import setup_api
+import credentials as _creds
 from   channels  import ChannelRegistry
 from   channels.api            import setup_channel_api
 from   channels.telegram_adapter  import TelegramAdapter
@@ -70,6 +75,52 @@ load_dotenv()
 
 DEFAULT_APP_SEED : int = 7
 DEFAULT_APP_PORT : int = 11360
+
+# ── Webhook tunnel (cloudflared / ngrok) ─────────────────────────────────────
+_tunnel_url  : Optional[str] = None
+_tunnel_proc : Optional[Any] = None
+
+
+def _start_tunnel(port: int) -> None:
+	"""Try cloudflared then ngrok; parse and store the public URL."""
+	global _tunnel_url, _tunnel_proc
+	# --- cloudflared ---
+	try:
+		proc = subprocess.Popen(
+			["cloudflared", "tunnel", "--url", f"http://localhost:{port}"],
+			stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+			text=True, bufsize=1,
+		)
+		_tunnel_proc = proc
+		for line in proc.stdout:
+			m = _re.search(r'https://[a-zA-Z0-9-]+\.trycloudflare\.com', line)
+			if m:
+				_tunnel_url = m.group(0)
+				log_print(f"🌐 Tunnel URL (cloudflared): {_tunnel_url}")
+				return
+	except FileNotFoundError:
+		pass
+	# --- ngrok ---
+	try:
+		import time, urllib.request, json as _json
+		proc = subprocess.Popen(
+			["ngrok", "http", str(port)],
+			stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+			text=True,
+		)
+		_tunnel_proc = proc
+		time.sleep(2)
+		try:
+			with urllib.request.urlopen("http://localhost:4040/api/tunnels", timeout=3) as resp:
+				data    = _json.loads(resp.read())
+				tunnels = data.get("tunnels", [])
+				if tunnels:
+					_tunnel_url = tunnels[0]["public_url"]
+					log_print(f"🌐 Tunnel URL (ngrok): {_tunnel_url}")
+		except Exception:
+			pass
+	except FileNotFoundError:
+		pass
 
 
 def _asyncio_exception_handler(loop, context):
@@ -268,6 +319,28 @@ async def run_server(args: Any):
 		asyncio.create_task(_run_later())
 		return {"ok": True, "scheduled": True, "workflow_name": request.workflow_name}
 
+	# ── Credential Store ───────────────────────────────────────
+
+	@app.get("/credentials")
+	async def list_credentials():
+		return {"names": _creds.list_names()}
+
+	@app.post("/credentials/{name}")
+	async def set_credential(name: str, request: Request):
+		body = await request.json()
+		_creds.set(name, body.get("value", ""))
+		return {"ok": True}
+
+	@app.delete("/credentials/{name}")
+	async def delete_credential(name: str):
+		return {"ok": _creds.delete(name)}
+
+	# ── Webhook Tunnel ─────────────────────────────────────────
+
+	@app.get("/tunnel/url")
+	async def get_tunnel_url():
+		return {"url": _tunnel_url}
+
 	# Serve index.html at / and all static assets (JS, CSS, dist/*)
 	app.mount("/", StaticFiles(directory=_web_dir, html=True), name="static")
 
@@ -277,6 +350,11 @@ async def run_server(args: Any):
 
 	# Start auto-start channels
 	await channel_registry.start_all()
+
+	# Start tunnel if requested
+	if getattr(args, "tunnel", False):
+		t = threading.Thread(target=_start_tunnel, args=(port,), daemon=True)
+		t.start()
 
 	await server.serve()
 
@@ -291,8 +369,9 @@ async def run_server(args: Any):
 
 def main():
 	parser = argparse.ArgumentParser(description="Numel Playground App")
-	parser .add_argument("--port", type=int, default=DEFAULT_APP_PORT, help="Listening port for control server"     )
-	parser .add_argument("--seed", type=int, default=DEFAULT_APP_SEED, help="Seed for pseudorandom number generator")
+	parser .add_argument("--port",   type=int,  default=DEFAULT_APP_PORT, help="Listening port for control server"     )
+	parser .add_argument("--seed",   type=int,  default=DEFAULT_APP_SEED, help="Seed for pseudorandom number generator")
+	parser .add_argument("--tunnel", action="store_true",                  help="Start a cloudflared/ngrok tunnel for public webhook access")
 	args   = parser.parse_args()
 
 	asyncio.run(run_server(args))
