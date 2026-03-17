@@ -213,7 +213,28 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "tool_config", "Invalid Agno tool"
 		if item_config.lang and item_config.script:
-			raise ValueError(f"Inline Agno tool not implemented")
+			# Inline tool: compile the script into a Python function named 'run'
+			script = item_config.script
+			lang   = item_config.lang
+			if lang not in ("python",):
+				raise ValueError(f"Inline tool only supports lang='python', got '{lang}'")
+			# The script should define a function called 'run' (async or sync)
+			# Example:
+			#   async def run(query: str) -> str:
+			#       return query.upper()
+			ns = {}
+			exec(compile(script, f"<inline_tool:{item_config.name or 'unnamed'}>", "exec"), ns)
+			run_fn = ns.get("run")
+			if run_fn is None:
+				raise ValueError("Inline tool script must define a function named 'run'")
+			# Wrap sync functions in an async wrapper
+			import inspect as _inspect
+			if not _inspect.iscoroutinefunction(run_fn):
+				_sync_run = run_fn
+				async def run_fn(**kwargs):
+					return _sync_run(**kwargs)
+			impl[index] = run_fn
+			return
 		if not item_config.name:
 			raise ValueError(f"Agno tool needs name")
 		args = item_config.args or dict()
@@ -518,6 +539,19 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 
 
 	async def run_agent(agent: Any, *args, **kwargs) -> dict:
+		# If image is provided, build a multimodal message
+		image_b64 = kwargs.pop("image", None)
+		if image_b64 and args:
+			request = args[0]
+			if isinstance(request, str):
+				from agno.media import Image as AgnoImage
+				# strip data: prefix if present
+				if "," in image_b64:
+					image_b64 = image_b64.split(",", 1)[1]
+				args = ([
+					{"type": "text", "text": request},
+					AgnoImage(base64_data=image_b64),
+				],) + args[1:]
 		raw    = await agent.arun(input=args, **kwargs)
 		result = dict(
 			content_type = raw.content_type,

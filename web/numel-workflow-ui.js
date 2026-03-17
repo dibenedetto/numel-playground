@@ -21,6 +21,13 @@ let galleryManager     = null;
 let appsManager        = null;
 let api                = null;  // NumelAPI instance, shared across all managers
 
+// ── Task 2: Wire tooltip edge data store ─────────────────────────────────────
+// Key: "workflowNodeIdx:fieldName" → last output value from that slot
+let _edgeDataStore     = {};
+
+// ── Task 6: Node groups ──────────────────────────────────────────────────────
+const _nodeGroups      = []; // {id, label, nodeIds[]}
+
 // DOM Elements
 const $ = id => document.getElementById(id);
 
@@ -372,6 +379,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	// Initial log
 	addLog('info', '🚀 Numel Playground ready');
+
+	// ── Task 2: Wire tooltip ──────────────────────────────────────────────
+	initWireTooltip();
+
+	// ── Task 3: Node search (/) ───────────────────────────────────────────
+	initNodeSearch();
+
+	// ── Task 5: Mini-map ──────────────────────────────────────────────────
+	initMinimap();
+
+	// ── Task 6: Node groups (Ctrl+G) keyboard shortcut ────────────────────
+	initNodeGroups();
 
 	// Auto-connect: derive server URL from the page origin (same host:port)
 	$('serverUrl').value = window.location.origin;
@@ -727,6 +746,11 @@ function setupClientEvents() {
 		const idx = parseInt(event.node_id);
 		const label = event.data?.node_label || `Node ${idx}`;
 		visualizer?.updateNodeState(idx, 'running');
+		// Clear any previous error text when the node re-runs
+		try {
+			const graphNode = visualizer?.graphNodes[idx];
+			if (graphNode) graphNode.executionErrorText = null;
+		} catch (_e) {}
 		addLog('info', `▶️ [${idx}] ${label}`);
 	});
 
@@ -740,6 +764,16 @@ function setupClientEvents() {
 			storeNodeOutputs(idx, outputs);
 			updateConnectedPreviews(idx, outputs);
 			agentChatManager?.notifyInputsChanged();
+			// Store edge data for wire tooltip (Task 2)
+			try {
+				const graphNode = visualizer?.graphNodes[idx];
+				if (graphNode) {
+					_edgeDataStore = _edgeDataStore || {};
+					for (const [fieldName, value] of Object.entries(outputs)) {
+						_edgeDataStore[`${idx}:${fieldName}`] = value;
+					}
+				}
+			} catch (_e) {}
 		}
 		addLog('success', `✅ [${idx}] ${label}`);
 	});
@@ -749,6 +783,13 @@ function setupClientEvents() {
 		const idx = parseInt(event.node_id);
 		const label = event.data?.node_label || `Node ${idx}`;
 		visualizer?.updateNodeState(idx, 'failed');
+		// Store error text on the graph node so the header tooltip can display it
+		try {
+			const graphNode = visualizer?.graphNodes[idx];
+			if (graphNode) {
+				graphNode.executionErrorText = event.error || null;
+			}
+		} catch (_e) {}
 		addLog('error', `❌ [${idx}] ${label}: ${event.error}`);
 	});
 
@@ -2192,6 +2233,449 @@ function addLog(type, message) {
 		log.removeChild(log.firstChild);
 	}
 }
+
+// ============================================================================
+// Task 2: Wire (edge) data tooltip
+// Shows last output value when hovering near a wire on the canvas.
+// ============================================================================
+
+function initWireTooltip() {
+	try {
+		const canvas = schemaGraph?.canvas;
+		if (!canvas) return;
+
+		// Create the tooltip div
+		const tooltip = document.createElement('div');
+		tooltip.id = 'sg-wire-tooltip';
+		tooltip.style.cssText = [
+			'position:fixed',
+			'background:rgba(0,0,0,0.88)',
+			'color:#e0e0e0',
+			'font-size:11px',
+			'font-family:monospace',
+			'padding:4px 8px',
+			'border-radius:4px',
+			'border:1px solid rgba(255,255,255,0.12)',
+			'pointer-events:none',
+			'display:none',
+			'max-width:320px',
+			'word-break:break-all',
+			'z-index:9999',
+			'white-space:pre-wrap',
+		].join(';');
+		document.body.appendChild(tooltip);
+
+		let _lastHoveredLinkId = null;
+
+		canvas.addEventListener('mousemove', (e) => {
+			try {
+				if (!schemaGraph || !schemaGraph.graph) return;
+
+				const rect = canvas.getBoundingClientRect();
+				const sx   = e.clientX - rect.left;
+				const sy   = e.clientY - rect.top;
+				const wx   = (sx - schemaGraph.camera.x) / schemaGraph.camera.scale;
+				const wy   = (sy - schemaGraph.camera.y) / schemaGraph.camera.scale;
+
+				// Find the nearest link using the app's own method
+				let foundLink = null;
+				if (typeof schemaGraph._findLinkAtPosition === 'function') {
+					const savedDist = schemaGraph._edgePreviewConfig?.linkHitDistance;
+					if (schemaGraph._edgePreviewConfig) schemaGraph._edgePreviewConfig.linkHitDistance = 8;
+					foundLink = schemaGraph._findLinkAtPosition(wx, wy);
+					if (schemaGraph._edgePreviewConfig && savedDist !== undefined) {
+						schemaGraph._edgePreviewConfig.linkHitDistance = savedDist;
+					}
+				}
+
+				if (!foundLink) {
+					tooltip.style.display = 'none';
+					_lastHoveredLinkId = null;
+					return;
+				}
+
+				// Reposition tooltip on every frame when link is the same
+				if (foundLink.id === _lastHoveredLinkId) {
+					let tx = e.clientX + 14;
+					let ty = e.clientY + 14;
+					if (tx + 330 > window.innerWidth)  tx = e.clientX - 335;
+					if (ty + 120 > window.innerHeight) ty = e.clientY - 60;
+					tooltip.style.left = tx + 'px';
+					tooltip.style.top  = ty + 'px';
+					return;
+				}
+				_lastHoveredLinkId = foundLink.id;
+
+				// Find source node's output field name
+				const srcNode = schemaGraph.graph.getNodeById(foundLink.origin_id);
+				if (!srcNode) { tooltip.style.display = 'none'; return; }
+
+				const slotIdx  = foundLink.origin_slot;
+				const slotName = srcNode.outputMeta?.[slotIdx]?.name
+					|| srcNode.outputs?.[slotIdx]?.name
+					|| null;
+				const wfIdx = srcNode.workflowIndex;
+
+				let value = undefined;
+				if (wfIdx !== undefined && slotName) {
+					value = _edgeDataStore[`${wfIdx}:${slotName}`];
+					if (value === undefined) {
+						const base = slotName.split('.')[0];
+						value = _edgeDataStore[`${wfIdx}:${base}`];
+					}
+				}
+				// Fall back to slot's stored data
+				if (value === undefined && srcNode.outputs?.[slotIdx]?.data !== undefined) {
+					value = srcNode.outputs[slotIdx].data;
+				}
+
+				if (value === undefined) {
+					tooltip.style.display = 'none';
+					return;
+				}
+
+				let display;
+				try {
+					display = JSON.stringify(value, null, 2);
+					if (display && display.length > 280) display = display.substring(0, 280) + '...';
+				} catch (_) {
+					display = String(value).substring(0, 280);
+				}
+
+				tooltip.textContent = display;
+				tooltip.style.display = 'block';
+				let tx = e.clientX + 14;
+				let ty = e.clientY + 14;
+				if (tx + 330 > window.innerWidth)  tx = e.clientX - 335;
+				if (ty + 120 > window.innerHeight) ty = e.clientY - 60;
+				tooltip.style.left = tx + 'px';
+				tooltip.style.top  = ty + 'px';
+			} catch (_e) {}
+		});
+
+		canvas.addEventListener('mouseleave', () => {
+			tooltip.style.display = 'none';
+			_lastHoveredLinkId = null;
+		});
+	} catch (_e) {
+		console.warn('[initWireTooltip] Error:', _e);
+	}
+}
+
+// ============================================================================
+// Task 3: Node search overlay (/)
+// ============================================================================
+
+function initNodeSearch() {
+	try {
+		const overlay  = document.getElementById('nodeSearchOverlay');
+		const input    = document.getElementById('nodeSearchInput');
+		const results  = document.getElementById('nodeSearchResults');
+		const countEl  = document.getElementById('nodeSearchCount');
+		const closeBtn = document.getElementById('nodeSearchClose');
+
+		if (!overlay || !input) return;
+
+		document.addEventListener('keydown', (e) => {
+			if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+				const tag = document.activeElement?.tagName;
+				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+				e.preventDefault();
+				overlay.style.display = '';
+				input.focus();
+				input.select();
+			}
+			if (e.key === 'Escape' && overlay.style.display !== 'none') {
+				overlay.style.display = 'none';
+			}
+		});
+
+		closeBtn?.addEventListener('click', () => { overlay.style.display = 'none'; });
+
+		input.addEventListener('input', () => {
+			try {
+				const q = input.value.trim().toLowerCase();
+				results.innerHTML = '';
+				if (!q) { countEl.textContent = ''; return; }
+
+				const nodes = schemaGraph?.graph?.nodes || [];
+				const matches = nodes.filter(n => {
+					const label = (n.displayTitle || n.modelName || n.title || '').toLowerCase();
+					const type  = (n.workflowType || n.modelName || n.title || '').toLowerCase();
+					return label.includes(q) || type.includes(q);
+				});
+
+				countEl.textContent = `${matches.length} found`;
+
+				matches.slice(0, 50).forEach((n) => {
+					const row = document.createElement('div');
+					row.className = 'sg-node-search-result';
+
+					const typeSpan = document.createElement('span');
+					typeSpan.className = 'sg-node-search-result-type';
+					typeSpan.textContent = n.workflowType || n.modelName || '?';
+
+					const labelSpan = document.createElement('span');
+					labelSpan.className = 'sg-node-search-result-label';
+					labelSpan.textContent = n.displayTitle || n.modelName || n.title || `node ${n.id}`;
+
+					row.appendChild(typeSpan);
+					row.appendChild(labelSpan);
+
+					row.addEventListener('click', () => {
+						overlay.style.display = 'none';
+						_jumpToNode(n);
+					});
+
+					results.appendChild(row);
+				});
+			} catch (_e) {}
+		});
+	} catch (_e) {
+		console.warn('[initNodeSearch] Error:', _e);
+	}
+}
+
+function _jumpToNode(node) {
+	try {
+		if (!schemaGraph || !node) return;
+		const x = (node.pos?.[0] ?? 0) + (node.size?.[0] ?? 160) / 2;
+		const y = (node.pos?.[1] ?? 0) + (node.size?.[1] ?? 80)  / 2;
+		schemaGraph.camera.x = schemaGraph.canvas.width  / 2 - x * schemaGraph.camera.scale;
+		schemaGraph.camera.y = schemaGraph.canvas.height / 2 - y * schemaGraph.camera.scale;
+		schemaGraph.draw();
+		// Highlight via selection then clear after a moment
+		if (typeof schemaGraph.selectNode === 'function') {
+			schemaGraph.selectNode(node, false);
+			setTimeout(() => {
+				if (schemaGraph.selectedNode === node) schemaGraph.clearSelection?.();
+			}, 1800);
+		}
+	} catch (_e) {}
+}
+
+// ============================================================================
+// Task 5: Mini-map
+// ============================================================================
+
+function initMinimap() {
+	try {
+		const minimapCanvas = document.getElementById('sg-minimap');
+		if (!minimapCanvas) return;
+
+		const ctx = minimapCanvas.getContext('2d');
+		const W = 160;
+		const H = 100;
+		minimapCanvas.width  = W * devicePixelRatio;
+		minimapCanvas.height = H * devicePixelRatio;
+		ctx.scale(devicePixelRatio, devicePixelRatio);
+
+		function renderMinimap() {
+			try {
+				ctx.clearRect(0, 0, W, H);
+
+				const nodes = schemaGraph?.graph?.nodes;
+				if (!nodes || nodes.length === 0) return;
+
+				// Compute bounding box of all nodes
+				let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+				for (const n of nodes) {
+					const x = n.pos?.[0] ?? 0;
+					const y = n.pos?.[1] ?? 0;
+					const w = n.size?.[0] ?? 160;
+					const h = n.size?.[1] ?? 80;
+					if (x     < minX) minX = x; if (y     < minY) minY = y;
+					if (x + w > maxX) maxX = x+w; if (y + h > maxY) maxY = y+h;
+				}
+
+				const pad    = 20;
+				const bw     = maxX - minX + pad * 2;
+				const bh     = maxY - minY + pad * 2;
+				const scaleF = Math.min(W / bw, H / bh);
+				const ox     = (W - bw * scaleF) / 2 - (minX - pad) * scaleF;
+				const oy     = (H - bh * scaleF) / 2 - (minY - pad) * scaleF;
+
+				// Draw edges
+				const links = schemaGraph?.graph?.links || {};
+				ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+				ctx.lineWidth   = 0.7;
+				for (const linkId in links) {
+					const lk  = links[linkId];
+					const src = schemaGraph.graph.getNodeById(lk.origin_id);
+					const tgt = schemaGraph.graph.getNodeById(lk.target_id);
+					if (!src || !tgt) continue;
+					const sx = (src.pos[0] + src.size[0]) * scaleF + ox;
+					const sy = (src.pos[1] + src.size[1] / 2) * scaleF + oy;
+					const tx = tgt.pos[0] * scaleF + ox;
+					const ty = (tgt.pos[1] + tgt.size[1] / 2) * scaleF + oy;
+					ctx.beginPath();
+					ctx.moveTo(sx, sy);
+					ctx.lineTo(tx, ty);
+					ctx.stroke();
+				}
+
+				// Draw nodes
+				const stateColors = {
+					running   : 'rgba(128,90,213,0.65)',
+					completed : 'rgba(56,161,105,0.65)',
+					failed    : 'rgba(229,62,62,0.65)',
+					waiting   : 'rgba(214,158,46,0.65)',
+				};
+				for (const n of nodes) {
+					const nx = n.pos[0] * scaleF + ox;
+					const ny = n.pos[1] * scaleF + oy;
+					const nw = Math.max((n.size?.[0] ?? 160) * scaleF, 2);
+					const nh = Math.max((n.size?.[1] ?? 80)  * scaleF, 2);
+					ctx.fillStyle   = stateColors[n.executionState] || 'rgba(45,90,123,0.55)';
+					ctx.strokeStyle = 'rgba(100,160,220,0.5)';
+					ctx.lineWidth   = 0.5;
+					ctx.beginPath();
+					if (ctx.roundRect) { ctx.roundRect(nx, ny, nw, nh, 1.5); }
+					else { ctx.rect(nx, ny, nw, nh); }
+					ctx.fill();
+					ctx.stroke();
+				}
+
+				// Viewport rect
+				const cam = schemaGraph?.camera;
+				if (cam) {
+					const cw = schemaGraph.canvas.width  / devicePixelRatio;
+					const ch = schemaGraph.canvas.height / devicePixelRatio;
+					const vpx = (-cam.x / cam.scale) * scaleF + ox;
+					const vpy = (-cam.y / cam.scale) * scaleF + oy;
+					const vpw = (cw / cam.scale) * scaleF;
+					const vph = (ch / cam.scale) * scaleF;
+					ctx.strokeStyle = 'rgba(255,210,60,0.7)';
+					ctx.lineWidth   = 1;
+					ctx.strokeRect(vpx, vpy, vpw, vph);
+				}
+			} catch (_e) {}
+		}
+
+		setInterval(renderMinimap, 100);
+
+		// Click on minimap to navigate
+		minimapCanvas.addEventListener('click', (e) => {
+			try {
+				const rect  = minimapCanvas.getBoundingClientRect();
+				const nodes = schemaGraph?.graph?.nodes;
+				if (!nodes || nodes.length === 0) return;
+
+				let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+				for (const n of nodes) {
+					const x = n.pos?.[0] ?? 0; const y = n.pos?.[1] ?? 0;
+					const w = n.size?.[0] ?? 160; const h = n.size?.[1] ?? 80;
+					if (x     < minX) minX = x; if (y     < minY) minY = y;
+					if (x + w > maxX) maxX = x+w; if (y + h > maxY) maxY = y+h;
+				}
+				const pad    = 20;
+				const bw     = maxX - minX + pad * 2;
+				const bh     = maxY - minY + pad * 2;
+				const scaleF = Math.min(W / bw, H / bh);
+				const ox     = (W - bw * scaleF) / 2 - (minX - pad) * scaleF;
+				const oy     = (H - bh * scaleF) / 2 - (minY - pad) * scaleF;
+
+				const mx     = e.clientX - rect.left;
+				const my     = e.clientY - rect.top;
+				const worldX = (mx - ox) / scaleF;
+				const worldY = (my - oy) / scaleF;
+
+				const cam = schemaGraph.camera;
+				cam.x = schemaGraph.canvas.width  / 2 - worldX * cam.scale;
+				cam.y = schemaGraph.canvas.height / 2 - worldY * cam.scale;
+				schemaGraph.draw();
+			} catch (_e) {}
+		});
+	} catch (_e) {
+		console.warn('[initMinimap] Error:', _e);
+	}
+}
+
+// ============================================================================
+// Task 6: Node Groups (Ctrl+G)
+// ============================================================================
+
+function initNodeGroups() {
+	try {
+		document.addEventListener('keydown', (e) => {
+			if ((e.ctrlKey || e.metaKey) && e.key === 'g') {
+				const tag = document.activeElement?.tagName;
+				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+				e.preventDefault();
+				const name = prompt('Group label:', 'Group');
+				if (name !== null) createNodeGroup(name);
+			}
+		});
+		// Refresh groups at ~10fps
+		setInterval(renderNodeGroups, 100);
+	} catch (_e) {
+		console.warn('[initNodeGroups] Error:', _e);
+	}
+}
+
+function createNodeGroup(label) {
+	try {
+		const selected = schemaGraph ? Array.from(schemaGraph.selectedNodes || []) : [];
+		if (!selected || selected.length < 2) {
+			alert('Select at least 2 nodes to create a group.');
+			return;
+		}
+		_nodeGroups.push({
+			id      : 'grp_' + Date.now(),
+			label   : label || 'Group',
+			nodeIds : selected.map(n => n.id),
+		});
+		renderNodeGroups();
+	} catch (_e) {
+		console.warn('[createNodeGroup] Error:', _e);
+	}
+}
+
+function renderNodeGroups() {
+	try {
+		document.querySelectorAll('.sg-node-group').forEach(el => el.remove());
+		if (_nodeGroups.length === 0) return;
+
+		const container = schemaGraph?.canvas?.parentElement;
+		if (!container) return;
+		const cam = schemaGraph?.camera;
+		if (!cam) return;
+
+		for (const grp of _nodeGroups) {
+			const nodes = (schemaGraph?.graph?.nodes || [])
+				.filter(n => grp.nodeIds.includes(n.id));
+			if (nodes.length === 0) continue;
+
+			let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+			for (const n of nodes) {
+				const x = n.pos?.[0] ?? 0; const y = n.pos?.[1] ?? 0;
+				const w = n.size?.[0] ?? 160; const h = n.size?.[1] ?? 80;
+				if (x - 12     < minX) minX = x - 12;
+				if (y - 28     < minY) minY = y - 28;
+				if (x + w + 12 > maxX) maxX = x + w + 12;
+				if (y + h + 12 > maxY) maxY = y + h + 12;
+			}
+
+			const z  = cam.scale ?? 1;
+			const el = document.createElement('div');
+			el.className = 'sg-node-group';
+			el.style.left   = `${minX * z + (cam.x ?? 0)}px`;
+			el.style.top    = `${minY * z + (cam.y ?? 0)}px`;
+			el.style.width  = `${(maxX - minX) * z}px`;
+			el.style.height = `${(maxY - minY) * z}px`;
+
+			const lbl = document.createElement('div');
+			lbl.className   = 'sg-node-group-label';
+			lbl.textContent = grp.label;
+			el.appendChild(lbl);
+			container.appendChild(el);
+		}
+	} catch (_e) {}
+}
+
+// ============================================================================
+// END: Frontend editor enhancements
+// ============================================================================
 
 $('uploadWorkflowBtn').disabled = true;
 	$('pasteWorkflowBtn').disabled = true;

@@ -129,6 +129,10 @@ class WFToolConfig(WFConfigType):
 	pass
 
 
+class WFToolkitConfig(WFConfigType):
+	pass
+
+
 class WFAgentOptionsConfig(WFConfigType):
 	pass
 
@@ -348,7 +352,11 @@ class WFAgentFlow(WFFlowType):
 				message = str(request)
 
 			if self.ref:
-				response = await self.ref(message)
+				image = context.inputs.get("image")
+				if image:
+					response = await self.ref(message, image=image)
+				else:
+					response = await self.ref(message)
 			else:
 				response = {"error": "No agent configured"}
 
@@ -1150,7 +1158,64 @@ class WFComputerVisionFlow(WFFlowType):
 				result.outputs["detections"] = landmarks
 				if draw_overlay:
 					img = _draw_pose_on_image(img, landmarks, w, h)
-		# face / hands: not yet implemented — fall through with null outputs
+		elif task in ("face", "hands"):
+			# Simplified: use MediaPipe legacy API available in mediapipe 0.10+
+			try:
+				import mediapipe as mp
+
+				if task == "face":
+					with mp.solutions.face_detection.FaceDetection(
+						model_selection=0,
+						min_detection_confidence=min_confidence
+					) as detector_f:
+						det = detector_f.process(img_arr)
+						faces = []
+						if det.detections:
+							for d in det.detections:
+								bb = d.location_data.relative_bounding_box
+								faces.append({
+									"x": bb.xmin, "y": bb.ymin,
+									"width": bb.width, "height": bb.height,
+									"score": d.score[0] if d.score else 0.0,
+								})
+							result.outputs["detections"] = faces
+							if draw_overlay:
+								from PIL import ImageDraw
+								draw_obj = ImageDraw.Draw(img)
+								for f in faces:
+									x0 = int(f["x"] * w); y0 = int(f["y"] * h)
+									x1 = x0 + int(f["width"] * w); y1 = y0 + int(f["height"] * h)
+									draw_obj.rectangle([x0, y0, x1, y1], outline=(0, 255, 0), width=2)
+						else:
+							result.outputs["detections"] = []
+
+				elif task == "hands":
+					with mp.solutions.hands.Hands(
+						static_image_mode=True,
+						max_num_hands=2,
+						min_detection_confidence=min_confidence
+					) as detector_h:
+						det = detector_h.process(img_arr)
+						hands = []
+						if det.multi_hand_landmarks:
+							for hand_lms in det.multi_hand_landmarks:
+								hands.append([
+									{"x": lm.x, "y": lm.y, "z": lm.z}
+									for lm in hand_lms.landmark
+								])
+								if draw_overlay:
+									from PIL import ImageDraw
+									draw_obj = ImageDraw.Draw(img)
+									for lm in hand_lms.landmark:
+										px = int(lm.x * w); py = int(lm.y * h)
+										draw_obj.ellipse([px-4, py-4, px+4, py+4], fill=(0, 200, 255))
+						result.outputs["detections"] = hands
+			except ImportError:
+				result.success = False
+				result.error = "mediapipe not available"
+			except Exception as e:
+				result.success = False
+				result.error = str(e)
 
 		# Output rendered image as ndarray (drawn overlay baked in)
 		if draw_overlay and result.outputs["detections"]:
@@ -1164,6 +1229,232 @@ class WFComputerVisionFlow(WFFlowType):
 
 # =============================================================================
 # END ML / STREAM INFERENCE NODES
+# =============================================================================
+
+
+# =============================================================================
+# UTILITY FLOW NODE EXECUTORS
+# =============================================================================
+
+class WFHttpRequestFlow(WFFlowType):
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		result.outputs["response"]    = None
+		result.outputs["status_code"] = None
+		result.outputs["ok"]          = False
+		try:
+			import aiohttp
+			url        = context.inputs.get("url")
+			method     = str(context.inputs.get("method", "GET")).upper()
+			headers    = context.inputs.get("headers") or {}
+			body       = context.inputs.get("body")
+			timeout_s  = int(context.inputs.get("timeout_s", 30))
+			if not url:
+				raise ValueError("url is required")
+			timeout = aiohttp.ClientTimeout(total=timeout_s)
+			async with aiohttp.ClientSession(timeout=timeout) as session:
+				kwargs = {"headers": headers}
+				if body is not None:
+					if isinstance(body, (dict, list)):
+						kwargs["json"] = body
+					else:
+						kwargs["data"] = str(body)
+				async with session.request(method, url, **kwargs) as resp:
+					status = resp.status
+					try:
+						data = await resp.json(content_type=None)
+					except Exception:
+						data = await resp.text()
+					result.outputs["response"]    = data
+					result.outputs["status_code"] = status
+					result.outputs["ok"]          = 200 <= status < 300
+		except ImportError:
+			result.success = False
+			result.error   = "aiohttp is not installed. Run: pip install aiohttp"
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+		return result
+
+
+class WFIfElseFlow(WFFlowType):
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		result.outputs["true_out"]  = None
+		result.outputs["false_out"] = None
+		try:
+			value     = context.inputs.get("value")
+			condition = context.inputs.get("condition", "bool(value)")
+			local_vars = {"value": value, "variables": context.variables}
+			cond_result = bool(eval(condition, None, local_vars))
+			if cond_result:
+				result.outputs["true_out"]  = value
+			else:
+				result.outputs["false_out"] = value
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+		return result
+
+
+class WFMapExtractFlow(WFFlowType):
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		result.outputs["output"] = None
+		result.outputs["found"]  = False
+		try:
+			data    = context.inputs.get("data")
+			key     = str(context.inputs.get("key", ""))
+			default = context.inputs.get("default")
+			if not key:
+				result.outputs["output"] = data
+				result.outputs["found"]  = data is not None
+				return result
+			parts   = key.split(".")
+			current = data
+			for part in parts:
+				if current is None:
+					current = default
+					break
+				if isinstance(current, dict):
+					current = current.get(part, default)
+				elif isinstance(current, (list, tuple)):
+					try:
+						current = current[int(part)]
+					except (IndexError, ValueError):
+						current = default
+						break
+				else:
+					current = default
+					break
+			result.outputs["output"] = current
+			result.outputs["found"]  = current is not default
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+		return result
+
+
+class WFRetryFlow(WFFlowType):
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		result.outputs["output"]    = None
+		result.outputs["attempts"]  = 0
+		result.outputs["succeeded"] = False
+		try:
+			import asyncio as _asyncio
+			input_val    = context.inputs.get("input")
+			script       = context.inputs.get("script")
+			max_attempts = int(context.inputs.get("max_attempts", 3))
+			delay_ms     = int(context.inputs.get("delay_ms", 500))
+			# If no script, just pass through the input
+			if not script:
+				result.outputs["output"]    = input_val
+				result.outputs["attempts"]  = 1
+				result.outputs["succeeded"] = True
+				return result
+			local_vars = {"input": input_val, "variables": context.variables, "output": None}
+			for attempt in range(1, max_attempts + 1):
+				result.outputs["attempts"] = attempt
+				try:
+					exec(script, None, local_vars)
+					if local_vars.get("output") is not None:
+						result.outputs["output"]    = local_vars["output"]
+						result.outputs["succeeded"] = True
+						return result
+				except Exception:
+					pass
+				if attempt < max_attempts:
+					await _asyncio.sleep((delay_ms * (2 ** (attempt - 1))) / 1000.0)
+			result.success = False
+			result.error   = f"All {max_attempts} attempts failed"
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+		return result
+
+
+class WFAccumulateFlow(WFFlowType):
+	"""Accumulates values across calls using node-level state stored in context.variables."""
+	def __init__(self, config, impl=None, **kwargs):
+		super().__init__(config, impl, **kwargs)
+		node_id = getattr(config, "id", None) or str(id(self))
+		self._key = f"__accumulate_{node_id}"
+
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		value  = context.inputs.get("value")
+		reset  = bool(context.inputs.get("reset", False))
+		if reset or self._key not in context.variables:
+			context.variables[self._key] = []
+		if value is not None:
+			context.variables[self._key].append(value)
+		items = list(context.variables[self._key])
+		result.outputs["items"] = items
+		result.outputs["count"] = len(items)
+		return result
+
+
+class WFNotifyFlow(WFFlowType):
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		result.outputs["sent"]  = False
+		result.outputs["error"] = None
+		try:
+			import json as _json
+			channel = str(context.inputs.get("channel", "webhook")).lower()
+			body    = context.inputs.get("body")
+			if isinstance(body, (dict, list)):
+				body_str = _json.dumps(body)
+			elif body is None:
+				body_str = ""
+			else:
+				body_str = str(body)
+
+			if channel == "webhook":
+				import aiohttp
+				url     = context.inputs.get("url")
+				headers = context.inputs.get("headers") or {"Content-Type": "application/json"}
+				if not url:
+					raise ValueError("url is required for webhook channel")
+				async with aiohttp.ClientSession() as session:
+					async with session.post(url, data=body_str, headers=headers) as resp:
+						if resp.status >= 400:
+							raise ValueError(f"Webhook returned HTTP {resp.status}")
+
+			elif channel == "email":
+				import smtplib, os as _os
+				from email.mime.text import MIMEText
+				to      = context.inputs.get("to")
+				subject = context.inputs.get("subject", "Numel Notification")
+				smtp_host = _os.environ.get("SMTP_HOST", "localhost")
+				smtp_port = int(_os.environ.get("SMTP_PORT", "25"))
+				smtp_user = _os.environ.get("SMTP_USER", "")
+				smtp_pass = _os.environ.get("SMTP_PASS", "")
+				smtp_from = _os.environ.get("SMTP_FROM", smtp_user or "numel@localhost")
+				if not to:
+					raise ValueError("'to' is required for email channel")
+				msg = MIMEText(body_str)
+				msg["Subject"] = subject
+				msg["From"]    = smtp_from
+				msg["To"]      = to
+				with smtplib.SMTP(smtp_host, smtp_port) as srv:
+					if smtp_user:
+						srv.login(smtp_user, smtp_pass)
+					srv.send_message(msg)
+			else:
+				raise ValueError(f"Unknown notify channel: {channel}")
+
+			result.outputs["sent"] = True
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+			result.outputs["error"] = str(e)
+		return result
+
+
+# =============================================================================
+# END UTILITY FLOW NODE EXECUTORS
 # =============================================================================
 
 
@@ -1191,11 +1482,13 @@ _NODE_TYPES = {
 	"model_config"             : WFModelConfig,
 	"embedding_config"         : WFEmbeddingConfig,
 	"content_db_config"        : WFContentDBConfig,
-	"vector_db_config"         : WFIndexDBConfig,
+	"vector_db_config"         : WFIndexDBConfig,   # legacy alias
+	"index_db_config"          : WFIndexDBConfig,
 	"memory_manager_config"    : WFMemoryManagerConfig,
 	"session_manager_config"   : WFSessionManagerConfig,
 	"knowledge_manager_config" : WFKnowledgeManagerConfig,
 	"tool_config"              : WFToolConfig,
+	"toolkit_config"           : WFToolkitConfig,
 	"agent_options_config"     : WFAgentOptionsConfig,
 	"agent_config"             : WFAgentConfig,
 
@@ -1229,6 +1522,14 @@ _NODE_TYPES = {
 	"fswatch_source_flow"      : WFFSWatchSourceFlow,
 	"webhook_source_flow"      : WFWebhookSourceFlow,
 	"browser_source_flow"      : WFBrowserSourceFlow,
+
+	# Utility nodes
+	"http_request_flow"        : WFHttpRequestFlow,
+	"if_else_flow"             : WFIfElseFlow,
+	"map_extract_flow"         : WFMapExtractFlow,
+	"retry_flow"               : WFRetryFlow,
+	"accumulate_flow"          : WFAccumulateFlow,
+	"notify_flow"              : WFNotifyFlow,
 
 	# ML / Stream nodes
 	"pose_detector_flow"       : WFPoseDetectorFlow,

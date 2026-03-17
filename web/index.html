@@ -165,7 +165,20 @@
 				<canvas id="sg-main-canvas"></canvas>
 				<div id="sg-contextMenu" class="sg-context-menu"></div>
 				<input type="text" id="sg-nodeInput" class="sg-node-input-overlay">
-				<!-- Console Agent FAB -->
+				<!-- Mini-map -->
+			<canvas id="sg-minimap"></canvas>
+			<!-- Node Search Overlay -->
+			<div id="nodeSearchOverlay" style="display:none">
+				<div id="nodeSearchBox">
+					<div class="sg-node-search-header">
+						<input id="nodeSearchInput" type="text" placeholder="Search nodes…" autocomplete="off" spellcheck="false">
+						<span id="nodeSearchCount"></span>
+						<button id="nodeSearchClose">&times;</button>
+					</div>
+					<div id="nodeSearchResults"></div>
+				</div>
+			</div>
+			<!-- Console Agent FAB -->
 				<button id="consoleToggleBtn" class="nw-console-fab" title="Numel Assistant" style="display:none">
 					<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
 					<span id="consoleBadge" class="nw-console-badge" style="display:none"></span>

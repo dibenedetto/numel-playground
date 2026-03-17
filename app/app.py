@@ -14,10 +14,12 @@ warnings.filterwarnings(
 
 import argparse
 import asyncio
+import io
 import os
 import sys
 import uvicorn
 import webbrowser
+import zipfile
 from   fastapi.staticfiles  import StaticFiles
 
 
@@ -33,15 +35,17 @@ if _app_dir not in sys.path:
 
 
 from   dotenv    import load_dotenv
-from   fastapi   import FastAPI
+from   fastapi   import FastAPI, HTTPException, Request
+from   fastapi.responses import StreamingResponse
 from   inspect   import getsource
-from   typing    import Any
+from   typing    import Any, Optional
 
 
 import schema
 
 
-from   agent_tasks import AgentTaskManager, setup_agent_tasks_api
+from   agent_tasks   import AgentTaskManager, setup_agent_tasks_api
+from   exec_history  import ExecHistoryManager
 from   api       import setup_api
 from   channels  import ChannelRegistry
 from   channels.api            import setup_channel_api
@@ -151,6 +155,9 @@ async def run_server(args: Any):
 	pub_app_mgr = PublishedAppManager(workspace_mgr)
 	pub_app_mgr.initialize()
 
+	# ── Execution History ─────────────────────────────────────
+	exec_history = ExecHistoryManager()
+
 	# ── API Routes (order matters: specific routes before static mount) ──
 	setup_api(server, app, event_bus, schema_code, workspace_mgr)
 	setup_console_api(app, console_mgr)
@@ -158,6 +165,108 @@ async def run_server(args: Any):
 	setup_gallery_api(app, gallery_mgr)
 	setup_agent_tasks_api(app, task_mgr)
 	setup_published_apps_api(app, pub_app_mgr)
+
+	# ── Execution History Routes ───────────────────────────────
+
+	@app.get("/exec-history")
+	async def get_exec_history(workflow_name: str = None, limit: int = 100, offset: int = 0):
+		return exec_history.list(workflow_name=workflow_name, limit=limit, offset=offset)
+
+	@app.get("/exec-history/{execution_id}")
+	async def get_exec_record(execution_id: str):
+		rec = exec_history.get(execution_id)
+		if not rec:
+			raise HTTPException(status_code=404, detail="Not found")
+		return rec
+
+	@app.delete("/exec-history")
+	async def clear_exec_history(workflow_name: str = None):
+		exec_history.clear(workflow_name=workflow_name)
+		return {"ok": True}
+
+	@app.post("/exec-history/record")
+	async def record_execution(request: Request):
+		body = await request.json()
+		rec = exec_history.record(**body)
+		return rec.model_dump()
+
+	# ── Workspace ZIP Export ───────────────────────────────────
+
+	@app.get("/workspace/export")
+	async def export_workspace():
+		"""Export entire workspace (workflows + configs) as a ZIP archive."""
+		workspace_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+		include_patterns = [
+			"app/console_agent.json",
+			"app/agent_tasks.json",
+			"app/published_apps.json",
+			"app/gallery.json",
+			"app/exec_history.json",
+		]
+
+		buf = io.BytesIO()
+		with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+			for pattern in include_patterns:
+				full_path = os.path.join(workspace_dir, pattern)
+				if os.path.exists(full_path):
+					zf.write(full_path, pattern)
+			# Also serialize workflows directly from the workspace manager
+			try:
+				ws_obj   = workspace_mgr.get_default_workspace()
+				mgr      = ws_obj.manager
+				wf_names = await mgr.list()
+				for name in wf_names:
+					wf = await mgr.get(name)
+					if wf:
+						import json as _json
+						zf.writestr(f"workflows/{name}.json", _json.dumps(wf.model_dump(), indent=2))
+			except Exception:
+				pass
+		buf.seek(0)
+		from datetime import datetime as _dt
+		filename = f"numel-workspace-{_dt.now().strftime('%Y%m%d-%H%M%S')}.zip"
+		return StreamingResponse(
+			buf,
+			media_type="application/zip",
+			headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+		)
+
+	# ── Scheduled Workflow Runs ────────────────────────────────
+
+	from pydantic import BaseModel as _BaseModel
+
+	class ScheduledRunRequest(_BaseModel):
+		workflow_name : str
+		delay_seconds : float        = 0
+		inputs        : Optional[dict] = None
+
+	@app.post("/schedule-run")
+	async def schedule_run(request: ScheduledRunRequest):
+		"""Schedule a workflow to run after a delay (or immediately)."""
+		async def _run_later():
+			if request.delay_seconds > 0:
+				await asyncio.sleep(request.delay_seconds)
+			try:
+				ws_obj = workspace_mgr.get_default_workspace()
+				mgr    = ws_obj.manager
+				engine = ws_obj.engine
+				wf = await mgr.get(request.workflow_name)
+				if wf is None:
+					return
+				impl = await mgr.impl(request.workflow_name)
+				if not impl:
+					return
+				exec_id = await engine.start_workflow(
+					workflow     = impl["workflow"],
+					backend      = impl["backend"],
+					initial_data = request.inputs or {},
+				)
+				log_print(f"Scheduled run started: {request.workflow_name} → {exec_id}")
+			except Exception as e:
+				log_print(f"Scheduled run failed: {e}")
+
+		asyncio.create_task(_run_later())
+		return {"ok": True, "scheduled": True, "workflow_name": request.workflow_name}
 
 	# Serve index.html at / and all static assets (JS, CSS, dist/*)
 	app.mount("/", StaticFiles(directory=_web_dir, html=True), name="static")

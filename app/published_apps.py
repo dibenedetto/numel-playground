@@ -37,6 +37,10 @@ class PublishedApp(BaseModel):
 	enabled     : bool           = True
 	runs        : int            = 0
 	author      : str            = ""
+	run_count   : int            = 0
+	error_count : int            = 0
+	last_run_at : Optional[str]  = None
+	last_error  : Optional[str]  = None
 
 
 # =============================================================================
@@ -105,6 +109,10 @@ class PublishedAppManager:
 				"enabled":     a.enabled,
 				"runs":        a.runs,
 				"author":      a.author,
+				"run_count":   a.run_count,
+				"error_count": a.error_count,
+				"last_run_at": a.last_run_at,
+				"last_error":  a.last_error,
 			}
 			for a in self._apps.values()
 		]
@@ -141,15 +149,16 @@ class PublishedAppManager:
 			)
 
 			# Spawn background cleanup task
-			asyncio.create_task(self._cleanup_when_done(engine, mgr, execution_id, temp_name))
+			asyncio.create_task(self._cleanup_when_done(engine, mgr, execution_id, temp_name, slug))
 
 			return {"execution_id": execution_id}
 
 		except Exception as e:
 			return {"error": str(e)}
 
-	async def _cleanup_when_done(self, engine, mgr, execution_id: str, temp_name: str):
+	async def _cleanup_when_done(self, engine, mgr, execution_id: str, temp_name: str, slug: str):
 		"""Background task: wait for execution to finish then remove temp workflow."""
+		results = None
 		for _ in range(960):  # max 8 min
 			results = engine.get_execution_results(execution_id)
 			if results and results.get("status") in ("completed", "failed"):
@@ -159,6 +168,15 @@ class PublishedAppManager:
 			await mgr.remove(temp_name)
 		except Exception:
 			pass
+		# Update analytics
+		app = self._apps.get(slug)
+		if app:
+			app.run_count  += 1
+			app.last_run_at = datetime.now().isoformat()
+			if results and results.get("status") == "failed":
+				app.error_count += 1
+				app.last_error   = results.get("error") or "unknown error"
+			self._save()
 
 	async def run(self, slug: str, input_data: Dict[str, Any]) -> Dict[str, Any]:
 		"""Run a published app synchronously (blocking until complete, no user-input support)."""
@@ -216,7 +234,7 @@ class PublishedAppManager:
 
 	# ── HTML Generation ───────────────────────────────────────────
 
-	def render_form(self, slug: str, base_url: str = "") -> str:
+	def render_form(self, slug: str, base_url: str = "", embed: bool = False) -> str:
 		"""Generate an HTML form for a published app with user-input dialog support."""
 		app = self._apps.get(slug)
 		if not app:
@@ -249,6 +267,11 @@ class PublishedAppManager:
 					<input type="{html_type}" id="{name}" name="{name}" value="{default}" {required}>
 				</div>'''
 
+		embed_css = '''
+body { padding: 8px !important; background: transparent !important; }
+h1, .desc, .footer { display: none !important; }
+''' if embed else ''
+
 		return f'''<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -260,6 +283,7 @@ class PublishedAppManager:
 body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
        background: #0f0f12; color: #e0e0e0; min-height: 100vh;
        display: flex; align-items: center; justify-content: center; padding: 20px; }}
+{embed_css}
 .container {{ max-width: 600px; width: 100%; }}
 h1 {{ font-size: 24px; margin-bottom: 8px; color: #fff; }}
 .desc {{ color: #888; margin-bottom: 24px; font-size: 14px; }}
@@ -765,13 +789,13 @@ def setup_published_apps_api(app: FastAPI, app_mgr: PublishedAppManager):
 
 	# Public endpoints — these are what end users access
 	@app.get("/apps/{slug}")
-	async def apps_page(slug: str, request: Request):
+	async def apps_page(slug: str, request: Request, embed: bool = False):
 		"""Serve the auto-generated HTML form for a published app."""
 		published_app = app_mgr.get(slug)
 		if not published_app or not published_app.enabled:
 			return HTMLResponse("<h1>App not found</h1>", status_code=404)
 		base_url = str(request.base_url).rstrip("/")
-		html = app_mgr.render_form(slug, base_url)
+		html = app_mgr.render_form(slug, base_url, embed=embed)
 		return HTMLResponse(html)
 
 	@app.post("/apps/{slug}/start")

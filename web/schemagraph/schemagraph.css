@@ -3158,5 +3158,22 @@
 }
 
 /* ========================================================================
+   NODE ERROR TOOLTIP STYLES (Task 1 - Inline error display on failing nodes)
+   ======================================================================== */
+
+.sg-node-tooltip-error {
+  background: rgba(180, 40, 40, 0.2);
+  border: 1px solid var(--sg-accent-red, #dc6464);
+  border-radius: 4px;
+  color: #f99;
+  font-size: 11px;
+  padding: 5px 8px;
+  margin-top: 6px;
+  word-break: break-word;
+  max-width: 300px;
+  line-height: 1.4;
+}
+
+/* ========================================================================
    END OF SCHEMAGRAPH STYLESHEET
    ======================================================================== */

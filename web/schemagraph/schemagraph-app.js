@@ -715,6 +715,11 @@ class SchemaGraphApp {
 						<span class="sg-toolbar-toggle-slider"></span>
 						<span class="sg-toolbar-toggle-text">Any Downcast</span>
 					</label>
+					<label class="sg-toolbar-toggle-switch" title="Show mini-map overlay in the bottom-left corner of the canvas">
+						<input type="checkbox" id="sg-feature-minimap" checked>
+						<span class="sg-toolbar-toggle-slider"></span>
+						<span class="sg-toolbar-toggle-text">Mini-map</span>
+					</label>
 				</div>
 			</div>
 			<button id="sg-features-advanced-toggle" class="sg-features-advanced-btn">▼ Advanced Options</button>
@@ -3786,11 +3791,11 @@ class SchemaGraphApp {
 
 		if (this.selectionStart && this.selectionRect) {
 			if (!data.event.ctrlKey && !data.event.metaKey) this.clearSelection();
-			for (const node of this.graph.nodes) {
-				if (!(node.pos[0] > this.selectionRect.x + this.selectionRect.w || node.pos[0] + node.size[0] < this.selectionRect.x || node.pos[1] > this.selectionRect.y + this.selectionRect.h || node.pos[1] + node.size[1] < this.selectionRect.y)) {
-					this.selectNode(node, true);
-				}
-			}
+			const rect = this.selectionRect;
+			const toSelect = this.graph.nodes.filter(node =>
+				!(node.pos[0] > rect.x + rect.w || node.pos[0] + node.size[0] < rect.x ||
+				  node.pos[1] > rect.y + rect.h || node.pos[1] + node.size[1] < rect.y));
+			for (const node of toSelect) this.selectNode(node, true);
 		}
 
 		this.selectionStart = null;
@@ -4897,6 +4902,12 @@ class SchemaGraphApp {
 				html += '<div class="sg-node-tooltip-chain-ok">✓ Chain complete - ready</div>';
 			}
 
+			// Show execution error if the node failed
+			if (node.executionErrorText) {
+				const errText = String(node.executionErrorText).substring(0, 300);
+				html += `<div class="sg-node-tooltip-error"><span style="font-weight:600;">&#9888; Error:</span> ${errText.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>`;
+			}
+
 			if (node.isNative) {
 				html += '<div class="sg-node-tooltip-badge-row"><span class="sg-node-tooltip-type-badge native">Native</span></div>';
 			}
@@ -5875,11 +5886,17 @@ class SchemaGraphApp {
 		if (style.currentStyle !== 'wireframe') this.ctx.fill();
 
 		this.ctx.shadowBlur = 0; this.ctx.shadowOffsetY = 0;
-		this.ctx.strokeStyle = isSelected ? colors.borderHighlight : colors.borderColor;
-		this.ctx.lineWidth = (isSelected ? 2 : 1) / this.camera.scale;
+		const hasError = node.executionErrorText && node.executionState === 'failed';
+		this.ctx.strokeStyle = hasError ? '#dc6464' : (isSelected ? colors.borderHighlight : colors.borderColor);
+		this.ctx.lineWidth = (isSelected || hasError ? 2 : 1) / this.camera.scale;
+		if (hasError) {
+			this.ctx.shadowColor = 'rgba(220, 100, 100, 0.4)';
+			this.ctx.shadowBlur = 6 / this.camera.scale;
+		}
 		if (isPreviewSelected && !isSelected) this.ctx.setLineDash([5 / this.camera.scale, 5 / this.camera.scale]);
 		this.ctx.stroke();
 		if (isPreviewSelected && !isSelected) this.ctx.setLineDash([]);
+		if (hasError) { this.ctx.shadowBlur = 0; this.ctx.shadowColor = 'transparent'; }
 
 		const headerColor = node.color || (node.isNative ? colors.accentPurple : (node.isRootType ? colors.accentOrange : colors.nodeHeader));
 		if (style.useGradient && style.currentStyle !== 'wireframe') {
@@ -11257,6 +11274,10 @@ class SchemaGraphApp {
 					});
 					document.getElementById('sg-feature-anydowncast')?.addEventListener('change', (e) => {
 						self.api.features.set({ anyDowncast: e.target.checked });
+					});
+					document.getElementById('sg-feature-minimap')?.addEventListener('change', (e) => {
+						const mm = document.getElementById('sg-minimap');
+						if (mm) mm.style.display = e.target.checked ? '' : 'none';
 					});
 
 					// Features panel toggle (show/hide with animation)

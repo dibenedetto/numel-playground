@@ -48,6 +48,7 @@ class AgentTaskConfig(BaseModel):
 	trigger      : TaskTrigger    = TaskTrigger.INTERVAL
 	interval_sec : int            = 300      # For interval trigger (default 5 min)
 	event_type   : Optional[str]  = None     # For event trigger
+	cron_expr    : Optional[str]  = None     # For cron trigger, e.g. "0 * * * *" (hourly)
 	max_runs     : int            = -1       # -1 = unlimited
 	enabled      : bool           = True
 	created      : str            = Field(default_factory=lambda: datetime.now().isoformat())
@@ -160,6 +161,14 @@ class AgentTaskManager:
 					lambda evt, tid=task_id: asyncio.create_task(self._run_task(tid))
 				)
 			self._statuses[task_id] = TaskStatus.RUNNING
+		elif config.trigger == TaskTrigger.CRON:
+			if not config.cron_expr:
+				log_print(f"⚠️ CRON task {config.name} has no cron_expr, skipping")
+				self._statuses[task_id] = TaskStatus.ERROR
+				return False
+			self._bg_tasks[task_id] = asyncio.create_task(
+				self._cron_loop(task_id)
+			)
 
 		log_print(f"Agent task started: {config.name} ({config.trigger.value})")
 		return True
@@ -206,6 +215,51 @@ class AgentTaskManager:
 				break
 
 			await asyncio.sleep(config.interval_sec)
+
+	async def _cron_loop(self, task_id: str):
+		"""Run task on a cron schedule."""
+		try:
+			from croniter import croniter
+		except ImportError:
+			log_print("⚠️ croniter not installed; CRON tasks disabled. Run: pip install croniter")
+			self._statuses[task_id] = TaskStatus.ERROR
+			return
+
+		config = self._tasks.get(task_id)
+		if not config:
+			return
+
+		try:
+			cron = croniter(config.cron_expr)
+		except Exception as e:
+			log_print(f"⚠️ Invalid cron expression '{config.cron_expr}': {e}")
+			self._statuses[task_id] = TaskStatus.ERROR
+			return
+
+		log_print(f"CRON task '{config.name}' starting (expr: {config.cron_expr})")
+		while True:
+			try:
+				next_ts = cron.get_next(float)
+				now     = __import__('time').time()
+				wait    = max(0, next_ts - now)
+				await asyncio.sleep(wait)
+				if task_id not in self._tasks:
+					break
+				await self._run_task(task_id)
+				# Check max_runs
+				config = self._tasks.get(task_id)
+				if not config:
+					break
+				count = self._run_counts.get(task_id, 0)
+				if config.max_runs > 0 and count >= config.max_runs:
+					self._statuses[task_id] = TaskStatus.COMPLETED
+					log_print(f"CRON task '{config.name}' completed after {count} runs")
+					break
+			except asyncio.CancelledError:
+				break
+			except Exception as e:
+				log_print(f"CRON task error: {e}")
+				await asyncio.sleep(60)
 
 	async def _run_once(self, task_id: str):
 		"""Run a task once."""
@@ -288,9 +342,10 @@ class TaskCreateRequest(BaseModel):
 	name         : str
 	prompt       : str
 	description  : str          = ""
-	trigger      : str          = "interval"   # interval, once, event
+	trigger      : str          = "interval"   # interval, once, event, cron
 	interval_sec : int          = 300
 	event_type   : Optional[str] = None
+	cron_expr    : Optional[str] = None
 	max_runs     : int          = -1
 	enabled      : bool         = True
 
@@ -318,6 +373,7 @@ def setup_agent_tasks_api(app: FastAPI, task_mgr: AgentTaskManager):
 			trigger      = TaskTrigger(request.trigger),
 			interval_sec = request.interval_sec,
 			event_type   = request.event_type,
+			cron_expr    = request.cron_expr,
 			max_runs     = request.max_runs,
 			enabled      = request.enabled,
 		)
