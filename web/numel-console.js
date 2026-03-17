@@ -34,13 +34,17 @@ class AgentConsoleManager {
 		this._fab         = document.getElementById('consoleToggleBtn');
 		this._badge       = document.getElementById('consoleBadge');
 		this._status      = document.getElementById('consoleStatus');
-		this._modelSelect  = document.getElementById('consoleModelSelect');
-		this._toolkitList  = document.getElementById('consoleToolkitList');
-		this._ttsToggle    = document.getElementById('consoleTtsToggle');
+		this._modelSelect    = document.getElementById('consoleModelSelect');
+		this._toolkitList    = document.getElementById('consoleToolkitList');
+		this._ttsToggle      = document.getElementById('consoleTtsToggle');
 		this._ttsVoiceSelect = document.getElementById('consoleTtsVoice');
-		this._streamToggle = document.getElementById('consoleStreamToggle');
-		this._ttsEnabled   = false;
-		this._ttsVoice     = null;
+		this._streamToggle   = document.getElementById('consoleStreamToggle');
+		this._memoryToggle   = document.getElementById('consoleMemoryToggle');
+		this._settingsHeader = document.getElementById('consoleSettingsHeader');
+		this._settingsBody   = document.getElementById('consoleSettingsBody');
+		this._settingsSummary = document.getElementById('consoleSettingsSummary');
+		this._ttsEnabled     = false;
+		this._ttsVoice       = null;
 
 		this._setupUI();
 		this._fetchToolkits();
@@ -65,8 +69,25 @@ class AgentConsoleManager {
 			this._input.style.height = 'auto';
 			this._input.style.height = Math.min(this._input.scrollHeight, 120) + 'px';
 		});
+		// Settings collapse toggle
+		if (this._settingsHeader) {
+			this._settingsHeader.addEventListener('click', () => {
+				const open = this._settingsBody.classList.toggle('open');
+				this._settingsHeader.setAttribute('aria-expanded', open ? 'true' : 'false');
+				this._updateSettingsSummary();
+			});
+		}
+
 		// Model selector change → restart agent
-		this._modelSelect.addEventListener('change', () => this._onConfigChanged());
+		this._modelSelect.addEventListener('change', () => {
+			this._updateSettingsSummary();
+			this._onConfigChanged();
+		});
+
+		// Memory toggle → restart agent
+		if (this._memoryToggle) {
+			this._memoryToggle.addEventListener('change', () => this._onConfigChanged());
+		}
 
 		// Streaming mode toggle
 		if (this._streamToggle) {
@@ -125,6 +146,24 @@ class AgentConsoleManager {
 
 	// ── Configuration (Model + Toolkits) ─────────────────────────
 
+	_updateSettingsSummary() {
+		if (!this._settingsSummary) return;
+		// Only show summary when collapsed
+		if (this._settingsBody && this._settingsBody.classList.contains('open')) {
+			this._settingsSummary.textContent = '';
+			return;
+		}
+		const val = this._modelSelect ? this._modelSelect.value : '';
+		const [source, ...rest] = val.split(':');
+		const modelLabel = rest.join(':') || source;
+		const toolkits = this._getSelectedToolkits().filter(t => t !== 'console_toolkit');
+		const memOn = this._memoryToggle ? this._memoryToggle.checked : true;
+		const parts = [modelLabel];
+		if (toolkits.length) parts.push(`+${toolkits.length} toolkit${toolkits.length > 1 ? 's' : ''}`);
+		if (memOn) parts.push('mem');
+		this._settingsSummary.textContent = parts.join(' · ');
+	}
+
 	_getSelectedModel() {
 		const val = this._modelSelect.value; // "ollama:mistral"
 		const [source, ...rest] = val.split(':');
@@ -150,7 +189,10 @@ class AgentConsoleManager {
 				cb.value = tk.name;
 				cb.checked = tk.enabled || tk.builtin;
 				if (tk.builtin) cb.disabled = true;
-				else cb.addEventListener('change', () => this._onConfigChanged());
+				else cb.addEventListener('change', () => {
+					this._updateSettingsSummary();
+					this._onConfigChanged();
+				});
 				const lbl = document.createElement('label');
 				lbl.htmlFor = id;
 				lbl.textContent = tk.name.replace(/_/g, ' ').replace(/\btoolkit\b/i, '').trim()
@@ -160,6 +202,7 @@ class AgentConsoleManager {
 				item.appendChild(lbl);
 				this._toolkitList.appendChild(item);
 			}
+			this._updateSettingsSummary();
 		} catch { /* ignore — toolkits will use defaults */ }
 	}
 
@@ -185,7 +228,8 @@ class AgentConsoleManager {
 		try {
 			const { source, name } = this._getSelectedModel();
 			const toolkit_names = this._getSelectedToolkits();
-			const data = await this.api.consoleStart({ model_source: source, model_name: name, toolkit_names });
+			const use_backend_memory = this._memoryToggle ? this._memoryToggle.checked : true;
+			const data = await this.api.consoleStart({ model_source: source, model_name: name, toolkit_names, use_backend_memory });
 			this.agentPort = data.port;
 
 			// Connect AGUI handler if streaming mode is on

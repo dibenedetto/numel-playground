@@ -121,24 +121,27 @@ class ConsoleAgentManager:
 		self._model_source  = None
 		self._model_name    = None
 		self._toolkit_names = []      # e.g. ["console_toolkit", "file_toolkit"]
-		self._proactive_ws  : Set[WebSocket] = set()
-		self._sessions      : Dict[str, List[dict]] = {}  # session_id → message history
-		self._start_lock    = asyncio.Lock()               # prevents concurrent start/stop
+		self._proactive_ws       : Set[WebSocket] = set()
+		self._sessions           : Dict[str, List[dict]] = {}  # session_id → message history
+		self._start_lock         = asyncio.Lock()               # prevents concurrent start/stop
+		self._use_backend_memory = False                        # set during start()
 
 	# ── Lifecycle ──────────────────────────────────────────────────
 
 	async def start(self, model_source: Optional[str] = None,
 					model_name: Optional[str] = None,
-					toolkit_names: Optional[List[str]] = None) -> int:
+					toolkit_names: Optional[List[str]] = None,
+					use_backend_memory: Optional[bool] = None) -> int:
 		"""Start (or restart) the console agent server. Returns the port.
 		Concurrent calls are serialized — a second call waits for the first to finish."""
 
 		async with self._start_lock:
-			return await self._start_impl(model_source, model_name, toolkit_names)
+			return await self._start_impl(model_source, model_name, toolkit_names, use_backend_memory)
 
 	async def _start_impl(self, model_source: Optional[str] = None,
 						  model_name: Optional[str] = None,
-						  toolkit_names: Optional[List[str]] = None) -> int:
+						  toolkit_names: Optional[List[str]] = None,
+						  use_backend_memory: Optional[bool] = None) -> int:
 		# Load config for defaults and instructions
 		with open(self._config_path) as f:
 			config = json.load(f)
@@ -186,15 +189,50 @@ class ConsoleAgentManager:
 			else:
 				tools.extend(_load_toolkit(tk_name))
 
+		# Memory: agno backend (SqliteDb) or manual MemoryStore
+		mem_cfg = config.get("memory", {})
+		# use_backend_memory param overrides the config file value
+		use_backend = use_backend_memory if use_backend_memory is not None else mem_cfg.get("backend", True)
+		self._use_backend_memory = use_backend
+
+		db                      = None
+		enable_agentic_memory   = False
+		add_memories_to_context = False
+		search_session_history  = False
+		num_history_sessions    = None
+		session_summary_manager = None
+
+		if use_backend:
+			from agno.db.sqlite       import SqliteDb
+			from agno.memory.manager  import MemoryManager
+			from agno.session.summary import SessionSummaryManager
+			db_path                 = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
+			db                      = SqliteDb(db_file=db_path)
+			enable_agentic_memory   = True
+			add_memories_to_context = True
+			search_session_history  = True
+			num_history_sessions    = mem_cfg.get("session_history", 5)
+			session_summary_manager = SessionSummaryManager(model=model)
+			log_print(f"Console agent: using agno backend memory ({db_path})")
+		else:
+			log_print("Console agent: using manual MemoryStore")
+
 		# Build agent
 		opts = config.get("options", {})
 		self._agent = Agent(
-			name         = opts.get("name", "Numel Assistant"),
-			model        = model,
-			description  = opts.get("description", ""),
-			instructions = opts.get("instructions", []),
-			markdown     = opts.get("markdown", True),
-			tools        = tools,
+			name                    = opts.get("name", "Numel Assistant"),
+			model                   = model,
+			description             = opts.get("description", ""),
+			instructions            = opts.get("instructions", []),
+			markdown                = opts.get("markdown", True),
+			tools                   = tools,
+
+			db                      = db,
+			enable_agentic_memory   = enable_agentic_memory,
+			add_memories_to_context = add_memories_to_context,
+			search_session_history  = search_session_history,
+			num_history_sessions    = num_history_sessions,
+			session_summary_manager = session_summary_manager,
 		)
 
 		# Build AGUI app
@@ -253,7 +291,7 @@ class ConsoleAgentManager:
 		if not session_id:
 			session_id = str(uuid.uuid4())
 
-		# Optionally prepend workspace context and memory to the user message
+		# Prepend workspace context to the user message
 		augmented = message
 		if include_context:
 			try:
@@ -261,8 +299,8 @@ class ConsoleAgentManager:
 				parts = []
 				if ctx.get("context"):
 					parts.append(f"[Current workspace state]\n{ctx['context']}")
-				# Retrieve relevant memories
-				if self._memory:
+				# Manual memory retrieval (only when not using agno backend)
+				if self._memory and not self._use_backend_memory:
 					mem_ctx = self._memory.get_context_for_query(message)
 					if mem_ctx:
 						parts.append(mem_ctx)
@@ -308,9 +346,9 @@ class ConsoleAgentManager:
 					"result": None,
 				})
 
-		# Save conversation to persistent memory (every 3 turns)
+		# Save conversation to manual MemoryStore (only when not using agno backend, every 3 turns)
 		turn_count = self._sessions.get(session_id, 0)
-		if self._memory and turn_count >= 3 and turn_count % 3 == 0:
+		if self._memory and not self._use_backend_memory and turn_count >= 3 and turn_count % 3 == 0:
 			try:
 				self._memory.add(
 					content=f"User: {message}\nAssistant: {assistant_content[:500]}",
@@ -404,9 +442,10 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 	"""Register all console-related API routes on the FastAPI app."""
 
 	class ConsoleStartRequest(BaseModel):
-		model_source:  Optional[str]       = None  # "ollama", "openai", "anthropic"
-		model_name:    Optional[str]       = None  # e.g. "mistral", "gpt-4o-mini"
-		toolkit_names: Optional[List[str]] = None  # e.g. ["console_toolkit", "file_toolkit"]
+		model_source:       Optional[str]       = None   # "ollama", "openai", "anthropic"
+		model_name:         Optional[str]       = None   # e.g. "mistral", "gpt-4o-mini"
+		toolkit_names:      Optional[List[str]] = None   # e.g. ["console_toolkit", "file_toolkit"]
+		use_backend_memory: Optional[bool]      = None   # None = use console_agent.json default
 
 	class ConsoleChatRequest(BaseModel):
 		message:         str
@@ -415,7 +454,7 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 
 	@app.post("/console/start")
 	async def console_start(request: ConsoleStartRequest = ConsoleStartRequest()):
-		port = await console_mgr.start(request.model_source, request.model_name, request.toolkit_names)
+		port = await console_mgr.start(request.model_source, request.model_name, request.toolkit_names, request.use_backend_memory)
 		return {
 			"port":          port,
 			"status":        "running",

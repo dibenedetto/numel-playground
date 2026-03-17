@@ -100,14 +100,69 @@
 /* ── Settings Bar ──────────────────────────────────────────── */
 
 .nw-console-settings {
-	display: flex;
-	flex-direction: column;
-	gap: 6px;
-	padding: 8px 16px;
 	border-bottom: 1px solid var(--sg-border-color);
 	background: var(--sg-bg-secondary);
 	flex-shrink: 0;
 }
+
+/* Collapsible header */
+.nw-console-settings-header {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	width: 100%;
+	padding: 7px 16px;
+	background: none;
+	border: none;
+	cursor: pointer;
+	color: var(--sg-text-secondary);
+	text-align: left;
+}
+.nw-console-settings-header:hover {
+	background: rgba(255,255,255,0.03);
+}
+.nw-console-settings-label {
+	font-size: 11px;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	color: var(--sg-text-tertiary);
+	flex-shrink: 0;
+}
+.nw-console-settings-summary {
+	font-size: 11px;
+	color: var(--sg-text-secondary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	flex: 1;
+}
+.nw-console-chevron {
+	width: 14px;
+	height: 14px;
+	fill: none;
+	stroke: var(--sg-text-tertiary);
+	stroke-width: 2.5;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+	flex-shrink: 0;
+	transition: transform 0.2s;
+}
+.nw-console-settings-header[aria-expanded="true"] .nw-console-chevron {
+	transform: rotate(180deg);
+}
+
+/* Collapsible body */
+.nw-console-settings-body {
+	display: none;
+	flex-direction: column;
+	gap: 6px;
+	padding: 4px 16px 10px;
+}
+.nw-console-settings-body.open {
+	display: flex;
+}
+
 .nw-console-settings-row {
 	display: flex;
 	align-items: center;

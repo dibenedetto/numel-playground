@@ -261,37 +261,51 @@
 				<button id="consoleCloseBtn" class="nw-console-close">&times;</button>
 			</div>
 			<div class="nw-console-settings">
-				<div class="nw-console-settings-row">
-					<label for="consoleModelSelect">Model</label>
-					<select id="consoleModelSelect" class="nw-console-model-select">
-						<option value="ollama:qwen3.5:cloud">ollama / qwen3.5:cloud</option>
-						<option value="ollama:mistral">ollama / mistral</option>
-						<option value="ollama:llama3">ollama / llama3</option>
-						<option value="ollama:qwen2.5">ollama / qwen2.5</option>
-						<option value="openai:gpt-4o-mini">openai / gpt-4o-mini</option>
-						<option value="openai:gpt-4o">openai / gpt-4o</option>
-						<option value="anthropic:claude-sonnet-4-20250514">anthropic / claude-sonnet-4</option>
-					</select>
-				</div>
-				<div class="nw-console-settings-row">
-					<label>Toolkits</label>
-					<div id="consoleToolkitList" class="nw-console-toolkit-list"></div>
-				</div>
-				<div class="nw-console-settings-row">
-					<label for="consoleTtsToggle">Voice</label>
-					<label class="nw-console-toggle">
-						<input type="checkbox" id="consoleTtsToggle">
-						<span class="nw-console-toggle-label">Speak responses</span>
-					</label>
-					<select id="consoleTtsVoice" class="nw-console-voice-select" style="display:none">
-					</select>
-				</div>
-				<div class="nw-console-settings-row">
-					<label for="consoleStreamToggle">Stream</label>
-					<label class="nw-console-toggle">
-						<input type="checkbox" id="consoleStreamToggle" checked>
-						<span class="nw-console-toggle-label">Stream responses (AGUI)</span>
-					</label>
+				<button id="consoleSettingsHeader" class="nw-console-settings-header" aria-expanded="false">
+					<span class="nw-console-settings-label">Settings</span>
+					<span id="consoleSettingsSummary" class="nw-console-settings-summary"></span>
+					<svg class="nw-console-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+				</button>
+				<div id="consoleSettingsBody" class="nw-console-settings-body">
+					<div class="nw-console-settings-row">
+						<label for="consoleModelSelect">Model</label>
+						<select id="consoleModelSelect" class="nw-console-model-select">
+							<option value="ollama:qwen3.5:cloud">ollama / qwen3.5:cloud</option>
+							<option value="ollama:mistral">ollama / mistral</option>
+							<option value="ollama:llama3">ollama / llama3</option>
+							<option value="ollama:qwen2.5">ollama / qwen2.5</option>
+							<option value="openai:gpt-4o-mini">openai / gpt-4o-mini</option>
+							<option value="openai:gpt-4o">openai / gpt-4o</option>
+							<option value="anthropic:claude-sonnet-4-20250514">anthropic / claude-sonnet-4</option>
+						</select>
+					</div>
+					<div class="nw-console-settings-row">
+						<label>Toolkits</label>
+						<div id="consoleToolkitList" class="nw-console-toolkit-list"></div>
+					</div>
+					<div class="nw-console-settings-row">
+						<label for="consoleTtsToggle">Voice</label>
+						<label class="nw-console-toggle">
+							<input type="checkbox" id="consoleTtsToggle">
+							<span class="nw-console-toggle-label">Speak responses</span>
+						</label>
+						<select id="consoleTtsVoice" class="nw-console-voice-select" style="display:none">
+						</select>
+					</div>
+					<div class="nw-console-settings-row">
+						<label for="consoleStreamToggle">Stream</label>
+						<label class="nw-console-toggle">
+							<input type="checkbox" id="consoleStreamToggle" checked>
+							<span class="nw-console-toggle-label">Stream responses (AGUI)</span>
+						</label>
+					</div>
+					<div class="nw-console-settings-row">
+						<label for="consoleMemoryToggle">Memory</label>
+						<label class="nw-console-toggle">
+							<input type="checkbox" id="consoleMemoryToggle" checked>
+							<span class="nw-console-toggle-label">Use built-in memory</span>
+						</label>
+					</div>
 				</div>
 			</div>
 			<div id="consoleMessages" class="nw-console-messages"></div>
