@@ -89,6 +89,7 @@ class EventType(str, Enum):
 	# Workspace events
 	WORKSPACE_CREATED        = "workspace.created"
 	WORKSPACE_DELETED        = "workspace.deleted"
+	WORKSPACE_CHANGED        = "workspace.changed"
 
 	# Batch execution events
 	BATCH_STARTED            = "batch.started"

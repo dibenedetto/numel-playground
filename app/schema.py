@@ -1077,6 +1077,28 @@ class AccumulateFlow(FlowType):
 
 
 @node_info(
+    title       = "Eval",
+    description = "Score workflow output with a Python expression — for optimization loops",
+    icon        = "📊",
+    section     = "Workflow",
+    visible     = True
+)
+class EvalFlow(FlowType):
+    """Score a value with a Python script. The script receives `input` and must assign
+    a numeric `score` (float, higher = better). Optionally assign a string `feedback`.
+    Wire `input` from the node whose output you want to measure, then wire `score`
+    to an AccumulateFlow or PreviewFlow to track improvement across iterations."""
+    type     : Annotated[Literal["eval_flow"], FieldRole.CONSTANT] = "eval_flow"
+    input    : Annotated[Optional[Any]       , FieldRole.INPUT   ] = Field(default=None,            description="The value to evaluate; available as 'input' inside the script")
+    script   : Annotated[str                 , FieldRole.INPUT   ] = Field(
+        default="# Set score (float) and optional feedback (str)\nscore = 0.0\nfeedback = ''",
+        json_schema_extra={"editor": "code"},
+        description="Python code; must set 'score' (float). Optionally set 'feedback' (str). Has access to 'input' and 'variables'.")
+    score    : Annotated[float               , FieldRole.OUTPUT  ] = Field(default=0.0,             description="Numeric score produced by the script (higher = better)")
+    feedback : Annotated[str                 , FieldRole.OUTPUT  ] = Field(default="",              description="Optional textual feedback string set by the script")
+
+
+@node_info(
     title       = "Notify",
     description = "Send an email or webhook notification",
     icon        = "🔔",
@@ -1458,6 +1480,7 @@ WorkflowNodeUnion = Union[
 	RetryFlow,
 	AccumulateFlow,
 	NotifyFlow,
+	EvalFlow,
 
 	# Event/Trigger nodes
 	GateFlow,

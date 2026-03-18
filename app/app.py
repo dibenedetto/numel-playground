@@ -319,6 +319,29 @@ async def run_server(args: Any):
 		asyncio.create_task(_run_later())
 		return {"ok": True, "scheduled": True, "workflow_name": request.workflow_name}
 
+	# ── Workspace Changed Notification ────────────────────────
+
+	@app.post("/workspace/changed")
+	async def notify_workspace_changed(request: Request):
+		"""Called by WorkspaceToolkit after saving; broadcasts workspace.changed
+		over the /events WebSocket so the UI can reload the workflow."""
+		body = {}
+		try:
+			body = await request.json()
+		except Exception:
+			pass
+		from event_bus import WorkflowEvent, EventType as _ET
+		import uuid as _uuid
+		from datetime import datetime as _dt, timezone as _tz
+		ev = WorkflowEvent(
+			event_id   = str(_uuid.uuid4()),
+			event_type = _ET.WORKSPACE_CHANGED,
+			timestamp  = _dt.now(_tz.utc).isoformat(),
+			data       = {"name": body.get("name", "")},
+		)
+		await event_bus.publish(ev)
+		return {"ok": True}
+
 	# ── Credential Store ───────────────────────────────────────
 
 	@app.get("/credentials")

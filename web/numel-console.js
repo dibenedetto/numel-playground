@@ -48,6 +48,8 @@ class AgentConsoleManager {
 		this._micBtn         = document.getElementById('consoleMicBtn');
 		this._sttActive      = false;
 		this._recognition    = null;
+		this._sttLangSelect  = document.getElementById('consoleSttLang');
+		this._sttLangRow     = document.getElementById('consoleSttLangRow');
 		this._autoGenToggle   = document.getElementById('consoleAutoGenToggle');
 		this._autoGen         = true;
 		this._autoSendToggle  = document.getElementById('consoleAutoSendToggle');
@@ -428,8 +430,9 @@ class AgentConsoleManager {
 		try {
 			await this.handler.agent.runAgent({});
 		} catch (err) {
-			// AGUI protocol error (e.g. parallel tool calls) → fall back to REST
-			this._addMessage('error', `Streaming error: ${err.message}. Retrying via REST...`);
+			// AGUI protocol error (e.g. parallel tool calls) → fall back to REST silently
+			console.warn('[Console] AGUI error, falling back to REST:', err.message);
+			this._setStatus('REST mode');
 			// Remove the history entry we just added (the REST path manages its own session)
 			this._history.pop();
 			await this._sendViaREST(text);
@@ -655,9 +658,12 @@ class AgentConsoleManager {
 			this._ttsVoiceSelect.innerHTML = '';
 			const preferred = ['Google', 'Microsoft', 'English'];
 			const sorted = [...voices].sort((a, b) => {
-				const aScore = preferred.some(p => a.name.includes(p)) ? 0 : 1;
-				const bScore = preferred.some(p => b.name.includes(p)) ? 0 : 1;
-				return aScore - bScore || a.name.localeCompare(b.name);
+				// Female voices sort before male within the same quality tier
+				const aFemale = this._isFemaleVoice(a) ? 0 : 1;
+				const bFemale = this._isFemaleVoice(b) ? 0 : 1;
+				const aScore  = preferred.some(p => a.name.includes(p)) ? 0 : 1;
+				const bScore  = preferred.some(p => b.name.includes(p)) ? 0 : 1;
+				return aScore - bScore || aFemale - bFemale || a.name.localeCompare(b.name);
 			});
 			for (const voice of sorted) {
 				const opt = document.createElement('option');
@@ -665,9 +671,8 @@ class AgentConsoleManager {
 				opt.textContent = `${voice.name} (${voice.lang})`;
 				this._ttsVoiceSelect.appendChild(opt);
 			}
-			// Default: first English voice
-			const english = sorted.find(v => v.lang.startsWith('en'));
-			if (english) this._ttsVoiceSelect.value = english.name;
+			// Match TTS voice to current STT language, fall back to English
+			this._matchTTSVoiceToLang(this._sttLangSelect?.value || navigator.language || 'en-US');
 		};
 
 		speechSynthesis.onvoiceschanged = populateVoices;
@@ -693,11 +698,62 @@ class AgentConsoleManager {
 			return;
 		}
 
+		// Populate language selector
+		const STT_LANGS = [
+			['Auto (browser)',   navigator.language || 'en-US'],
+			['English (US)',     'en-US'],
+			['English (UK)',     'en-GB'],
+			['French',           'fr-FR'],
+			['Spanish (Spain)',  'es-ES'],
+			['Spanish (LATAM)',  'es-419'],
+			['German',           'de-DE'],
+			['Italian',          'it-IT'],
+			['Portuguese (BR)',  'pt-BR'],
+			['Portuguese (PT)',  'pt-PT'],
+			['Dutch',            'nl-NL'],
+			['Polish',           'pl-PL'],
+			['Russian',          'ru-RU'],
+			['Japanese',         'ja-JP'],
+			['Chinese (Simp.)',  'zh-CN'],
+			['Chinese (Trad.)',  'zh-TW'],
+			['Korean',           'ko-KR'],
+			['Arabic',           'ar-SA'],
+			['Hindi',            'hi-IN'],
+			['Turkish',          'tr-TR'],
+		];
+		if (this._sttLangSelect) {
+			this._sttLangSelect.innerHTML = '';
+			const browserLang = navigator.language || 'en-US';
+			let defaultSet = false;
+			for (const [label, code] of STT_LANGS) {
+				const opt = document.createElement('option');
+				opt.value = code;
+				opt.textContent = label;
+				// Auto entry stores the actual browser locale as value
+				if (label.startsWith('Auto')) opt.value = browserLang;
+				this._sttLangSelect.appendChild(opt);
+				// Pre-select the option that matches the browser language
+				if (!defaultSet && code.startsWith(browserLang.split('-')[0])) {
+					this._sttLangSelect.value = opt.value;
+					defaultSet = true;
+				}
+			}
+			if (this._sttLangRow) this._sttLangRow.style.display = '';
+		}
+
 		const rec = new SR();
 		rec.continuous     = false;
 		rec.interimResults = true;
-		rec.lang           = 'en-US';
+		rec.lang           = this._sttLangSelect?.value || navigator.language || 'en-US';
 		this._recognition  = rec;
+
+		// Update lang and sync TTS voice whenever the selector changes
+		if (this._sttLangSelect) {
+			this._sttLangSelect.addEventListener('change', () => {
+				rec.lang = this._sttLangSelect.value;
+				this._matchTTSVoiceToLang(this._sttLangSelect.value);
+			});
+		}
 
 		// Accumulate interim transcript in the textarea
 		let _savedText = '';
@@ -749,6 +805,43 @@ class AgentConsoleManager {
 				rec.start();
 			}
 		});
+	}
+
+	_isFemaleVoice(voice) {
+		const n = voice.name.toLowerCase();
+		if (n.includes('female') || n.includes('woman') || n.includes('girl')) return true;
+		if (n.includes(' male') || n.includes('man ') || n.includes(' boy'))   return false;
+		// Well-known female voice names across browsers / OS
+		const femaleNames = [
+			'samantha','victoria','karen','moira','fiona','tessa','veena',
+			'zira','eva','anna','susan','catherine','alice',
+			'julie','amelie','marie','celine',
+			'kyoko','mei','sin-ji','sinji','yuna',
+			'monica','paulina','ioana','milena',
+			'laura','carmen','luciana','joana','sara','nora',
+			'lekha','kanya','damayanti','rishi','daria',
+		];
+		return femaleNames.some(fn => n.includes(fn));
+	}
+
+	_matchTTSVoiceToLang(langCode) {
+		if (!this._ttsVoiceSelect || !('speechSynthesis' in window)) return;
+		const voices = speechSynthesis.getVoices();
+		if (!voices.length) return;
+		const prefix = langCode.split('-')[0];
+
+		// Build candidate lists in priority order
+		const exact  = voices.filter(v => v.lang === langCode);
+		const region = voices.filter(v => v.lang.startsWith(prefix + '-') || v.lang === prefix);
+
+		// Prefer female within each tier, fall back to any
+		const pickFemale = (vs) => vs.find(v => this._isFemaleVoice(v)) || vs[0] || null;
+		const match = pickFemale(exact) || pickFemale(region);
+
+		if (match) {
+			this._ttsVoiceSelect.value = match.name;
+			this._ttsVoice = match.name;
+		}
 	}
 
 	_speak(text) {

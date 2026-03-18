@@ -1395,6 +1395,27 @@ class WFAccumulateFlow(WFFlowType):
 		return result
 
 
+class WFEvalFlow(WFFlowType):
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		result.outputs["score"]    = 0.0
+		result.outputs["feedback"] = ""
+		try:
+			local_vars = {
+				"input"    : context.inputs.get("input"),
+				"variables": context.variables,
+				"score"    : 0.0,
+				"feedback" : "",
+			}
+			exec(context.inputs.get("script", "score = 0.0"), None, local_vars)
+			result.outputs["score"]    = float(local_vars.get("score", 0.0))
+			result.outputs["feedback"] = str(local_vars.get("feedback", ""))
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+		return result
+
+
 class WFNotifyFlow(WFFlowType):
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = await super().execute(context)
@@ -1530,6 +1551,7 @@ _NODE_TYPES = {
 	"retry_flow"               : WFRetryFlow,
 	"accumulate_flow"          : WFAccumulateFlow,
 	"notify_flow"              : WFNotifyFlow,
+	"eval_flow"                : WFEvalFlow,
 
 	# ML / Stream nodes
 	"pose_detector_flow"       : WFPoseDetectorFlow,

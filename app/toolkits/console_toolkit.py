@@ -146,18 +146,24 @@ Available operations:
 		Returns:
 			Formatted list of available node types.
 		"""
-		from schema import _NODE_INFO_REGISTRY
+		import inspect
+		import schema as _schema
 		lines = ["Available node types:"]
-		for cls, info in _NODE_INFO_REGISTRY.items():
-			name = getattr(cls, '__name__', str(cls))
-			# Get the type literal value
-			type_val = None
-			for field_name, field_info in cls.model_fields.items():
-				if field_name == 'type':
-					type_val = field_info.default
-					break
-			desc = info.get('description', '')
-			lines.append(f"  {type_val or name}: {desc}")
+		seen = set()
+		for attr_name in dir(_schema):
+			cls = getattr(_schema, attr_name, None)
+			if not inspect.isclass(cls):
+				continue
+			# Only Pydantic model classes with a 'type' field
+			fields = getattr(cls, 'model_fields', None)
+			if not fields or 'type' not in fields:
+				continue
+			type_val = fields['type'].default
+			if not isinstance(type_val, str) or type_val in seen:
+				continue
+			seen.add(type_val)
+			doc = (cls.__doc__ or '').strip().split('\n')[0]
+			lines.append(f"  {type_val}: {doc}")
 		return "\n".join(lines)
 
 	def get_available_tools(self) -> str:

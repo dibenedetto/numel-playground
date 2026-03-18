@@ -745,6 +745,21 @@ function setupClientEvents() {
 		addLog('warning', `⏹️ Workflow cancelled`);
 	});
 
+	client.on('workspace.changed', async (event) => {
+		// Agent modified the workflow — reload it from the server
+		const name = event?.data?.name || visualizer?.currentWorkflowName;
+		if (!name) return;
+		try {
+			const resp = await api.getWorkflow(name);
+			if (resp?.workflow) {
+				await visualizer?.loadWorkflow(resp.workflow, name);
+				addLog('info', `🔄 Workspace updated by assistant`);
+			}
+		} catch (e) {
+			addLog('warning', `⚠️ workspace.changed: could not reload workflow — ${e}`);
+		}
+	});
+
 	client.on('node.started', (event) => {
 		if (event.execution_id !== currentExecutionId) return;
 		const idx = parseInt(event.node_id);

@@ -18,6 +18,21 @@ from   agno.models.openai              import OpenAIChat
 from   agno.os                         import AgentOS
 from   agno.os.interfaces.agui         import AGUI
 
+# Patch agno's log_warning to suppress known-harmless SessionSummaryManager
+# noise (local models often return empty/non-JSON for summary requests).
+import agno.utils.log as _agno_log
+_agno_log_warning_orig = _agno_log.log_warning
+_SESSION_SUMMARY_NOISE = frozenset([
+    "Failed to parse cleaned JSON",
+    "All parsing attempts failed",
+    "Failed to parse session summary response",
+])
+def _log_warning_filtered(msg, *args, **kwargs):
+    if any(msg.startswith(n) for n in _SESSION_SUMMARY_NOISE):
+        return
+    _agno_log_warning_orig(msg, *args, **kwargs)
+_agno_log.log_warning = _log_warning_filtered
+
 from   event_bus                       import EventBus
 from   memory                          import MemoryStore
 from   toolkits.console_toolkit        import ConsoleToolkit
@@ -34,7 +49,9 @@ def _build_model(source: str, name: str):
 	if source == "ollama":
 		return Ollama(id=name)
 	elif source == "openai":
-		return OpenAIChat(id=name)
+		# parallel_tool_calls=False prevents the AGUI streaming protocol from
+		# breaking when the model would otherwise issue concurrent tool calls.
+		return OpenAIChat(id=name, request_params={"parallel_tool_calls": False})
 	elif source == "anthropic":
 		from agno.models.anthropic import Claude
 		return Claude(id=name)
@@ -189,7 +206,7 @@ class ConsoleAgentManager:
 			else:
 				tools.extend(_load_toolkit(tk_name))
 
-		# Memory: agno backend (SqliteDb) or manual MemoryStore
+		# Memory: backend (SqliteDb) or manual MemoryStore
 		mem_cfg = config.get("memory", {})
 		# use_backend_memory param overrides the config file value
 		use_backend = use_backend_memory if use_backend_memory is not None else mem_cfg.get("backend", True)
@@ -204,7 +221,6 @@ class ConsoleAgentManager:
 
 		if use_backend:
 			from agno.db.sqlite       import SqliteDb
-			from agno.memory.manager  import MemoryManager
 			from agno.session.summary import SessionSummaryManager
 			db_path                 = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
 			db                      = SqliteDb(db_file=db_path)
@@ -213,7 +229,7 @@ class ConsoleAgentManager:
 			search_session_history  = True
 			num_history_sessions    = mem_cfg.get("session_history", 5)
 			session_summary_manager = SessionSummaryManager(model=model)
-			log_print(f"Console agent: using agno backend memory ({db_path})")
+			log_print(f"Console agent: using backend memory ({db_path})")
 		else:
 			log_print("Console agent: using manual MemoryStore")
 
@@ -299,7 +315,7 @@ class ConsoleAgentManager:
 				parts = []
 				if ctx.get("context"):
 					parts.append(f"[Current workspace state]\n{ctx['context']}")
-				# Manual memory retrieval (only when not using agno backend)
+				# Manual memory retrieval (only when not using backend)
 				if self._memory and not self._use_backend_memory:
 					mem_ctx = self._memory.get_context_for_query(message)
 					if mem_ctx:
@@ -346,7 +362,7 @@ class ConsoleAgentManager:
 					"result": None,
 				})
 
-		# Save conversation to manual MemoryStore (only when not using agno backend, every 3 turns)
+		# Save conversation to manual MemoryStore (only when not using backend, every 3 turns)
 		turn_count = self._sessions.get(session_id, 0)
 		if self._memory and not self._use_backend_memory and turn_count >= 3 and turn_count % 3 == 0:
 			try:
