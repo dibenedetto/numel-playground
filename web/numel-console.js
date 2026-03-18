@@ -45,10 +45,18 @@ class AgentConsoleManager {
 		this._settingsSummary = document.getElementById('consoleSettingsSummary');
 		this._ttsEnabled     = false;
 		this._ttsVoice       = null;
+		this._micBtn         = document.getElementById('consoleMicBtn');
+		this._sttActive      = false;
+		this._recognition    = null;
+		this._autoGenToggle   = document.getElementById('consoleAutoGenToggle');
+		this._autoGen         = true;
+		this._autoSendToggle  = document.getElementById('consoleAutoSendToggle');
+		this._autoSend        = true;
 
 		this._setupUI();
 		this._fetchToolkits();
 		this._setupTTS();
+		this._setupSTT();
 		this._setInputEnabled(false);
 	}
 
@@ -98,6 +106,21 @@ class AgentConsoleManager {
 				} else {
 					this._disconnectAgent();
 				}
+			});
+		}
+
+		// Auto-gen toggle
+		if (this._autoGenToggle) {
+			this._autoGenToggle.addEventListener('change', () => {
+				this._autoGen = this._autoGenToggle.checked;
+				this._updateSettingsSummary();
+			});
+		}
+
+		// Auto-send toggle
+		if (this._autoSendToggle) {
+			this._autoSendToggle.addEventListener('change', () => {
+				this._autoSend = this._autoSendToggle.checked;
 			});
 		}
 	}
@@ -157,10 +180,12 @@ class AgentConsoleManager {
 		const [source, ...rest] = val.split(':');
 		const modelLabel = rest.join(':') || source;
 		const toolkits = this._getSelectedToolkits().filter(t => t !== 'console_toolkit');
-		const memOn = this._memoryToggle ? this._memoryToggle.checked : true;
+		const memOn     = this._memoryToggle    ? this._memoryToggle.checked    : true;
+		const autoGenOn = this._autoGenToggle   ? this._autoGenToggle.checked   : true;
 		const parts = [modelLabel];
 		if (toolkits.length) parts.push(`+${toolkits.length} toolkit${toolkits.length > 1 ? 's' : ''}`);
-		if (memOn) parts.push('mem');
+		if (memOn)     parts.push('mem');
+		if (autoGenOn) parts.push('auto-gen');
 		this._settingsSummary.textContent = parts.join(' · ');
 	}
 
@@ -323,10 +348,18 @@ class AgentConsoleManager {
 		this._input.value = '';
 		this._input.style.height = 'auto';
 
+		// Auto-rewrite "generate …" → /gen … when toggle is on
+		let finalText = text;
+		if (this._autoGen) {
+			const autoGenRe = /^(?:generate|genera|générer|générez|generar|genere|generieren|generiere|genereer|генерировать|生成|生成して|생성|انشئ|إنشاء)\b[,:\s]+(.+)/is;
+			const m = text.match(autoGenRe);
+			if (m) finalText = `/gen ${m[1].trim()}`;
+		}
+
 		// Intercept /gen command
-		const genMatch = text.match(/^\/gen\s+(.+)/s);
+		const genMatch = finalText.match(/^\/gen\s+(.+)/s);
 		if (genMatch) {
-			this._addMessage('user', text);
+			this._addMessage('user', finalText);
 			return this._handleGenerate(genMatch[1].trim());
 		}
 
@@ -599,6 +632,7 @@ class AgentConsoleManager {
 	_setInputEnabled(enabled) {
 		this._input.disabled = !enabled;
 		this._sendBtn.disabled = !enabled;
+		if (this._micBtn) this._micBtn.disabled = !enabled;
 		if (enabled) {
 			this._input.placeholder = 'Ask about your workflow...';
 		} else {
@@ -647,6 +681,73 @@ class AgentConsoleManager {
 
 		this._ttsVoiceSelect.addEventListener('change', () => {
 			this._ttsVoice = this._ttsVoiceSelect.value;
+		});
+	}
+
+	// ── STT (Speech-to-Text) ─────────────────────────────────────
+
+	_setupSTT() {
+		const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+		if (!SR || !this._micBtn) {
+			if (this._micBtn) this._micBtn.style.display = 'none';
+			return;
+		}
+
+		const rec = new SR();
+		rec.continuous     = false;
+		rec.interimResults = true;
+		rec.lang           = 'en-US';
+		this._recognition  = rec;
+
+		// Accumulate interim transcript in the textarea
+		let _savedText = '';
+		rec.onstart = () => {
+			this._sttActive = true;
+			_savedText = this._input.value;
+			this._micBtn.classList.add('recording');
+			this._micBtn.title = 'Stop recording';
+		};
+		rec.onresult = (e) => {
+			let interim = '';
+			let final   = '';
+			for (const res of e.results) {
+				if (res.isFinal) final   += res[0].transcript;
+				else             interim += res[0].transcript;
+			}
+			// Show interim in grey via placeholder trick — just update value
+			this._input.value = (_savedText + (final || interim)).trimStart();
+			// Auto-resize
+			this._input.style.height = 'auto';
+			this._input.style.height = Math.min(this._input.scrollHeight, 120) + 'px';
+		};
+		rec.onend = () => {
+			this._sttActive = false;
+			this._micBtn.classList.remove('recording');
+			this._micBtn.title = 'Voice input';
+			if (this._input.value.trim()) {
+				if (this._autoSend) {
+					this._send();
+				} else {
+					this._input.focus();
+				}
+			}
+		};
+		rec.onerror = (e) => {
+			this._sttActive = false;
+			this._micBtn.classList.remove('recording');
+			this._micBtn.title = 'Voice input';
+			if (e.error !== 'no-speech' && e.error !== 'aborted') {
+				console.warn('[STT] error:', e.error);
+			}
+		};
+
+		this._micBtn.addEventListener('click', () => {
+			if (this._sttActive) {
+				rec.stop();
+			} else {
+				_savedText = this._input.value;
+				rec.start();
+			}
 		});
 	}
 
