@@ -46,6 +46,7 @@ class AgentConsoleManager {
 		this._ttsEnabled     = false;
 		this._ttsVoice       = null;
 		this._stopSpeakBtn   = document.getElementById('consoleStopSpeakBtn');
+		this._showSysToggle  = document.getElementById('consoleShowSysToggle');
 		this._micBtn         = document.getElementById('consoleMicBtn');
 		this._sttActive      = false;
 		this._recognition    = null;
@@ -126,6 +127,13 @@ class AgentConsoleManager {
 				this._autoSend = this._autoSendToggle.checked;
 			});
 		}
+
+		// System messages visibility (hidden by default)
+		const applyShowSys = (show) => {
+			this._messages.classList.toggle('hide-system', !show);
+		};
+		applyShowSys(this._showSysToggle?.checked ?? false);
+		this._showSysToggle?.addEventListener('change', () => applyShowSys(this._showSysToggle.checked));
 	}
 
 	// ── Toggle / Open / Close ────────────────────────────────────
@@ -491,7 +499,11 @@ class AgentConsoleManager {
 		const msgs = this._messages.querySelectorAll('.nw-console-msg.assistant.streaming');
 		for (const m of msgs) {
 			m.classList.remove('streaming');
-			if (m._rawContent) this._speak(m._rawContent);
+			if (m._rawContent?.trim()) {
+				this._speak(m._rawContent);
+			} else {
+				m.remove();  // drop empty assistant messages
+			}
 		}
 		this._busy = false;
 		this._setInputEnabled(true);

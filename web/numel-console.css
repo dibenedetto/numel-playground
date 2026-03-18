@@ -345,6 +345,9 @@
 	font-size: 12px;
 	border-left: 3px solid var(--sg-text-quaternary, #555);
 }
+.nw-console-messages.hide-system .nw-console-msg.system {
+	display: none;
+}
 .nw-console-msg.error {
 	align-self: center;
 	background: rgba(217, 83, 79, 0.2);
