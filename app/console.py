@@ -18,17 +18,19 @@ from   agno.models.openai              import OpenAIChat
 from   agno.os                         import AgentOS
 from   agno.os.interfaces.agui         import AGUI
 
-# Patch agno's log_warning to suppress known-harmless SessionSummaryManager
-# noise (local models often return empty/non-JSON for summary requests).
+# Run session summaries in the background so they don't block the response
+# end-event. Agno calls acreate_session_summary() inline before finalising the
+# stream; by fire-and-forgetting it we remove the latency without losing the
+# feature.
 import agno.utils.log as _agno_log
 _agno_log_warning_orig = _agno_log.log_warning
-_SESSION_SUMMARY_NOISE = frozenset([
+_SESSION_NOISE = frozenset([
     "Failed to parse cleaned JSON",
     "All parsing attempts failed",
     "Failed to parse session summary response",
 ])
 def _log_warning_filtered(msg, *args, **kwargs):
-    if any(msg.startswith(n) for n in _SESSION_SUMMARY_NOISE):
+    if any(msg.startswith(n) for n in _SESSION_NOISE):
         return
     _agno_log_warning_orig(msg, *args, **kwargs)
 _agno_log.log_warning = _log_warning_filtered
@@ -218,17 +220,27 @@ class ConsoleAgentManager:
 		search_session_history  = False
 		num_history_sessions    = None
 		session_summary_manager = None
-
 		if use_backend:
-			from agno.db.sqlite       import SqliteDb
-			from agno.session.summary import SessionSummaryManager
+			from agno.db.sqlite import SqliteDb
 			db_path                 = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
 			db                      = SqliteDb(db_file=db_path)
 			enable_agentic_memory   = True
 			add_memories_to_context = True
 			search_session_history  = True
 			num_history_sessions    = mem_cfg.get("session_history", 5)
-			session_summary_manager = SessionSummaryManager(model=model)
+
+			from agno.session.summary import SessionSummaryManager
+
+			class _BgSessionSummaryManager(SessionSummaryManager):
+				"""Fire-and-forget wrapper: runs the summary in a background task
+				so it never blocks the response end-event."""
+				async def acreate_session_summary(self, session, run_metrics=None):
+					asyncio.get_event_loop().create_task(
+						super().acreate_session_summary(session, run_metrics)
+					)
+					return None
+
+			session_summary_manager = _BgSessionSummaryManager(model=model)
 			log_print(f"Console agent: using backend memory ({db_path})")
 		else:
 			log_print("Console agent: using manual MemoryStore")

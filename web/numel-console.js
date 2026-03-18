@@ -45,6 +45,7 @@ class AgentConsoleManager {
 		this._settingsSummary = document.getElementById('consoleSettingsSummary');
 		this._ttsEnabled     = false;
 		this._ttsVoice       = null;
+		this._stopSpeakBtn   = document.getElementById('consoleStopSpeakBtn');
 		this._micBtn         = document.getElementById('consoleMicBtn');
 		this._sttActive      = false;
 		this._recognition    = null;
@@ -57,8 +58,8 @@ class AgentConsoleManager {
 
 		this._setupUI();
 		this._fetchToolkits();
+		this._setupSTT();  // must run before _setupTTS so sttLangSelect is populated
 		this._setupTTS();
-		this._setupSTT();
 		this._setInputEnabled(false);
 	}
 
@@ -687,6 +688,8 @@ class AgentConsoleManager {
 		this._ttsVoiceSelect.addEventListener('change', () => {
 			this._ttsVoice = this._ttsVoiceSelect.value;
 		});
+
+		this._stopSpeakBtn?.addEventListener('click', () => this._stopSpeaking());
 	}
 
 	// ── STT (Speech-to-Text) ─────────────────────────────────────
@@ -813,13 +816,23 @@ class AgentConsoleManager {
 		if (n.includes(' male') || n.includes('man ') || n.includes(' boy'))   return false;
 		// Well-known female voice names across browsers / OS
 		const femaleNames = [
+			// English
 			'samantha','victoria','karen','moira','fiona','tessa','veena',
-			'zira','eva','anna','susan','catherine','alice',
-			'julie','amelie','marie','celine',
-			'kyoko','mei','sin-ji','sinji','yuna',
+			'zira','eva','anna','susan','catherine','alice','vicki','kathy',
+			'julie','emily','emma','claire','michelle','amy','jane','kate',
+			'natasha','grace','olivia','ava','serena','sophie','chloe','lily',
+			// Microsoft Natural/Online voices (female)
+			'aria','jenny','sonia','libby','maisie','abbi','bella','hollie','leah','oliwia',
+			'amelie','marie','celine',
+			// Asian
+			'kyoko','mei','sin-ji','sinji','yuna','haruka','heami','heera',
+			// Romance
 			'monica','paulina','ioana','milena',
 			'laura','carmen','luciana','joana','sara','nora',
-			'lekha','kanya','damayanti','rishi','daria',
+			'elsa','elisa','giovanna','carla','isabella','valentina','francesca',
+			'sofia','luna','mila','clara',
+			// Misc
+			'lekha','kanya','damayanti','daria',
 		];
 		return femaleNames.some(fn => n.includes(fn));
 	}
@@ -873,12 +886,17 @@ class AgentConsoleManager {
 			if (voice) utterance.voice = voice;
 		}
 
+		utterance.onstart = () => { if (this._stopSpeakBtn) this._stopSpeakBtn.style.display = ''; };
+		utterance.onend   = () => { if (this._stopSpeakBtn) this._stopSpeakBtn.style.display = 'none'; };
+		utterance.onerror = () => { if (this._stopSpeakBtn) this._stopSpeakBtn.style.display = 'none'; };
+
 		speechSynthesis.speak(utterance);
 	}
 
 	_stopSpeaking() {
 		if ('speechSynthesis' in window) {
 			speechSynthesis.cancel();
+			if (this._stopSpeakBtn) this._stopSpeakBtn.style.display = 'none';
 		}
 	}
 }

@@ -520,3 +520,14 @@
 	opacity: 0.35;
 	cursor: not-allowed;
 }
+.nw-console-stop-speak {
+	color: #dc3232;
+	border-color: #dc3232;
+	background: rgba(220, 50, 50, 0.12);
+	animation: nw-mic-pulse 1.2s ease-in-out infinite;
+}
+.nw-console-stop-speak:hover:not(:disabled) {
+	color: #ff4444;
+	border-color: #ff4444;
+	background: rgba(220, 50, 50, 0.25);
+}
