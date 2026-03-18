@@ -637,6 +637,9 @@ class ChatOverlayManager {
 					</div>
 				</div>
 				<div class="sg-chat-messages sg-chat-hide-system"></div>
+				<div class="sg-chat-thinking" aria-hidden="true">
+					<span></span><span></span><span></span>
+				</div>
 				<div class="sg-chat-input-container">
 					<textarea
 						class="sg-chat-input"
@@ -1936,6 +1939,27 @@ class ChatExtension extends SchemaGraphExtension {
 			@keyframes sg-chat-pulse {
 				0%, 100% { opacity: 1; }
 				50% { opacity: 0.4; }
+			}
+
+			.sg-chat-thinking {
+				display: none;
+				gap: 5px;
+				align-items: center;
+				padding: 6px 10px;
+			}
+			.sg-chat-state-sending .sg-chat-thinking { display: flex; }
+			.sg-chat-thinking span {
+				width: 6px;
+				height: 6px;
+				border-radius: 50%;
+				background: var(--sg-text-tertiary, #888);
+				animation: sg-chat-thinking-bounce 1.2s ease-in-out infinite;
+			}
+			.sg-chat-thinking span:nth-child(2) { animation-delay: 0.2s; }
+			.sg-chat-thinking span:nth-child(3) { animation-delay: 0.4s; }
+			@keyframes sg-chat-thinking-bounce {
+				0%, 80%, 100% { transform: scale(0.5); opacity: 0.35; }
+				40%           { transform: scale(1);   opacity: 1; }
 			}
 
 			.sg-chat-btn {

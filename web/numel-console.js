@@ -375,6 +375,7 @@ class AgentConsoleManager {
 		}
 
 		this._addMessage('user', text);
+		this._showThinking();
 
 		if (this._streamingMode && this.handler?.isConnected()) {
 			await this._sendViaAGUI(text);
@@ -391,6 +392,7 @@ class AgentConsoleManager {
 
 		try {
 			const result = await this.api.consoleChat(message, this._sessionId);
+			this._hideThinking();
 
 			// Store session ID for conversation continuity
 			if (result.session_id) this._sessionId = result.session_id;
@@ -410,6 +412,7 @@ class AgentConsoleManager {
 				this._addMessage('error', result.error);
 			}
 		} catch (err) {
+			this._hideThinking();
 			this._addMessage('error', `Send failed: ${err.message}`);
 		}
 
@@ -476,6 +479,7 @@ class AgentConsoleManager {
 	}
 
 	_onRunError(error) {
+		this._hideThinking();
 		this._busy = false;
 		this._setInputEnabled(true);
 		this._pendingGen = false;
@@ -484,10 +488,12 @@ class AgentConsoleManager {
 	}
 
 	_onToolCallStart(name) {
+		this._hideThinking();
 		this._addMessage('system', `Tool: ${name}...`);
 	}
 
 	_onTextStart() {
+		this._hideThinking();
 		this._busy = true;
 		this._setInputEnabled(false);
 		const el = this._addMessage('assistant', '');
@@ -613,7 +619,23 @@ class AgentConsoleManager {
 
 	// ── Message Display ──────────────────────────────────────────
 
+	_showThinking() {
+		if (this._thinkingEl) return;
+		const el = document.createElement('div');
+		el.className = 'nw-console-thinking';
+		el.innerHTML = '<span></span><span></span><span></span>';
+		this._thinkingEl = el;
+		this._messages.appendChild(el);
+		this._scrollToBottom();
+	}
+
+	_hideThinking() {
+		this._thinkingEl?.remove();
+		this._thinkingEl = null;
+	}
+
 	_addMessage(role, content) {
+		this._hideThinking();  // always clear before adding a real message
 		const el = document.createElement('div');
 		el.className = `nw-console-msg ${role}`;
 		el.innerHTML = this._renderContent(content);
