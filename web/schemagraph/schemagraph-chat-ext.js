@@ -1858,7 +1858,9 @@ class ChatExtension extends SchemaGraphExtension {
 			endStreaming: (nodeOrId) => {
 				const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
 				if (node?.isChat) {
-					node.chatState = ChatState.READY;
+					// Don't set READY here — stay in SENDING so the thinking
+					// indicator persists between tool calls. onRunFinished sets READY.
+					node.chatState = ChatState.SENDING;
 					self.overlayManager.updateStatus(node);
 				}
 			},

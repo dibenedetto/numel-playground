@@ -454,6 +454,7 @@ class AgentConsoleManager {
 	// ── AGUI Callbacks ───────────────────────────────────────────
 
 	_onRunFinished() {
+		this._hideThinking();
 		this._busy = false;
 		this._setInputEnabled(true);
 
@@ -488,14 +489,11 @@ class AgentConsoleManager {
 	}
 
 	_onToolCallStart(name) {
-		this._hideThinking();
 		this._addMessage('system', `Tool: ${name}...`);
 	}
 
 	_onTextStart() {
 		this._hideThinking();
-		this._busy = true;
-		this._setInputEnabled(false);
 		const el = this._addMessage('assistant', '');
 		el.classList.add('streaming');
 		el._streamContent = '';
@@ -511,8 +509,8 @@ class AgentConsoleManager {
 				m.remove();  // drop empty assistant messages
 			}
 		}
-		this._busy = false;
-		this._setInputEnabled(true);
+		// Run still active — re-show thinking dots until _onRunFinished
+		this._showThinking();
 	}
 
 	_onTextChunk(chunk) {
@@ -635,12 +633,16 @@ class AgentConsoleManager {
 	}
 
 	_addMessage(role, content) {
-		this._hideThinking();  // always clear before adding a real message
 		const el = document.createElement('div');
 		el.className = `nw-console-msg ${role}`;
 		el.innerHTML = this._renderContent(content);
 		el._rawContent = content;
-		this._messages.appendChild(el);
+		// Insert before thinking dots so they always stay at the bottom
+		if (this._thinkingEl) {
+			this._messages.insertBefore(el, this._thinkingEl);
+		} else {
+			this._messages.appendChild(el);
+		}
 		this._scrollToBottom();
 		return el;
 	}

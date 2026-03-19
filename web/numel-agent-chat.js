@@ -402,7 +402,9 @@ class AgentChatManager {
 			onRunStarted: () => { },
 			onRunFinished: () => {
 				const n = getNode();
-				if (n) this._updateResponseOutput(n);
+				if (!n) return;
+				api.setState(n, ChatState.READY);
+				this._updateResponseOutput(n);
 			},
 			onRunError: (error) => {
 				const n = getNode();
