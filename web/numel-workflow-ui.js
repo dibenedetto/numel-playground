@@ -421,6 +421,22 @@ function setupEventListeners() {
 	$('clearWorkflowBtn').addEventListener('click', clearWorkflow);
 	$('clearWorkflowBtnSingle').addEventListener('click', clearWorkflow);
 
+	// Upload toolkit
+	$('uploadToolkitBtn')?.addEventListener('click', () => $('uploadToolkitFile')?.click());
+	$('uploadToolkitFile')?.addEventListener('change', async (e) => {
+		const file = e.target.files?.[0];
+		if (!file) return;
+		e.target.value = '';
+		const formData = new FormData();
+		formData.append('file', file);
+		try {
+			const result = await api.toolkitUpload(formData, true);
+			addLog('info', `Toolkit uploaded: ${result.module}${result.has_toolkit_class ? '' : ' (warning: no __toolkit__ class found)'}`);
+		} catch (err) {
+			addLog('error', `Toolkit upload failed: ${err.message || err}`);
+		}
+	});
+
 	// Mode switch
 	$('singleModeSwitch').addEventListener('change', toggleWorkflowMode);
 

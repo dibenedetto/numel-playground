@@ -114,6 +114,15 @@ class NumelAPI {
 	consoleChat(message, sessionId = null, includeContext = true) {
 		return this.json('/console/chat', { message, session_id: sessionId, include_context: includeContext });
 	}
+	consoleMemoryClear()          { return this.json('/console/memory/clear'); }
+
+	// ── Toolkits ─────────────────────────────────────────────────
+
+	toolkitList()                  { return this.json('/toolkits/list'); }
+	toolkitInspect(name)           { return this.json('/toolkits/inspect', { name }); }
+	toolkitUpload(formData, overwrite = false) {
+		return this.upload(`/toolkits/upload?overwrite=${overwrite}`, formData);
+	}
 
 	// ── File Upload / Contents ───────────────────────────────────
 

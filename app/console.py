@@ -18,22 +18,23 @@ from   agno.models.openai              import OpenAIChat
 from   agno.os                         import AgentOS
 from   agno.os.interfaces.agui         import AGUI
 
-# Run session summaries in the background so they don't block the response
-# end-event. Agno calls acreate_session_summary() inline before finalising the
-# stream; by fire-and-forgetting it we remove the latency without losing the
-# feature.
+# Suppress agno's harmless SessionSummaryManager parse warnings (local models
+# often return non-JSON for summary requests).  summary.py does
+# `from agno.utils.log import log_warning` — a direct binding that our
+# module-attr patch can't reach.  But log_warning internally calls
+# `logger.warning()` through the shared global, so patching that method works.
 import agno.utils.log as _agno_log
-_agno_log_warning_orig = _agno_log.log_warning
 _SESSION_NOISE = frozenset([
     "Failed to parse cleaned JSON",
     "All parsing attempts failed",
     "Failed to parse session summary response",
 ])
-def _log_warning_filtered(msg, *args, **kwargs):
-    if any(msg.startswith(n) for n in _SESSION_NOISE):
+_orig_logger_warning = _agno_log.logger.warning
+def _logger_warning_filtered(msg, *args, **kwargs):
+    if isinstance(msg, str) and any(msg.startswith(n) for n in _SESSION_NOISE):
         return
-    _agno_log_warning_orig(msg, *args, **kwargs)
-_agno_log.log_warning = _log_warning_filtered
+    _orig_logger_warning(msg, *args, **kwargs)
+_agno_log.logger.warning = _logger_warning_filtered
 
 from   event_bus                       import EventBus
 from   memory                          import MemoryStore
@@ -106,7 +107,9 @@ def _load_toolkit(module_name: str, args: Optional[Dict[str, Any]] = None):
 		return []
 
 	try:
-		instance = toolkit_cls(**(args or {}))
+		import credentials as _creds
+		resolved_args = _creds.resolve_dict(args or {})
+		instance = toolkit_cls(**resolved_args)
 	except Exception as e:
 		log_print(f"⚠️  Toolkit instantiation failed: {toolkit_cls.__name__} ({e})")
 		return []
@@ -150,17 +153,20 @@ class ConsoleAgentManager:
 	async def start(self, model_source: Optional[str] = None,
 					model_name: Optional[str] = None,
 					toolkit_names: Optional[List[str]] = None,
-					use_backend_memory: Optional[bool] = None) -> int:
+					use_backend_memory: Optional[bool] = None,
+					toolkit_args: Optional[Dict[str, Dict[str, Any]]] = None) -> int:
 		"""Start (or restart) the console agent server. Returns the port.
 		Concurrent calls are serialized — a second call waits for the first to finish."""
 
 		async with self._start_lock:
-			return await self._start_impl(model_source, model_name, toolkit_names, use_backend_memory)
+			return await self._start_impl(model_source, model_name, toolkit_names, use_backend_memory, toolkit_args)
 
 	async def _start_impl(self, model_source: Optional[str] = None,
 						  model_name: Optional[str] = None,
 						  toolkit_names: Optional[List[str]] = None,
-						  use_backend_memory: Optional[bool] = None) -> int:
+						  use_backend_memory: Optional[bool] = None,
+						  toolkit_args: Optional[Dict[str, Dict[str, Any]]] = None) -> int:
+		_toolkit_args = toolkit_args or {}
 		# Load config for defaults and instructions
 		with open(self._config_path) as f:
 			config = json.load(f)
@@ -206,7 +212,7 @@ class ConsoleAgentManager:
 					if callable(method):
 						tools.append(method)
 			else:
-				tools.extend(_load_toolkit(tk_name))
+				tools.extend(_load_toolkit(tk_name, _toolkit_args.get(tk_name)))
 
 		# Memory: backend (SqliteDb) or manual MemoryStore
 		mem_cfg = config.get("memory", {})
@@ -304,6 +310,31 @@ class ConsoleAgentManager:
 		self._server_task = None
 		self._sessions   = {}
 		log_print("Console agent stopped")
+
+	def clear_memory(self):
+		"""Clear all agent memory: sessions, agno memories, and in-memory history."""
+		# 1. Clear agno backend DB via public API (if agent was started with backend)
+		if self._agent and getattr(self._agent, 'db', None):
+			db = self._agent.db
+			try:
+				from agno.db.base import SessionType
+				sessions = db.get_sessions(session_type=SessionType.AGENT) or []
+				session_ids = [s.session_id for s in sessions]
+				if session_ids:
+					db.delete_sessions(session_ids)
+			except Exception:
+				pass
+			try:
+				if hasattr(db, 'clear_memories'):
+					db.clear_memories()
+			except Exception:
+				pass
+		# 2. Clear custom MemoryStore
+		if self._memory:
+			self._memory.clear()
+		# 3. Clear in-memory session history
+		self._sessions.clear()
+		log_print("Console memory cleared")
 
 	# ── Chat ───────────────────────────────────────────────────────
 
@@ -470,10 +501,11 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 	"""Register all console-related API routes on the FastAPI app."""
 
 	class ConsoleStartRequest(BaseModel):
-		model_source:       Optional[str]       = None   # "ollama", "openai", "anthropic"
-		model_name:         Optional[str]       = None   # e.g. "mistral", "gpt-4o-mini"
-		toolkit_names:      Optional[List[str]] = None   # e.g. ["console_toolkit", "file_toolkit"]
-		use_backend_memory: Optional[bool]      = None   # None = use console_agent.json default
+		model_source:       Optional[str]                    = None   # "ollama", "openai", "anthropic"
+		model_name:         Optional[str]                    = None   # e.g. "mistral", "gpt-4o-mini"
+		toolkit_names:      Optional[List[str]]              = None   # e.g. ["console_toolkit", "file_toolkit"]
+		toolkit_args:       Optional[Dict[str, Dict[str, Any]]] = None   # e.g. {"file_toolkit": {"root": "."}}
+		use_backend_memory: Optional[bool]                   = None   # None = use console_agent.json default
 
 	class ConsoleChatRequest(BaseModel):
 		message:         str
@@ -482,7 +514,7 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 
 	@app.post("/console/start")
 	async def console_start(request: ConsoleStartRequest = ConsoleStartRequest()):
-		port = await console_mgr.start(request.model_source, request.model_name, request.toolkit_names, request.use_backend_memory)
+		port = await console_mgr.start(request.model_source, request.model_name, request.toolkit_names, request.use_backend_memory, request.toolkit_args)
 		return {
 			"port":          port,
 			"status":        "running",
@@ -602,10 +634,8 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 
 	@app.post("/console/memory/clear")
 	async def console_memory_clear():
-		"""Clear all memories."""
-		if not console_mgr._memory:
-			return {"error": "memory not available"}
-		console_mgr._memory.clear()
+		"""Clear all agent memory: sessions, agno memories, and in-memory history."""
+		console_mgr.clear_memory()
 		return {"cleared": True}
 
 	@app.post("/console/memory/stats")

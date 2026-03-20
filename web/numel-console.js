@@ -31,6 +31,7 @@ class AgentConsoleManager {
 		this._input       = document.getElementById('consoleInput');
 		this._sendBtn     = document.getElementById('consoleSendBtn');
 		this._closeBtn    = document.getElementById('consoleCloseBtn');
+		this._clearMemBtn = document.getElementById('consoleClearMemoryBtn');
 		this._fab         = document.getElementById('consoleToggleBtn');
 		this._badge       = document.getElementById('consoleBadge');
 		this._status      = document.getElementById('consoleStatus');
@@ -69,6 +70,7 @@ class AgentConsoleManager {
 	_setupUI() {
 		this._fab.addEventListener('click', () => this.toggle());
 		this._closeBtn.addEventListener('click', () => this.close());
+		this._clearMemBtn?.addEventListener('click', () => this._clearMemory());
 		this._sendBtn.addEventListener('click', () => this._send());
 		this._input.addEventListener('keydown', (e) => {
 			if (e.key === 'Enter' && !e.shiftKey) {
@@ -178,6 +180,35 @@ class AgentConsoleManager {
 		this._setInputEnabled(false);
 	}
 
+	async _clearMemory() {
+		const ok = await this._confirm('Clear Memory', 'This will erase all agent memory, sessions, and chat history. Continue?', 'Clear', true);
+		if (!ok) return;
+		try {
+			await this.api.consoleMemoryClear();
+			this._messages.querySelectorAll('.nw-console-msg').forEach(m => m.remove());
+			this._hideThinking();
+			this._sessionId = null;
+			this._history = [];
+			this._addMessage('system', 'Memory cleared.');
+		} catch (err) {
+			this._addMessage('error', `Failed to clear memory: ${err.message}`);
+		}
+	}
+
+	_confirm(title, message, confirmText = 'OK', danger = false) {
+		return new Promise((resolve) => {
+			const overlay = document.createElement('div');
+			overlay.className = 'sg-input-dialog-overlay';
+			const dangerClass = danger ? ' sg-confirm-danger' : '';
+			overlay.innerHTML = `<div class="sg-input-dialog"><div class="sg-input-dialog-header"><span class="sg-input-dialog-title">${title}</span><button class="sg-input-dialog-close">\u2715</button></div><div class="sg-input-dialog-body"><p class="sg-confirm-dialog-message">${message}</p></div><div class="sg-input-dialog-footer"><button class="sg-input-dialog-btn sg-input-dialog-cancel">Cancel</button><button class="sg-input-dialog-btn sg-input-dialog-confirm${dangerClass}">${confirmText}</button></div></div>`;
+			document.body.appendChild(overlay);
+			const close = (val) => { overlay.remove(); resolve(val); };
+			overlay.querySelector('.sg-input-dialog-close').onclick = () => close(false);
+			overlay.querySelector('.sg-input-dialog-cancel').onclick = () => close(false);
+			overlay.querySelector('.sg-input-dialog-confirm').onclick = () => close(true);
+		});
+	}
+
 	// ── Configuration (Model + Toolkits) ─────────────────────────
 
 	_updateSettingsSummary() {
@@ -212,6 +243,7 @@ class AgentConsoleManager {
 	}
 
 	async _fetchToolkits() {
+		if (!this._toolkitArgs) this._toolkitArgs = {};  // name → {key: val}
 		try {
 			const toolkits = await this.api.consoleToolkits();
 			this._toolkitList.innerHTML = '';
@@ -236,10 +268,126 @@ class AgentConsoleManager {
 				lbl.title = tk.description || tk.name;
 				item.appendChild(cb);
 				item.appendChild(lbl);
+				// Gear icon for args configuration (skip built-in console_toolkit)
+				if (!tk.builtin) {
+					const gear = document.createElement('button');
+					gear.className = 'nw-console-toolkit-gear';
+					gear.title = 'Configure arguments';
+					gear.textContent = '\u2699';
+					gear.onclick = (e) => { e.stopPropagation(); this._showToolkitArgsDialog(tk.name); };
+					item.appendChild(gear);
+				}
 				this._toolkitList.appendChild(item);
 			}
 			this._updateSettingsSummary();
 		} catch { /* ignore — toolkits will use defaults */ }
+	}
+
+	async _showToolkitArgsDialog(toolkitName) {
+		// Fetch introspection
+		let params = [], className = '', description = '';
+		try {
+			const data = await this.api.toolkitInspect(toolkitName);
+			params = data.params || [];
+			className = data.class_name || '';
+			description = data.description || '';
+		} catch { /* no params available */ }
+
+		const currentArgs = this._toolkitArgs[toolkitName] || {};
+		const paramNames = new Set(params.map(p => p.name));
+		const extraKeys = Object.keys(currentArgs).filter(k => !paramNames.has(k));
+
+		const title = className ? `${className} Arguments` : `${toolkitName} Arguments`;
+		const descHtml = description ? `<div style="color:var(--sg-text-tertiary);font-size:12px;margin-bottom:10px">${description.split('\n')[0]}</div>` : '';
+
+		let fieldsHtml = '';
+		for (const p of params) {
+			const val = currentArgs[p.name] ?? p.default ?? '';
+			const displayVal = typeof val === 'object' ? JSON.stringify(val) : String(val ?? '');
+			const req = p.required ? '<span style="color:var(--sg-accent-red)">*</span>' : '';
+			fieldsHtml += `<div style="margin-bottom:8px"><label style="font-size:12px;color:var(--sg-text-secondary)">${p.name} ${req} <span style="font-size:10px;color:var(--sg-text-tertiary);font-family:monospace">${p.type}</span></label>`;
+			if (p.type === 'bool') {
+				fieldsHtml += `<label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" data-key="${p.name}" ${val === true || displayVal === 'true' || displayVal === 'True' ? 'checked' : ''}> Enabled</label>`;
+			} else {
+				fieldsHtml += `<input type="text" data-key="${p.name}" value="${displayVal.replace(/"/g, '&quot;')}" placeholder="${p.default != null ? String(p.default) : ''}" style="width:100%;box-sizing:border-box;background:var(--sg-canvas-bg);border:1px solid var(--sg-border-color);border-radius:4px;padding:6px 8px;color:var(--sg-text-primary);font-size:12px;font-family:monospace">`;
+			}
+			fieldsHtml += '</div>';
+		}
+		for (const key of extraKeys) {
+			const val = currentArgs[key];
+			const displayVal = typeof val === 'object' ? JSON.stringify(val) : String(val ?? '');
+			fieldsHtml += `<div class="nw-tk-arg-extra" data-param="${key}" style="margin-bottom:8px"><label style="font-size:12px;color:var(--sg-text-secondary)">${key} <span style="font-size:10px;color:var(--sg-text-tertiary)">custom</span></label><div style="display:flex;gap:6px;align-items:center"><input type="text" data-key="${key}" value="${displayVal.replace(/"/g, '&quot;')}" style="flex:1;box-sizing:border-box;background:var(--sg-canvas-bg);border:1px solid var(--sg-border-color);border-radius:4px;padding:6px 8px;color:var(--sg-text-primary);font-size:12px;font-family:monospace"><button class="nw-tk-arg-remove" data-key="${key}" style="background:none;border:none;color:var(--sg-text-tertiary);cursor:pointer;font-size:14px;padding:4px" title="Remove">\u2715</button></div></div>`;
+		}
+		if (!params.length && !extraKeys.length) {
+			fieldsHtml += '<div style="color:var(--sg-text-tertiary);font-style:italic;font-size:12px">No constructor parameters.</div>';
+		}
+		// Add custom key row
+		fieldsHtml += `<div class="nw-tk-arg-add" style="display:flex;gap:6px;align-items:center;padding-top:8px;border-top:1px solid var(--sg-border-color);margin-top:8px"><input type="text" class="nw-tk-new-key" placeholder="New key..." style="flex:1;background:var(--sg-canvas-bg);border:1px solid var(--sg-border-color);border-radius:4px;padding:5px 8px;color:var(--sg-text-primary);font-size:12px"><input type="text" class="nw-tk-new-val" placeholder="Value..." style="flex:1;background:var(--sg-canvas-bg);border:1px solid var(--sg-border-color);border-radius:4px;padding:5px 8px;color:var(--sg-text-primary);font-size:12px"><button class="nw-tk-arg-add-btn" style="background:var(--sg-border-highlight,#46a2da);border:none;color:#fff;padding:5px 10px;border-radius:4px;cursor:pointer;font-size:14px;font-weight:bold" title="Add">+</button></div>`;
+
+		const overlay = document.createElement('div');
+		overlay.className = 'sg-input-dialog-overlay';
+		overlay.innerHTML = `
+			<div class="sg-input-dialog" style="min-width:320px;max-width:420px">
+				<div class="sg-input-dialog-header">
+					<span class="sg-input-dialog-title">${title}</span>
+					<button class="sg-input-dialog-close">\u2715</button>
+				</div>
+				<div class="sg-input-dialog-body" style="max-height:50vh;overflow-y:auto">
+					${descHtml}${fieldsHtml}
+				</div>
+				<div class="sg-input-dialog-footer">
+					<button class="sg-input-dialog-btn sg-input-dialog-cancel">Cancel</button>
+					<button class="sg-input-dialog-btn sg-input-dialog-confirm">Save</button>
+				</div>
+			</div>`;
+		document.body.appendChild(overlay);
+
+		// Wire add custom key
+		const addBtn = overlay.querySelector('.nw-tk-arg-add-btn');
+		if (addBtn) {
+			addBtn.onclick = () => {
+				const keyInput = overlay.querySelector('.nw-tk-new-key');
+				const valInput = overlay.querySelector('.nw-tk-new-val');
+				const key = keyInput?.value?.trim();
+				if (!key) return;
+				const val = valInput?.value || '';
+				const addRow = overlay.querySelector('.nw-tk-arg-add');
+				const newField = document.createElement('div');
+				newField.className = 'nw-tk-arg-extra';
+				newField.dataset.param = key;
+				newField.style.marginBottom = '8px';
+				newField.innerHTML = `<label style="font-size:12px;color:var(--sg-text-secondary)">${key} <span style="font-size:10px;color:var(--sg-text-tertiary)">custom</span></label><div style="display:flex;gap:6px;align-items:center"><input type="text" data-key="${key}" value="${val.replace(/"/g, '&quot;')}" style="flex:1;box-sizing:border-box;background:var(--sg-canvas-bg);border:1px solid var(--sg-border-color);border-radius:4px;padding:6px 8px;color:var(--sg-text-primary);font-size:12px;font-family:monospace"><button class="nw-tk-arg-remove" style="background:none;border:none;color:var(--sg-text-tertiary);cursor:pointer;font-size:14px;padding:4px" title="Remove">\u2715</button></div>`;
+				addRow.parentElement.insertBefore(newField, addRow);
+				newField.querySelector('.nw-tk-arg-remove').onclick = () => newField.remove();
+				keyInput.value = '';
+				valInput.value = '';
+			};
+		}
+
+		// Wire remove buttons
+		overlay.querySelectorAll('.nw-tk-arg-remove').forEach(btn => {
+			btn.onclick = () => btn.closest('.nw-tk-arg-extra')?.remove();
+		});
+
+		const close = () => overlay.remove();
+		overlay.querySelector('.sg-input-dialog-close').onclick = close;
+		overlay.querySelector('.sg-input-dialog-cancel').onclick = close;
+		overlay.querySelector('.sg-input-dialog-confirm').onclick = () => {
+			const args = {};
+			overlay.querySelectorAll('[data-key]').forEach(el => {
+				const key = el.dataset.key;
+				if (el.type === 'checkbox') {
+					args[key] = el.checked;
+				} else if (el.tagName === 'INPUT') {
+					const raw = el.value.trim();
+					if (raw === '') return;
+					try { args[key] = JSON.parse(raw); } catch { args[key] = raw; }
+				}
+			});
+			this._toolkitArgs[toolkitName] = args;
+			this._onConfigChanged();
+			close();
+		};
 	}
 
 	_onConfigChanged() {
@@ -264,8 +412,9 @@ class AgentConsoleManager {
 		try {
 			const { source, name } = this._getSelectedModel();
 			const toolkit_names = this._getSelectedToolkits();
+			const toolkit_args = this._toolkitArgs || {};
 			const use_backend_memory = this._memoryToggle ? this._memoryToggle.checked : true;
-			const data = await this.api.consoleStart({ model_source: source, model_name: name, toolkit_names, use_backend_memory });
+			const data = await this.api.consoleStart({ model_source: source, model_name: name, toolkit_names, toolkit_args, use_backend_memory });
 			this.agentPort = data.port;
 
 			// Connect AGUI handler if streaming mode is on

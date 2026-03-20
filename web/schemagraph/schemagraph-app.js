@@ -1932,6 +1932,33 @@ class SchemaGraphApp {
 			.sg-slot-add-btn { background: var(--sg-border-highlight, #46a2da); border: none; color: #ffffff; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500; }
 			.sg-slot-add-btn:hover { background: #5bb0e5; }
 			.sg-slot-empty { text-align: center; color: var(--sg-text-tertiary, #808090); padding: 20px; font-style: italic; }
+
+			/* Toolkit Args Editor */
+			.sg-args-editor { min-width: 360px; max-width: 480px; }
+			.sg-args-editor .sg-input-dialog-body { max-height: 60vh; overflow-y: auto; }
+			.sg-args-description { color: var(--sg-text-tertiary, #808090); font-size: 12px; margin-bottom: 12px; line-height: 1.4; }
+			.sg-args-fields { display: flex; flex-direction: column; gap: 10px; }
+			.sg-args-field { display: flex; flex-direction: column; gap: 4px; }
+			.sg-args-label { font-size: 12px; color: var(--sg-text-secondary, #b0b0c0); display: flex; align-items: center; gap: 6px; }
+			.sg-args-required { color: var(--sg-accent-red, #dc6068); font-weight: bold; }
+			.sg-args-type { font-size: 10px; color: var(--sg-text-tertiary, #808090); background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 3px; font-family: monospace; }
+			.sg-args-input { width: 100%; background: var(--sg-canvas-bg, #1a1a2e); border: 1px solid var(--sg-border-color, #404060); border-radius: 4px; padding: 7px 10px; color: var(--sg-text-primary, #ffffff); font-size: 13px; font-family: 'Monaco','Menlo',monospace; box-sizing: border-box; }
+			.sg-args-input:focus { outline: none; border-color: var(--sg-border-highlight, #46a2da); }
+			.sg-args-input::placeholder { color: var(--sg-text-tertiary, #808090); }
+			.sg-args-bool { font-size: 12px; color: var(--sg-text-secondary, #b0b0c0); display: flex; align-items: center; gap: 6px; cursor: pointer; }
+			.sg-args-extra-row { display: flex; gap: 6px; align-items: center; }
+			.sg-args-extra-row .sg-args-input { flex: 1; }
+			.sg-args-remove-btn { background: none; border: none; color: var(--sg-text-tertiary, #808090); cursor: pointer; font-size: 14px; padding: 4px; border-radius: 4px; }
+			.sg-args-remove-btn:hover { color: var(--sg-accent-red, #dc6068); background: rgba(220,96,104,0.15); }
+			.sg-args-add-row { display: flex; gap: 6px; align-items: center; padding-top: 6px; border-top: 1px solid var(--sg-border-color, #404060); }
+			.sg-args-new-key, .sg-args-new-val { flex: 1; background: var(--sg-canvas-bg, #1a1a2e); border: 1px solid var(--sg-border-color, #404060); border-radius: 4px; padding: 6px 8px; color: var(--sg-text-primary, #ffffff); font-size: 12px; }
+			.sg-args-new-key:focus, .sg-args-new-val:focus { outline: none; border-color: var(--sg-border-highlight, #46a2da); }
+			.sg-args-new-key::placeholder, .sg-args-new-val::placeholder { color: var(--sg-text-tertiary, #808090); }
+			.sg-args-add-btn { background: var(--sg-border-highlight, #46a2da); border: none; color: #fff; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: bold; }
+			.sg-args-add-btn:hover { background: #5bb0e5; }
+			.sg-args-empty { color: var(--sg-text-tertiary, #808090); font-size: 12px; font-style: italic; margin-bottom: 8px; }
+			.sg-args-raw-json { width: 100%; background: var(--sg-canvas-bg, #1a1a2e); border: 1px solid var(--sg-border-color, #404060); border-radius: 4px; padding: 8px 10px; color: var(--sg-text-primary, #ffffff); font-size: 13px; font-family: 'Monaco','Menlo',monospace; box-sizing: border-box; resize: vertical; }
+			.sg-args-raw-json:focus { outline: none; border-color: var(--sg-border-highlight, #46a2da); }
 		`;
 		document.head.appendChild(style);
 	}
@@ -3948,6 +3975,10 @@ class SchemaGraphApp {
 			this._showCodeEditor(node, slot, currentValue);
 			return;
 		}
+		if (editorType === 'toolkit_args') {
+			this._showToolkitArgsEditor(node, slot, currentValue);
+			return;
+		}
 
 		const leftPos = (valueScreen[0] * rect.width / this.canvas.width + rect.left) + 'px';
 		const topPos = (valueScreen[1] * rect.height / this.canvas.height + rect.top) + 'px';
@@ -4274,6 +4305,214 @@ class SchemaGraphApp {
 		}
 		this._codeEditorNode = null;
 		this._codeEditorSlot = null;
+	}
+
+	// === TOOLKIT ARGS EDITOR ===
+
+	async _showToolkitArgsEditor(node, slot, currentValue) {
+		// Find the 'name' field value on this node — check multiple sources
+		let toolkitName = '';
+		// 1. From nativeInputs (user typed or selected via combo-box)
+		for (let i = 0; i < (node.inputs?.length || 0); i++) {
+			if (node.inputs[i]?.name === 'name' && node.nativeInputs?.[i]) {
+				toolkitName = node.nativeInputs[i].value || '';
+				break;
+			}
+		}
+		// 2. From constantFields (some nodes store it there)
+		if (!toolkitName && node.constantFields?.name) {
+			toolkitName = node.constantFields.name;
+		}
+		// 3. From inputMeta defaults
+		if (!toolkitName) {
+			for (let i = 0; i < (node.inputs?.length || 0); i++) {
+				if (node.inputMeta?.[i]?.name === 'name' && node.nativeInputs?.[i]) {
+					toolkitName = node.nativeInputs[i].value || '';
+					break;
+				}
+			}
+		}
+
+		// Parse current args JSON
+		let currentArgs = {};
+		if (currentValue && currentValue !== 'null') {
+			try {
+				currentArgs = typeof currentValue === 'string' ? JSON.parse(currentValue) : (currentValue || {});
+			} catch { currentArgs = {}; }
+		}
+
+		// Fetch introspection data
+		let params = [];
+		let description = '';
+		let className = '';
+		let fetchError = '';
+		if (toolkitName) {
+			try {
+				const baseUrl = this._comboBoxBaseUrl || '';
+				const resp = await fetch(`${baseUrl}/toolkits/inspect`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ name: toolkitName }),
+				});
+				if (resp.ok) {
+					const data = await resp.json();
+					params = data.params || [];
+					description = data.description || '';
+					className = data.class_name || '';
+				} else {
+					fetchError = `Inspect failed: ${resp.status}`;
+				}
+			} catch (e) {
+				fetchError = e.message;
+				console.warn('[ArgsEditor] inspect failed:', e);
+			}
+		}
+
+		// Collect extra keys in currentArgs that are not in introspected params
+		const paramNames = new Set(params.map(p => p.name));
+		const extraKeys = Object.keys(currentArgs).filter(k => !paramNames.has(k));
+
+		// Build modal
+		const overlay = document.createElement('div');
+		overlay.className = 'sg-input-dialog-overlay';
+		const title = className ? `${className} Arguments` : (toolkitName ? `${toolkitName} Arguments` : 'Toolkit Arguments');
+		let descHtml = '';
+		if (!toolkitName) {
+			descHtml = '<div class="sg-args-description" style="color:var(--sg-accent-orange)">Set the <b>name</b> field first to auto-discover parameters.</div>';
+		} else if (fetchError) {
+			descHtml = `<div class="sg-args-description" style="color:var(--sg-accent-orange)">${fetchError}</div>`;
+		} else if (description) {
+			descHtml = `<div class="sg-args-description">${description.split('\n')[0]}</div>`;
+		}
+
+		let fieldsHtml = '';
+		if (params.length === 0 && extraKeys.length === 0) {
+			fieldsHtml = '<div class="sg-args-empty">No parameters found. Enter raw JSON below.</div>';
+			fieldsHtml += `<textarea class="sg-args-raw-json" rows="4">${JSON.stringify(currentArgs, null, 2)}</textarea>`;
+		} else {
+			// Introspected params
+			for (const p of params) {
+				const val = currentArgs[p.name] ?? p.default ?? '';
+				const displayVal = typeof val === 'object' ? JSON.stringify(val) : String(val ?? '');
+				const reqBadge = p.required ? '<span class="sg-args-required">*</span>' : '';
+				const typeBadge = `<span class="sg-args-type">${p.type}</span>`;
+				fieldsHtml += `
+					<div class="sg-args-field" data-param="${p.name}">
+						<label class="sg-args-label">${p.name} ${reqBadge} ${typeBadge}</label>
+						${p.type === 'bool'
+							? `<label class="sg-args-bool"><input type="checkbox" data-key="${p.name}" ${displayVal === 'true' || displayVal === 'True' || val === true ? 'checked' : ''}> Enabled</label>`
+							: `<input type="text" class="sg-args-input" data-key="${p.name}" value="${displayVal.replace(/"/g, '&quot;')}" placeholder="${p.default != null ? String(p.default) : ''}">`
+						}
+					</div>`;
+			}
+			// Extra keys not in schema
+			for (const key of extraKeys) {
+				const val = currentArgs[key];
+				const displayVal = typeof val === 'object' ? JSON.stringify(val) : String(val ?? '');
+				fieldsHtml += `
+					<div class="sg-args-field sg-args-extra" data-param="${key}">
+						<label class="sg-args-label">${key} <span class="sg-args-type">custom</span></label>
+						<div class="sg-args-extra-row">
+							<input type="text" class="sg-args-input" data-key="${key}" value="${displayVal.replace(/"/g, '&quot;')}">
+							<button class="sg-args-remove-btn" data-key="${key}" title="Remove">\u2715</button>
+						</div>
+					</div>`;
+			}
+			// Add custom key row
+			fieldsHtml += `
+				<div class="sg-args-add-row">
+					<input type="text" class="sg-args-new-key" placeholder="New key...">
+					<input type="text" class="sg-args-new-val" placeholder="Value...">
+					<button class="sg-args-add-btn" title="Add">+</button>
+				</div>`;
+		}
+
+		overlay.innerHTML = `
+			<div class="sg-input-dialog sg-args-editor">
+				<div class="sg-input-dialog-header">
+					<span class="sg-input-dialog-title">${title}</span>
+					<button class="sg-input-dialog-close">\u2715</button>
+				</div>
+				<div class="sg-input-dialog-body">
+					${descHtml}
+					<div class="sg-args-fields">${fieldsHtml}</div>
+				</div>
+				<div class="sg-input-dialog-footer">
+					<button class="sg-input-dialog-btn sg-input-dialog-cancel">Cancel</button>
+					<button class="sg-input-dialog-btn sg-input-dialog-confirm">Save</button>
+				</div>
+			</div>`;
+		document.body.appendChild(overlay);
+
+		// Wire add custom key
+		const addBtn = overlay.querySelector('.sg-args-add-btn');
+		if (addBtn) {
+			addBtn.onclick = () => {
+				const keyInput = overlay.querySelector('.sg-args-new-key');
+				const valInput = overlay.querySelector('.sg-args-new-val');
+				const key = keyInput?.value?.trim();
+				if (!key) return;
+				const val = valInput?.value || '';
+				const fieldsContainer = overlay.querySelector('.sg-args-fields');
+				const addRow = overlay.querySelector('.sg-args-add-row');
+				const newField = document.createElement('div');
+				newField.className = 'sg-args-field sg-args-extra';
+				newField.dataset.param = key;
+				newField.innerHTML = `
+					<label class="sg-args-label">${key} <span class="sg-args-type">custom</span></label>
+					<div class="sg-args-extra-row">
+						<input type="text" class="sg-args-input" data-key="${key}" value="${val.replace(/"/g, '&quot;')}">
+						<button class="sg-args-remove-btn" data-key="${key}" title="Remove">\u2715</button>
+					</div>`;
+				fieldsContainer.insertBefore(newField, addRow);
+				newField.querySelector('.sg-args-remove-btn').onclick = () => newField.remove();
+				keyInput.value = '';
+				valInput.value = '';
+			};
+		}
+
+		// Wire remove buttons
+		overlay.querySelectorAll('.sg-args-remove-btn').forEach(btn => {
+			btn.onclick = () => btn.closest('.sg-args-field')?.remove();
+		});
+
+		// Wire close/save
+		const close = () => overlay.remove();
+		overlay.querySelector('.sg-input-dialog-close').onclick = close;
+		overlay.querySelector('.sg-input-dialog-cancel').onclick = close;
+		overlay.querySelector('.sg-input-dialog-confirm').onclick = () => {
+			// Collect values
+			const rawArea = overlay.querySelector('.sg-args-raw-json');
+			let args;
+			if (rawArea) {
+				try { args = JSON.parse(rawArea.value); } catch { args = {}; }
+			} else {
+				args = {};
+				overlay.querySelectorAll('.sg-args-field').forEach(field => {
+					const key = field.dataset.param;
+					if (!key) return;
+					const checkbox = field.querySelector('input[type="checkbox"]');
+					const textInput = field.querySelector('.sg-args-input');
+					let val;
+					if (checkbox) {
+						val = checkbox.checked;
+					} else if (textInput) {
+						const raw = textInput.value;
+						// Try to parse as JSON for complex types
+						try { val = JSON.parse(raw); } catch { val = raw; }
+					}
+					if (val !== '' && val !== undefined && val !== null) {
+						args[key] = val;
+					}
+				});
+			}
+			const jsonStr = JSON.stringify(args);
+			node.nativeInputs[slot].value = jsonStr;
+			const fieldName = node.inputs?.[slot]?.name;
+			this.eventBus.emit(GraphEvents.FIELD_CHANGED, { nodeId: node.id, fieldName, value: jsonStr });
+			this.draw();
+			close();
+		};
 	}
 
 	handleWheel(data) {
@@ -6042,16 +6281,31 @@ class SchemaGraphApp {
 		const hasEditBox = !isMulti && !inp.link && node.nativeInputs?.[j] !== undefined;
 		if (hasEditBox) {
 			const boxX = x + 10, boxY = sy + 6, boxW = 70, boxH = 12;
-			this.ctx.fillStyle = 'rgba(0,0,0,0.4)';
-			this.ctx.beginPath(); this.ctx.roundRect(boxX, boxY, boxW, boxH, 2); this.ctx.fill();
-			this.ctx.strokeStyle = showRequiredHighlight ? colors.accentRed : 'rgba(255,255,255,0.15)';
-			this.ctx.lineWidth = (showRequiredHighlight ? 1.5 : 1) / this.camera.scale; this.ctx.stroke();
-			const val = node.nativeInputs[j].value;
-			const isUnset = val === null || val === undefined;
-			this.ctx.fillStyle = isUnset ? (showRequiredHighlight ? colors.accentRed : colors.textTertiary) : colors.textPrimary;
-			this.ctx.font = (8 * textScale) + 'px Courier New'; this.ctx.textAlign = 'left'; this.ctx.textBaseline = 'middle';
-			const displayVal = isUnset ? (node.nativeInputs[j].optional ? 'null' : 'required') : (val === '' ? '""' : String(val).substring(0, 10));
-			this.ctx.fillText(displayVal, boxX + 4, boxY + boxH / 2);
+			const editorHint = node.nativeInputs[j].editor;
+			if (editorHint === 'toolkit_args' || editorHint === 'code') {
+				// Draw a button-like indicator for special editors
+				const accentColor = editorHint === 'code' ? 'rgba(80,180,120,0.25)' : 'rgba(70,162,218,0.25)';
+				const borderColor = editorHint === 'code' ? 'rgba(80,180,120,0.5)' : 'rgba(70,162,218,0.5)';
+				this.ctx.fillStyle = accentColor;
+				this.ctx.beginPath(); this.ctx.roundRect(boxX, boxY, boxW, boxH, 3); this.ctx.fill();
+				this.ctx.strokeStyle = borderColor;
+				this.ctx.lineWidth = 1 / this.camera.scale; this.ctx.stroke();
+				this.ctx.fillStyle = colors.textSecondary;
+				this.ctx.font = (8 * textScale) + 'px Arial'; this.ctx.textAlign = 'center'; this.ctx.textBaseline = 'middle';
+				const label = editorHint === 'code' ? '\u270e edit' : '\u2699 configure';
+				this.ctx.fillText(label, boxX + boxW / 2, boxY + boxH / 2);
+			} else {
+				this.ctx.fillStyle = 'rgba(0,0,0,0.4)';
+				this.ctx.beginPath(); this.ctx.roundRect(boxX, boxY, boxW, boxH, 2); this.ctx.fill();
+				this.ctx.strokeStyle = showRequiredHighlight ? colors.accentRed : 'rgba(255,255,255,0.15)';
+				this.ctx.lineWidth = (showRequiredHighlight ? 1.5 : 1) / this.camera.scale; this.ctx.stroke();
+				const val = node.nativeInputs[j].value;
+				const isUnset = val === null || val === undefined;
+				this.ctx.fillStyle = isUnset ? (showRequiredHighlight ? colors.accentRed : colors.textTertiary) : colors.textPrimary;
+				this.ctx.font = (8 * textScale) + 'px Courier New'; this.ctx.textAlign = 'left'; this.ctx.textBaseline = 'middle';
+				const displayVal = isUnset ? (node.nativeInputs[j].optional ? 'null' : 'required') : (val === '' ? '""' : String(val).substring(0, 10));
+				this.ctx.fillText(displayVal, boxX + 4, boxY + boxH / 2);
+			}
 		}
 	}
 

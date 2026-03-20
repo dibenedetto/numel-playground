@@ -2530,4 +2530,174 @@ Example (mesh processing with toolkit):
 			return json.loads(content)
 		return {"filename": filename, "content": content}
 
+	# === Toolkit Management API ===
+
+	_app_dir      = os.path.dirname(os.path.abspath(__file__))
+	_project_root = os.path.dirname(_app_dir)
+	_contrib_dir  = os.path.join(_project_root, "contrib", "toolkits")
+
+	def _resolve_toolkit_module(name: str):
+		"""Import a toolkit module by name, trying standard resolution paths.
+		Returns (module, resolved_name) or raises ImportError."""
+		module_name = name.replace("/", ".").replace("\\", ".")
+		candidates = [module_name]
+		if "." not in module_name:
+			candidates += [f"toolkits.{module_name}", f"contrib.toolkits.{module_name}"]
+		elif module_name.startswith("toolkits.") and not module_name.startswith("contrib."):
+			candidates.append(f"contrib.{module_name}")
+		for candidate in candidates:
+			try:
+				md = importlib.import_module(candidate)
+				return md, candidate
+			except (ImportError, ModuleNotFoundError):
+				continue
+		raise ImportError(f"Cannot resolve toolkit: {name}")
+
+	def _find_toolkit_class(module):
+		"""Find the class marked with __toolkit__ = True in a module."""
+		for attr_name in dir(module):
+			attr = getattr(module, attr_name)
+			if isinstance(attr, type) and getattr(attr, '__toolkit__', False):
+				return attr
+		return None
+
+	def _get_toolkit_modules(context=None):
+		"""Options provider: list all importable toolkit module names."""
+		modules = _discover_all_toolkit_modules()
+		# Also include short names (without prefix) for convenience
+		return modules
+
+	register_options_provider("toolkit_modules", _get_toolkit_modules)
+
+	@app.post("/toolkits/list")
+	async def toolkits_list():
+		"""List all available toolkit modules with descriptions."""
+		import inspect as _ins
+		results = []
+		for mod_name in _discover_all_toolkit_modules():
+			entry = {"name": mod_name, "description": "", "builtin": mod_name.startswith("toolkits.")}
+			try:
+				md, resolved = _resolve_toolkit_module(mod_name)
+				tk_cls = _find_toolkit_class(md)
+				if tk_cls:
+					entry["description"] = (tk_cls.__doc__ or "").strip().split('\n')[0]
+					entry["class_name"] = tk_cls.__name__
+			except Exception:
+				entry["description"] = "(failed to load)"
+			results.append(entry)
+		return results
+
+	@app.post("/toolkits/inspect")
+	async def toolkits_inspect(request: dict):
+		"""Introspect a toolkit's constructor parameters and methods."""
+		import inspect as _ins
+		name = request.get("name", "")
+		if not name:
+			raise HTTPException(status_code=400, detail="name is required")
+		try:
+			md, resolved = _resolve_toolkit_module(name)
+		except ImportError as e:
+			raise HTTPException(status_code=404, detail=str(e))
+		tk_cls = _find_toolkit_class(md)
+		if not tk_cls:
+			raise HTTPException(status_code=404, detail=f"No toolkit class found in {name}")
+
+		# Introspect __init__ parameters
+		params = []
+		try:
+			sig = _ins.signature(tk_cls.__init__)
+			for pname, param in sig.parameters.items():
+				if pname == "self":
+					continue
+				ptype = "Any"
+				if param.annotation is not _ins.Parameter.empty:
+					ann = param.annotation
+					ptype = getattr(ann, '__name__', str(ann))
+					# Clean up typing prefixes
+					for prefix in ("typing.", "<class '", "'>"):
+						ptype = ptype.replace(prefix, "")
+				required = param.default is _ins.Parameter.empty
+				default = None if required else param.default
+				params.append({
+					"name": pname,
+					"type": ptype,
+					"default": default,
+					"required": required,
+				})
+		except (ValueError, TypeError):
+			pass
+
+		# List public methods
+		methods = []
+		for mname in sorted(dir(tk_cls)):
+			if mname.startswith('_'):
+				continue
+			method = getattr(tk_cls, mname, None)
+			if not callable(method):
+				continue
+			msig = ""
+			try:
+				msig = str(_ins.signature(method))
+			except (ValueError, TypeError):
+				pass
+			mdoc = (method.__doc__ or "").strip().split('\n')[0]
+			methods.append({"name": mname, "signature": msig, "description": mdoc})
+
+		return {
+			"name": resolved,
+			"class_name": tk_cls.__name__,
+			"description": (tk_cls.__doc__ or "").strip(),
+			"params": params,
+			"methods": methods,
+		}
+
+	@app.post("/toolkits/upload")
+	async def toolkits_upload(file: UploadFile = File(...), overwrite: bool = False):
+		"""Upload a .py file to contrib/toolkits/."""
+		if not file.filename or not file.filename.endswith('.py'):
+			raise HTTPException(status_code=400, detail="Only .py files are allowed")
+		if file.filename.startswith('_'):
+			raise HTTPException(status_code=400, detail="Filenames starting with _ are reserved")
+
+		content = await file.read()
+		if len(content) > 512 * 1024:
+			raise HTTPException(status_code=400, detail="File too large (max 512KB)")
+
+		# Validate it compiles
+		try:
+			compile(content, file.filename, 'exec')
+		except SyntaxError as e:
+			raise HTTPException(status_code=400, detail=f"Syntax error: {e}")
+
+		os.makedirs(_contrib_dir, exist_ok=True)
+		dest = os.path.join(_contrib_dir, file.filename)
+		if os.path.exists(dest) and not overwrite:
+			raise HTTPException(status_code=409, detail=f"{file.filename} already exists. Use overwrite=true to replace.")
+
+		with open(dest, 'wb') as f:
+			f.write(content)
+
+		# Reload if already imported
+		stem = file.filename[:-3]
+		mod_name = f"contrib.toolkits.{stem}"
+		import sys
+		if mod_name in sys.modules:
+			importlib.reload(sys.modules[mod_name])
+
+		# Verify it has a toolkit class
+		has_toolkit = False
+		try:
+			md = importlib.import_module(mod_name)
+			has_toolkit = _find_toolkit_class(md) is not None
+		except Exception:
+			pass
+
+		log_print(f"Toolkit uploaded: {file.filename} → {mod_name} (toolkit_class={has_toolkit})")
+		return {
+			"status": "ok",
+			"module": mod_name,
+			"filename": file.filename,
+			"has_toolkit_class": has_toolkit,
+		}
+
 	log_print("✅ Workflow API endpoints registered")
