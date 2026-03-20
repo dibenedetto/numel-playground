@@ -380,6 +380,14 @@
 .nw-console-messages.hide-system .nw-console-msg.system {
 	display: none;
 }
+.nw-console-msg.planner {
+	align-self: flex-start;
+	background: rgba(128, 90, 200, 0.12);
+	color: var(--sg-text-primary, #ddd);
+	border-left: 3px solid rgba(160, 120, 220, 0.6);
+	font-size: 13px;
+	border-radius: 4px 4px 4px 2px;
+}
 .nw-console-thinking {
 	display: flex;
 	gap: 5px;

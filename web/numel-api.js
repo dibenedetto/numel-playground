@@ -115,6 +115,10 @@ class NumelAPI {
 		return this.json('/console/chat', { message, session_id: sessionId, include_context: includeContext });
 	}
 	consoleMemoryClear()          { return this.json('/console/memory/clear'); }
+	consolePlannerEnable(opts={}) { return this.json('/console/planner/enable', opts); }
+	consolePlannerDisable()       { return this.json('/console/planner/disable'); }
+	consolePlannerStatus()        { return this.json('/console/planner/status'); }
+	consolePlannerReset()         { return this.json('/console/planner/reset'); }
 
 	// ── Toolkits ─────────────────────────────────────────────────
 

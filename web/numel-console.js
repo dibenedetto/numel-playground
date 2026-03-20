@@ -57,6 +57,8 @@ class AgentConsoleManager {
 		this._autoGen         = true;
 		this._autoSendToggle  = document.getElementById('consoleAutoSendToggle');
 		this._autoSend        = true;
+		this._plannerToggle   = document.getElementById('consolePlannerToggle');
+		this._plannerEnabled  = false;
 
 		this._setupUI();
 		this._fetchToolkits();
@@ -136,6 +138,27 @@ class AgentConsoleManager {
 		};
 		applyShowSys(this._showSysToggle?.checked ?? false);
 		this._showSysToggle?.addEventListener('change', () => applyShowSys(this._showSysToggle.checked));
+
+		// Planner mode toggle
+		this._plannerToggle?.addEventListener('change', () => this._togglePlanner(this._plannerToggle.checked));
+	}
+
+	async _togglePlanner(enabled) {
+		try {
+			if (enabled) {
+				await this.api.consolePlannerEnable();
+				this._plannerEnabled = true;
+				this._addMessage('system', 'Planner mode enabled — autonomous workflow building active.');
+			} else {
+				await this.api.consolePlannerDisable();
+				this._plannerEnabled = false;
+				this._addMessage('system', 'Planner mode disabled.');
+			}
+			this._updateSettingsSummary();
+		} catch (err) {
+			this._addMessage('error', `Planner toggle failed: ${err.message}`);
+			this._plannerToggle.checked = !enabled;
+		}
 	}
 
 	// ── Toggle / Open / Close ────────────────────────────────────
@@ -228,6 +251,7 @@ class AgentConsoleManager {
 		if (toolkits.length) parts.push(`+${toolkits.length} toolkit${toolkits.length > 1 ? 's' : ''}`);
 		if (memOn)     parts.push('mem');
 		if (autoGenOn) parts.push('auto-gen');
+		if (this._plannerEnabled) parts.push('planner');
 		this._settingsSummary.textContent = parts.join(' · ');
 	}
 
@@ -483,6 +507,10 @@ class AgentConsoleManager {
 							this._pendingSuggestions.push(msg.content);
 							this._badge.style.display = '';
 						}
+					} else if (msg.type === 'planner_action' || msg.type === 'planner_error' || msg.type === 'planner_paused') {
+						this._addMessage('planner', msg.content);
+						if (msg.type === 'planner_action') this._speak(msg.content);
+						if (!this._open) { this._badge.style.display = ''; }
 					}
 				} catch { /* ignore parse errors */ }
 			};

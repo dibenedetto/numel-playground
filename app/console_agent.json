@@ -24,5 +24,16 @@
 	"memory": {
 		"backend": true,
 		"session_history": 5
+	},
+	"planner": {
+		"enabled": false,
+		"instructions_file": "planner_instructions.txt",
+		"subscribe_events": [
+			"workflow.completed",
+			"workflow.failed",
+			"manager.workflow_added"
+		],
+		"debounce_ms": 2000,
+		"max_autonomous_turns": 10
 	}
 }

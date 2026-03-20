@@ -148,6 +148,18 @@ class ConsoleAgentManager:
 		self._start_lock         = asyncio.Lock()               # prevents concurrent start/stop
 		self._use_backend_memory = False                        # set during start()
 
+		# ── Planner mode ──
+		self._planner_enabled    = False
+		self._planner_lock       = asyncio.Lock()
+		self._planner_session_id = None
+		self._planner_turn_count = 0
+		self._planner_max_turns  = 10
+		self._planner_debounce   = 2.0                          # seconds
+		self._planner_timer      = None                         # debounce handle
+		self._planner_pending    : List[dict] = []              # queued events
+		self._planner_subs       : List[str]  = []              # subscribed event type strings
+		self._planner_instructions = ""
+
 	# ── Lifecycle ──────────────────────────────────────────────────
 
 	async def start(self, model_source: Optional[str] = None,
@@ -336,6 +348,120 @@ class ConsoleAgentManager:
 		self._sessions.clear()
 		log_print("Console memory cleared")
 
+	# ── Planner Mode ──────────────────────────────────────────────
+
+	def enable_planner(self, config: Optional[Dict[str, Any]] = None):
+		"""Activate planner mode — subscribe to events and enable autonomous loop."""
+		if self._planner_enabled:
+			return
+		cfg = config or {}
+		self._planner_max_turns  = cfg.get("max_autonomous_turns", 10)
+		self._planner_debounce   = cfg.get("debounce_ms", 2000) / 1000.0
+		self._planner_turn_count = 0
+		self._planner_session_id = f"planner-{uuid.uuid4().hex[:8]}"
+		self._planner_pending    = []
+
+		# Load planner instructions
+		instr_file = cfg.get("instructions_file", "planner_instructions.txt")
+		instr_path = os.path.join(os.path.dirname(self._config_path), instr_file)
+		try:
+			with open(instr_path) as f:
+				self._planner_instructions = f.read().replace("{max_autonomous_turns}", str(self._planner_max_turns))
+		except FileNotFoundError:
+			self._planner_instructions = ""
+			log_print(f"⚠️  Planner instructions file not found: {instr_path}")
+
+		# Ensure workspace_toolkit is available
+		if "workspace_toolkit" not in self._toolkit_names:
+			log_print("Planner: auto-adding workspace_toolkit")
+
+		# Subscribe to events
+		event_types = cfg.get("subscribe_events", [
+			"workflow.completed", "workflow.failed", "manager.workflow_added"
+		])
+		self._planner_subs = []
+		for et in event_types:
+			self._event_bus.subscribe(et, self._on_planner_event)
+			self._planner_subs.append(et)
+
+		self._planner_enabled = True
+		log_print(f"Planner mode enabled (events={event_types}, max_turns={self._planner_max_turns})")
+
+	def disable_planner(self):
+		"""Deactivate planner mode."""
+		if not self._planner_enabled:
+			return
+		for et in self._planner_subs:
+			self._event_bus.unsubscribe(et, self._on_planner_event)
+		self._planner_subs = []
+		self._planner_enabled = False
+		self._planner_pending = []
+		if self._planner_timer:
+			self._planner_timer.cancel()
+			self._planner_timer = None
+		log_print("Planner mode disabled")
+
+	async def _on_planner_event(self, event):
+		"""EventBus callback — debounce and queue for processing."""
+		if not self._planner_enabled:
+			return
+		evt_data = {
+			"type": getattr(event, 'event_type', str(event)),
+			"data": getattr(event, 'data', {}),
+		}
+		self._planner_pending.append(evt_data)
+		# Cancel existing debounce
+		if self._planner_timer:
+			self._planner_timer.cancel()
+		# Schedule processing after debounce
+		loop = asyncio.get_event_loop()
+		self._planner_timer = loop.call_later(
+			self._planner_debounce,
+			lambda: asyncio.ensure_future(self._process_planner_events())
+		)
+
+	async def _process_planner_events(self):
+		"""Process queued planner events — call agent with event context."""
+		if not self._planner_enabled or not self._planner_pending:
+			return
+		if self._planner_turn_count >= self._planner_max_turns:
+			await self.push_proactive(
+				"Planner reached maximum autonomous turns. Send a message to continue.",
+				"planner_paused"
+			)
+			return
+
+		async with self._planner_lock:
+			events = self._planner_pending[:]
+			self._planner_pending.clear()
+
+			# Build synthetic message
+			event_summary = "\n".join(
+				f"- {e['type']}: {json.dumps(e['data'], default=str)[:200]}"
+				for e in events
+			)
+			message = f"[Planner Event]\n{event_summary}\n\nAnalyze and decide the next action."
+
+			try:
+				result = await self.chat(
+					message,
+					session_id=self._planner_session_id,
+					include_context=True,
+				)
+				self._planner_turn_count += 1
+				response = result.get("response", "")
+				if response:
+					await self.push_proactive(response, "planner_action")
+			except Exception as e:
+				log_print(f"Planner error: {e}")
+				await self.push_proactive(f"Planner error: {e}", "planner_error")
+
+	def reset_planner(self):
+		"""Reset planner turn count and session."""
+		self._planner_turn_count = 0
+		self._planner_session_id = f"planner-{uuid.uuid4().hex[:8]}"
+		self._planner_pending = []
+
 	# ── Chat ───────────────────────────────────────────────────────
 
 	async def chat(self, message: str, session_id: Optional[str] = None,
@@ -350,8 +476,15 @@ class ConsoleAgentManager:
 		if not session_id:
 			session_id = str(uuid.uuid4())
 
-		# Prepend workspace context to the user message
+		# Reset planner turn count on user-initiated messages (not planner events)
+		if self._planner_enabled and session_id != self._planner_session_id:
+			self._planner_turn_count = 0
+
+		# Prepend planner instructions when planner mode is active
 		augmented = message
+		if self._planner_enabled and self._planner_instructions:
+			augmented = f"[Planner Instructions]\n{self._planner_instructions}\n\n{augmented}"
+
 		if include_context:
 			try:
 				ctx = self.get_context()
@@ -471,9 +604,9 @@ class ConsoleAgentManager:
 
 	# ── Proactive ──────────────────────────────────────────────────
 
-	async def push_proactive(self, content: str, severity: str = "info"):
+	async def push_proactive(self, content: str, msg_type: str = "suggestion", severity: str = "info"):
 		"""Push a proactive message to all connected console WebSocket clients."""
-		msg = json.dumps({"type": "suggestion", "content": content, "severity": severity})
+		msg = json.dumps({"type": msg_type, "content": content, "severity": severity})
 		disconnected = set()
 		for ws in self._proactive_ws:
 			try:
@@ -489,7 +622,7 @@ class ConsoleAgentManager:
 			if ctx["has_workflow"]:
 				await self.push_proactive(
 					f"Workflow loaded. {ctx['context']}\n\nWould you like me to review it for issues?",
-					"info"
+					severity="info"
 				)
 
 		self._event_bus.subscribe("MANAGER_WORKFLOW_ADDED", on_workflow_added)
@@ -540,6 +673,33 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 		except Exception as e:
 			log_print(f"Console chat error: {type(e).__name__}: {e}")
 			return {"error": str(e)}
+
+	# ── Planner Routes ────────────────────────────────────────────
+
+	@app.post("/console/planner/enable")
+	async def console_planner_enable(request: dict = {}):
+		console_mgr.enable_planner(request)
+		return {"enabled": True}
+
+	@app.post("/console/planner/disable")
+	async def console_planner_disable():
+		console_mgr.disable_planner()
+		return {"enabled": False}
+
+	@app.post("/console/planner/status")
+	async def console_planner_status():
+		return {
+			"enabled":    console_mgr._planner_enabled,
+			"turn_count": console_mgr._planner_turn_count,
+			"max_turns":  console_mgr._planner_max_turns,
+			"session_id": console_mgr._planner_session_id,
+			"subscribed_events": console_mgr._planner_subs,
+		}
+
+	@app.post("/console/planner/reset")
+	async def console_planner_reset():
+		console_mgr.reset_planner()
+		return {"reset": True}
 
 	@app.post("/console/toolkits")
 	async def console_list_toolkits():
