@@ -9,7 +9,7 @@ from typing     import Annotated, Any, Dict, List, Literal, Optional, Union
 from uuid       import uuid4
 
 
-def node_info(title: str = None, description: str = None, icon: str = None, section: str = "Miscellanea", visible: bool = True, **kwargs):
+def node_info(title: str = None, description: str = None, icon: str = None, section: str = "Miscellanea", visible: bool = True, layer: int = 1, **kwargs):
 	def decorator(cls):
 		return cls
 	return decorator
@@ -33,7 +33,7 @@ def node_chat(**kwargs):
 	return decorator
 
 
-@node_info(visible=False)
+@node_info(visible=False, layer=1)
 class FieldRole(str, Enum):
 	ANNOTATION   = "annotation"
 	CONSTANT     = "constant"
@@ -47,7 +47,7 @@ def generate_id():
 	return str(uuid4())
 
 
-@node_info(visible=False)
+@node_info(visible=False, layer=1)
 class BaseType(BaseModel):
 	type  : Annotated[Literal["base_type"]    , FieldRole.CONSTANT  ] = "base_type"
 	id    : Annotated[str                     , FieldRole.ANNOTATION] = Field(default_factory=generate_id)
@@ -58,7 +58,7 @@ class BaseType(BaseModel):
 	# 	return self
 
 
-@node_info(visible=False)
+@node_info(visible=False, layer=1)
 class ComponentType(BaseType):
 	type : Annotated[Literal["component_type"], FieldRole.CONSTANT] = "component_type"
 
@@ -67,7 +67,7 @@ class ComponentType(BaseType):
 	# 	return self
 
 
-@node_info(visible=False)
+@node_info(visible=False, layer=1)
 class Edge(ComponentType):
 	type        : Annotated[Literal["edge"], FieldRole.CONSTANT  ] = "edge"
 	preview     : Annotated[bool           , FieldRole.ANNOTATION] = False  # Whether to show a preview of the data flowing through this edge in the UI
@@ -88,6 +88,7 @@ class Edge(ComponentType):
 	description = "Holds meta information",
 	icon        = "ⓘ",
 	section     = "Data Sources",
+	layer       = 2,
 	visible     = True
 )
 class SourceMeta(ComponentType):
@@ -110,7 +111,7 @@ class SourceMeta(ComponentType):
 		return self
 
 
-@node_info(visible=False)
+@node_info(visible=False, layer=1)
 class NativeType(BaseType):
 	type : Annotated[Literal["native_type"], FieldRole.CONSTANT] = "native_type"
 	raw  : Annotated[Any                   , FieldRole.INPUT   ] = None
@@ -125,6 +126,7 @@ class NativeType(BaseType):
 	description = "Holds a boolean constant",
 	icon        = "⏻",
 	section     = "Native Types",
+	layer       = 1,
 	visible     = True
 )
 class NativeBoolean(NativeType):
@@ -142,6 +144,7 @@ class NativeBoolean(NativeType):
 	description = "Holds an integer number",
 	icon        = "🔢",
 	section     = "Native Types",
+	layer       = 1,
 	visible     = True
 )
 class NativeInteger(NativeType):
@@ -159,6 +162,7 @@ class NativeInteger(NativeType):
 	description = "Holds a real number",
 	icon        = "ℛ",
 	section     = "Native Types",
+	layer       = 1,
 	visible     = True
 )
 class NativeReal(NativeType):
@@ -176,6 +180,7 @@ class NativeReal(NativeType):
 	description = "Holds a string",
 	icon        = "➰",
 	section     = "Native Types",
+	layer       = 1,
 	visible     = True
 )
 class NativeString(NativeType):
@@ -193,6 +198,7 @@ class NativeString(NativeType):
 	description = "Holds a list of values",
 	icon        = "☰",
 	section     = "Native Types",
+	layer       = 1,
 	visible     = True
 )
 class NativeList(NativeType):
@@ -210,6 +216,7 @@ class NativeList(NativeType):
 	description = "Holds a key-value dictionary",
 	icon        = "📔",
 	section     = "Native Types",
+	layer       = 1,
 	visible     = True
 )
 class NativeDictionary(NativeType):
@@ -225,7 +232,7 @@ class NativeDictionary(NativeType):
 DEFAULT_TENSOR_DTYPE  : str  = "float32"
 
 
-@node_info(visible=False)
+@node_info(visible=False, layer=1)
 class TensorType(BaseType):
 	type   : Annotated[Literal["tensor_type"], FieldRole.CONSTANT] = "tensor_type"
 	meta   : Annotated[Optional[SourceMeta]  , FieldRole.INPUT   ] = Field(default=None, description="Optional source metadata describing the tensor origin and properties")
@@ -243,6 +250,7 @@ class TensorType(BaseType):
 	description = "Holds tensor data",
 	icon        = "🔟",
 	section     = "Data Sources",
+	layer       = 2,
 	visible     = True
 )
 class DataTensor(TensorType):
@@ -250,7 +258,7 @@ class DataTensor(TensorType):
 	type : Annotated[Literal["data_tensor"], FieldRole.CONSTANT] = "data_tensor"
 
 
-@node_info(visible=False)
+@node_info(visible=False, layer=1)
 class ConfigType(BaseType):
 	type : Annotated[Literal["config_type"], FieldRole.CONSTANT] = "config_type"
 
@@ -263,7 +271,7 @@ DEFAULT_OPTIONS_NAME        : str  = "Zoe"
 DEFAULT_OPTIONS_DESCRIPTION : str  = None
 
 
-@node_info(visible=False)
+@node_info(visible=False, layer=1)
 class OptionsType(BaseType):
 	type        : Annotated[Literal["options_type"], FieldRole.CONSTANT] = "options_type"
 	name        : Annotated[Optional[str]          , FieldRole.INPUT   ] = Field(default=DEFAULT_OPTIONS_NAME, description="Display name or identifier for this options configuration")
@@ -284,6 +292,7 @@ DEFAULT_BACKEND_FALLBACK : bool = False
 	description = "Holds backend framework reference",
 	icon        = "⚙️",
 	section     = "Configurations",
+	layer       = 2,
 	visible     = True
 )
 class BackendConfig(ConfigType):
@@ -309,6 +318,7 @@ DEFAULT_MODEL_FALLBACK : bool = False
 	description = "Holds language model reference",
 	icon        = "🗣️",
 	section     = "Configurations",
+	layer       = 2,
 	visible     = True
 )
 class ModelConfig(ConfigType):
@@ -335,6 +345,7 @@ DEFAULT_EMBEDDING_FALLBACK : bool = False
 	description = "Holds embedding model reference",
 	icon        = "📦",
 	section     = "Configurations",
+	layer       = 2,
 	visible     = True
 )
 class EmbeddingConfig(ConfigType):
@@ -364,6 +375,7 @@ DEFAULT_CONTENT_DB_FALLBACK             : bool = False
 	description = "Holds raw contents",
 	icon        = "🛢",
 	section     = "Configurations",
+	layer       = 2,
 	visible     = True
 )
 class ContentDBConfig(ConfigType):
@@ -393,6 +405,7 @@ DEFAULT_INDEX_DB_FALLBACK    : bool = False
 	description = "Holds vector contents",
 	icon        = "↗",
 	section     = "Configurations",
+	layer       = 2,
 	visible     = True
 )
 class IndexDBConfig(ConfigType):
@@ -421,6 +434,7 @@ DEFAULT_MEMORY_MANAGER_PROMPT  : str  = None
 	description = "Manages memory information",
 	icon        = "💭",
 	section     = "Configurations",
+	layer       = 2,
 	visible     = True
 )
 class MemoryManagerConfig(ConfigType):
@@ -449,6 +463,7 @@ DEFAULT_SESSION_MANAGER_PROMPT       : str  = None
 	description = "Manages session information",
 	icon        = "🗓️",
 	section     = "Configurations",
+	layer       = 2,
 	visible     = True
 )
 class SessionManagerConfig(ConfigType):
@@ -498,6 +513,7 @@ DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS : int  = 10
 	description = "Manages knowledge information (RAG)",
 	icon        = "📚",
 	section     = "Configurations",
+	layer       = 2,
 	visible     = True
 )
 class KnowledgeManagerConfig(ConfigType):
@@ -520,7 +536,7 @@ DEFAULT_TOOL_MAX_WEB_SEARCH_RESULTS : int  = 5
 DEFAULT_TOOL_FALLBACK               : bool = False
 
 
-@node_info(visible=False)
+@node_info(visible=False, layer=1)
 class ToolBaseConfig(ConfigType):
 	"""Base class for tool and toolkit configurations."""
 	type : Annotated[Literal["tool_base_config"], FieldRole.CONSTANT] = "tool_base_config"
@@ -537,6 +553,7 @@ class ToolBaseConfig(ConfigType):
 	description = "Handles tool usage",
 	icon        = "🔧",
 	section     = "Configurations",
+	layer       = 2,
 	visible     = True
 )
 class ToolConfig(ToolBaseConfig):
@@ -561,6 +578,7 @@ DEFAULT_AGENT_OPTIONS_MARKDOWN        : bool = True
 	description = "Toolkit module providing multiple related tools with shared state",
 	icon        = "🧰",
 	section     = "Configurations",
+	layer       = 2,
 	visible     = True
 )
 class ToolkitConfig(ToolBaseConfig):
@@ -577,6 +595,7 @@ class ToolkitConfig(ToolBaseConfig):
 	description = "Stores agent configuration options",
 	icon        = "🛠️",
 	section     = "Configurations",
+	layer       = 2,
 	visible     = True
 )
 class AgentOptionsConfig(OptionsType):
@@ -596,6 +615,7 @@ class AgentOptionsConfig(OptionsType):
 	description = "Stores agent reference",
 	icon        = "🤖",
 	section     = "Configurations",
+	layer       = 2,
 	visible     = True
 )
 class AgentConfig(ConfigType):
@@ -617,7 +637,7 @@ class AgentConfig(ConfigType):
 		return self
 
 
-@node_info(visible=False)
+@node_info(visible=False, layer=1)
 class FlowType(BaseType):
 	type     : Annotated[Literal["flow_type"], FieldRole.CONSTANT] = "flow_type"
 	flow_in  : Annotated[Optional[Any]       , FieldRole.INPUT   ] = Field(default=None, description="Receives the execution token from the upstream flow node; connect from the previous node's flow_out")
@@ -629,6 +649,7 @@ class FlowType(BaseType):
 	description = "Represents the start of a workflow",
 	icon        = "▶",
 	section     = "Endpoints",
+	layer       = 1,
 	visible     = True
 )
 class StartFlow(FlowType):
@@ -641,6 +662,7 @@ class StartFlow(FlowType):
 	description = "Represents the end of a workflow",
 	icon        = "🏁",
 	section     = "Endpoints",
+	layer       = 1,
 	visible     = True
 )
 class EndFlow(FlowType):
@@ -653,6 +675,7 @@ class EndFlow(FlowType):
 	description = "Workflow dead end",
 	icon        = "🚧",
 	section     = "Endpoints",
+	layer       = 1,
 	visible     = True
 )
 class SinkFlow(FlowType):
@@ -665,6 +688,7 @@ class SinkFlow(FlowType):
 	description = "Data preview",
 	icon        = "➠",
 	section     = "Workflow",
+	layer       = 1,
 	visible     = True
 )
 class PreviewFlow(FlowType):
@@ -678,6 +702,7 @@ class PreviewFlow(FlowType):
 	description = "Routes data through pathways",
 	icon        = "🔁",
 	section     = "Workflow",
+	layer       = 1,
 	visible     = True
 )
 class RouteFlow(FlowType):
@@ -694,6 +719,7 @@ class RouteFlow(FlowType):
 	description = "Combines data through pathways",
 	icon        = "🔀",
 	section     = "Workflow",
+	layer       = 1,
 	visible     = True
 )
 class CombineFlow(FlowType):
@@ -712,6 +738,7 @@ DEFAULT_MERGE_NODE_STRATEGY : str = "first"
 	description = "Merges multiple data into one",
 	icon        = "🪢",
 	section     = "Workflow",
+	layer       = 1,
 	visible     = True
 )
 class MergeFlow(FlowType):
@@ -731,6 +758,7 @@ DEFAULT_TRANSFORM_NODE_SCRIPT : str = "output = input"
 	description = "Transforms data according to script",
 	icon        = "🏗️",
 	section     = "Workflow",
+	layer       = 1,
 	visible     = True
 )
 class TransformFlow(FlowType):
@@ -751,6 +779,7 @@ DEFAULT_TOOL_NODE_ARGS : Dict[str, Any] = {}
 	description = "Proxy for tool or toolkit method invocation",
 	icon        = "👨🏻‍🔧",
 	section     = "Workflow",
+	layer       = 2,
 	visible     = True
 )
 class ToolFlow(FlowType):
@@ -774,6 +803,7 @@ class ToolFlow(FlowType):
 	description = "Proxy for agent invocation",
 	icon        = "🕵️‍♂️",
 	section     = "Workflow",
+	layer       = 2,
 	visible     = True
 )
 class AgentFlow(FlowType):
@@ -799,6 +829,7 @@ DEFAULT_LOOP_MAX_ITERATIONS : int = 10000
 	              "The loop continues while 'condition' is True (up to max_iterations).",
 	icon        = "🔁",
 	section     = "Loops",
+	layer       = 1,
 	visible     = True
 )
 class LoopStartFlow(FlowType):
@@ -824,6 +855,7 @@ class LoopStartFlow(FlowType):
 	              "When reached, execution returns to the paired Loop Start for the next iteration.",
 	icon        = "↩️",
 	section     = "Loops",
+	layer       = 1,
 	visible     = True
 )
 class LoopEndFlow(FlowType):
@@ -845,6 +877,7 @@ class LoopEndFlow(FlowType):
 	              "Outputs 'current' (the current item) and 'index' (0-based position).",
 	icon        = "📋",
 	section     = "Loops",
+	layer       = 1,
 	visible     = True
 )
 class ForEachStartFlow(FlowType):
@@ -869,6 +902,7 @@ class ForEachStartFlow(FlowType):
 	description = "Marks the end of a For Each loop body. When reached, moves to the next item.",
 	icon        = "↩️",
 	section     = "Loops",
+	layer       = 1,
 	visible     = True
 )
 class ForEachEndFlow(FlowType):
@@ -883,6 +917,7 @@ class ForEachEndFlow(FlowType):
 	description = "Immediately exits the innermost loop. Execution continues after the loop end.",
 	icon        = "⏹️",
 	section     = "Loops",
+	layer       = 1,
 	visible     = True
 )
 class BreakFlow(FlowType):
@@ -902,6 +937,7 @@ class BreakFlow(FlowType):
 	description = "Skips the rest of the current iteration and moves to the next loop iteration.",
 	icon        = "⏭️",
 	section     = "Loops",
+	layer       = 1,
 	visible     = True
 )
 class ContinueFlow(FlowType):
@@ -936,6 +972,7 @@ DEFAULT_GATE_RESET     : bool = True
 	              "Use for batching, throttling, or conditional triggering.",
 	icon        = "🚧",
 	section     = "Workflow",
+	layer       = 1,
 	visible     = True
 )
 class GateFlow(FlowType):
@@ -970,6 +1007,7 @@ DEFAULT_DELAY_DURATION_MS : int  = 1000
 	description = "Pauses execution for specified duration, then continues.",
 	icon        = "⏸️",
 	section     = "Workflow",
+	layer       = 1,
 	visible     = True
 )
 class DelayFlow(FlowType):
@@ -993,6 +1031,7 @@ class DelayFlow(FlowType):
     description = "Make an HTTP request to an external URL",
     icon        = "🌐",
     section     = "Workflow",
+    layer       = 1,
     visible     = True
 )
 class HttpRequestFlow(FlowType):
@@ -1013,6 +1052,7 @@ class HttpRequestFlow(FlowType):
     description = "Branch execution based on a condition",
     icon        = "🔀",
     section     = "Workflow",
+    layer       = 1,
     visible     = True
 )
 class IfElseFlow(FlowType):
@@ -1029,6 +1069,7 @@ class IfElseFlow(FlowType):
     description = "Extract a field from a dict or list by key or index",
     icon        = "🔍",
     section     = "Workflow",
+    layer       = 1,
     visible     = True
 )
 class MapExtractFlow(FlowType):
@@ -1046,6 +1087,7 @@ class MapExtractFlow(FlowType):
     description = "Re-run the wired subflow on failure, up to max attempts",
     icon        = "🔄",
     section     = "Workflow",
+    layer       = 1,
     visible     = True
 )
 class RetryFlow(FlowType):
@@ -1065,6 +1107,7 @@ class RetryFlow(FlowType):
     description = "Collect values across iterations into a list",
     icon        = "📚",
     section     = "Workflow",
+    layer       = 1,
     visible     = True
 )
 class AccumulateFlow(FlowType):
@@ -1081,6 +1124,7 @@ class AccumulateFlow(FlowType):
     description = "Score workflow output with a Python expression — for optimization loops",
     icon        = "📊",
     section     = "Workflow",
+    layer       = 2,
     visible     = True
 )
 class EvalFlow(FlowType):
@@ -1103,6 +1147,7 @@ class EvalFlow(FlowType):
     description = "Send an email or webhook notification",
     icon        = "🔔",
     section     = "Workflow",
+    layer       = 2,
     visible     = True
 )
 class NotifyFlow(FlowType):
@@ -1128,6 +1173,7 @@ class NotifyFlow(FlowType):
 	              "webhooks, browser sources). Can listen to multiple sources with different modes.",
 	icon        = "📡",
 	section     = "Event Sources",
+	layer       = 2,
 	visible     = True
 )
 class EventListenerFlow(FlowType):
@@ -1165,6 +1211,7 @@ DEFAULT_TIMER_MAX_TRIGGERS  : int  = -1      # -1 = infinite
 	description = "Registers a timer event source. Connect its output to an Event Listener's sources input.",
 	icon        = "🕐",
 	section     = "Event Sources",
+	layer       = 2,
 	visible     = True
 )
 class TimerSourceFlow(FlowType):
@@ -1182,6 +1229,7 @@ class TimerSourceFlow(FlowType):
 	description = "Registers a filesystem watcher event source. Connect its output to an Event Listener's sources input.",
 	icon        = "📂",
 	section     = "Event Sources",
+	layer       = 2,
 	visible     = True
 )
 class FSWatchSourceFlow(FlowType):
@@ -1201,6 +1249,7 @@ class FSWatchSourceFlow(FlowType):
 	description = "Registers a webhook event source. Connect its output to an Event Listener's sources input.",
 	icon        = "🔗",
 	section     = "Event Sources",
+	layer       = 2,
 	visible     = True
 )
 class WebhookSourceFlow(FlowType):
@@ -1219,6 +1268,7 @@ class WebhookSourceFlow(FlowType):
 	              "Connect its output to an Event Listener's sources input.",
 	icon        = "🎥",
 	section     = "Event Sources",
+	layer       = 2,
 	visible     = True
 )
 class BrowserSourceFlow(FlowType):
@@ -1244,6 +1294,7 @@ class BrowserSourceFlow(FlowType):
 	              "the detected skeleton landmarks. Install: pip install mediapipe Pillow numpy",
 	icon        = "🦴",
 	section     = "ML / Stream",
+	layer       = 2,
 	visible     = True
 )
 class PoseDetectorFlow(FlowType):
@@ -1264,6 +1315,7 @@ class PoseDetectorFlow(FlowType):
 	              "any transform node; the matching Browser Source overlay canvas will be updated.",
 	icon        = "📺",
 	section     = "ML / Stream",
+	layer       = 2,
 	visible     = True
 )
 class StreamDisplayFlow(FlowType):
@@ -1285,6 +1337,7 @@ class StreamDisplayFlow(FlowType):
 	              "Connect source_id from a Browser Source to link the live video stream.",
 	icon        = "🤖",
 	section     = "ML / Stream",
+	layer       = 2,
 	visible     = True
 )
 class ComputerVisionFlow(FlowType):
@@ -1311,7 +1364,7 @@ class ComputerVisionFlow(FlowType):
 # =============================================================================
 
 
-@node_info(visible=False)
+@node_info(visible=False, layer=1)
 class InteractiveType(BaseType):
 	type : Annotated[Literal["interactive_type"], FieldRole.CONSTANT] = "interactive_type"
 
@@ -1324,6 +1377,7 @@ DEFAULT_USER_INPUT_QUERY : str = "Please provide input for the workflow to conti
 	description = "Asks user for input during workflow execution",
 	icon        = "👤",
 	section     = "Interactive",
+	layer       = 3,
 	visible     = True
 )
 class UserInputFlow(FlowType):
@@ -1344,6 +1398,7 @@ class UserInputFlow(FlowType):
 	description = "Calls tool interactively",
 	icon        = "☎️",
 	section     = "Interactive",
+	layer       = 3,
 	visible     = True
 )
 class ToolCall(InteractiveType):
@@ -1371,6 +1426,7 @@ class ToolCall(InteractiveType):
 	description = "Allows to chat with agent interactively",
 	icon        = "🗪",
 	section     = "Interactive",
+	layer       = 3,
 	visible     = True
 )
 class AgentChat(FlowType):
@@ -1412,6 +1468,7 @@ class AgentChat(FlowType):
 	              "Connect 'step' to control the increment/decrement amount.",
 	icon        = "#️⃣",
 	section     = "Tutorial",
+	layer       = 3,
 	visible     = True
 )
 class Counter(InteractiveType):
@@ -1512,7 +1569,7 @@ DEFAULT_WORKFLOW_EXEC_DELAY         : float = 0.1
 DEFAULT_WORKFLOW_USER_INPUT_TIMEOUT : float = 300.0
 
 
-@node_info(visible=False)
+@node_info(visible=False, layer=1)
 class WorkflowExecutionOptions(OptionsType):
 	type               : Annotated[Literal["workflow_execution_options"], FieldRole.CONSTANT] = "workflow_execution_options"
 	exec_delay         : Annotated[Optional[float]                      , FieldRole.INPUT   ] = Field(default=DEFAULT_WORKFLOW_EXEC_DELAY,         description="Seconds to pause between each workflow execution cycle (throttles the main loop)")
@@ -1527,7 +1584,7 @@ class WorkflowExecutionOptions(OptionsType):
 DEFAULT_WORKFLOW_OPTIONS_SEED : int = 777
 
 
-@node_info(visible=False)
+@node_info(visible=False, layer=1)
 class WorkflowOptions(OptionsType):
 	type : Annotated[Literal["workflow_options"], FieldRole.CONSTANT] = "workflow_options"
 	seed : Annotated[int                        , FieldRole.INPUT   ] = Field(default=DEFAULT_WORKFLOW_OPTIONS_SEED, description="Random seed for reproducibility across workflow runs")
@@ -1537,7 +1594,7 @@ class WorkflowOptions(OptionsType):
 		return self
 
 
-@node_info(visible=False)
+@node_info(visible=False, layer=1)
 class Workflow(ComponentType):
 	type    : Annotated[Literal["workflow"]      , FieldRole.CONSTANT] = "workflow"
 	options : Annotated[Optional[WorkflowOptions], FieldRole.INPUT   ] = None

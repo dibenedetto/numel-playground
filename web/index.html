@@ -4,6 +4,7 @@
 		<meta charset="UTF-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 		<title>Numel Playground</title>
+		<link rel="icon" href="data:,">
 
 		<link rel="stylesheet" href="schemagraph/schemagraph.css">
 		<link rel="stylesheet" href="numel-workflow.css">
@@ -164,14 +165,14 @@
 					</div>
 					<div id="credentialsContent" class="nw-collapsible-content" style="display: none;">
 						<div id="credentialsList" class="nw-credentials-list"></div>
-						<div id="credentialForm" class="nw-credential-form" style="display:none;">
+						<form id="credentialForm" class="nw-credential-form" style="display:none;" onsubmit="return false">
 							<input id="credentialName"  type="text"     class="nw-input" placeholder="NAME (e.g. SLACK_TOKEN)" autocomplete="off" spellcheck="false">
 							<input id="credentialValue" type="password" class="nw-input" placeholder="Value" autocomplete="new-password">
 							<div class="nw-btn-row">
 								<button id="saveCredentialBtn"   class="nw-btn nw-btn-success nw-btn-sm">Save</button>
 								<button id="cancelCredentialBtn" class="nw-btn nw-btn-secondary nw-btn-sm">Cancel</button>
 							</div>
-						</div>
+						</form>
 						<div id="tunnelInfo" class="nw-tunnel-info" style="display:none;">
 							<span class="nw-tunnel-label">🌐 Public URL</span>
 							<a id="tunnelUrl" class="nw-tunnel-url" target="_blank"></a>
@@ -402,6 +403,7 @@
 					</svg>
 				</button>
 				<button id="consoleSendBtn" class="nw-console-send" title="Send">&#10148;</button>
+				<button id="consolePlannerStopBtn" class="nw-console-planner-stop" title="Interrupt planner" style="display:none">&#9632;</button>
 			</div>
 		</div>
 

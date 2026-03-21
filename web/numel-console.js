@@ -58,7 +58,9 @@ class AgentConsoleManager {
 		this._autoSendToggle  = document.getElementById('consoleAutoSendToggle');
 		this._autoSend        = true;
 		this._plannerToggle   = document.getElementById('consolePlannerToggle');
+		this._plannerStopBtn  = document.getElementById('consolePlannerStopBtn');
 		this._plannerEnabled  = false;
+		this._plannerBusy     = false;  // true while planner is actively processing
 
 		this._setupUI();
 		this._fetchToolkits();
@@ -141,19 +143,76 @@ class AgentConsoleManager {
 
 		// Planner mode toggle
 		this._plannerToggle?.addEventListener('change', () => this._togglePlanner(this._plannerToggle.checked));
+
+		// Planner interrupt button
+		this._plannerStopBtn?.addEventListener('click', () => this._interruptPlanner());
+	}
+
+	// ── Planner lock / interrupt ─────────────────────────────────
+
+	_setPlannerBusy(busy) {
+		if (this._plannerBusy === busy) return;  // avoid redundant toggles
+		this._plannerBusy = busy;
+		// Show/hide interrupt button
+		if (this._plannerStopBtn) this._plannerStopBtn.style.display = busy ? '' : 'none';
+		// Lock/unlock console input
+		this._setInputEnabled(!busy);
+		if (busy) this._input.placeholder = 'Planner is working...';
+		// Lock/unlock entire page except the console panel via CSS class on body
+		document.body.classList.toggle('nw-planner-locked', busy);
+		// Safety timeout: auto-unlock after 120s to prevent permanent lock
+		clearTimeout(this._plannerBusyTimer);
+		if (busy) {
+			this._plannerBusyTimer = setTimeout(() => {
+				if (this._plannerBusy) {
+					this._hideThinking();
+					this._setPlannerBusy(false);
+					this._addMessage('system', 'Planner timed out (120s). UI unlocked.');
+				}
+			}, 120_000);
+		}
+	}
+
+	async _interruptPlanner() {
+		const ok = await this._confirm('Interrupt Planner', 'Stop the planner? The current workflow will be kept as-is.', 'Interrupt', true);
+		if (!ok) return;
+		try {
+			await this.api.consolePlannerDisable();
+			this._plannerEnabled = false;
+			if (this._plannerToggle) this._plannerToggle.checked = false;
+			this._setPlannerBusy(false);
+			this._hideThinking();
+			this._addMessage('system', 'Planner interrupted.');
+			this._updateSettingsSummary();
+		} catch (err) {
+			this._addMessage('error', `Interrupt failed: ${err.message}`);
+		}
 	}
 
 	async _togglePlanner(enabled) {
+		this._setInputEnabled(false);
+		this._input.placeholder = 'Reconfiguring agent...';
 		try {
 			if (enabled) {
-				await this.api.consolePlannerEnable();
+				const result = await this.api.consolePlannerEnable();
 				this._plannerEnabled = true;
 				this._addMessage('system', 'Planner mode enabled — autonomous workflow building active.');
+				// Planner auto-adds toolkits and restarts the agent → update port and reconnect AGUI
+				if (result?.port) {
+					this.agentPort = result.port;
+					if (this._streamingMode) {
+						this._disconnectAgent();
+						this._connectAgent();
+					}
+				}
+				await this._fetchToolkits();
 			} else {
 				await this.api.consolePlannerDisable();
 				this._plannerEnabled = false;
+				this._setPlannerBusy(false);
 				this._addMessage('system', 'Planner mode disabled.');
 			}
+			this._setInputEnabled(true);
 			this._updateSettingsSummary();
 		} catch (err) {
 			this._addMessage('error', `Planner toggle failed: ${err.message}`);
@@ -422,6 +481,8 @@ class AgentConsoleManager {
 	}
 
 	async _applyConfigChange() {
+		this._setInputEnabled(false);
+		this._input.placeholder = 'Reconfiguring agent...';
 		this._addMessage('system', 'Reconfiguring agent...');
 		this._history = [];
 		this._sessionId = null;
@@ -507,9 +568,21 @@ class AgentConsoleManager {
 							this._pendingSuggestions.push(msg.content);
 							this._badge.style.display = '';
 						}
+					} else if (msg.type === 'planner_thinking') {
+						this._setPlannerBusy(true);
+						this._showThinking();
+					} else if (msg.type === 'planner_done') {
+						// Safety net: always unlock after planner turn finishes
+						this._hideThinking();
+						this._setPlannerBusy(false);
 					} else if (msg.type === 'planner_action' || msg.type === 'planner_error' || msg.type === 'planner_paused') {
-						this._addMessage('planner', msg.content);
-						if (msg.type === 'planner_action') this._speak(msg.content);
+						this._hideThinking();
+						this._setPlannerBusy(false);
+						if (msg.content) this._addMessage('planner', msg.content);
+						if (msg.type === 'planner_action' && msg.content) {
+							this._speak(msg.content);
+							this._plannerAutoApply(msg.content);
+						}
 						if (!this._open) { this._badge.style.display = ''; }
 					}
 				} catch { /* ignore parse errors */ }
@@ -554,7 +627,11 @@ class AgentConsoleManager {
 		this._addMessage('user', text);
 		this._showThinking();
 
-		if (this._streamingMode && this.handler?.isConnected()) {
+		// Lock UI immediately when planner is active
+		if (this._plannerEnabled) this._setPlannerBusy(true);
+
+		// Planner always uses REST mode (AGUI doesn't reliably work with tool-heavy prompts)
+		if (!this._plannerEnabled && this._streamingMode && this.handler?.isConnected()) {
 			await this._sendViaAGUI(text);
 		} else {
 			await this._sendViaREST(text);
@@ -594,7 +671,12 @@ class AgentConsoleManager {
 		}
 
 		this._busy = false;
-		this._setInputEnabled(true);
+		if (!this._plannerBusy) {
+			this._setInputEnabled(true);
+		} else {
+			// Planner is still active — show thinking dots again while waiting for events
+			this._showThinking();
+		}
 	}
 
 	// ── AGUI mode (streaming) ────────────────────────────────────
@@ -617,6 +699,7 @@ class AgentConsoleManager {
 
 		this._setInputEnabled(false);
 		try {
+			console.log('[Console] AGUI runAgent on port', this.agentPort);
 			await this.handler.agent.runAgent({});
 		} catch (err) {
 			// AGUI protocol error (e.g. parallel tool calls) → fall back to REST silently
@@ -634,6 +717,7 @@ class AgentConsoleManager {
 		this._hideThinking();
 		this._busy = false;
 		this._setInputEnabled(true);
+		console.log('[Console] Run finished. History length:', this._history.length);
 
 		// Capture the assistant response into history for memory
 		const lastAssistant = this._getLastAssistantContent();
@@ -654,6 +738,11 @@ class AgentConsoleManager {
 				this._processGenerationResponse(lastAssistant);
 			}
 		}
+
+		// Planner: auto-apply workflow JSON from streaming response
+		if (this._plannerEnabled && lastAssistant) {
+			this._plannerAutoApply(lastAssistant);
+		}
 	}
 
 	_onRunError(error) {
@@ -662,6 +751,7 @@ class AgentConsoleManager {
 		this._setInputEnabled(true);
 		this._pendingGen = false;
 		const msg = error?.message || String(error) || 'Agent error';
+		console.error('[Console] Run error:', msg);
 		this._addMessage('error', msg);
 	}
 
@@ -688,6 +778,39 @@ class AgentConsoleManager {
 		}
 		// Run still active — re-show thinking dots until _onRunFinished
 		this._showThinking();
+	}
+
+	async _plannerAutoApply(text) {
+		// Extract workflow JSON from assistant response and apply it
+		const wf = this._extractWorkflowJson(text);
+		if (!wf) return;
+		try {
+			await this.api.consolePlannerApply(wf);
+			this._addMessage('system', `Workflow applied (${wf.nodes?.length || 0} nodes)`);
+		} catch (err) {
+			console.warn('[Console] Planner auto-apply failed:', err.message);
+		}
+	}
+
+	_extractWorkflowJson(text) {
+		// Try ```json ... ``` block
+		const blockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+		if (blockMatch) {
+			try {
+				const d = JSON.parse(blockMatch[1].trim());
+				if (d.nodes) return d;
+			} catch {}
+		}
+		// Try raw JSON
+		const start = text.indexOf('{');
+		const end = text.lastIndexOf('}');
+		if (start !== -1 && end > start) {
+			try {
+				const d = JSON.parse(text.substring(start, end + 1));
+				if (d.nodes) return d;
+			} catch {}
+		}
+		return null;
 	}
 
 	_onTextChunk(chunk) {

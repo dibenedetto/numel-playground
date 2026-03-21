@@ -119,6 +119,7 @@ class NumelAPI {
 	consolePlannerDisable()       { return this.json('/console/planner/disable'); }
 	consolePlannerStatus()        { return this.json('/console/planner/status'); }
 	consolePlannerReset()         { return this.json('/console/planner/reset'); }
+	consolePlannerApply(wf)       { return this.json('/console/planner/apply', { workflow: wf }); }
 
 	// ── Toolkits ─────────────────────────────────────────────────
 

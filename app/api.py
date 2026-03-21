@@ -346,8 +346,13 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		nonlocal manager
 		try:
 			name = await manager.add(request.workflow, request.name)
-			impl = await manager.impl(name)
-			wf   = impl["workflow"].model_dump() if impl else None
+			# Build implementation — optional, workflow may be incomplete during editing
+			wf = None
+			try:
+				impl = await manager.impl(name)
+				wf   = impl["workflow"].model_dump() if impl else None
+			except Exception:
+				pass  # incomplete workflow is fine; impl built at run time
 			result = {
 				"name"     : name,
 				"workflow" : wf,

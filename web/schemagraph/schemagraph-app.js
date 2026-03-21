@@ -226,7 +226,8 @@ class SchemaGraphApp {
 			implicitStartEnd: false,  // Strip start/end/sink on import; visually mark entry/exit nodes instead
 			anyDowncast: true,  // Allow connecting Any-typed outputs to concrete-typed inputs (downcast)
 			// Node types
-			nativeTypes: true
+			nativeTypes: true,
+			layerFilter: 0   // 0 = all, 1 = kernel, 2 = framework, 3 = app
 		};
 		this.loadFeatures();
 
@@ -592,6 +593,10 @@ class SchemaGraphApp {
 			const el = document.getElementById('sg-feature-adv-' + feature);
 			if (el) el.checked = enabled;
 		}
+
+		// Layer filter select
+		const layerSel = document.getElementById('sg-feature-layer-filter');
+		if (layerSel) layerSel.value = String(this._features.layerFilter || 0);
 	}
 
 	injectAnalyticsPanelHTML() {
@@ -877,6 +882,15 @@ class SchemaGraphApp {
 							<span class="sg-toolbar-toggle-slider"></span>
 							<span class="sg-toolbar-toggle-text">Native Types</span>
 						</label>
+					</div>
+					<div style="display:flex;align-items:center;gap:8px;margin-top:6px;padding:0 4px">
+						<span style="font-size:11px;color:var(--sg-text-secondary,#aaa);white-space:nowrap">Layer filter</span>
+						<select id="sg-feature-layer-filter" style="flex:1;font-size:11px;padding:2px 4px;background:var(--sg-bg-primary,#1a1a1a);color:var(--sg-text-primary,#ddd);border:1px solid var(--sg-border-color,#333);border-radius:3px">
+							<option value="0">All layers</option>
+							<option value="1">1 — Kernel (primitives)</option>
+							<option value="2">2 — Framework (agent, ML, events)</option>
+							<option value="3">3 — App (user-level)</option>
+						</select>
 					</div>
 				</div>
 				<div class="sg-features-actions">
@@ -4583,6 +4597,7 @@ class SchemaGraphApp {
 					const modelName = type.split('.')[1];
 					const info = decorators[modelName]?.info;
 					if (info?.visible === false) continue;
+					if (this._features.layerFilter > 0 && (info?.layer || 1) !== this._features.layerFilter) continue;
 					if (this._features.implicitStartEnd && _BOOKEND_MODELS.has(modelName)) continue;
 
 					// Paired nodes: skip the end type (shown merged into the start entry)
@@ -11587,6 +11602,11 @@ class SchemaGraphApp {
 						document.getElementById('sg-feature-adv-' + feat)?.addEventListener('change', (e) => {
 							self.api.features.set({ [feat]: e.target.checked });
 						});
+					});
+
+					// Layer filter
+					document.getElementById('sg-feature-layer-filter')?.addEventListener('change', (e) => {
+						self.api.features.set({ layerFilter: parseInt(e.target.value) || 0 });
 					});
 
 					// Advanced action buttons

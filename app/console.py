@@ -157,6 +157,7 @@ class ConsoleAgentManager:
 		self._planner_debounce   = 2.0                          # seconds
 		self._planner_timer      = None                         # debounce handle
 		self._planner_pending    : List[dict] = []              # queued events
+		self._planner_active     = False                        # True while planner turn is running
 		self._planner_subs       : List[str]  = []              # subscribed event type strings
 		self._planner_instructions = ""
 
@@ -225,6 +226,8 @@ class ConsoleAgentManager:
 						tools.append(method)
 			else:
 				tools.extend(_load_toolkit(tk_name, _toolkit_args.get(tk_name)))
+
+		log_print(f"Console agent tools: {[getattr(t, '__name__', str(t)) for t in tools]}")
 
 		# Memory: backend (SqliteDb) or manual MemoryStore
 		mem_cfg = config.get("memory", {})
@@ -350,7 +353,7 @@ class ConsoleAgentManager:
 
 	# ── Planner Mode ──────────────────────────────────────────────
 
-	def enable_planner(self, config: Optional[Dict[str, Any]] = None):
+	async def enable_planner(self, config: Optional[Dict[str, Any]] = None):
 		"""Activate planner mode — subscribe to events and enable autonomous loop."""
 		if self._planner_enabled:
 			return
@@ -371,9 +374,22 @@ class ConsoleAgentManager:
 			self._planner_instructions = ""
 			log_print(f"⚠️  Planner instructions file not found: {instr_path}")
 
-		# Ensure workspace_toolkit is available
-		if "workspace_toolkit" not in self._toolkit_names:
-			log_print("Planner: auto-adding workspace_toolkit")
+		# Ensure workspace_toolkit + file_toolkit are available
+		added = []
+		for tk in ("workspace_toolkit", "file_toolkit"):
+			if tk not in self._toolkit_names:
+				self._toolkit_names.append(tk)
+				added.append(tk)
+		if added:
+			log_print(f"Planner: auto-adding {', '.join(added)}")
+			# Force restart: stop first so the same-list comparison doesn't skip it
+			if self._started:
+				await self.stop()
+				await self.start(
+					model_source=self._model_source,
+					model_name=self._model_name,
+					toolkit_names=list(self._toolkit_names),
+				)
 
 		# Subscribe to events
 		event_types = cfg.get("subscribe_events", [
@@ -385,16 +401,30 @@ class ConsoleAgentManager:
 			self._planner_subs.append(et)
 
 		self._planner_enabled = True
+
+		# Inject a short directive into the system prompt so the model uses tools
+		if self._agent:
+			if not hasattr(self, '_base_instructions'):
+				self._base_instructions = list(self._agent.instructions or [])
+			self._agent.instructions = self._base_instructions + [
+				"You are in PLANNER MODE. When asked to build a workflow, output a complete workflow JSON inside a ```json code block. The system will load it automatically. Always include eval_flow nodes."
+			]
+
 		log_print(f"Planner mode enabled (events={event_types}, max_turns={self._planner_max_turns})")
 
 	def disable_planner(self):
 		"""Deactivate planner mode."""
 		if not self._planner_enabled:
 			return
+		# Restore original system prompt
+		if self._agent and hasattr(self, '_base_instructions'):
+			self._agent.instructions = self._base_instructions
+
 		for et in self._planner_subs:
 			self._event_bus.unsubscribe(et, self._on_planner_event)
 		self._planner_subs = []
 		self._planner_enabled = False
+		self._planner_active  = False
 		self._planner_pending = []
 		if self._planner_timer:
 			self._planner_timer.cancel()
@@ -403,10 +433,15 @@ class ConsoleAgentManager:
 
 	async def _on_planner_event(self, event):
 		"""EventBus callback — debounce and queue for processing."""
+		evt_type = getattr(event, 'event_type', str(event))
+		log_print(f"Planner event received: {evt_type} (enabled={self._planner_enabled}, active={self._planner_active})")
 		if not self._planner_enabled:
 			return
+		# Ignore ALL events while the planner is actively processing (including post-tool events)
+		if self._planner_active:
+			return
 		evt_data = {
-			"type": getattr(event, 'event_type', str(event)),
+			"type": evt_type,
 			"data": getattr(event, 'data', {}),
 		}
 		self._planner_pending.append(evt_data)
@@ -424,6 +459,8 @@ class ConsoleAgentManager:
 		"""Process queued planner events — call agent with event context."""
 		if not self._planner_enabled or not self._planner_pending:
 			return
+		if self._planner_active:
+			return  # already processing
 		if self._planner_turn_count >= self._planner_max_turns:
 			await self.push_proactive(
 				"Planner reached maximum autonomous turns. Send a message to continue.",
@@ -431,7 +468,11 @@ class ConsoleAgentManager:
 			)
 			return
 
-		async with self._planner_lock:
+		self._planner_active = True
+		try:
+			# Notify frontend that planner is thinking
+			await self.push_proactive("", "planner_thinking")
+
 			events = self._planner_pending[:]
 			self._planner_pending.clear()
 
@@ -440,7 +481,13 @@ class ConsoleAgentManager:
 				f"- {e['type']}: {json.dumps(e['data'], default=str)[:200]}"
 				for e in events
 			)
-			message = f"[Planner Event]\n{event_summary}\n\nAnalyze and decide the next action."
+			message = (
+				f"[Planner Event]\n{event_summary}\n\n"
+				"Analyze the results. If the score is below 0.7 or there are workflow logic errors, "
+				"output a FIXED workflow as a ```json code block. The system will load it automatically.\n"
+				"IMPORTANT: If the error is about port conflicts, timeouts, or server issues, "
+				"do NOT modify the workflow — just report the infrastructure error and stop."
+			)
 
 			try:
 				result = await self.chat(
@@ -452,9 +499,15 @@ class ConsoleAgentManager:
 				response = result.get("response", "")
 				if response:
 					await self.push_proactive(response, "planner_action")
+				else:
+					await self.push_proactive("Planner turn completed (no output).", "planner_action")
 			except Exception as e:
 				log_print(f"Planner error: {e}")
 				await self.push_proactive(f"Planner error: {e}", "planner_error")
+		finally:
+			self._planner_active = False
+			# Always signal the frontend that the turn is done (safety net)
+			await self.push_proactive("", "planner_done")
 
 	def reset_planner(self):
 		"""Reset planner turn count and session."""
@@ -480,15 +533,15 @@ class ConsoleAgentManager:
 		if self._planner_enabled and session_id != self._planner_session_id:
 			self._planner_turn_count = 0
 
-		# Prepend planner instructions when planner mode is active
+		# Prepend planner instructions + workspace context to the user message
 		augmented = message
-		if self._planner_enabled and self._planner_instructions:
-			augmented = f"[Planner Instructions]\n{self._planner_instructions}\n\n{augmented}"
 
 		if include_context:
 			try:
 				ctx = self.get_context()
 				parts = []
+				if self._planner_enabled and self._planner_instructions:
+					parts.append(f"[Planner Instructions]\n{self._planner_instructions}")
 				if ctx.get("context"):
 					parts.append(f"[Current workspace state]\n{ctx['context']}")
 				# Manual memory retrieval (only when not using backend)
@@ -507,7 +560,10 @@ class ConsoleAgentManager:
 		self._sessions[session_id] += 1
 
 		# Run the agent asynchronously with session_id for built-in history
+		tool_names = [getattr(t, '__name__', getattr(t, 'name', str(t))) for t in (self._agent.tools or [])]
+		log_print(f"Console chat: running agent (session={session_id[:8]}..., tools={tool_names}, msg={message[:60]}...)")
 		response = await self._agent.arun(augmented, session_id=session_id)
+		log_print(f"Console chat: agent done (tools={len(response.tools or [])} msgs={len(response.messages or [])})")
 
 		# Extract the assistant response
 		assistant_content = ""
@@ -538,6 +594,17 @@ class ConsoleAgentManager:
 					"result": None,
 				})
 
+		# Planner fallback: if the model produced JSON instead of calling tools, apply it
+		if self._planner_enabled and assistant_content and not tool_calls:
+			wf_json = self._extract_workflow_json(assistant_content)
+			if wf_json:
+				try:
+					result = await self._apply_workflow_json(wf_json)
+					log_print(f"Planner: auto-applied workflow JSON ({len(wf_json.get('nodes',[]))} nodes) — {result}")
+					tool_calls.append({"name": "replace_workflow", "result": result})
+				except Exception as e:
+					log_print(f"Planner: auto-apply failed: {e}")
+
 		# Save conversation to manual MemoryStore (only when not using backend, every 3 turns)
 		turn_count = self._sessions.get(session_id, 0)
 		if self._memory and not self._use_backend_memory and turn_count >= 3 and turn_count % 3 == 0:
@@ -555,6 +622,69 @@ class ConsoleAgentManager:
 			"response":   assistant_content,
 			"tool_calls": tool_calls,
 		}
+
+	# ── Planner helpers ────────────────────────────────────────────
+
+	@staticmethod
+	def _extract_workflow_json(text: str):
+		"""Try to extract a workflow JSON object from the assistant response."""
+		import re
+		# Try ```json ... ``` block first
+		m = re.search(r'```(?:json)?\s*\n?([\s\S]*?)\n?```', text)
+		if m:
+			try:
+				d = json.loads(m.group(1).strip())
+				if "nodes" in d:
+					return d
+			except json.JSONDecodeError:
+				pass
+		# Try raw JSON object
+		start = text.find('{')
+		end = text.rfind('}')
+		if start != -1 and end > start:
+			try:
+				d = json.loads(text[start:end + 1])
+				if "nodes" in d:
+					return d
+			except json.JSONDecodeError:
+				pass
+		return None
+
+	async def _apply_workflow_json(self, wf_json: dict) -> str:
+		"""Apply a workflow JSON dict directly via the workspace manager (in-process, no HTTP)."""
+		ws = self._ws_mgr.get_default_workspace()
+		mgr = ws.manager
+		names = list(mgr._workflows.keys())
+		name = names[0] if names else "workspace"
+		# Normalize alternate node formats the model may produce
+		for n in wf_json.get("nodes", []):
+			if "extra" not in n:
+				x = n.pop("x", 0)
+				y = n.pop("y", 0)
+				label = n.pop("name", n.get("type", ""))
+				n["extra"] = {"pos": [x, y], "name": label}
+			# Merge "fields" dict into the node body
+			fields = n.pop("fields", None)
+			if fields and isinstance(fields, dict):
+				n.update(fields)
+		# Build a minimal Workflow pydantic model from the JSON
+		from schema import Workflow
+		wf_json.setdefault("type", "workflow")
+		wf_json.setdefault("edges", [])
+		wf = Workflow.model_validate(wf_json)
+		await mgr.add(wf, name)
+		# Notify frontend
+		from event_bus import EventType as _ET, WorkflowEvent
+		import uuid as _uuid
+		from datetime import datetime as _dt, timezone as _tz
+		ev = WorkflowEvent(
+			event_id   = str(_uuid.uuid4()),
+			event_type = _ET.WORKSPACE_CHANGED,
+			timestamp  = _dt.now(_tz.utc).isoformat(),
+			data       = {"name": name},
+		)
+		await self._event_bus.publish(ev)
+		return f"ok: saved '{name}' ({len(wf_json.get('nodes', []))} nodes)"
 
 	# ── Context ────────────────────────────────────────────────────
 
@@ -596,8 +726,13 @@ class ConsoleAgentManager:
 		else:
 			context_parts.append("No active executions.")
 
+		# Prepend planner instructions if active
+		planner_ctx = ""
+		if self._planner_enabled and self._planner_instructions:
+			planner_ctx = f"[Planner Instructions]\n{self._planner_instructions}\n\n"
+
 		return {
-			"context":          "\n".join(context_parts),
+			"context":          planner_ctx + "\n".join(context_parts),
 			"has_workflow":     has_workflow,
 			"execution_active": len(active) > 0,
 		}
@@ -678,8 +813,8 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 
 	@app.post("/console/planner/enable")
 	async def console_planner_enable(request: dict = {}):
-		console_mgr.enable_planner(request)
-		return {"enabled": True}
+		await console_mgr.enable_planner(request)
+		return {"enabled": True, "port": console_mgr._port}
 
 	@app.post("/console/planner/disable")
 	async def console_planner_disable():
@@ -700,6 +835,17 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 	async def console_planner_reset():
 		console_mgr.reset_planner()
 		return {"reset": True}
+
+	@app.post("/console/planner/apply")
+	async def console_planner_apply(request: dict):
+		wf_json = request.get("workflow")
+		if not wf_json or "nodes" not in wf_json:
+			return {"error": "No valid workflow JSON"}
+		try:
+			result = await console_mgr._apply_workflow_json(wf_json)
+			return {"ok": True, "result": result}
+		except Exception as e:
+			return {"error": str(e)}
 
 	@app.post("/console/toolkits")
 	async def console_list_toolkits():

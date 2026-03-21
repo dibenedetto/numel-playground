@@ -1,3 +1,17 @@
+/* ── Planner Lock ──────────────────────────────────────────── */
+/* When planner is busy, block interaction with everything except the console panel */
+body.nw-planner-locked .nw-panel,
+body.nw-planner-locked .sg-toolbar,
+body.nw-planner-locked .sg-canvas-container,
+body.nw-planner-locked .sg-tab-bar {
+	pointer-events: none;
+	opacity: 0.6;
+}
+body.nw-planner-locked .nw-console-panel {
+	pointer-events: auto;
+	opacity: 1;
+}
+
 /* ── Console Agent FAB ──────────────────────────────────────── */
 /* Lives inside .sg-canvas-container, same coordinate space as toolbar toggle */
 
@@ -546,6 +560,28 @@
 	background: var(--sg-bg-quaternary, #3a3f44);
 	opacity: 0.5;
 	cursor: not-allowed;
+}
+.nw-console-planner-stop {
+	background: var(--sg-accent-red, #d9534f);
+	border: none;
+	color: #fff;
+	width: 32px;
+	height: 32px;
+	border-radius: 6px;
+	cursor: pointer;
+	font-size: 14px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	animation: nw-planner-stop-pulse 1.5s ease-in-out infinite;
+}
+.nw-console-planner-stop:hover {
+	background: #e66;
+}
+@keyframes nw-planner-stop-pulse {
+	0%, 100% { opacity: 1; }
+	50%      { opacity: 0.6; }
 }
 .nw-console-mic {
 	background: var(--sg-bg-secondary, #2a2a2a);

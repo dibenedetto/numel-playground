@@ -77,7 +77,7 @@ class WorkspaceToolkit:
 
 	def _post(self, path: str, data: Any = None) -> dict:
 		import httpx
-		r = httpx.post(f"{self._base}{path}", json=data or {}, timeout=20)
+		r = httpx.post(f"{self._base}{path}", json=data or {}, timeout=60)
 		r.raise_for_status()
 		return r.json()
 
@@ -87,17 +87,44 @@ class WorkspaceToolkit:
 			return
 		if self._name is None:
 			names = self._post("/list").get("names", [])
-			if not names:
-				raise RuntimeError("No workflows found on server. Save the current workflow first.")
-			self._name = names[0]
+			if names:
+				self._name = names[0]
+			else:
+				# No workflow exists yet — create an empty one
+				self._name = "workspace"
+				self._wf = {"type": "workflow", "nodes": [], "edges": []}
+				self._save_and_notify()
+				return
 		resp    = self._post(f"/get/{self._name}")
 		self._wf = resp.get("workflow") or {"type": "workflow", "nodes": [], "edges": []}
 
 	def _save_and_notify(self) -> str:
 		"""Upload self._wf to the server and broadcast workspace.changed to the UI."""
-		resp = self._post("/add", {"workflow": self._wf, "name": self._name})
-		if resp.get("status") not in ("added", "updated", "ok"):
-			return f"error saving workflow: {resp}"
+		self._ensure()
+		if self._wf is None:
+			return "error: no workflow loaded"
+		# Ensure workflow JSON is plain dicts (not Pydantic models)
+		wf = self._wf
+		if hasattr(wf, 'model_dump'):
+			wf = wf.model_dump()
+		elif isinstance(wf, dict):
+			# Deep-convert any Pydantic models in nodes/edges
+			import copy
+			wf = copy.deepcopy(wf)
+			for i, n in enumerate(wf.get("nodes") or []):
+				if n and hasattr(n, 'model_dump'):
+					wf["nodes"][i] = n.model_dump()
+			for i, e in enumerate(wf.get("edges") or []):
+				if e and hasattr(e, 'model_dump'):
+					wf["edges"][i] = e.model_dump()
+		else:
+			return f"error: unexpected workflow type: {type(wf)}"
+		try:
+			resp = self._post("/add", {"workflow": wf, "name": self._name})
+			if resp.get("status") not in ("added", "updated", "ok"):
+				return f"error saving workflow: {resp}"
+		except Exception as e:
+			return f"error saving workflow: {e}"
 		try:
 			self._post("/workspace/changed", {"name": self._name})
 		except Exception:
@@ -111,8 +138,11 @@ class WorkspaceToolkit:
 		edges = self._wf.get("edges", [])
 		lines = ["NODES"]
 		for i, n in enumerate(nodes):
-			pos  = n.get("extra", {}).get("pos", [0, 0])
-			name = n.get("extra", {}).get("name", "")
+			if not n:
+				lines.append(f"  [{i}] <empty>")
+				continue
+			pos  = (n.get("extra") or {}).get("pos", [0, 0])
+			name = (n.get("extra") or {}).get("name", "")
 			ntype = n.get("type", "?")
 			lbl  = f"  [{i}] {ntype}"
 			if name:
@@ -170,6 +200,12 @@ class WorkspaceToolkit:
 		x, y: canvas position; name: display label.
 		Returns 'ok: added <type> at index N'."""
 		self._ensure()
+		# Prevent duplicate singleton nodes
+		_SINGLETONS = {"start_flow", "end_flow"}
+		if node_type in _SINGLETONS:
+			for i, n in enumerate(self._wf.get("nodes", [])):
+				if n and n.get("type") == node_type:
+					return f"ok: {node_type} already exists at index {i} (skipped)"
 		node: Dict[str, Any] = {"type": node_type}
 		if fields:
 			node.update(fields)
@@ -272,8 +308,9 @@ class WorkspaceToolkit:
 		initial_data: optional dict of initial field values (e.g. {"request": "hello"});
 		timeout: max seconds to wait (default 120). Returns results JSON or error string."""
 		save_result = self._save_and_notify()
+		# Save errors are non-fatal — the workflow may already exist in the manager
 		if save_result.startswith("error"):
-			return save_result
+			pass  # try to start anyway
 		# Start execution
 		payload: Dict[str, Any] = {"name": self._name}
 		if initial_data:
@@ -281,6 +318,9 @@ class WorkspaceToolkit:
 		try:
 			resp = self._post("/start", payload)
 		except Exception as e:
+			err_str = str(e)
+			if "10048" in err_str or "bind" in err_str or "address already in use" in err_str.lower():
+				return "error: port conflict — a previous workflow execution is still running. Wait a moment and retry, or cancel the old execution first. This is NOT a workflow design problem."
 			return f"error starting workflow: {e}"
 		exec_id = resp.get("execution_id")
 		if not exec_id:

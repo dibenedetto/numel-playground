@@ -43,6 +43,7 @@ class EventType(str, Enum):
 	WORKFLOW_PAUSED          = "workflow.paused"
 	WORKFLOW_RESUMED         = "workflow.resumed"
 	WORKFLOW_CANCELLED       = "workflow.cancelled"
+	WORKFLOW_EVAL_SCORED     = "workflow.eval_scored"
 
 	# Node events
 	NODE_STARTED             = "node.started"
@@ -101,7 +102,6 @@ class EventType(str, Enum):
 	COMPOSE_STEP             = "compose.step"
 	COMPOSE_COMPLETED        = "compose.completed"
 	COMPOSE_FAILED           = "compose.failed"
-
 
 
 class WorkflowEvent(BaseModel):

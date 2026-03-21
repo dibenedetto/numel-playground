@@ -21,6 +21,7 @@ class NodeExecutionContext:
 		self.variables   : Dict[str, Any] = {}
 		self.node_index  : int            = 0
 		self.node_config : Dict[str, Any] = {}
+		self.event_bus   : Any            = None  # set by engine for nodes that publish events
 
 
 class NodeExecutionResult:
@@ -1413,6 +1414,22 @@ class WFEvalFlow(WFFlowType):
 		except Exception as e:
 			result.success = False
 			result.error   = str(e)
+
+		# Publish eval score event so the planner can react mid-execution
+		if context.event_bus:
+			try:
+				from event_bus import EventType as _ET
+				await context.event_bus.emit(
+					event_type = _ET.WORKFLOW_EVAL_SCORED,
+					data       = {
+						"node_index": context.node_index,
+						"score":      result.outputs["score"],
+						"feedback":   result.outputs["feedback"],
+					},
+				)
+			except Exception:
+				pass  # never fail the node over event publishing
+
 		return result
 
 
