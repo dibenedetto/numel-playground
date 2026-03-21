@@ -57,10 +57,13 @@ class AgentConsoleManager {
 		this._autoGen         = true;
 		this._autoSendToggle  = document.getElementById('consoleAutoSendToggle');
 		this._autoSend        = true;
-		this._plannerToggle   = document.getElementById('consolePlannerToggle');
-		this._plannerStopBtn  = document.getElementById('consolePlannerStopBtn');
-		this._plannerEnabled  = false;
-		this._plannerBusy     = false;  // true while planner is actively processing
+		this._plannerToggle    = document.getElementById('consolePlannerToggle');
+		this._plannerStopBtn   = document.getElementById('consolePlannerStopBtn');
+		this._plannerTimeoutSel = document.getElementById('consolePlannerTimeout');
+		this._plannerTimeoutRow = document.getElementById('consolePlannerTimeoutRow');
+		this._plannerEnabled   = false;
+		this._plannerBusy      = false;  // true while planner is actively processing
+		this._plannerTimeoutMs = 120_000; // default 2 min
 
 		this._setupUI();
 		this._fetchToolkits();
@@ -142,7 +145,15 @@ class AgentConsoleManager {
 		this._showSysToggle?.addEventListener('change', () => applyShowSys(this._showSysToggle.checked));
 
 		// Planner mode toggle
-		this._plannerToggle?.addEventListener('change', () => this._togglePlanner(this._plannerToggle.checked));
+		this._plannerToggle?.addEventListener('change', () => {
+			this._togglePlanner(this._plannerToggle.checked);
+			if (this._plannerTimeoutRow) this._plannerTimeoutRow.style.display = this._plannerToggle.checked ? '' : 'none';
+		});
+
+		// Planner timeout selector
+		this._plannerTimeoutSel?.addEventListener('change', () => {
+			this._plannerTimeoutMs = parseInt(this._plannerTimeoutSel.value, 10) * 1000;
+		});
 
 		// Planner interrupt button
 		this._plannerStopBtn?.addEventListener('click', () => this._interruptPlanner());
@@ -155,21 +166,36 @@ class AgentConsoleManager {
 		this._plannerBusy = busy;
 		// Show/hide interrupt button
 		if (this._plannerStopBtn) this._plannerStopBtn.style.display = busy ? '' : 'none';
-		// Lock/unlock console input
+		// Lock/unlock console input + reset _busy flag so _send() isn't blocked
+		if (!busy) this._busy = false;
 		this._setInputEnabled(!busy);
 		if (busy) this._input.placeholder = 'Planner is working...';
 		// Lock/unlock entire page except the console panel via CSS class on body
 		document.body.classList.toggle('nw-planner-locked', busy);
-		// Safety timeout: auto-unlock after 120s to prevent permanent lock
+		// Create / show planner badge on the canvas
+		if (!this._plannerBadge) {
+			const badge = document.createElement('div');
+			badge.className = 'nw-planner-badge';
+			badge.innerHTML = '<span></span> Planner is working\u2026';
+			document.body.appendChild(badge);
+			this._plannerBadge = badge;
+		}
+		// Safety-net timeout: backend is authoritative (sends planner_error on timeout).
+		// Frontend fallback fires 15s after backend timeout, only if the WS message was lost.
 		clearTimeout(this._plannerBusyTimer);
 		if (busy) {
-			this._plannerBusyTimer = setTimeout(() => {
-				if (this._plannerBusy) {
-					this._hideThinking();
-					this._setPlannerBusy(false);
-					this._addMessage('system', 'Planner timed out (120s). UI unlocked.');
-				}
-			}, 120_000);
+			const fallbackMs = (this._plannerTimeoutMs || 120_000) + 15_000;
+			this._plannerBusyTimer = setTimeout(async () => {
+				if (!this._plannerBusy) return;
+				this._hideThinking();
+				this._setPlannerBusy(false);
+				try { await this.api.consolePlannerDisable(); } catch {}
+				this._plannerEnabled = false;
+				if (this._plannerToggle) this._plannerToggle.checked = false;
+				if (this._plannerTimeoutRow) this._plannerTimeoutRow.style.display = 'none';
+				this._addMessage('error', 'Planner timed out (connection lost). Planner disabled.');
+				this._updateSettingsSummary();
+			}, fallbackMs);
 		}
 	}
 
@@ -194,7 +220,8 @@ class AgentConsoleManager {
 		this._input.placeholder = 'Reconfiguring agent...';
 		try {
 			if (enabled) {
-				const result = await this.api.consolePlannerEnable();
+				const timeoutS = (this._plannerTimeoutMs || 120_000) / 1000;
+				const result = await this.api.consolePlannerEnable({ timeout_s: timeoutS });
 				this._plannerEnabled = true;
 				this._addMessage('system', 'Planner mode enabled — autonomous workflow building active.');
 				// Planner auto-adds toolkits and restarts the agent → update port and reconnect AGUI

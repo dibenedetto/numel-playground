@@ -11,6 +11,40 @@ body.nw-planner-locked .nw-console-panel {
 	pointer-events: auto;
 	opacity: 1;
 }
+/* Planner badge — centered on canvas when locked */
+.nw-planner-badge {
+	display: none;
+	position: fixed;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	z-index: 500;
+	padding: 14px 28px;
+	background: var(--sg-bg-secondary, #2a2a2a);
+	border: 1px solid var(--sg-accent-purple, #a855f7);
+	border-radius: 8px;
+	color: var(--sg-text-primary, #ddd);
+	font-size: 14px;
+	font-weight: 500;
+	box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+	pointer-events: none;
+	gap: 10px;
+	align-items: center;
+}
+.nw-planner-badge span {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--sg-accent-purple, #a855f7);
+	animation: nw-planner-badge-pulse 1.5s ease-in-out infinite;
+}
+@keyframes nw-planner-badge-pulse {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.3; }
+}
+body.nw-planner-locked .nw-planner-badge {
+	display: flex;
+}
 
 /* ── Console Agent FAB ──────────────────────────────────────── */
 /* Lives inside .sg-canvas-container, same coordinate space as toolbar toggle */

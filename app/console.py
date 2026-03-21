@@ -8,7 +8,7 @@ import uuid
 
 from   importlib                       import import_module
 from   inspect                         import getmembers, ismethod
-from   fastapi                         import FastAPI, WebSocket, WebSocketDisconnect
+from   fastapi                         import FastAPI, Request, WebSocket, WebSocketDisconnect
 from   pydantic                        import BaseModel
 from   typing                          import Any, Dict, List, Optional, Set
 
@@ -358,8 +358,11 @@ class ConsoleAgentManager:
 		if self._planner_enabled:
 			return
 		cfg = config or {}
+		log_print(f"Planner enable config: {cfg}")
 		self._planner_max_turns  = cfg.get("max_autonomous_turns", 10)
 		self._planner_debounce   = cfg.get("debounce_ms", 2000) / 1000.0
+		self._planner_timeout    = cfg.get("timeout_s", 120)  # per-turn timeout in seconds
+		log_print(f"Planner timeout: {self._planner_timeout}s")
 		self._planner_turn_count = 0
 		self._planner_session_id = f"planner-{uuid.uuid4().hex[:8]}"
 		self._planner_pending    = []
@@ -490,10 +493,13 @@ class ConsoleAgentManager:
 			)
 
 			try:
-				result = await self.chat(
-					message,
-					session_id=self._planner_session_id,
-					include_context=True,
+				result = await asyncio.wait_for(
+					self.chat(
+						message,
+						session_id=self._planner_session_id,
+						include_context=True,
+					),
+					timeout=self._planner_timeout,
 				)
 				self._planner_turn_count += 1
 				response = result.get("response", "")
@@ -501,6 +507,13 @@ class ConsoleAgentManager:
 					await self.push_proactive(response, "planner_action")
 				else:
 					await self.push_proactive("Planner turn completed (no output).", "planner_action")
+			except asyncio.TimeoutError:
+				log_print(f"Planner turn timed out after {self._planner_timeout}s")
+				await self.push_proactive(
+					f"Planner turn timed out after {self._planner_timeout}s. Disabling planner.",
+					"planner_error"
+				)
+				self.disable_planner()
 			except Exception as e:
 				log_print(f"Planner error: {e}")
 				await self.push_proactive(f"Planner error: {e}", "planner_error")
@@ -812,8 +825,12 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 	# ── Planner Routes ────────────────────────────────────────────
 
 	@app.post("/console/planner/enable")
-	async def console_planner_enable(request: dict = {}):
-		await console_mgr.enable_planner(request)
+	async def console_planner_enable(request: Request):
+		try:
+			body = await request.json()
+		except Exception:
+			body = {}
+		await console_mgr.enable_planner(body)
 		return {"enabled": True, "port": console_mgr._port}
 
 	@app.post("/console/planner/disable")
