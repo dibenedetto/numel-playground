@@ -49,6 +49,7 @@ function _setWorkflowName(name) {
 document.addEventListener('DOMContentLoaded', () => {
 	// Initialize SchemaGraph
 	schemaGraph = new SchemaGraphApp('sg-main-canvas');
+	window.schemaGraph = schemaGraph;  // expose for console planner lock
 
 	// Register callback for context menu node creation
 	schemaGraph.onAddWorkflowNode = (nodeType, wx, wy) => {
@@ -1372,6 +1373,7 @@ function populateWorkflowOptionsPanel() {
 		nameInput.type = 'text';
 		nameInput.id = 'wfOpt_name';
 		nameInput.className = 'nw-input';
+		nameInput.autocomplete = 'off';
 		nameInput.placeholder = 'Workflow name...';
 		nameInput.value = visualizer?.currentWorkflowName || '';
 		nameInput.addEventListener('blur', () => {
@@ -1470,6 +1472,7 @@ function populateExecOptionsPanel() {
 		const input = createInputForField(field, defaultVal);
 		input.id = `execOpt_${field.name}`;
 		input.name = field.name;
+		input.autocomplete = 'off';
 		fieldDiv.appendChild(input);
 
 		if (field.description) {

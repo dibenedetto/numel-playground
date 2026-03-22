@@ -630,6 +630,15 @@ class ConsoleAgentManager:
 			except Exception:
 				pass
 
+		# Detect model/infra errors returned as assistant content by agno
+		_ERROR_PATTERNS = ("not found", "status code:", "connection refused", "timed out", "unreachable")
+		if assistant_content and not tool_calls and any(p in assistant_content.lower() for p in _ERROR_PATTERNS):
+			return {
+				"session_id": session_id,
+				"error":      assistant_content,
+				"tool_calls": [],
+			}
+
 		return {
 			"session_id": session_id,
 			"response":   assistant_content,
@@ -846,6 +855,25 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 			"max_turns":  console_mgr._planner_max_turns,
 			"session_id": console_mgr._planner_session_id,
 			"subscribed_events": console_mgr._planner_subs,
+		}
+
+	@app.post("/console/planner/config")
+	async def console_planner_config(request: Request):
+		try:
+			body = await request.json()
+		except Exception:
+			body = {}
+		if "timeout_s" in body:
+			console_mgr._planner_timeout = max(10, int(body["timeout_s"]))
+			log_print(f"Planner timeout updated to {console_mgr._planner_timeout}s")
+		if "max_autonomous_turns" in body:
+			console_mgr._planner_max_turns = max(1, int(body["max_autonomous_turns"]))
+		if "debounce_ms" in body:
+			console_mgr._planner_debounce = max(500, int(body["debounce_ms"])) / 1000.0
+		return {
+			"timeout_s": console_mgr._planner_timeout,
+			"max_turns": console_mgr._planner_max_turns,
+			"debounce_s": console_mgr._planner_debounce,
 		}
 
 	@app.post("/console/planner/reset")

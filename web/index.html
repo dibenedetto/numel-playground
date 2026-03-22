@@ -18,7 +18,7 @@
 				<span class="nw-brand">Numel</span> Playground
 				<span id="wsStatus" class="nw-ws-badge disconnected">●</span>
 			</h1>
-			<input type="hidden" id="serverUrl">
+			<input type="hidden" id="serverUrl" autocomplete="off">
 
 			<!-- Workflow Library Section -->
 			<section class="nw-section">
@@ -31,7 +31,7 @@
 				<!-- Mode Switch -->
 				<div class="nw-switch-row" style="display: none;">
 					<label class="nw-switch">
-						<input type="checkbox" id="singleModeSwitch" checked>
+						<input type="checkbox" id="singleModeSwitch" checked aria-label="Single workflow mode">
 						<span class="nw-switch-slider"></span>
 					</label>
 					<span class="nw-switch-label">Single workflow mode</span>
@@ -39,7 +39,7 @@
 
 				<!-- Multi-workflow controls (default) -->
 				<div id="multiWorkflowControls" style="display: none;">
-					<select id="workflowSelect" class="nw-select" disabled>
+					<select id="workflowSelect" class="nw-select" disabled aria-label="Select workflow">
 						<option value="">-- Select workflow --</option>
 					</select>
 					<div class="nw-btn-grid">
@@ -166,8 +166,8 @@
 					<div id="credentialsContent" class="nw-collapsible-content" style="display: none;">
 						<div id="credentialsList" class="nw-credentials-list"></div>
 						<form id="credentialForm" class="nw-credential-form" style="display:none;" onsubmit="return false">
-							<input id="credentialName"  type="text"     class="nw-input" placeholder="NAME (e.g. SLACK_TOKEN)" autocomplete="off" spellcheck="false">
-							<input id="credentialValue" type="password" class="nw-input" placeholder="Value" autocomplete="new-password">
+							<input id="credentialName"  type="text"     class="nw-input" placeholder="NAME (e.g. SLACK_TOKEN)" autocomplete="off" spellcheck="false" aria-label="Credential name">
+							<input id="credentialValue" type="password" class="nw-input" placeholder="Value" autocomplete="new-password" aria-label="Credential value">
 							<div class="nw-btn-row">
 								<button id="saveCredentialBtn"   class="nw-btn nw-btn-success nw-btn-sm">Save</button>
 								<button id="cancelCredentialBtn" class="nw-btn nw-btn-secondary nw-btn-sm">Cancel</button>
@@ -196,14 +196,14 @@
 			<div class="sg-canvas-container">
 				<canvas id="sg-main-canvas"></canvas>
 				<div id="sg-contextMenu" class="sg-context-menu"></div>
-				<input type="text" id="sg-nodeInput" class="sg-node-input-overlay">
+				<input type="text" id="sg-nodeInput" class="sg-node-input-overlay" autocomplete="off" aria-label="Node inline edit">
 				<!-- Mini-map -->
 			<canvas id="sg-minimap"></canvas>
 			<!-- Node Search Overlay -->
 			<div id="nodeSearchOverlay" style="display:none">
 				<div id="nodeSearchBox">
 					<div class="sg-node-search-header">
-						<input id="nodeSearchInput" type="text" placeholder="Search nodes…" autocomplete="off" spellcheck="false">
+						<input id="nodeSearchInput" type="text" placeholder="Search nodes…" autocomplete="off" spellcheck="false" aria-label="Search nodes">
 						<span id="nodeSearchCount"></span>
 						<button id="nodeSearchClose">&times;</button>
 					</div>
@@ -233,7 +233,7 @@
 			<button id="galleryCloseBtn" class="nw-gallery-close">&times;</button>
 		</div>
 		<div class="nw-gallery-toolbar">
-			<input id="gallerySearch" class="nw-gallery-search" type="text" placeholder="Search workflows...">
+			<input id="gallerySearch" class="nw-gallery-search" type="text" placeholder="Search workflows..." autocomplete="off" aria-label="Search workflows">
 			<div id="galleryCategoryBar" class="nw-gallery-cat-bar"></div>
 		</div>
 		<div id="galleryGrid" class="nw-gallery-grid"></div>
@@ -248,11 +248,11 @@
 		<div class="nw-apps-form">
 			<div class="nw-apps-form-row">
 				<label for="appsTitleInput">Title</label>
-				<input id="appsTitleInput" class="nw-apps-input" type="text" placeholder="My App">
+				<input id="appsTitleInput" class="nw-apps-input" type="text" placeholder="My App" autocomplete="off">
 			</div>
 			<div class="nw-apps-form-row">
 				<label for="appsSlugInput">Slug</label>
-				<input id="appsSlugInput" class="nw-apps-input" type="text" placeholder="my-app">
+				<input id="appsSlugInput" class="nw-apps-input" type="text" placeholder="my-app" autocomplete="off">
 			</div>
 			<button id="appsPublishBtn" class="nw-apps-publish-btn">Publish Current Workflow</button>
 		</div>
@@ -287,7 +287,7 @@
 				</div>
 				<div class="nw-modal-body">
 					<p id="userInputPrompt">Please provide input:</p>
-					<textarea id="userInputField" class="nw-textarea" rows="4"></textarea>
+					<textarea id="userInputField" class="nw-textarea" rows="4" aria-label="User input" autocomplete="off"></textarea>
 				</div>
 				<div class="nw-modal-footer">
 					<button id="cancelInputBtn" class="nw-btn nw-btn-secondary">Cancel</button>
@@ -335,7 +335,7 @@
 							<input type="checkbox" id="consoleTtsToggle">
 							<span class="nw-console-toggle-label">Speak responses</span>
 						</label>
-						<select id="consoleTtsVoice" class="nw-console-voice-select" style="display:none">
+						<select id="consoleTtsVoice" class="nw-console-voice-select" style="display:none" aria-label="TTS voice">
 						</select>
 					</div>
 					<div class="nw-console-settings-row">
@@ -398,7 +398,7 @@
 			</div>
 			<div id="consoleMessages" class="nw-console-messages"></div>
 			<div class="nw-console-input-row">
-				<textarea id="consoleInput" class="nw-console-input" placeholder="Ask about your workflow..." rows="1"></textarea>
+				<textarea id="consoleInput" class="nw-console-input" placeholder="Ask about your workflow..." rows="1" autocomplete="off" aria-label="Chat message"></textarea>
 				<button id="consoleMicBtn" class="nw-console-mic" title="Voice input">
 					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
 						<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>

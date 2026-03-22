@@ -63,7 +63,7 @@ class AgentConsoleManager {
 		this._plannerTimeoutRow = document.getElementById('consolePlannerTimeoutRow');
 		this._plannerEnabled   = false;
 		this._plannerBusy      = false;  // true while planner is actively processing
-		this._plannerTimeoutMs = 120_000; // default 2 min
+		this._plannerTimeoutMs = (parseInt(this._plannerTimeoutSel?.value, 10) || 120) * 1000;
 
 		this._setupUI();
 		this._fetchToolkits();
@@ -150,9 +150,11 @@ class AgentConsoleManager {
 			if (this._plannerTimeoutRow) this._plannerTimeoutRow.style.display = this._plannerToggle.checked ? '' : 'none';
 		});
 
-		// Planner timeout selector
+		// Planner timeout selector — always sync to backend (safe even if planner not yet enabled)
 		this._plannerTimeoutSel?.addEventListener('change', () => {
-			this._plannerTimeoutMs = parseInt(this._plannerTimeoutSel.value, 10) * 1000;
+			const s = parseInt(this._plannerTimeoutSel.value, 10);
+			this._plannerTimeoutMs = s * 1000;
+			this.api.consolePlannerConfig({ timeout_s: s }).catch(() => {});
 		});
 
 		// Planner interrupt button
@@ -170,33 +172,55 @@ class AgentConsoleManager {
 		if (!busy) this._busy = false;
 		this._setInputEnabled(!busy);
 		if (busy) this._input.placeholder = 'Planner is working...';
-		// Lock/unlock entire page except the console panel via CSS class on body
-		document.body.classList.toggle('nw-planner-locked', busy);
-		// Create / show planner badge on the canvas
-		if (!this._plannerBadge) {
-			const badge = document.createElement('div');
-			badge.className = 'nw-planner-badge';
-			badge.innerHTML = '<span></span> Planner is working\u2026';
-			document.body.appendChild(badge);
-			this._plannerBadge = badge;
-		}
-		// Safety-net timeout: backend is authoritative (sends planner_error on timeout).
-		// Frontend fallback fires 15s after backend timeout, only if the WS message was lost.
-		clearTimeout(this._plannerBusyTimer);
+		// Disable/enable all interactive controls outside the console panel
+		const selectors = '.nw-panel, .sg-toolbar, .sg-tab-bar';
+		const containers = document.querySelectorAll(selectors);
 		if (busy) {
-			const fallbackMs = (this._plannerTimeoutMs || 120_000) + 15_000;
-			this._plannerBusyTimer = setTimeout(async () => {
-				if (!this._plannerBusy) return;
-				this._hideThinking();
-				this._setPlannerBusy(false);
-				try { await this.api.consolePlannerDisable(); } catch {}
-				this._plannerEnabled = false;
-				if (this._plannerToggle) this._plannerToggle.checked = false;
-				if (this._plannerTimeoutRow) this._plannerTimeoutRow.style.display = 'none';
-				this._addMessage('error', 'Planner timed out (connection lost). Planner disabled.');
-				this._updateSettingsSummary();
-			}, fallbackMs);
+			// Save previously disabled state, then disable all
+			this._plannerDisabledEls = [];
+			for (const c of containers) {
+				for (const el of c.querySelectorAll('button, select, input, textarea')) {
+					if (!el.disabled) {
+						this._plannerDisabledEls.push(el);
+						el.disabled = true;
+					}
+				}
+			}
+		} else {
+			// Restore only elements we disabled
+			for (const el of (this._plannerDisabledEls || [])) {
+				el.disabled = false;
+			}
+			this._plannerDisabledEls = [];
 		}
+		// Lock/unlock the graph (blocks canvas interaction + shows lock overlay badge)
+		if (window.schemaGraph) {
+			if (busy) {
+				window.schemaGraph.lock('Planner working\u2026', true);
+			} else {
+				window.schemaGraph.unlock();
+			}
+		}
+		// Clear safety timer when unlocking
+		if (!busy) clearTimeout(this._plannerBusyTimer);
+	}
+
+	// Start safety-net timeout — only called when backend confirms processing
+	// (planner_thinking WebSocket message). NOT from the initial user message send.
+	_startPlannerSafetyTimer() {
+		clearTimeout(this._plannerBusyTimer);
+		const fallbackMs = (this._plannerTimeoutMs || 120_000) + 15_000;
+		this._plannerBusyTimer = setTimeout(async () => {
+			if (!this._plannerBusy) return;
+			this._hideThinking();
+			this._setPlannerBusy(false);
+			try { await this.api.consolePlannerDisable(); } catch {}
+			this._plannerEnabled = false;
+			if (this._plannerToggle) this._plannerToggle.checked = false;
+			if (this._plannerTimeoutRow) this._plannerTimeoutRow.style.display = 'none';
+			this._addMessage('error', 'Planner timed out (connection lost). Planner disabled.');
+			this._updateSettingsSummary();
+		}, fallbackMs);
 	}
 
 	async _interruptPlanner() {
@@ -223,6 +247,11 @@ class AgentConsoleManager {
 				const timeoutS = (this._plannerTimeoutMs || 120_000) / 1000;
 				const result = await this.api.consolePlannerEnable({ timeout_s: timeoutS });
 				this._plannerEnabled = true;
+				// Re-sync timeout in case user changed it while enable was in flight
+				const currentS = this._plannerTimeoutMs / 1000;
+				if (currentS !== timeoutS) {
+					this.api.consolePlannerConfig({ timeout_s: currentS }).catch(() => {});
+				}
 				this._addMessage('system', 'Planner mode enabled — autonomous workflow building active.');
 				// Planner auto-adds toolkits and restarts the agent → update port and reconnect AGUI
 				if (result?.port) {
@@ -597,6 +626,7 @@ class AgentConsoleManager {
 						}
 					} else if (msg.type === 'planner_thinking') {
 						this._setPlannerBusy(true);
+						this._startPlannerSafetyTimer();  // timeout starts NOW, not when message was sent
 						this._showThinking();
 					} else if (msg.type === 'planner_done') {
 						// Safety net: always unlock after planner turn finishes
@@ -686,15 +716,39 @@ class AgentConsoleManager {
 			}
 
 			// Show assistant response
-			if (result.response) {
+			if (result.error) {
+				this._addMessage('error', result.error);
+				// Error with planner active — no events will fire, so unlock
+				if (this._plannerBusy) {
+					this._hideThinking();
+					this._setPlannerBusy(false);
+				}
+			} else if (result.response) {
 				this._addMessage('assistant', result.response);
 				this._speak(result.response);
-			} else if (result.error) {
-				this._addMessage('error', result.error);
+				// Planner: auto-apply any workflow JSON in the response
+				if (this._plannerBusy) {
+					const applied = await this._plannerAutoApply(result.response);
+					// If no workflow JSON was found/applied, no events will fire — unlock
+					if (!applied) {
+						this._hideThinking();
+						this._setPlannerBusy(false);
+					}
+				}
+			} else {
+				// No response and no error — unlock if planner is busy
+				if (this._plannerBusy) {
+					this._hideThinking();
+					this._setPlannerBusy(false);
+				}
 			}
 		} catch (err) {
 			this._hideThinking();
 			this._addMessage('error', `Send failed: ${err.message}`);
+			// Error with planner active — unlock
+			if (this._plannerBusy) {
+				this._setPlannerBusy(false);
+			}
 		}
 
 		this._busy = false;
@@ -808,14 +862,17 @@ class AgentConsoleManager {
 	}
 
 	async _plannerAutoApply(text) {
-		// Extract workflow JSON from assistant response and apply it
+		// Extract workflow JSON from assistant response and apply it.
+		// Returns true if JSON was found and applied, false otherwise.
 		const wf = this._extractWorkflowJson(text);
-		if (!wf) return;
+		if (!wf) return false;
 		try {
 			await this.api.consolePlannerApply(wf);
 			this._addMessage('system', `Workflow applied (${wf.nodes?.length || 0} nodes)`);
+			return true;
 		} catch (err) {
 			console.warn('[Console] Planner auto-apply failed:', err.message);
+			return false;
 		}
 	}
 
