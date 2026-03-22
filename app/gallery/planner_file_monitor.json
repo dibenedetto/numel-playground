@@ -1,0 +1,102 @@
+{
+	"id": "planner02",
+	"title": "Planner: File Change Monitor",
+	"description": "Event-driven workflow: watches a directory for changes, classifies the event with an agent, and takes action. Demonstrates planner's event-reaction loop with fswatch + eval scoring.",
+	"category": "planner",
+	"tags": ["planner", "events", "fswatch", "agent", "automated", "loop"],
+	"author": "planner",
+	"created_at": 1742486400.0,
+	"workflow": {
+		"type": "workflow",
+		"nodes": [
+			{
+				"type": "start_flow",
+				"extra": {"pos": [50, 250], "name": "Start"}
+			},
+			{
+				"type": "fswatch_source_flow",
+				"path": "./data",
+				"recursive": true,
+				"patterns": "*.json,*.csv,*.txt",
+				"events": "created,modified",
+				"extra": {"pos": [50, 100], "name": "Watch ./data"}
+			},
+			{
+				"type": "loop_start_flow",
+				"max_iter": 100,
+				"extra": {"pos": [250, 250], "name": "Loop Start"}
+			},
+			{
+				"type": "event_listener_flow",
+				"mode": "any",
+				"extra": {"pos": [500, 250], "name": "Wait for File Event"}
+			},
+			{
+				"type": "transform_flow",
+				"lang": "python",
+				"script": "import json\nevent = input or {}\npath = event.get('path', 'unknown')\nevent_type = event.get('event', 'unknown')\noutput = f'File {event_type}: {path}'",
+				"extra": {"pos": [750, 250], "name": "Format Event"}
+			},
+			{
+				"type": "backend_config",
+				"name": "agno",
+				"extra": {"pos": [500, 50], "name": "Backend"}
+			},
+			{
+				"type": "model_config",
+				"source": "ollama",
+				"name": "mistral",
+				"extra": {"pos": [700, 50], "name": "Model"}
+			},
+			{
+				"type": "agent_options_config",
+				"instructions": [
+					"You are a file event classifier. Given a file change event, respond with a JSON object: {\"action\": \"log|process|ignore\", \"reason\": \"...\", \"priority\": \"low|medium|high\"}.",
+					"Process CSV and JSON data files. Log text changes. Ignore temporary files."
+				],
+				"extra": {"pos": [900, 50], "name": "Classifier Prompt"}
+			},
+			{
+				"type": "agent_config",
+				"extra": {"pos": [1100, 100], "name": "Classifier Agent"}
+			},
+			{
+				"type": "agent_flow",
+				"extra": {"pos": [1000, 250], "name": "Classify Event"}
+			},
+			{
+				"type": "preview_flow",
+				"hint": "json",
+				"extra": {"pos": [1250, 250], "name": "Decision Preview"}
+			},
+			{
+				"type": "eval_flow",
+				"script": "import json\ntry:\n    d = json.loads(str(input))\n    score = 1.0 if d.get('action') in ('log','process','ignore') else 0.3\n    feedback = f\"action={d.get('action')}, priority={d.get('priority')}\"\nexcept:\n    score = 0.1\n    feedback = 'Invalid JSON response'",
+				"extra": {"pos": [1450, 250], "name": "Evaluate"}
+			},
+			{
+				"type": "loop_end_flow",
+				"extra": {"pos": [1650, 250], "name": "Loop End"}
+			}
+		],
+		"edges": [
+			{"source": 0, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 1, "target": 3, "source_slot": "registered_id", "target_slot": "sources.fswatch"},
+			{"source": 0, "target": 2, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 2, "target": 3, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 3, "target": 4, "source_slot": "event", "target_slot": "input"},
+			{"source": 3, "target": 4, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 4, "target": 9, "source_slot": "output", "target_slot": "request"},
+			{"source": 4, "target": 9, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 5, "target": 8, "source_slot": "config", "target_slot": "backend"},
+			{"source": 6, "target": 8, "source_slot": "config", "target_slot": "model"},
+			{"source": 7, "target": 8, "source_slot": "options", "target_slot": "options"},
+			{"source": 8, "target": 9, "source_slot": "config", "target_slot": "config"},
+			{"source": 9, "target": 10, "source_slot": "response", "target_slot": "flow_in"},
+			{"source": 10, "target": 11, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 9, "target": 11, "source_slot": "response", "target_slot": "input"},
+			{"source": 11, "target": 12, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 12, "target": 2, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true}
+		]
+	}
+}

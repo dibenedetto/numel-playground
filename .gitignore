@@ -177,6 +177,5 @@ cython_debug/
 .claude/
 storage/
 tmp/
-app/gallery/
 app/workspaces/
 console_memory.db

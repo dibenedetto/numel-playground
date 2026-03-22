@@ -1,0 +1,113 @@
+{
+	"id": "planner03",
+	"title": "Planner: Self-Refining Agent",
+	"description": "The planner's core pattern: an agent generates output, eval_flow scores it, and if the score is below threshold, the agent is re-prompted with feedback to improve. Demonstrates the build-run-evaluate-refine loop.",
+	"category": "planner",
+	"tags": ["planner", "eval", "refinement", "loop", "self-improving"],
+	"author": "planner",
+	"created_at": 1742486400.0,
+	"workflow": {
+		"type": "workflow",
+		"nodes": [
+			{
+				"type": "start_flow",
+				"extra": {"pos": [50, 250], "name": "Start"}
+			},
+			{
+				"type": "backend_config",
+				"name": "agno",
+				"extra": {"pos": [50, 50], "name": "Backend"}
+			},
+			{
+				"type": "model_config",
+				"source": "ollama",
+				"name": "mistral",
+				"extra": {"pos": [250, 50], "name": "Model"}
+			},
+			{
+				"type": "agent_options_config",
+				"instructions": [
+					"Write a concise, professional product description for the given topic.",
+					"If you receive feedback from a previous attempt, incorporate it to improve.",
+					"The description should be 2-3 sentences, compelling, and factually grounded."
+				],
+				"extra": {"pos": [450, 50], "name": "Writer Prompt"}
+			},
+			{
+				"type": "agent_config",
+				"extra": {"pos": [650, 100], "name": "Writer Agent"}
+			},
+			{
+				"type": "user_input_flow",
+				"query": "Enter a product or topic to describe:",
+				"extra": {"pos": [250, 250], "name": "Get Topic"}
+			},
+			{
+				"type": "loop_start_flow",
+				"max_iter": 3,
+				"extra": {"pos": [500, 250], "name": "Refine Loop"}
+			},
+			{
+				"type": "transform_flow",
+				"lang": "python",
+				"script": "topic = variables.get('topic', input or '')\nfeedback = variables.get('feedback', '')\nif feedback:\n    output = f'Topic: {topic}\\n\\nPrevious feedback: {feedback}\\nPlease improve your description.'\nelse:\n    output = f'Topic: {topic}'",
+				"extra": {"pos": [750, 250], "name": "Build Prompt"}
+			},
+			{
+				"type": "agent_flow",
+				"extra": {"pos": [1000, 250], "name": "Generate"}
+			},
+			{
+				"type": "preview_flow",
+				"hint": "text",
+				"extra": {"pos": [1250, 250], "name": "Output Preview"}
+			},
+			{
+				"type": "eval_flow",
+				"script": "text = str(input or '')\nword_count = len(text.split())\nhas_sentences = text.count('.') >= 2\nscore = 0.0\nif word_count >= 15 and has_sentences:\n    score = 0.9\nelif word_count >= 8:\n    score = 0.5\nelse:\n    score = 0.2\nfeedback = f'{word_count} words, {text.count(\".\") } sentences'\nif score < 0.7:\n    feedback += ' — needs more detail and complete sentences'",
+				"extra": {"pos": [1450, 250], "name": "Score Quality"}
+			},
+			{
+				"type": "if_else_flow",
+				"condition": "value >= 0.7",
+				"extra": {"pos": [1650, 250], "name": "Good Enough?"}
+			},
+			{
+				"type": "transform_flow",
+				"lang": "python",
+				"script": "variables['feedback'] = str(input or '')\noutput = input",
+				"extra": {"pos": [1650, 450], "name": "Store Feedback"}
+			},
+			{
+				"type": "loop_end_flow",
+				"extra": {"pos": [1850, 450], "name": "Retry"}
+			},
+			{
+				"type": "end_flow",
+				"extra": {"pos": [1900, 250], "name": "Done"}
+			}
+		],
+		"edges": [
+			{"source": 0, "target": 5, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 1, "target": 4, "source_slot": "config", "target_slot": "backend"},
+			{"source": 2, "target": 4, "source_slot": "config", "target_slot": "model"},
+			{"source": 3, "target": 4, "source_slot": "options", "target_slot": "options"},
+			{"source": 5, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 5, "target": 7, "source_slot": "message", "target_slot": "input"},
+			{"source": 6, "target": 7, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 7, "target": 8, "source_slot": "output", "target_slot": "request"},
+			{"source": 7, "target": 8, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 4, "target": 8, "source_slot": "config", "target_slot": "config"},
+			{"source": 8, "target": 9, "source_slot": "response", "target_slot": "flow_in"},
+			{"source": 9, "target": 10, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 8, "target": 10, "source_slot": "response", "target_slot": "input"},
+			{"source": 10, "target": 11, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 10, "target": 11, "source_slot": "score", "target_slot": "value"},
+			{"source": 11, "target": 14, "source_slot": "true_out", "target_slot": "flow_in"},
+			{"source": 11, "target": 12, "source_slot": "false_out", "target_slot": "flow_in"},
+			{"source": 10, "target": 12, "source_slot": "feedback", "target_slot": "input"},
+			{"source": 12, "target": 13, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 13, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true}
+		]
+	}
+}

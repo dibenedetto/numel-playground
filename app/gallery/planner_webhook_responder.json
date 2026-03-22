@@ -1,0 +1,101 @@
+{
+	"id": "planner04",
+	"title": "Planner: Webhook Auto-Responder",
+	"description": "Event-driven webhook handler: receives HTTP requests, an agent analyzes the payload and drafts a response, eval scores the quality, results are previewed. Demonstrates deploying an always-on service via planner.",
+	"category": "planner",
+	"tags": ["planner", "webhook", "agent", "events", "api", "automated"],
+	"author": "planner",
+	"created_at": 1742486400.0,
+	"workflow": {
+		"type": "workflow",
+		"nodes": [
+			{
+				"type": "start_flow",
+				"extra": {"pos": [50, 250], "name": "Start"}
+			},
+			{
+				"type": "webhook_source_flow",
+				"endpoint": "/hook/incoming",
+				"methods": "POST",
+				"extra": {"pos": [50, 100], "name": "Webhook /hook/incoming"}
+			},
+			{
+				"type": "loop_start_flow",
+				"max_iter": 500,
+				"extra": {"pos": [250, 250], "name": "Event Loop"}
+			},
+			{
+				"type": "event_listener_flow",
+				"mode": "any",
+				"extra": {"pos": [500, 250], "name": "Wait for Request"}
+			},
+			{
+				"type": "transform_flow",
+				"lang": "python",
+				"script": "import json\nevent = input or {}\nbody = event.get('body', event)\nmethod = event.get('method', 'POST')\npath = event.get('path', '/hook/incoming')\noutput = f'Incoming {method} request to {path}:\\n```json\\n{json.dumps(body, indent=2, default=str)[:500]}\\n```\\nDraft an appropriate response.'",
+				"extra": {"pos": [750, 250], "name": "Format Request"}
+			},
+			{
+				"type": "backend_config",
+				"name": "agno",
+				"extra": {"pos": [500, 50], "name": "Backend"}
+			},
+			{
+				"type": "model_config",
+				"source": "ollama",
+				"name": "mistral",
+				"extra": {"pos": [700, 50], "name": "Model"}
+			},
+			{
+				"type": "agent_options_config",
+				"instructions": [
+					"You are an API response drafter. Given an incoming webhook request payload, analyze it and produce an appropriate JSON response.",
+					"Always respond with valid JSON: {\"status\": \"ok|error\", \"message\": \"...\", \"data\": {...}}.",
+					"Be helpful and concise."
+				],
+				"extra": {"pos": [900, 50], "name": "Responder Prompt"}
+			},
+			{
+				"type": "agent_config",
+				"extra": {"pos": [1100, 100], "name": "Responder Agent"}
+			},
+			{
+				"type": "agent_flow",
+				"extra": {"pos": [1000, 250], "name": "Draft Response"}
+			},
+			{
+				"type": "eval_flow",
+				"script": "import json\ntry:\n    d = json.loads(str(input))\n    has_status = 'status' in d\n    has_message = 'message' in d\n    score = 1.0 if has_status and has_message else 0.4\n    feedback = f'Valid JSON, status={d.get(\"status\")}' if score > 0.5 else 'Missing required fields'\nexcept:\n    score = 0.1\n    feedback = 'Response is not valid JSON'",
+				"extra": {"pos": [1250, 250], "name": "Validate Response"}
+			},
+			{
+				"type": "preview_flow",
+				"hint": "json",
+				"extra": {"pos": [1500, 250], "name": "Response Preview"}
+			},
+			{
+				"type": "loop_end_flow",
+				"extra": {"pos": [1700, 250], "name": "Next Request"}
+			}
+		],
+		"edges": [
+			{"source": 0, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 1, "target": 3, "source_slot": "registered_id", "target_slot": "sources.webhook"},
+			{"source": 0, "target": 2, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 2, "target": 3, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 3, "target": 4, "source_slot": "event", "target_slot": "input"},
+			{"source": 3, "target": 4, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 4, "target": 9, "source_slot": "output", "target_slot": "request"},
+			{"source": 4, "target": 9, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 5, "target": 8, "source_slot": "config", "target_slot": "backend"},
+			{"source": 6, "target": 8, "source_slot": "config", "target_slot": "model"},
+			{"source": 7, "target": 8, "source_slot": "options", "target_slot": "options"},
+			{"source": 8, "target": 9, "source_slot": "config", "target_slot": "config"},
+			{"source": 9, "target": 10, "source_slot": "response", "target_slot": "input"},
+			{"source": 9, "target": 10, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 10, "target": 11, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 11, "target": 12, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 12, "target": 2, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true}
+		]
+	}
+}
