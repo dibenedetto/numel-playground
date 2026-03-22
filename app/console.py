@@ -183,6 +183,7 @@ class ConsoleAgentManager:
 		# Load config for defaults and instructions
 		with open(self._config_path) as f:
 			config = json.load(f)
+		self._config = config
 
 		model_cfg = config.get("model", {})
 		source = model_source or model_cfg.get("source", "ollama")
