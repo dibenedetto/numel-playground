@@ -35,6 +35,18 @@
 			"manager.workflow_added"
 		],
 		"debounce_ms": 2000,
-		"max_autonomous_turns": 10
+		"max_autonomous_turns": 10,
+		"profiles": {
+			"workflow": {
+				"instructions_file": "planner_instructions.txt",
+				"toolkits": ["workspace_toolkit", "file_toolkit"],
+				"description": "Autonomous workflow builder — designs, runs, and refines workflows using eval scores"
+			},
+			"prompt_optimizer": {
+				"instructions_file": "prompt_optimizer_instructions.txt",
+				"toolkits": ["image_eval_toolkit"],
+				"description": "Image prompt optimizer — generates, evaluates, and refines prompts using CLIP + aesthetic scoring"
+			}
+		}
 	}
 }

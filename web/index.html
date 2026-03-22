@@ -384,6 +384,13 @@
 							<span class="nw-console-toggle-label">Autonomous planner mode</span>
 						</label>
 					</div>
+					<div class="nw-console-settings-row" id="consolePlannerProfileRow" style="display:none">
+						<label for="consolePlannerProfile">Profile</label>
+						<select id="consolePlannerProfile" class="nw-console-voice-select" style="max-width:none;flex:1" autocomplete="off">
+							<option value="workflow" selected>Workflow builder</option>
+							<option value="prompt_optimizer">Image prompt optimizer</option>
+						</select>
+					</div>
 					<div class="nw-console-settings-row" id="consolePlannerTimeoutRow" style="display:none">
 						<label for="consolePlannerTimeout">Timeout</label>
 						<select id="consolePlannerTimeout" class="nw-console-voice-select" style="max-width:none;flex:1">

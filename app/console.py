@@ -367,8 +367,15 @@ class ConsoleAgentManager:
 		self._planner_session_id = f"planner-{uuid.uuid4().hex[:8]}"
 		self._planner_pending    = []
 
-		# Load planner instructions
-		instr_file = cfg.get("instructions_file", "planner_instructions.txt")
+		# Resolve profile — if a profile name is given, merge its settings
+		profile_name = cfg.get("profile", "")
+		planner_cfg = self._config.get("planner", {})
+		profiles = planner_cfg.get("profiles", {})
+		profile = profiles.get(profile_name, {}) if profile_name else {}
+		self._planner_profile = profile_name or "workflow"
+
+		# Load planner instructions (profile overrides default)
+		instr_file = profile.get("instructions_file") or cfg.get("instructions_file", "planner_instructions.txt")
 		instr_path = os.path.join(os.path.dirname(self._config_path), instr_file)
 		try:
 			with open(instr_path) as f:
@@ -377,9 +384,10 @@ class ConsoleAgentManager:
 			self._planner_instructions = ""
 			log_print(f"⚠️  Planner instructions file not found: {instr_path}")
 
-		# Ensure workspace_toolkit + file_toolkit are available
+		# Auto-add toolkits required by the profile
+		required_toolkits = profile.get("toolkits", ["workspace_toolkit", "file_toolkit"])
 		added = []
-		for tk in ("workspace_toolkit", "file_toolkit"):
+		for tk in required_toolkits:
 			if tk not in self._toolkit_names:
 				self._toolkit_names.append(tk)
 				added.append(tk)
@@ -870,10 +878,30 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 			console_mgr._planner_max_turns = max(1, int(body["max_autonomous_turns"]))
 		if "debounce_ms" in body:
 			console_mgr._planner_debounce = max(500, int(body["debounce_ms"])) / 1000.0
+		if "profile" in body:
+			profile_name = body["profile"]
+			planner_cfg = console_mgr._config.get("planner", {})
+			profiles = planner_cfg.get("profiles", {})
+			profile = profiles.get(profile_name, {})
+			if profile:
+				instr_file = profile.get("instructions_file", "planner_instructions.txt")
+				instr_path = os.path.join(os.path.dirname(console_mgr._config_path), instr_file)
+				try:
+					with open(instr_path) as f:
+						console_mgr._planner_instructions = f.read().replace(
+							"{max_autonomous_turns}", str(console_mgr._planner_max_turns))
+				except FileNotFoundError:
+					pass
+				console_mgr._planner_profile = profile_name
+				# Inject updated instructions into agent
+				if console_mgr._agent and hasattr(console_mgr, '_base_instructions'):
+					console_mgr._agent.instructions = console_mgr._base_instructions + [console_mgr._planner_instructions]
+				log_print(f"Planner profile switched to: {profile_name}")
 		return {
 			"timeout_s": console_mgr._planner_timeout,
 			"max_turns": console_mgr._planner_max_turns,
 			"debounce_s": console_mgr._planner_debounce,
+			"profile": getattr(console_mgr, '_planner_profile', 'workflow'),
 		}
 
 	@app.post("/console/planner/reset")

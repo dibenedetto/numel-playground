@@ -59,8 +59,10 @@ class AgentConsoleManager {
 		this._autoSend        = true;
 		this._plannerToggle    = document.getElementById('consolePlannerToggle');
 		this._plannerStopBtn   = document.getElementById('consolePlannerStopBtn');
-		this._plannerTimeoutSel = document.getElementById('consolePlannerTimeout');
-		this._plannerTimeoutRow = document.getElementById('consolePlannerTimeoutRow');
+		this._plannerTimeoutSel  = document.getElementById('consolePlannerTimeout');
+		this._plannerTimeoutRow  = document.getElementById('consolePlannerTimeoutRow');
+		this._plannerProfileSel  = document.getElementById('consolePlannerProfile');
+		this._plannerProfileRow  = document.getElementById('consolePlannerProfileRow');
 		this._plannerEnabled   = false;
 		this._plannerBusy      = false;  // true while planner is actively processing
 		this._plannerTimeoutMs = (parseInt(this._plannerTimeoutSel?.value, 10) || 120) * 1000;
@@ -147,7 +149,15 @@ class AgentConsoleManager {
 		// Planner mode toggle
 		this._plannerToggle?.addEventListener('change', () => {
 			this._togglePlanner(this._plannerToggle.checked);
-			if (this._plannerTimeoutRow) this._plannerTimeoutRow.style.display = this._plannerToggle.checked ? '' : 'none';
+			const show = this._plannerToggle.checked ? '' : 'none';
+			if (this._plannerTimeoutRow) this._plannerTimeoutRow.style.display = show;
+			if (this._plannerProfileRow) this._plannerProfileRow.style.display = show;
+		});
+
+		// Planner profile selector
+		this._plannerProfileSel?.addEventListener('change', () => {
+			const profile = this._plannerProfileSel.value;
+			this.api.consolePlannerConfig({ profile }).catch(() => {});
 		});
 
 		// Planner timeout selector — always sync to backend (safe even if planner not yet enabled)
@@ -245,7 +255,8 @@ class AgentConsoleManager {
 		try {
 			if (enabled) {
 				const timeoutS = (this._plannerTimeoutMs || 120_000) / 1000;
-				const result = await this.api.consolePlannerEnable({ timeout_s: timeoutS });
+				const profile = this._plannerProfileSel?.value || 'workflow';
+				const result = await this.api.consolePlannerEnable({ timeout_s: timeoutS, profile });
 				this._plannerEnabled = true;
 				// Re-sync timeout in case user changed it while enable was in flight
 				const currentS = this._plannerTimeoutMs / 1000;
