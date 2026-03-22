@@ -2,12 +2,29 @@
 
 ![Numel Playground - /gen](docs/gen.png)
 
-Numel Playground is a framework and a visual editor for building and running agentic AI workflows. It combines an interactive node graph canvas with a framework-agnostic[^1] Python backend, enabling you to design, test, and execute complex data pipelines and AI agent configurations without writing boilerplate code.
+**Numel Playground** is a visual editor and runtime for building autonomous AI agent workflows. It combines a node-based graph canvas with a Python backend, enabling you to design, execute, and self-optimize complex AI pipelines — without writing boilerplate code.
 
-[^1]: Currently [Agno](https://www.agno.com) is supported.
+> ComfyUI generates images. Numel generates the *best* result — automatically.
+
+[^1]: Currently [Agno](https://www.agno.com) is the supported agent framework.
 
 ![Numel Playground - Teaser 1](docs/teaser-1.jpg)
 ![Numel Playground - Teaser 2](docs/teaser-2.jpg)
+
+---
+
+## Key Differentiators
+
+| Feature | Numel | n8n | ComfyUI |
+|---------|-------|-----|---------|
+| UI generated from schema | Live Python Pydantic | Hardcoded | Hardcoded |
+| Workflow generation from text | `/gen` command + Planner | No | No |
+| Self-optimizing eval loop | `eval_flow` + Planner | No | No |
+| Real-time browser ML | MediaPipe pose/face/hands | No | No |
+| Multi-channel deployment | 7 platforms | Limited | No |
+| Agent-first architecture | Native nodes | Integration only | N/A |
+
+---
 
 ## Architecture
 
@@ -19,21 +36,24 @@ Numel Playground is a framework and a visual editor for building and running age
 | Canvas Editor   |   POST /schema               | FastAPI Server    |
 | Node Palette    | <-- Python source ---------- | Pydantic Schema   |
 | Event Log       |                              | Agno Framework    |
-| Chat Panel      |   WS /events                 | Workflow Engine   |
-+-----------------+ <-- real-time events -------- +-------------------+
+| Console Agent   |   WS /events                 | Workflow Engine   |
+| Media Overlay   | <-- real-time events -------- | Eval + Planner    |
++-----------------+                              +-------------------+
 ```
 
-- **Backend**: FastAPI server (`app/`) with Pydantic models defining every node type. The schema source code is sent to the frontend, which parses it to build the node palette dynamically.
-- **Frontend**: Vanilla JavaScript canvas-based graph editor (`web/schemagraph/`). No build step required for the core UI.
-- **Communication**: REST API for commands (upload, start, cancel), WebSocket for real-time events (node status changes, execution progress, streaming output).
+- **Backend**: FastAPI server (`app/`) with Pydantic models defining every node type. The raw Python schema source is sent to the frontend, which parses it to build the node palette dynamically — no build step.
+- **Frontend**: Vanilla JavaScript canvas-based graph editor (`web/schemagraph/`). Pre-bundled assets for CodeMirror, Three.js, and AGUI client.
+- **Communication**: REST for commands, WebSocket for real-time events (execution progress, streaming, media overlay).
+
+---
 
 ## Getting Started
 
 ### Prerequisites
 
 - Python 3.12+
-- ```pip install -r requirements.txt```
-- For AI agent features: [Ollama](https://ollama.com) running locally, or API keys for OpenAI/Anthropic/Groq/Google
+- `pip install -r requirements.txt`
+- For AI agents: [Ollama](https://ollama.com) running locally, or API keys for OpenAI / Anthropic / Groq / Google
 - A modern web browser (Chrome, Firefox, Edge)
 
 ### Starting the Server
@@ -43,19 +63,256 @@ cd app
 python app.py
 ```
 
-The server starts on port 11360 by default.
+The server starts on port **11360** by default.
+
+Optional flags:
+- `--tunnel` — Start a Cloudflared/ngrok tunnel for public webhook access
 
 ### Connecting the Frontend
 
 1. Open `web/index.html` in your browser (serve via any static file server, or open directly)
-2. Enter the server URL (default: `http://localhost:11360`) in the connection panel
-3. Click **Connect** — the status indicator turns green when connected
+2. Enter the server URL (default: `http://localhost:11360`)
+3. Click **Connect** — the status indicator turns green
 
-### Importing a Workflow
+---
 
-1. Click the **Import** button in the left panel, or drag a `.json` file onto the canvas
-2. The workflow nodes appear on the canvas with their connections
-3. Click **Start** to execute the workflow
+## Features at a Glance
+
+### Visual Workflow Editor
+- **71+ node types** across configuration, data flow, control flow, events, AI/ML, and interactive categories
+- **Pan, zoom, select, connect** — full graph editing with undo/redo
+- **Inline field editing** with type-aware inputs (text, number, code, dropdown)
+- **Code editor modal** for Python/Jinja2 script fields
+- **Node search** (Ctrl+F) with instant filtering
+- **Mini-map** for large workflow navigation
+- **Multi-tab** support for parallel workflows
+- **6 drawing styles**: Default, Minimal, Blueprint, Neon, Organic, Wireframe
+- **3 themes**: Dark, Light, Ocean
+- **Selection rectangle**, copy/paste, snap-to-grid
+
+### AI Agent System
+- **5 LLM providers**: Ollama, OpenAI, Anthropic, Groq, Google
+- **Agent configuration nodes**: Backend, Model, Options, Tools, Toolkits, Memory, Session, Knowledge — all wired visually
+- **Agent Chat** node with streaming responses, message history, and file preview
+- **Agent Flow** node for non-interactive agent execution within workflows
+- **RAG pipeline**: Content DB + Vector DB + Knowledge Manager for document-grounded agents
+- **13+ built-in toolkits** (see below)
+- **Dynamic toolkit creation**: Agents can write their own Python toolkits at runtime
+
+### Autonomous Planner
+- **Planner mode** in the assistant console — describe what you want, the agent builds it
+- **Eval-driven refinement**: `eval_flow` nodes score outputs, planner reads scores and iterates
+- **Two profiles**:
+  - **Workflow Builder** — designs, runs, and refines workflows using eval scores
+  - **Image Prompt Optimizer** — generates, evaluates, and refines prompts using CLIP + aesthetic scoring
+- **Configurable timeout**, max turns, and interrupt button
+- **Auto-applies** generated workflow JSON to the canvas in real-time
+
+### Real-Time Media & ML
+- **Browser Source** node captures webcam, microphone, or screen
+- **MediaPipe inference** (pose, face, hands) runs client-side with zero latency
+- **Stream Display** renders landmarks/overlays on the canvas
+- **Backend CV** for server-side inference (chainable with other nodes)
+- **Dual inference modes**: Frontend (fast, non-blocking) or Backend (composable)
+
+### Image Generation Integration
+- **ComfyUI Toolkit** — full REST API wrapper (19 tools: generate, queue, history, models, upload)
+- **Diffusers Toolkit** — native HuggingFace diffusers (no external server needed)
+- **Image Eval Toolkit** — CLIP prompt alignment + LAION aesthetic scoring
+- **Agent-guided generation**: describe what you want → agent writes prompt → generates → scores → refines
+
+### Event-Driven Workflows
+- **Timer Source** — periodic triggers with configurable interval
+- **File System Watch** — monitors directories for changes
+- **Webhook Source** — creates HTTP endpoints that trigger events
+- **Browser Source** — media capture events
+- **Event Listener** — waits for events with modes: `any`, `all`, `race`
+- Persistent reactive workflows that run indefinitely
+
+### Multi-Channel Deployment
+Deploy agents to 7 messaging platforms:
+
+| Channel | Adapter |
+|---------|---------|
+| Telegram | TelegramAdapter |
+| WhatsApp | WhatsAppAdapter |
+| Discord | DiscordAdapter |
+| Slack | SlackAdapter |
+| Signal | SignalAdapter |
+| Microsoft Teams | TeamsAdapter |
+| Custom Webhook | WebhookChannelAdapter |
+
+All channels support auto-start, persistence, and unified message routing to the console agent.
+
+### Published Apps
+- Export any workflow as a **standalone web endpoint** with auto-generated UI
+- Access via `/published-apps/run/{slug}`
+- Share workflows as deployable services
+
+### Assistant Console
+- **AI chat panel** with streaming (AGUI) and REST fallback
+- **Model selection** dropdown (switch LLMs on the fly)
+- **Toolkit picker** — enable/disable toolkits per session
+- **Voice features**: Text-to-speech (with voice/language selection), speech-to-text (microphone input)
+- **Persistent memory** across sessions (SQLite-backed)
+- **Proactive suggestions** via WebSocket
+- **`/gen` command** — generate workflows from natural language
+
+---
+
+## Node Types (71+)
+
+### Endpoints
+| Node | Description |
+|------|-------------|
+| **Start** | Workflow entry point. Outputs workflow variables. |
+| **End** | Workflow exit point. |
+| **Sink** | Dead end — terminates a branch. |
+
+### Data Flow
+| Node | Description |
+|------|-------------|
+| **Preview** | Displays data (auto-detects text, JSON, images, audio, video, 3D). |
+| **Transform** | Python/Jinja2 data transformation. Sets `output` in script. |
+| **Route** | Conditional branching by target value. |
+| **Combine** | Merges named inputs into one output dict. |
+| **Merge** | First non-null selector. |
+| **Map/Extract** | Extract nested values by dot-path key. |
+| **Accumulate** | Collect values across iterations. |
+
+### Control Flow
+| Node | Description |
+|------|-------------|
+| **If/Else** | Conditional with `true_out` / `false_out`. |
+| **Loop Start/End** | While-style loop with condition and max iterations. |
+| **ForEach Start/End** | Iterate over a list (outputs `current`, `index`). |
+| **Break / Continue** | Loop control. |
+| **Gate** | Threshold accumulator — fires when condition met. |
+| **Delay** | Pause execution for N milliseconds. |
+| **Retry** | Automatic retry with backoff. |
+
+### Evaluation
+| Node | Description |
+|------|-------------|
+| **Eval** | Score outputs with Python. Sets `score` (0-1) and `feedback`. |
+| **Notify** | Send notifications/log messages. |
+
+### Agent Configuration
+| Node | Description |
+|------|-------------|
+| **Backend** | Framework selection (Agno). |
+| **Model** | LLM provider + model name. |
+| **Agent Options** | Name, instructions, system prompt. |
+| **Agent Config** | Master node wiring all config together. |
+| **Tool / Toolkit** | Tool or toolkit module reference. |
+| **Embedding** | Embedding model for RAG. |
+| **Content DB / Vector DB** | Storage for RAG pipeline. |
+| **Memory / Session / Knowledge Manager** | Agent memory subsystems. |
+
+### Execution
+| Node | Description |
+|------|-------------|
+| **Agent Flow** | Run one agent turn (request → response). |
+| **Agent Chat** | Interactive chat with streaming UI. |
+| **Tool Flow** | Execute a tool or toolkit method. |
+| **HTTP Request** | HTTP client (GET, POST, PUT, DELETE). |
+| **User Input** | Pause and prompt the user for text. |
+| **Tool Call** | Interactive tool with Execute button. |
+
+### Event Sources
+| Node | Description |
+|------|-------------|
+| **Timer Source** | Periodic event emitter. |
+| **FS Watch Source** | File system change monitor. |
+| **Webhook Source** | HTTP endpoint creator. |
+| **Browser Source** | Webcam / microphone / screen capture. |
+| **Event Listener** | Wait for events (any/all/race mode). |
+
+### ML / Vision
+| Node | Description |
+|------|-------------|
+| **Pose Detector** | MediaPipe pose detection. |
+| **Computer Vision** | Backend CV (pose/face/hands). |
+| **Stream Display** | Render overlays on browser video. |
+
+### Native Types
+Direct value nodes: **String**, **Integer**, **Real**, **Boolean**, **List**, **Dictionary**.
+
+### Data
+| Node | Description |
+|------|-------------|
+| **Source Meta** | Metadata holder (MIME type, format, size, duration, etc.). |
+| **Data Tensor** | Tensor data (dtype, shape, nested arrays). |
+
+---
+
+## Built-in Toolkits (13)
+
+| Toolkit | Key Methods | Description |
+|---------|-------------|-------------|
+| **file_toolkit** | list_directory, read_file, write_file, search_files | Filesystem operations |
+| **http_toolkit** | get, post, put, delete, request | HTTP client with auth |
+| **database_toolkit** | query, execute, insert, list_tables, describe_table | SQL databases (any SQLAlchemy URL) |
+| **email_toolkit** | send, fetch, mark_read, list_folders | SMTP + IMAP email |
+| **search_toolkit** | search, news | Web search (DuckDuckGo, Tavily) |
+| **slack_toolkit** | send_message, list_channels, get_messages | Slack API integration |
+| **code_toolkit** | create_toolkit, read_toolkit, list_toolkits | Dynamic Python toolkit creation |
+| **console_toolkit** | get_workflow_summary, validate_workflow | Workspace inspection (read-only) |
+| **workspace_toolkit** | add_node, connect, run, get_eval_scores | Workspace editing (planner mode) |
+| **comfyui_toolkit** | generate, generate_simple, upload_image, list_models | ComfyUI server integration (19 tools) |
+| **diffusers_toolkit** | generate, img2img, list_models, change_model | Native HuggingFace image generation |
+| **image_eval_toolkit** | clip_score, aesthetic_score, evaluate, compare | Image quality evaluation (CLIP + LAION) |
+| **tts_toolkit** | speak, list_voices, save_speech | Text-to-speech |
+
+### User-Contributed Toolkits (`contrib/toolkits/`)
+- **context_toolkit** — System context awareness (OS, network, clipboard, idle time)
+- **mesh_toolkit** — 3D model processing (load, repair, decimate, smooth, remesh)
+- **text_stats_toolkit** — Word count, keyword extraction, summarization
+
+Upload custom Python toolkits via the **Upload Toolkit** button in the UI.
+
+---
+
+## Credential Store
+
+Store API keys and secrets securely. Reference them in toolkit args with `${CRED_NAME}` syntax:
+
+```json
+{"name": "email_toolkit", "args": {"password": "${GMAIL_APP_PASSWORD}"}}
+```
+
+Manage via the **Credentials** section in the left panel or via API:
+- `GET /credentials` — list names
+- `POST /credentials/{name}` — set value
+- `DELETE /credentials/{name}` — remove
+
+---
+
+## Workflow JSON Format
+
+```json
+{
+  "type": "workflow",
+  "nodes": [
+    {"type": "start_flow", "extra": {"pos": [50, 200], "name": "Start"}},
+    {"type": "transform_flow", "lang": "python", "script": "output = 'hello world'", "extra": {"pos": [300, 200], "name": "Transform"}},
+    {"type": "eval_flow", "script": "score = 1.0 if 'hello' in str(input) else 0.0", "extra": {"pos": [550, 200], "name": "Eval"}},
+    {"type": "end_flow", "extra": {"pos": [800, 200], "name": "End"}}
+  ],
+  "edges": [
+    {"source": 0, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in"},
+    {"source": 1, "target": 2, "source_slot": "flow_out", "target_slot": "flow_in"},
+    {"source": 2, "target": 3, "source_slot": "flow_out", "target_slot": "flow_in"}
+  ]
+}
+```
+
+- **nodes**: 0-indexed array. `type` matches the Python schema class. `extra` holds visual metadata.
+- **edges**: `source`/`target` are node indices. Slot names match schema field names.
+- **Multi-input slots** use dot notation: `sources.timer`, `tools.my_tool`, `toolkits.search`
+- **Loop-back edges**: include `"loop": true` as a visual hint.
+
+---
 
 ## The Canvas
 
@@ -63,163 +320,95 @@ The server starts on port 11360 by default.
 |--------|-----|
 | **Pan** | Click and drag on empty canvas |
 | **Zoom** | Mouse wheel |
-| **Add node** | Right-click canvas, or use the node palette |
-| **Connect** | Drag from an output slot (right side) to an input slot (left side) |
-| **Select** | Click a node; Ctrl+A to select all |
-| **Delete** | Select node(s), press Delete or Backspace |
-| **Preview data** | Alt+click on an edge to insert a preview node |
-| **Edit fields** | Click on a node's input field to edit values inline |
-| **Code editor** | Click the code icon on script fields to open a full editor |
+| **Add node** | Right-click canvas or Ctrl+F to search |
+| **Connect** | Drag from output slot (right) to input slot (left) |
+| **Select** | Click node; Ctrl+A for all; drag rectangle |
+| **Delete** | Select, press Delete or Backspace |
+| **Preview data** | Alt+click on an edge to insert a Preview node |
+| **Edit fields** | Click a field value to edit inline |
+| **Code editor** | Click code icon on script fields |
+| **Undo / Redo** | Ctrl+Z / Ctrl+Y |
+| **Copy / Paste** | Ctrl+C / Ctrl+V |
 
-## Node Types Reference
+---
 
-### Endpoints
+## Gallery
 
-| Node | Icon | Description |
-|------|------|-------------|
-| **Start** | ▶ | Entry point of a workflow. Outputs workflow variables. |
-| **End** | 🏁 | Exit point. Receives final output. |
-| **Sink** | 🚧 | Dead end — terminates a branch without producing output. |
+Pre-built workflow examples accessible from the Gallery panel:
 
-### Data Flow
+| Category | Examples |
+|----------|----------|
+| **examples** | Hello workflow, timer-driven agent, webhook handler, list processor |
+| **comfyui** | Agent-guided image generation, CLIP-scored refinement loop |
+| **planner** | Self-refining agent, email summary, file monitor, research pipeline, webhook responder |
+| **webcam** | Pose detection (frontend + backend), audio gate |
 
-| Node | Icon | Description |
-|------|------|-------------|
-| **Preview** | ➠ | Displays data flowing through it. Supports text, JSON, images, audio, video, and 3D models. Has a `hint` field to override auto-detection. |
-| **Transform** | 🏗️ | Transforms data using Python or Jinja2 scripts. Fields: `lang`, `script`, `context`, `input`. The script sets `output` to define what flows downstream. |
-| **Route** | 🔁 | Conditional branching. Reads a `target` field and routes data to the matching named output. Unmatched targets go to `default`. |
-| **Combine** | 🔀 | Combines multiple named inputs into a single output with a mapping dictionary. |
-| **Merge** | 🪢 | Takes multiple inputs and outputs the first non-null value (strategy: `first`). |
+Import any gallery item directly into the canvas.
 
-### Loops
-
-| Node | Icon | Description |
-|------|------|-------------|
-| **Loop Start** | 🔁 | While-style loop. Fields: `condition` (boolean), `max_iter` (safety limit). Outputs `iteration` count. |
-| **Loop End** | ↩️ | Marks the end of a loop body. Connect back to Loop Start with a `"loop": true` edge. |
-| **ForEach Start** | 📋 | Iterates over a list. Field: `items`. Outputs `current` item and `index`. |
-| **ForEach End** | ↩️ | End of for-each body. Connect back to ForEach Start with a `"loop": true` edge. |
-| **Break** | ⏹️ | Exit the current loop immediately. |
-| **Continue** | ⏭️ | Skip to the next iteration. |
-
-### Timing & Gates
-
-| Node | Icon | Description |
-|------|------|-------------|
-| **Timer** | ⏱️ | Fires periodically. Fields: `interval_ms`, `max_triggers`. Outputs `count` and `elapsed_ms`. |
-| **Delay** | ⏸️ | Pauses execution for `duration_ms` milliseconds. |
-| **Gate** | 🚧 | Accumulates inputs until a threshold/condition is met, then fires. |
-
-### Event Sources
-
-| Node | Icon | Description |
-|------|------|-------------|
-| **Event Listener** | 📡 | Waits for events from registered sources. Modes: `any`, `all`, `race`. |
-| **Timer Source** | 🕐 | Registers a timer that emits events at intervals. |
-| **FS Watch Source** | 📂 | Watches a filesystem path for changes. |
-| **Webhook Source** | 🔗 | Creates an HTTP endpoint that triggers events on incoming requests. |
-| **Browser Source** | 🎥 | Captures webcam, microphone, or screen from the browser. |
-
-### Interactive
-
-| Node | Icon | Description |
-|------|------|-------------|
-| **User Input** | 👤 | Pauses the workflow and prompts the user for text input. |
-| **Tool Call** | ☎️ | Interactive tool invocation with an Execute button. |
-| **Agent Chat** | 🗪 | Full chat interface with streaming, message history, and timestamps. |
-
-### Agent Configuration
-
-These nodes wire together to define an AI agent:
-
-| Node | Purpose |
-|------|---------|
-| **Backend** | Framework selection (default: Agno) |
-| **Model** | LLM provider and model name (Ollama, OpenAI, Anthropic, Groq, Google) |
-| **Embedding** | Embedding model for RAG |
-| **Content DB** | Raw content storage (SQLite) |
-| **Index DB** | Vector database for semantic search (LanceDB) |
-| **Memory Manager** | Agent memory (query, update, managed flags) |
-| **Session Manager** | Conversation session tracking |
-| **Knowledge Manager** | RAG pipeline (file upload, URL import, search) |
-| **Tool** | Tool function reference (e.g., `tools.list_directory`) |
-| **Toolkit** | Toolkit module providing multiple related tools with shared state (e.g., `mesh_tools`) |
-| **Agent Options** | Name, description, instructions, prompt override |
-| **Agent** | Main agent node — connects all config nodes together |
-
-### Native Types
-
-Direct value nodes for constants: **String**, **Integer**, **Real**, **Boolean**, **List**, **Dictionary**.
-
-## Workflow JSON Format
-
-A workflow is defined as a JSON file with three sections:
-
-```json
-{
-  "options": {
-	"type": "workflow_options",
-	"name": "My Workflow",
-	"description": "What this workflow does"
-  },
-  "nodes": [
-	{ "type": "start_flow", "extra": { "name": "Start" } },
-	{ "type": "end_flow", "extra": { "name": "End" } }
-  ],
-  "edges": [
-	{
-	  "source": 0,
-	  "target": 1,
-	  "source_slot": "output",
-	  "target_slot": "input"
-	}
-  ]
-}
-```
-
-- **nodes**: Array of node objects. Each has a `type` field matching the schema class. Additional fields are the node's input values. The `extra` object holds visual metadata (`name`, `pos`, `size`, `color`).
-- **edges**: Array of connections. `source`/`target` are node indices (0-based). Slot names match the schema field names. Loop-back edges include `"loop": true`.
-- **options**: Optional workflow-level settings (name, description, seed).
-
-### Config Node Wiring
-
-Config nodes use `"get"` as `source_slot` and the target field name as `target_slot`:
-
-```json
-{ "source": 0, "target": 2, "source_slot": "get", "target_slot": "backend" }
-```
-
-Multi-slot fields use dot notation:
-
-```json
-{ "source": 3, "target": 5, "source_slot": "get", "target_slot": "tools.my_tool" }
-```
-
-## Available Tools
-
-Tools are Python functions in `app/tools.py`, referenced as `app.tools.<function_name>` in ToolConfig nodes.
-
-| Tool | Signature | Description |
-|------|-----------|-------------|
-| `square_tool` | `(n: int) -> int` | Returns n squared |
-| `list_directory` | `(path, root) -> str` | List directory contents |
-| `read_file` | `(path, root) -> str` | Read a text file |
-| `write_file` | `(path, content, root) -> str` | Write content to a file |
-| `file_info` | `(path, root) -> str` | Get file metadata |
-| `search_files` | `(pattern, path, root) -> str` | Recursive glob search |
-| `send_email` | `(to, subject, body, ...) -> str` | Send email via SMTP |
-| `retrieve_emails` | `(folder, limit, ...) -> str` | Retrieve emails via IMAP |
-
-All filesystem tools accept a `root` parameter that constrains operations to prevent path traversal.
+---
 
 ## Tutorials
 
-1. [Hello Workflow](docs/tutorial-01-hello-workflow.md) — Your first workflow: Start, Preview, End
+1. [Hello Workflow](docs/tutorial-01-hello-workflow.md) — Start, Preview, End basics
 2. [Data Transformation](docs/tutorial-02-transform.md) — Transform data with Python scripts
-3. [Routing and Merging](docs/tutorial-03-routing.md) — Conditional branching and merging
-4. [Loops and Iteration](docs/tutorial-04-loops.md) — While loops and for-each iteration
+3. [Routing and Merging](docs/tutorial-03-routing.md) — Conditional branching
+4. [Loops and Iteration](docs/tutorial-04-loops.md) — While loops and for-each
 5. [Events and Timers](docs/tutorial-05-events.md) — Timer sources and event listeners
 6. [AI Agent with Tools](docs/tutorial-06-agent.md) — Full agent setup with chat
-7. [Preview and Media Types](docs/tutorial-07-preview-media.md) — All supported preview formats
-8. [Generating Workflows with /gen](docs/tutorial-08-generate.md) — AI-powered workflow generation from natural language
-9. [File Tools & Agent Prompting](docs/tutorial-09-file-tools.md) — Tool Config + Tool Flow to read files and prompt an Agent Chat
+7. [Preview and Media](docs/tutorial-07-preview-media.md) — All preview formats
+8. [Generating Workflows](docs/tutorial-08-generate.md) — `/gen` command
+9. [File Tools](docs/tutorial-09-file-tools.md) — Tool Config + Tool Flow
+
+---
+
+## API Reference
+
+### Core
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/schema` | Get Python schema source |
+| POST | `/add` | Add/update workflow |
+| POST | `/list` | List workflows |
+| POST | `/start` | Execute workflow |
+| POST | `/exec_state/{id}` | Execution status |
+| POST | `/exec_results/{id}` | Execution results |
+| POST | `/exec_cancel/{id}` | Cancel execution |
+
+### Console Agent
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/console/chat` | Send message (REST) |
+| WS | `/console/chat` | Streaming chat (AGUI) |
+| POST | `/console/planner/enable` | Enable planner mode |
+| POST | `/console/planner/disable` | Disable planner |
+| POST | `/console/planner/config` | Update planner settings |
+| POST | `/console/clear-memory` | Clear agent memory |
+
+### Channels
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/channels/add` | Add channel adapter |
+| POST | `/channels/list` | List channels |
+| POST | `/channels/{id}/start` | Start channel |
+| POST | `/channels/{id}/stop` | Stop channel |
+
+### Gallery & Apps
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/gallery/list` | List gallery items |
+| POST | `/gallery/publish` | Publish workflow |
+| POST | `/published-apps/publish` | Publish as app |
+| POST | `/published-apps/run/{slug}` | Run published app |
+
+### WebSocket Streams
+| Endpoint | Events |
+|----------|--------|
+| `/events` | workflow.started, .completed, .failed, node.*, workspace.changed, eval_scored |
+| `/stream/{source_id}` | Real-time media frames and display overlays |
+| `/console/proactive` | Agent suggestions and planner messages |
+
+---
+
+## License
+
+See [LICENSE](LICENSE) for details.
