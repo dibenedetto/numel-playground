@@ -1094,3 +1094,119 @@ body {
 		min-height: 300px;
 	}
 }
+
+/* ========================================================================
+   AUTH MODAL
+   ======================================================================== */
+
+.nw-auth-modal {
+	position: fixed;
+	top: 0; left: 0; right: 0; bottom: 0;
+	z-index: 10000;
+	background: var(--sg-bg-primary, #1a1a1a);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+.nw-auth-card {
+	background: var(--sg-bg-secondary, #252525);
+	border: 1px solid var(--sg-border-color, #333);
+	border-radius: 8px;
+	padding: 32px;
+	width: 340px;
+	max-width: 90vw;
+	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+.nw-auth-title {
+	text-align: center;
+	font-size: 20px;
+	font-weight: 600;
+	color: var(--sg-text-primary, #eee);
+	margin: 0 0 24px 0;
+}
+.nw-auth-form {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+.nw-auth-submit {
+	margin-top: 6px;
+	padding: 10px;
+	font-size: 14px;
+	font-weight: 600;
+}
+.nw-auth-error {
+	color: var(--sg-error-text, #f88);
+	font-size: 12px;
+	text-align: center;
+	padding: 6px;
+	background: rgba(217, 83, 79, 0.15);
+	border-radius: 4px;
+}
+.nw-auth-switch {
+	text-align: center;
+	font-size: 12px;
+	color: var(--sg-text-tertiary, #888);
+	margin: 8px 0 0 0;
+}
+.nw-auth-switch a {
+	color: var(--sg-accent-blue, #5bc0de);
+	text-decoration: none;
+}
+.nw-auth-switch a:hover {
+	text-decoration: underline;
+}
+.nw-auth-divider {
+	display: flex;
+	align-items: center;
+	margin: 14px 0 10px;
+	color: var(--sg-text-tertiary, #666);
+	font-size: 12px;
+}
+.nw-auth-divider::before,
+.nw-auth-divider::after {
+	content: "";
+	flex: 1;
+	height: 1px;
+	background: var(--sg-border, #444);
+}
+.nw-auth-divider span {
+	padding: 0 10px;
+}
+.nw-auth-guest {
+	width: 100%;
+	padding: 8px;
+	background: transparent;
+	border: 1px solid var(--sg-border, #555);
+	color: var(--sg-text-secondary, #aaa);
+	border-radius: 4px;
+	cursor: pointer;
+	font-size: 13px;
+	transition: background 0.15s, color 0.15s;
+}
+.nw-auth-guest:hover {
+	background: var(--sg-bg-secondary, #2a2a2a);
+	color: var(--sg-text-primary, #ddd);
+}
+
+/* ── User bar (logged-in indicator + logout) ─────────────────── */
+.nw-user-bar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 4px 8px;
+	margin: 0 0 6px 0;
+	background: var(--sg-bg-secondary, #2a2a2a);
+	border-radius: 4px;
+	font-size: 12px;
+}
+.nw-user-name {
+	color: var(--sg-text-secondary, #aaa);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.nw-user-name::before {
+	content: "\25CF ";
+	color: var(--sg-accent-green, #5cb85c);
+}

@@ -395,8 +395,144 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	// Auto-connect: derive server URL from the page origin (same host:port)
 	$('serverUrl').value = window.location.origin;
-	autoConnect();
+
+	// ── Auth gate ─────────────────────────────────────────────────────────
+	_initAuth().then(() => autoConnect());
 });
+
+async function _initAuth() {
+	const baseUrl = $('serverUrl').value || window.location.origin;
+	let authEnabled = false;
+	try {
+		const resp = await fetch(`${baseUrl}/auth/status`, { method: 'POST' });
+		const data = await resp.json();
+		authEnabled = data.enabled;
+	} catch {
+		// Server unreachable — skip auth, let autoConnect handle it
+		return;
+	}
+
+	if (!authEnabled) return;  // auth disabled — proceed normally
+
+	// Auth is enabled — check for stored token
+	const token = localStorage.getItem('numel_token');
+	if (token) {
+		try {
+			const resp = await fetch(`${baseUrl}/auth/me`, {
+				method: 'POST',
+				headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+			});
+			if (resp.ok) {
+				window._numelToken = token;
+				window._numelUser = (await resp.json()).user;
+				_showUserBar(window._numelUser);
+				return;  // valid session
+			}
+		} catch {}
+		localStorage.removeItem('numel_token');
+	}
+
+	// Show login modal and wait for auth or guest
+	return new Promise((resolve) => {
+		const modal         = document.getElementById('authModal');
+		const loginForm     = document.getElementById('authLoginForm');
+		const registerForm  = document.getElementById('authRegisterForm');
+		const showRegister  = document.getElementById('authShowRegister');
+		const showLogin     = document.getElementById('authShowLogin');
+		const loginBtn      = document.getElementById('authLoginBtn');
+		const registerBtn   = document.getElementById('authRegisterBtn');
+		const guestBtn      = document.getElementById('authGuestBtn');
+		const errorEl       = document.getElementById('authError');
+		const regErrorEl    = document.getElementById('authRegError');
+
+		modal.style.display = '';
+
+		showRegister.onclick = (e) => { e.preventDefault(); loginForm.style.display = 'none'; registerForm.style.display = ''; };
+		showLogin.onclick    = (e) => { e.preventDefault(); registerForm.style.display = 'none'; loginForm.style.display = ''; };
+
+		const finish = (token, user) => {
+			if (token) localStorage.setItem('numel_token', token);
+			window._numelToken = token;
+			window._numelUser  = user;
+			modal.style.display = 'none';
+			if (user) _showUserBar(user);
+			resolve();
+		};
+
+		const showError = (el, msg) => { el.textContent = msg; el.style.display = ''; };
+
+		// Guest sign-in — skip auth, no token
+		guestBtn.onclick = () => finish(null, null);
+
+		loginBtn.onclick = async () => {
+			errorEl.style.display = 'none';
+			const username = document.getElementById('authUsername').value.trim();
+			const password = document.getElementById('authPassword').value;
+			if (!username || !password) return showError(errorEl, 'Username and password required');
+			try {
+				const resp = await fetch(`${baseUrl}/auth/login`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ username, password }),
+				});
+				const data = await resp.json();
+				if (!resp.ok) return showError(errorEl, data.detail || 'Login failed');
+				finish(data.token, data.user);
+			} catch (e) {
+				showError(errorEl, `Connection error: ${e.message}`);
+			}
+		};
+
+		registerBtn.onclick = async () => {
+			regErrorEl.style.display = 'none';
+			const username = document.getElementById('authRegUsername').value.trim();
+			const email    = document.getElementById('authRegEmail').value.trim();
+			const password = document.getElementById('authRegPassword').value;
+			const confirm  = document.getElementById('authRegPasswordConfirm').value;
+			if (!username || !password) return showError(regErrorEl, 'Username and password required');
+			if (password !== confirm)   return showError(regErrorEl, 'Passwords do not match');
+			try {
+				const resp = await fetch(`${baseUrl}/auth/register`, {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ username, email, password }),
+				});
+				const data = await resp.json();
+				if (!resp.ok) return showError(regErrorEl, data.detail || 'Registration failed');
+				finish(data.token, data.user);
+			} catch (e) {
+				showError(regErrorEl, `Connection error: ${e.message}`);
+			}
+		};
+
+		// Enter key submits
+		for (const id of ['authUsername', 'authPassword']) {
+			document.getElementById(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') loginBtn.click(); });
+		}
+		for (const id of ['authRegUsername', 'authRegEmail', 'authRegPassword', 'authRegPasswordConfirm']) {
+			document.getElementById(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') registerBtn.click(); });
+		}
+	});
+}
+
+function _showUserBar(user) {
+	const bar = document.getElementById('authUserBar');
+	if (!bar || !user) return;
+	document.getElementById('authUserName').textContent = user.username;
+	bar.style.display = '';
+	document.getElementById('authLogoutBtn').onclick = async () => {
+		try {
+			await fetch(`${$('serverUrl').value || window.location.origin}/auth/logout`, {
+				method: 'POST',
+				headers: { 'Authorization': `Bearer ${window._numelToken}` },
+			});
+		} catch {}
+		localStorage.removeItem('numel_token');
+		window._numelToken = null;
+		window._numelUser  = null;
+		window.location.reload();
+	};
+}
 
 window.addEventListener('beforeunload', (e) => {
 	if (client?.isConnected) {

@@ -18,11 +18,15 @@ class NumelAPI {
 	 * Use this when you need access to headers, status, or streaming.
 	 */
 	async post(endpoint, body = null) {
-		const opts = { method: 'POST' };
+		const opts = { method: 'POST', headers: {} };
 		if (body != null) {
-			opts.headers = { 'Content-Type': 'application/json' };
+			opts.headers['Content-Type'] = 'application/json';
 			opts.body = JSON.stringify(body);
 		}
+		// Inject auth token if available
+		const token = window._numelToken || localStorage.getItem('numel_token');
+		if (token) opts.headers['Authorization'] = `Bearer ${token}`;
+
 		const resp = await fetch(`${this.baseUrl}${endpoint}`, opts);
 		if (!resp.ok) {
 			let detail = resp.statusText;

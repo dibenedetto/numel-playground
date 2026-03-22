@@ -15,6 +15,7 @@ from providers.execution import ExecutionProvider
 
 # Registry of known implementations (import lazily to avoid hard deps)
 _AUTH_PROVIDERS = {
+    "none":     "providers_impl.none_auth.NoneAuthProvider",
     "local":    "providers_impl.local_auth.LocalAuthProvider",
     "django":   "providers_impl.django_auth.DjangoAuthProvider",
 }

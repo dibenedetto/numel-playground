@@ -12,6 +12,31 @@
 		<link rel="stylesheet" href="numel-gallery.css">
 	</head>
 	<body>
+		<!-- Auth Modal — shown when auth is enabled and user is not logged in -->
+		<div id="authModal" class="nw-auth-modal" style="display:none;">
+			<div class="nw-auth-card">
+				<h1 class="nw-auth-title"><span class="nw-brand">Numel</span> Playground</h1>
+				<div id="authLoginForm" class="nw-auth-form">
+					<input id="authUsername" type="text" class="nw-input" placeholder="Username" autocomplete="username" aria-label="Username">
+					<input id="authPassword" type="password" class="nw-input" placeholder="Password" autocomplete="current-password" aria-label="Password">
+					<button id="authLoginBtn" class="nw-btn nw-btn-success nw-auth-submit">Sign In</button>
+					<div id="authError" class="nw-auth-error" style="display:none;"></div>
+					<p class="nw-auth-switch">No account? <a href="#" id="authShowRegister">Create one</a></p>
+				</div>
+				<div id="authRegisterForm" class="nw-auth-form" style="display:none;">
+					<input id="authRegUsername" type="text" class="nw-input" placeholder="Username" autocomplete="username" aria-label="Username">
+					<input id="authRegEmail" type="email" class="nw-input" placeholder="Email" autocomplete="email" aria-label="Email">
+					<input id="authRegPassword" type="password" class="nw-input" placeholder="Password" autocomplete="new-password" aria-label="Password">
+					<input id="authRegPasswordConfirm" type="password" class="nw-input" placeholder="Confirm password" autocomplete="new-password" aria-label="Confirm password">
+					<button id="authRegisterBtn" class="nw-btn nw-btn-success nw-auth-submit">Create Account</button>
+					<div id="authRegError" class="nw-auth-error" style="display:none;"></div>
+					<p class="nw-auth-switch">Already have an account? <a href="#" id="authShowLogin">Sign in</a></p>
+				</div>
+				<div class="nw-auth-divider"><span>or</span></div>
+				<button id="authGuestBtn" class="nw-btn nw-auth-guest">Continue as Guest</button>
+			</div>
+		</div>
+
 		<!-- Left Panel: Controls -->
 		<div class="nw-panel">
 			<h1 class="nw-title">
@@ -19,6 +44,12 @@
 				<span id="wsStatus" class="nw-ws-badge disconnected">●</span>
 			</h1>
 			<input type="hidden" id="serverUrl" autocomplete="off">
+
+			<!-- User bar — visible when auth is enabled -->
+			<div id="authUserBar" class="nw-user-bar" style="display:none;">
+				<span id="authUserName" class="nw-user-name"></span>
+				<button id="authLogoutBtn" class="nw-btn nw-btn-sm" title="Logout">Logout</button>
+			</div>
 
 			<!-- Workflow Library Section -->
 			<section class="nw-section">

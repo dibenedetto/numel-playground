@@ -1,0 +1,65 @@
+{
+  "users": {
+    "79c6f7d0ee18": {
+      "id": "79c6f7d0ee18",
+      "username": "ukke",
+      "email": "juju@mai.com",
+      "role": "user",
+      "active": true,
+      "created_at": 1774210524.6233068,
+      "password_hash": "a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+      "metadata": {}
+    },
+    "98b1c7630a3f": {
+      "id": "98b1c7630a3f",
+      "username": "qwe",
+      "email": "qwe@gmail.com",
+      "role": "user",
+      "active": true,
+      "created_at": 1774210581.1748555,
+      "password_hash": "a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+      "metadata": {}
+    },
+    "78b201a5435a": {
+      "id": "78b201a5435a",
+      "username": "asd",
+      "email": "asd@asd.com",
+      "role": "user",
+      "active": true,
+      "created_at": 1774210652.527242,
+      "password_hash": "688787d8ff144c502c7f5cffaafe2cc588d86079f9de88304c26b0cb99ce91c6",
+      "metadata": {}
+    }
+  },
+  "quotas": {
+    "79c6f7d0ee18": {
+      "user_id": "79c6f7d0ee18",
+      "cpu_seconds_remaining": 36000.0,
+      "max_concurrent_runs": 5,
+      "storage_bytes_remaining": 1073741824,
+      "max_loop_hours": 24.0,
+      "gpu_hours_remaining": 0.0,
+      "max_repos": 50
+    },
+    "98b1c7630a3f": {
+      "user_id": "98b1c7630a3f",
+      "cpu_seconds_remaining": 36000.0,
+      "max_concurrent_runs": 5,
+      "storage_bytes_remaining": 1073741824,
+      "max_loop_hours": 24.0,
+      "gpu_hours_remaining": 0.0,
+      "max_repos": 50
+    },
+    "78b201a5435a": {
+      "user_id": "78b201a5435a",
+      "cpu_seconds_remaining": 36000.0,
+      "max_concurrent_runs": 5,
+      "storage_bytes_remaining": 1073741824,
+      "max_loop_hours": 24.0,
+      "gpu_hours_remaining": 0.0,
+      "max_repos": 50
+    }
+  },
+  "permissions": {},
+  "tokens": {}
+}

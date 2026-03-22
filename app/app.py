@@ -153,6 +153,107 @@ async def run_server(args: Any):
 	app: FastAPI = FastAPI(title="App")
 	add_middleware(app)
 
+	# ── Auth Provider ─────────────────────────────────────────
+	from providers_impl.loader import load_providers as _load_providers
+	_auth_provider, _data_provider, _exec_provider = _load_providers()
+
+	# Public routes that don't require authentication
+	_PUBLIC_ROUTES = frozenset({
+		"/auth/login", "/auth/register", "/auth/status",
+		"/", "/status", "/ping",
+	})
+
+	@app.middleware("http")
+	async def auth_middleware(request: Request, call_next):
+		"""Inject request.state.user from bearer token.  Skip for public routes."""
+		request.state.user = None
+		request.state.auth = _auth_provider
+
+		path = request.url.path.rstrip("/")
+		# Skip auth for public routes, static files, and when auth is disabled
+		if (path in _PUBLIC_ROUTES
+			or path.startswith("/web")
+			or path.startswith("/ws")
+			or _auth_provider.__class__.__name__ == "NoneAuthProvider"):
+			return await call_next(request)
+
+		token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+		if token:
+			user = await _auth_provider.authenticate(token)
+			if user:
+				request.state.user = user
+
+		return await call_next(request)
+
+	# ── Auth Routes ───────────────────────────────────────────
+
+	@app.post("/auth/register")
+	async def auth_register(request: Request):
+		try:
+			body = await request.json()
+		except Exception:
+			raise HTTPException(400, "Invalid JSON body")
+		username = body.get("username", "").strip()
+		email    = body.get("email", "").strip()
+		password = body.get("password", "")
+		if not username or not password:
+			raise HTTPException(400, "username and password are required")
+		if not email:
+			email = f"{username}@local"
+		try:
+			user  = await _auth_provider.create_user(username, email, password)
+			token = await _auth_provider.login(username, password)
+			return {"token": token, "user": {"id": user.id, "username": user.username, "email": user.email, "role": user.role.value}}
+		except ValueError as e:
+			raise HTTPException(409, str(e))
+
+	@app.post("/auth/login")
+	async def auth_login(request: Request):
+		try:
+			body = await request.json()
+		except Exception:
+			raise HTTPException(400, "Invalid JSON body")
+		username = body.get("username", "").strip()
+		password = body.get("password", "")
+		if not username or not password:
+			raise HTTPException(400, "username and password are required")
+		token = await _auth_provider.login(username, password)
+		if not token:
+			raise HTTPException(401, "Invalid credentials")
+		user = await _auth_provider.get_user_by_username(username)
+		return {"token": token, "user": {"id": user.id, "username": user.username, "email": user.email, "role": user.role.value}}
+
+	@app.post("/auth/logout")
+	async def auth_logout(request: Request):
+		token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
+		if token:
+			await _auth_provider.logout(token)
+		return {"ok": True}
+
+	@app.post("/auth/me")
+	async def auth_me(request: Request):
+		user = request.state.user
+		if not user:
+			raise HTTPException(401, "Not authenticated")
+		quota = await _auth_provider.get_quota(user.id)
+		return {
+			"user": {"id": user.id, "username": user.username, "email": user.email, "role": user.role.value},
+			"quota": {
+				"cpu_seconds_remaining":   quota.cpu_seconds_remaining,
+				"max_concurrent_runs":     quota.max_concurrent_runs,
+				"storage_bytes_remaining": quota.storage_bytes_remaining,
+				"max_loop_hours":          quota.max_loop_hours,
+				"gpu_hours_remaining":     quota.gpu_hours_remaining,
+			}
+		}
+
+	@app.post("/auth/status")
+	async def auth_status():
+		"""Check if auth is enabled and what provider is active."""
+		provider_name = _auth_provider.__class__.__name__
+		enabled = provider_name != "NoneAuthProvider"
+		return {"enabled": enabled, "provider": provider_name}
+
 	# Serve the frontend from /web — must be mounted AFTER api routes are registered
 	_web_dir = os.path.join(_project_root, "web")
 
