@@ -1,0 +1,14 @@
+{
+	"auth": {
+		"type": "local",
+		"path": "users.json"
+	},
+	"data": {
+		"type": "local",
+		"root": "storage/repos"
+	},
+	"execution": {
+		"type": "local",
+		"api_url": "http://localhost:11360"
+	}
+}
