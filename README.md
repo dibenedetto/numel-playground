@@ -39,7 +39,7 @@
 | Node Palette    | <-- Python source ---------- | Pydantic Schema   |
 | Event Log       |                              | Agno Framework    |
 | Console Agent   |   WS /events                 | Workflow Engine   |
-| Media Overlay   | <-- real-time events -------- | Eval + Planner    |
+| Media Overlay   | <-- real-time events ------- | Eval + Planner    |
 +-----------------+                              +-------------------+
 ```
 
