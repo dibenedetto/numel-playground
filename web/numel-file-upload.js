@@ -523,7 +523,7 @@ class FileUploadManager {
 
 				if (selectedIds.length === 0) return;
 
-				if (!confirm(`Remove ${selectedIds.length} item(s)? This cannot be undone.`)) return;
+				if (!await NumelConfirm('Remove Items', `Remove ${selectedIds.length} item(s)? This cannot be undone.`, 'Remove', true)) return;
 
 				closeModal();
 				await this.removeContents(node, selectedIds);

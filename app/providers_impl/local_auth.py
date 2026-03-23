@@ -94,11 +94,13 @@ class LocalAuthProvider(AuthProvider):
                 raise ValueError(f"Username '{username}' already exists")
 
         user_id = uuid.uuid4().hex[:12]
+        # First user gets admin role automatically
+        role = "admin" if not self._data["users"] else "user"
         user_dict = {
             "id":            user_id,
             "username":      username,
             "email":         email,
-            "role":          "user",
+            "role":          role,
             "active":        True,
             "created_at":    time.time(),
             "password_hash": hashlib.sha256(password.encode()).hexdigest(),

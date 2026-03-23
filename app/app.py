@@ -40,6 +40,8 @@ from   fastapi.responses import StreamingResponse
 from   inspect   import getsource
 from   typing    import Any, Optional
 
+from   providers.models import AccessLevel, Role
+
 
 import schema
 
@@ -249,10 +251,236 @@ async def run_server(args: Any):
 
 	@app.post("/auth/status")
 	async def auth_status():
-		"""Check if auth is enabled and what provider is active."""
+		"""Check if auth is enabled, what provider is active, and if any users exist."""
 		provider_name = _auth_provider.__class__.__name__
 		enabled = provider_name != "NoneAuthProvider"
-		return {"enabled": enabled, "provider": provider_name}
+		has_users = True
+		if enabled:
+			try:
+				users = await _auth_provider.list_users(limit=1, active_only=False)
+				has_users = len(users) > 0
+			except Exception:
+				pass
+		return {"enabled": enabled, "provider": provider_name, "has_users": has_users}
+
+	@app.post("/auth/change-password")
+	async def auth_change_password(request: Request):
+		user = request.state.user
+		if not user:
+			raise HTTPException(401, "Not authenticated")
+		try:
+			body = await request.json()
+		except Exception:
+			raise HTTPException(400, "Invalid JSON body")
+		current  = body.get("current_password", "")
+		new_pw   = body.get("new_password", "")
+		if not current or not new_pw:
+			raise HTTPException(400, "current_password and new_password are required")
+		if len(new_pw) < 4:
+			raise HTTPException(400, "Password must be at least 4 characters")
+		# Verify current password via login attempt
+		token = await _auth_provider.login(user.username, current)
+		if not token:
+			raise HTTPException(403, "Current password is incorrect")
+		# Invalidate the verification token
+		await _auth_provider.logout(token)
+		# Update password hash
+		import hashlib as _hl
+		new_hash = _hl.sha256(new_pw.encode()).hexdigest()
+		if hasattr(_auth_provider, '_data'):
+			u = _auth_provider._data["users"].get(user.id)
+			if u:
+				u["password_hash"] = new_hash
+				_auth_provider._save()
+		return {"ok": True}
+
+	# ── Role helpers ─────────────────────────────────────────
+
+	def _require_auth(request: Request):
+		"""Return the authenticated user or raise 401."""
+		user = request.state.user
+		if not user:
+			raise HTTPException(401, "Not authenticated")
+		return user
+
+	def _require_admin(request: Request):
+		"""Return the authenticated admin user or raise 403."""
+		user = _require_auth(request)
+		if user.role != Role.ADMIN:
+			raise HTTPException(403, "Admin access required")
+		return user
+
+	# ── Admin API Routes ─────────────────────────────────────
+
+	@app.post("/admin/users")
+	async def admin_list_users(request: Request):
+		_require_admin(request)
+		body = {}
+		try: body = await request.json()
+		except Exception: pass
+		offset      = body.get("offset", 0)
+		limit       = body.get("limit", 50)
+		active_only = body.get("active_only", True)
+		users = await _auth_provider.list_users(offset=offset, limit=limit, active_only=active_only)
+		result = []
+		for u in users:
+			quota = await _auth_provider.get_quota(u.id)
+			result.append({
+				"id": u.id, "username": u.username, "email": u.email,
+				"role": u.role.value, "active": u.active,
+				"created_at": u.created_at, "metadata": u.metadata,
+				"quota": {
+					"cpu_seconds_remaining":   quota.cpu_seconds_remaining,
+					"max_concurrent_runs":     quota.max_concurrent_runs,
+					"storage_bytes_remaining": quota.storage_bytes_remaining,
+					"gpu_hours_remaining":     quota.gpu_hours_remaining,
+					"max_repos":               quota.max_repos,
+				},
+			})
+		return {"users": result, "count": len(result)}
+
+	@app.post("/admin/users/{user_id}")
+	async def admin_get_user(user_id: str, request: Request):
+		_require_admin(request)
+		user = await _auth_provider.get_user(user_id)
+		if not user:
+			raise HTTPException(404, "User not found")
+		quota = await _auth_provider.get_quota(user.id)
+		perms = await _auth_provider.list_permissions(user.id)
+		return {
+			"user": {
+				"id": user.id, "username": user.username, "email": user.email,
+				"role": user.role.value, "active": user.active,
+				"created_at": user.created_at, "metadata": user.metadata,
+			},
+			"quota": {
+				"cpu_seconds_remaining":   quota.cpu_seconds_remaining,
+				"max_concurrent_runs":     quota.max_concurrent_runs,
+				"storage_bytes_remaining": quota.storage_bytes_remaining,
+				"gpu_hours_remaining":     quota.gpu_hours_remaining,
+				"max_repos":               quota.max_repos,
+			},
+			"permissions": [{"resource": p.resource, "access": p.access.value} for p in perms],
+		}
+
+	@app.post("/admin/users/{user_id}/update")
+	async def admin_update_user(user_id: str, request: Request):
+		_require_admin(request)
+		body = await request.json()
+		allowed = {k: v for k, v in body.items() if k in ("email", "role", "active", "metadata")}
+		if not allowed:
+			raise HTTPException(400, "No valid fields to update")
+		user = await _auth_provider.update_user(user_id, **allowed)
+		return {"user": {"id": user.id, "username": user.username, "email": user.email,
+						 "role": user.role.value, "active": user.active}}
+
+	@app.post("/admin/users/{user_id}/delete")
+	async def admin_delete_user(user_id: str, request: Request):
+		_require_admin(request)
+		ok = await _auth_provider.delete_user(user_id)
+		if not ok:
+			raise HTTPException(404, "User not found")
+		return {"ok": True}
+
+	@app.post("/admin/users/{user_id}/quota")
+	async def admin_update_quota(user_id: str, request: Request):
+		_require_admin(request)
+		body = await request.json()
+		quota = await _auth_provider.update_quota(user_id, **body)
+		return {
+			"quota": {
+				"user_id":                 quota.user_id,
+				"cpu_seconds_remaining":   quota.cpu_seconds_remaining,
+				"max_concurrent_runs":     quota.max_concurrent_runs,
+				"storage_bytes_remaining": quota.storage_bytes_remaining,
+				"gpu_hours_remaining":     quota.gpu_hours_remaining,
+				"max_repos":               quota.max_repos,
+			}
+		}
+
+	@app.post("/admin/users/{user_id}/permissions")
+	async def admin_list_user_permissions(user_id: str, request: Request):
+		_require_admin(request)
+		perms = await _auth_provider.list_permissions(user_id)
+		return {"permissions": [{"resource": p.resource, "access": p.access.value} for p in perms]}
+
+	@app.post("/admin/users/{user_id}/permissions/grant")
+	async def admin_grant_permission(user_id: str, request: Request):
+		_require_admin(request)
+		body = await request.json()
+		resource = body.get("resource", "")
+		access   = body.get("access", "read")
+		if not resource:
+			raise HTTPException(400, "resource is required")
+		perm = await _auth_provider.grant_permission(user_id, resource, AccessLevel(access))
+		return {"permission": {"resource": perm.resource, "user_id": perm.user_id, "access": perm.access.value}}
+
+	@app.post("/admin/users/{user_id}/permissions/revoke")
+	async def admin_revoke_permission(user_id: str, request: Request):
+		_require_admin(request)
+		body = await request.json()
+		resource = body.get("resource", "")
+		if not resource:
+			raise HTTPException(400, "resource is required")
+		ok = await _auth_provider.revoke_permission(user_id, resource)
+		return {"ok": ok}
+
+	@app.post("/admin/stats")
+	async def admin_stats(request: Request):
+		"""System-wide statistics: users, executions, active runs."""
+		_require_admin(request)
+		users = await _auth_provider.list_users(limit=10000, active_only=False)
+		active_users  = [u for u in users if u.active]
+		history_items = exec_history.list(limit=10000)
+		# Active executions from default workspace engine
+		active_exec_ids = []
+		try:
+			ws_obj = workspace_mgr.get_default_workspace()
+			active_exec_ids = ws_obj.engine.list_executions()
+		except Exception:
+			pass
+		# Breakdown by status
+		status_counts = {}
+		for h in history_items:
+			s = h.get("status", "unknown")
+			status_counts[s] = status_counts.get(s, 0) + 1
+		return {
+			"total_users":       len(users),
+			"active_users":      len(active_users),
+			"total_executions":  len(history_items),
+			"active_executions": len(active_exec_ids),
+			"execution_status_breakdown": status_counts,
+		}
+
+	@app.post("/admin/executions")
+	async def admin_executions(request: Request):
+		"""Paginated execution history for admin."""
+		_require_admin(request)
+		body = {}
+		try: body = await request.json()
+		except Exception: pass
+		wf_name = body.get("workflow_name")
+		limit   = body.get("limit", 100)
+		offset  = body.get("offset", 0)
+		items   = exec_history.list(workflow_name=wf_name, limit=limit, offset=offset)
+		# Active executions
+		active_exec_ids = []
+		try:
+			ws_obj = workspace_mgr.get_default_workspace()
+			active_exec_ids = ws_obj.engine.list_executions()
+		except Exception:
+			pass
+		return {"executions": items, "active_execution_ids": active_exec_ids}
+
+	@app.post("/admin/executions/{execution_id}/cancel")
+	async def admin_cancel_execution(execution_id: str, request: Request):
+		_require_admin(request)
+		try:
+			ws_obj = workspace_mgr.get_default_workspace()
+			state  = await ws_obj.engine.cancel_execution(execution_id)
+			return {"ok": True, "state": state}
+		except Exception as e:
+			raise HTTPException(500, str(e))
 
 	# Serve the frontend from /web — must be mounted AFTER api routes are registered
 	_web_dir = os.path.join(_project_root, "web")
@@ -320,25 +548,44 @@ async def run_server(args: Any):
 
 	# ── Execution History Routes ───────────────────────────────
 
-	@app.get("/exec-history")
-	async def get_exec_history(workflow_name: str = None, limit: int = 100, offset: int = 0):
-		return exec_history.list(workflow_name=workflow_name, limit=limit, offset=offset)
+	@app.post("/exec-history")
+	async def get_exec_history(request: Request):
+		body = {}
+		try: body = await request.json()
+		except Exception: pass
+		wf_name = body.get("workflow_name")
+		limit   = body.get("limit", 100)
+		offset  = body.get("offset", 0)
+		# Scope to current user (admins see all)
+		user = getattr(request.state, 'user', None)
+		user_id = None
+		if user and user.role != Role.ADMIN:
+			user_id = user.id
+		return exec_history.list(workflow_name=wf_name, user_id=user_id, limit=limit, offset=offset)
 
-	@app.get("/exec-history/{execution_id}")
+	@app.post("/exec-history/{execution_id}")
 	async def get_exec_record(execution_id: str):
 		rec = exec_history.get(execution_id)
 		if not rec:
 			raise HTTPException(status_code=404, detail="Not found")
 		return rec
 
-	@app.delete("/exec-history")
-	async def clear_exec_history(workflow_name: str = None):
-		exec_history.clear(workflow_name=workflow_name)
+	@app.post("/exec-history/clear")
+	async def clear_exec_history(request: Request):
+		body = {}
+		try: body = await request.json()
+		except Exception: pass
+		wf_name = body.get("workflow_name")
+		exec_history.clear(workflow_name=wf_name)
 		return {"ok": True}
 
 	@app.post("/exec-history/record")
 	async def record_execution(request: Request):
 		body = await request.json()
+		# Inject user_id from auth context
+		user = getattr(request.state, 'user', None)
+		if user and 'user_id' not in body:
+			body['user_id'] = user.id
 		rec = exec_history.record(**body)
 		return rec.model_dump()
 

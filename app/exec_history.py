@@ -19,6 +19,7 @@ _MAX_RECORDS  = 500   # rolling cap
 class ExecRecord(BaseModel):
     execution_id   : str
     workflow_name  : str            = ""
+    user_id        : str            = ""           # owner (empty = anonymous / legacy)
     timestamp      : str            = Field(default_factory=lambda: datetime.now().isoformat())
     status         : str            = "unknown"   # completed / failed / cancelled
     duration_ms    : Optional[int]  = None
@@ -62,11 +63,14 @@ class ExecHistoryManager:
         self._save()
         return rec
 
-    def list(self, workflow_name: str = None, limit: int = 100, offset: int = 0) -> List[dict]:
-        """Return records newest-first, optionally filtered by workflow_name."""
+    def list(self, workflow_name: str = None, user_id: str = None,
+             limit: int = 100, offset: int = 0) -> List[dict]:
+        """Return records newest-first, optionally filtered by workflow_name and/or user_id."""
         items = list(reversed(self._records))
         if workflow_name:
             items = [r for r in items if r.workflow_name == workflow_name]
+        if user_id:
+            items = [r for r in items if r.user_id == user_id]
         return [r.model_dump() for r in items[offset : offset + limit]]
 
     def get(self, execution_id: str) -> Optional[dict]:

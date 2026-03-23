@@ -11,27 +11,27 @@
 		<link rel="stylesheet" href="numel-console.css">
 		<link rel="stylesheet" href="numel-gallery.css">
 	</head>
-	<body>
+	<body class="nw-auth-pending">
 		<!-- Auth Modal — shown when auth is enabled and user is not logged in -->
 		<div id="authModal" class="nw-auth-modal" style="display:none;">
 			<div class="nw-auth-card">
 				<h1 class="nw-auth-title"><span class="nw-brand">Numel</span> Playground</h1>
-				<div id="authLoginForm" class="nw-auth-form">
+				<form id="authLoginForm" class="nw-auth-form" autocomplete="on" onsubmit="return false;">
 					<input id="authUsername" type="text" class="nw-input" placeholder="Username" autocomplete="username" aria-label="Username">
 					<input id="authPassword" type="password" class="nw-input" placeholder="Password" autocomplete="current-password" aria-label="Password">
-					<button id="authLoginBtn" class="nw-btn nw-btn-success nw-auth-submit">Sign In</button>
+					<button id="authLoginBtn" type="button" class="nw-btn nw-btn-success nw-auth-submit">Sign In</button>
 					<div id="authError" class="nw-auth-error" style="display:none;"></div>
 					<p class="nw-auth-switch">No account? <a href="#" id="authShowRegister">Create one</a></p>
-				</div>
-				<div id="authRegisterForm" class="nw-auth-form" style="display:none;">
+				</form>
+				<form id="authRegisterForm" class="nw-auth-form" style="display:none;" autocomplete="on" onsubmit="return false;">
 					<input id="authRegUsername" type="text" class="nw-input" placeholder="Username" autocomplete="username" aria-label="Username">
 					<input id="authRegEmail" type="email" class="nw-input" placeholder="Email" autocomplete="email" aria-label="Email">
 					<input id="authRegPassword" type="password" class="nw-input" placeholder="Password" autocomplete="new-password" aria-label="Password">
 					<input id="authRegPasswordConfirm" type="password" class="nw-input" placeholder="Confirm password" autocomplete="new-password" aria-label="Confirm password">
-					<button id="authRegisterBtn" class="nw-btn nw-btn-success nw-auth-submit">Create Account</button>
+					<button id="authRegisterBtn" type="button" class="nw-btn nw-btn-success nw-auth-submit">Create Account</button>
 					<div id="authRegError" class="nw-auth-error" style="display:none;"></div>
 					<p class="nw-auth-switch">Already have an account? <a href="#" id="authShowLogin">Sign in</a></p>
-				</div>
+				</form>
 				<div class="nw-auth-divider"><span>or</span></div>
 				<button id="authGuestBtn" class="nw-btn nw-auth-guest">Continue as Guest</button>
 			</div>
@@ -47,8 +47,18 @@
 
 			<!-- User bar — visible when auth is enabled -->
 			<div id="authUserBar" class="nw-user-bar" style="display:none;">
-				<span id="authUserName" class="nw-user-name"></span>
-				<button id="authLogoutBtn" class="nw-btn nw-btn-sm" title="Logout">Logout</button>
+				<span id="authUserName" class="nw-user-name nw-user-name-clickable"></span>
+				<div class="nw-user-actions">
+					<button id="userPanelBtn" class="nw-user-action-btn" title="My Account">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+					</button>
+					<button id="adminOpenBtn" class="nw-user-action-btn" title="System Admin" style="display:none;">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+					</button>
+					<button id="authLogoutBtn" class="nw-user-action-btn" title="Logout">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+					</button>
+				</div>
 			</div>
 
 			<!-- Workflow Library Section -->
@@ -455,6 +465,74 @@
 			</div>
 		</div>
 
+		<!-- User Panel -->
+		<div id="userPanel" class="nw-user-panel">
+			<div class="nw-admin-header">
+				<span class="nw-admin-title">My Account</span>
+				<button id="userPanelClose" class="nw-console-close">&times;</button>
+			</div>
+			<div class="nw-admin-body">
+				<!-- Profile -->
+				<div class="nw-user-profile-section">
+					<div class="nw-user-avatar" id="userAvatar"></div>
+					<div id="userProfileName" class="nw-user-profile-name"></div>
+					<div id="userProfileEmail" class="nw-user-profile-detail"></div>
+					<div id="userProfileRole" class="nw-user-profile-detail"></div>
+				</div>
+
+				<!-- Quota -->
+				<h4 class="nw-user-section-title">Resource Quota</h4>
+				<div id="userQuotaBars" class="nw-user-quota-list"></div>
+
+				<!-- Change password -->
+				<h4 class="nw-user-section-title">Change Password</h4>
+				<form class="nw-user-pw-form" autocomplete="on" onsubmit="return false;">
+					<input id="userPwCurrent" type="password" class="nw-input" placeholder="Current password" autocomplete="current-password" aria-label="Current password">
+					<input id="userPwNew" type="password" class="nw-input" placeholder="New password" autocomplete="new-password" aria-label="New password">
+					<input id="userPwConfirm" type="password" class="nw-input" placeholder="Confirm new password" autocomplete="new-password" aria-label="Confirm new password">
+					<button id="userPwSaveBtn" type="button" class="nw-btn nw-btn-sm nw-btn-success">Update Password</button>
+					<div id="userPwMsg" class="nw-user-pw-msg" style="display:none;"></div>
+				</form>
+			</div>
+		</div>
+
+		<!-- Admin Panel -->
+		<div id="adminPanel" class="nw-admin-panel">
+			<div class="nw-admin-header">
+				<span class="nw-admin-title">System Admin</span>
+				<button id="adminCloseBtn" class="nw-console-close">&times;</button>
+			</div>
+			<div class="nw-admin-tabs">
+				<button class="nw-admin-tab active" data-tab="adminTabUsers">Users</button>
+				<button class="nw-admin-tab" data-tab="adminTabExec">Executions</button>
+				<button class="nw-admin-tab" data-tab="adminTabStats">Stats</button>
+			</div>
+			<div class="nw-admin-body">
+				<!-- Users Tab -->
+				<div id="adminTabUsers" class="nw-admin-tab-content active">
+					<div class="nw-admin-toolbar">
+						<button id="adminRefreshUsers" class="nw-btn nw-btn-sm">Refresh</button>
+						<label class="nw-admin-check"><input type="checkbox" id="adminActiveOnly" checked> Active only</label>
+					</div>
+					<div id="adminUserList" class="nw-admin-list"></div>
+				</div>
+				<!-- Executions Tab -->
+				<div id="adminTabExec" class="nw-admin-tab-content">
+					<div class="nw-admin-toolbar">
+						<button id="adminRefreshExec" class="nw-btn nw-btn-sm">Refresh</button>
+						<input id="adminExecFilter" type="text" class="nw-input nw-admin-filter" placeholder="Filter by workflow..." autocomplete="off" aria-label="Filter executions">
+					</div>
+					<div id="adminExecActive" class="nw-admin-active-list"></div>
+					<div id="adminExecList" class="nw-admin-list"></div>
+				</div>
+				<!-- Stats Tab -->
+				<div id="adminTabStats" class="nw-admin-tab-content">
+					<button id="adminRefreshStats" class="nw-btn nw-btn-sm" style="margin-bottom:8px;">Refresh</button>
+					<div id="adminStatsContent" class="nw-admin-stats"></div>
+				</div>
+			</div>
+		</div>
+
 		<!-- Footer -->
 		<div class="nw-footer">
 			© 2025 - 2026 - <a href="mailto:marco.dibenedetto@isti.cnr.it">Marco Di Benedetto</a>
@@ -476,6 +554,9 @@
 		<script src="dist/agui-client.bundle.js"></script>
 		<script src="dist/codemirror-bundle.js"></script>
 		<script src="dist/threejs-bundle.js"></script>
+
+		<!-- Global confirm dialog (must load before all app scripts) -->
+		<script src="numel-confirm.js"></script>
 
 		<!-- Load scripts in correct order -->
 		<script src="schemagraph/schemagraph-core.js"></script>
@@ -508,6 +589,8 @@
 
 		<script src="numel-api.js"></script>
 		<script src="numel-file-upload.js"></script>
+		<script src="numel-user-panel.js"></script>
+		<script src="numel-admin.js"></script>
 		<script src="numel-workflow.js"></script>
 		<script src="numel-workflow-ui.js"></script>
 	</body>

@@ -397,16 +397,21 @@ document.addEventListener('DOMContentLoaded', () => {
 	$('serverUrl').value = window.location.origin;
 
 	// ── Auth gate ─────────────────────────────────────────────────────────
-	_initAuth().then(() => autoConnect());
+	_initAuth().then(() => {
+		document.body.classList.remove('nw-auth-pending');
+		autoConnect();
+	});
 });
 
 async function _initAuth() {
 	const baseUrl = $('serverUrl').value || window.location.origin;
 	let authEnabled = false;
+	let hasUsers    = true;
 	try {
 		const resp = await fetch(`${baseUrl}/auth/status`, { method: 'POST' });
 		const data = await resp.json();
 		authEnabled = data.enabled;
+		hasUsers    = data.has_users !== false;
 	} catch {
 		// Server unreachable — skip auth, let autoConnect handle it
 		return;
@@ -446,6 +451,16 @@ async function _initAuth() {
 		const regErrorEl    = document.getElementById('authRegError');
 
 		modal.style.display = '';
+
+		// If no users exist yet, show registration form first with admin hint
+		if (!hasUsers) {
+			loginForm.style.display    = 'none';
+			registerForm.style.display = '';
+			// Update the register button and title to indicate admin creation
+			registerBtn.textContent = 'Create Admin Account';
+			const switchText = registerForm.querySelector('.nw-auth-switch');
+			if (switchText) switchText.style.display = 'none';  // hide "Already have an account?" — there are none
+		}
 
 		showRegister.onclick = (e) => { e.preventDefault(); loginForm.style.display = 'none'; registerForm.style.display = ''; };
 		showLogin.onclick    = (e) => { e.preventDefault(); registerForm.style.display = 'none'; loginForm.style.display = ''; };
@@ -520,7 +535,11 @@ function _showUserBar(user) {
 	if (!bar || !user) return;
 	document.getElementById('authUserName').textContent = user.username;
 	bar.style.display = '';
+	// Show admin button if admin role
+	if (typeof NumelAdmin !== 'undefined') NumelAdmin.checkAdminAccess(user);
 	document.getElementById('authLogoutBtn').onclick = async () => {
+		const ok = await NumelConfirm('Log Out', 'Are you sure you want to log out?', 'Log Out');
+		if (!ok) return;
 		try {
 			await fetch(`${$('serverUrl').value || window.location.origin}/auth/logout`, {
 				method: 'POST',

@@ -23,6 +23,8 @@
 | Real-time browser ML | MediaPipe pose/face/hands | No | No |
 | Multi-channel deployment | 7 platforms | Limited | No |
 | Agent-first architecture | Native nodes | Integration only | N/A |
+| Multi-tenant with quotas | Roles, quotas, admin panel | Enterprise only | No |
+| Swappable provider backends | Auth, Data, Execution | No | No |
 
 ---
 
@@ -96,7 +98,7 @@ Optional flags:
 - **Agent Chat** node with streaming responses, message history, and file preview
 - **Agent Flow** node for non-interactive agent execution within workflows
 - **RAG pipeline**: Content DB + Vector DB + Knowledge Manager for document-grounded agents
-- **13+ built-in toolkits** (see below)
+- **14 built-in toolkits** (see below)
 - **Dynamic toolkit creation**: Agents can write their own Python toolkits at runtime
 
 ### Autonomous Planner
@@ -157,6 +159,16 @@ All channels support auto-start, persistence, and unified message routing to the
 - **Persistent memory** across sessions (SQLite-backed)
 - **Proactive suggestions** via WebSocket
 - **`/gen` command** — generate workflows from natural language
+
+### User Management & Admin
+- **Multi-user auth** with registration, login, and guest access
+- **Role-based access control** (Admin / User / Viewer)
+- **Per-user resource quotas** (CPU, storage, GPU, concurrent runs)
+- **User panel** — profile info, quota usage bars, and password change
+- **Admin panel** — slide-out UI with user management, execution monitoring, and system stats
+- **System toolkit** — AI assistant can manage users, quotas, and executions via natural language
+- **User-scoped data** — execution history filtered by user (admins see all)
+- **Provider abstraction** — swappable auth, data, and execution backends via `server_config.json`
 
 ---
 
@@ -246,7 +258,7 @@ Direct value nodes: **String**, **Integer**, **Real**, **Boolean**, **List**, **
 
 ---
 
-## Built-in Toolkits (13)
+## Built-in Toolkits (14)
 
 | Toolkit | Key Methods | Description |
 |---------|-------------|-------------|
@@ -263,6 +275,7 @@ Direct value nodes: **String**, **Integer**, **Real**, **Boolean**, **List**, **
 | **diffusers_toolkit** | generate, img2img, list_models, change_model | Native HuggingFace image generation |
 | **image_eval_toolkit** | clip_score, aesthetic_score, evaluate, compare | Image quality evaluation (CLIP + LAION) |
 | **tts_toolkit** | speak, list_voices, save_speech | Text-to-speech |
+| **system_toolkit** | list_users, get_system_stats, update_quota, list_executions | System administration (admin only) |
 
 ### User-Contributed Toolkits (`contrib/toolkits/`)
 - **context_toolkit** — System context awareness (OS, network, clipboard, idle time)
@@ -270,6 +283,111 @@ Direct value nodes: **String**, **Integer**, **Real**, **Boolean**, **List**, **
 - **text_stats_toolkit** — Word count, keyword extraction, summarization
 
 Upload custom Python toolkits via the **Upload Toolkit** button in the UI.
+
+---
+
+## User Authentication & Multi-Tenant Support
+
+Numel supports multi-user mode with registration, login, role-based access control, and per-user resource quotas.
+
+### Auth Modes
+
+Configure via `app/server_config.json`:
+
+| Mode | Config | Description |
+|------|--------|-------------|
+| **None** | `"type": "none"` | Single-user, no login required (default for development) |
+| **Local** | `"type": "local"` | File-backed users (`users.json`), HMAC tokens |
+| **Django** | `"type": "django"` | Django user management (planned) |
+
+```json
+{
+  "auth":      { "type": "local", "path": "users.json" },
+  "data":      { "type": "local", "root": "storage/repos" },
+  "execution": { "type": "local", "api_url": "http://localhost:11360" }
+}
+```
+
+### Login Flow
+
+When auth is enabled (`"type": "local"`), the frontend shows a login modal at startup with three options:
+
+1. **Sign In** — username and password
+2. **Create Account** — register a new user (first user automatically becomes admin)
+3. **Continue as Guest** — skip authentication and use the app without an account
+
+After login, a Bearer token is stored in `localStorage` and injected into all API requests. The **User Panel** (click the user icon or username) shows your profile, quota usage with color-coded progress bars, and a password change form.
+
+### Roles & Permissions
+
+| Role | Access |
+|------|--------|
+| **Admin** | Full access: user management, quota control, all executions, system stats |
+| **User** | Standard access: own workflows, own execution history |
+| **Viewer** | Read-only access |
+
+Permissions can be granted per resource (e.g., `repo:user/data`, `workflow:my-flow`) with levels: `none`, `read`, `write`, `execute`, `owner`.
+
+### Resource Quotas
+
+Each user has configurable resource limits:
+
+| Quota | Default |
+|-------|---------|
+| CPU time | 10 hours |
+| Storage | 1 GB |
+| Concurrent runs | 5 |
+| GPU hours | 0 (disabled) |
+| Max repos | 50 |
+
+Admins can adjust quotas per user via the Admin Panel or `system_toolkit`.
+
+### Provider Architecture
+
+All backend services are abstracted behind provider interfaces, allowing swappable implementations:
+
+| Provider | Interface | Local Implementation |
+|----------|-----------|---------------------|
+| **AuthProvider** | `providers/auth.py` | `local_auth.py` (JSON file) |
+| **DataProvider** | `providers/data.py` | `local_data.py` (filesystem) |
+| **ExecutionProvider** | `providers/execution.py` | `local_exec.py` (in-process) |
+
+Add new implementations (Django, Gitea, Docker) by creating a class that implements the ABC and registering it in `providers_impl/loader.py`.
+
+---
+
+## Admin Panel
+
+The Admin Panel is a slide-out UI accessible to admin users via the **Admin** button in the user bar.
+
+### Users Tab
+- List all registered users with role badges and quota summaries
+- **Edit** — change email, role (admin/user/viewer)
+- **Quota** — adjust CPU, storage, concurrent runs, GPU hours, max repos
+- **Deactivate** — soft-delete a user account
+- Toggle to show/hide inactive users
+
+### Executions Tab
+- View all running executions with real-time status
+- Browse execution history with status badges (completed/failed/cancelled)
+- Filter by workflow name
+- Cancel running executions
+
+### Stats Tab
+- Active users / total users
+- Running executions / total executions
+- Status breakdown (completed, failed, cancelled counts)
+
+### System Toolkit (for AI assistant)
+
+The `system_toolkit` exposes all admin operations as agent tools, so the AI assistant can manage the system via natural language:
+
+```
+"List all users and their quotas"
+"Give user marco 20 hours of CPU time"
+"Show me execution history for the last hour"
+"Cancel execution abc123"
+```
 
 ---
 
@@ -363,42 +481,76 @@ Import any gallery item directly into the canvas.
 
 ## API Reference
 
+All endpoints use **POST** method unless otherwise noted.
+
 ### Core
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/schema` | Get Python schema source |
-| POST | `/add` | Add/update workflow |
-| POST | `/list` | List workflows |
-| POST | `/start` | Execute workflow |
-| POST | `/exec_state/{id}` | Execution status |
-| POST | `/exec_results/{id}` | Execution results |
-| POST | `/exec_cancel/{id}` | Cancel execution |
+| Endpoint | Description |
+|----------|-------------|
+| `/schema` | Get Python schema source |
+| `/add` | Add/update workflow |
+| `/list` | List workflows |
+| `/start` | Execute workflow |
+| `/exec_state/{id}` | Execution status |
+| `/exec_results/{id}` | Execution results |
+| `/exec_cancel/{id}` | Cancel execution |
+
+### Authentication
+| Endpoint | Description |
+|----------|-------------|
+| `/auth/status` | Check if auth is enabled (public) |
+| `/auth/register` | Register new user (public) |
+| `/auth/login` | Login, returns Bearer token (public) |
+| `/auth/logout` | Invalidate token |
+| `/auth/me` | Current user info + quota |
+| `/auth/change-password` | Change password (requires current password) |
+
+### Admin (requires admin role)
+| Endpoint | Description |
+|----------|-------------|
+| `/admin/users` | List users with quotas |
+| `/admin/users/{id}` | Get user detail + permissions |
+| `/admin/users/{id}/update` | Update email, role, active status |
+| `/admin/users/{id}/delete` | Deactivate user |
+| `/admin/users/{id}/quota` | Update quota limits |
+| `/admin/users/{id}/permissions` | List user permissions |
+| `/admin/users/{id}/permissions/grant` | Grant permission on resource |
+| `/admin/users/{id}/permissions/revoke` | Revoke permission |
+| `/admin/stats` | System-wide statistics |
+| `/admin/executions` | All execution history |
+| `/admin/executions/{id}/cancel` | Cancel a running execution |
+
+### Execution History
+| Endpoint | Description |
+|----------|-------------|
+| `/exec-history` | List history (user-scoped, admins see all) |
+| `/exec-history/{id}` | Get single execution record |
+| `/exec-history/clear` | Clear history |
+| `/exec-history/record` | Record new execution (auto-injects user_id) |
 
 ### Console Agent
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/console/chat` | Send message (REST) |
-| WS | `/console/chat` | Streaming chat (AGUI) |
-| POST | `/console/planner/enable` | Enable planner mode |
-| POST | `/console/planner/disable` | Disable planner |
-| POST | `/console/planner/config` | Update planner settings |
-| POST | `/console/clear-memory` | Clear agent memory |
+| Endpoint | Description |
+|----------|-------------|
+| `/console/chat` | Send message (REST or AGUI WebSocket) |
+| `/console/planner/enable` | Enable planner mode |
+| `/console/planner/disable` | Disable planner |
+| `/console/planner/config` | Update planner settings |
+| `/console/clear-memory` | Clear agent memory |
 
 ### Channels
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/channels/add` | Add channel adapter |
-| POST | `/channels/list` | List channels |
-| POST | `/channels/{id}/start` | Start channel |
-| POST | `/channels/{id}/stop` | Stop channel |
+| Endpoint | Description |
+|----------|-------------|
+| `/channels/add` | Add channel adapter |
+| `/channels/list` | List channels |
+| `/channels/{id}/start` | Start channel |
+| `/channels/{id}/stop` | Stop channel |
 
 ### Gallery & Apps
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/gallery/list` | List gallery items |
-| POST | `/gallery/publish` | Publish workflow |
-| POST | `/published-apps/publish` | Publish as app |
-| POST | `/published-apps/run/{slug}` | Run published app |
+| Endpoint | Description |
+|----------|-------------|
+| `/gallery/list` | List gallery items |
+| `/gallery/publish` | Publish workflow |
+| `/published-apps/publish` | Publish as app |
+| `/published-apps/run/{slug}` | Run published app |
 
 ### WebSocket Streams
 | Endpoint | Events |
