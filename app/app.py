@@ -591,7 +591,7 @@ async def run_server(args: Any):
 
 	# ── Workspace ZIP Export ───────────────────────────────────
 
-	@app.get("/workspace/export")
+	@app.post("/workspace/export")
 	async def export_workspace():
 		"""Export entire workspace (workflows + configs) as a ZIP archive."""
 		workspace_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
@@ -692,7 +692,7 @@ async def run_server(args: Any):
 
 	# ── Credential Store ───────────────────────────────────────
 
-	@app.get("/credentials")
+	@app.post("/credentials")
 	async def list_credentials():
 		return {"names": _creds.list_names()}
 
@@ -708,7 +708,7 @@ async def run_server(args: Any):
 
 	# ── Webhook Tunnel ─────────────────────────────────────────
 
-	@app.get("/tunnel/url")
+	@app.post("/tunnel/url")
 	async def get_tunnel_url():
 		return {"url": _tunnel_url}
 

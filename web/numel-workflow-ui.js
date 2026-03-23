@@ -2887,7 +2887,7 @@ class CredentialManager {
 
 	async _refresh() {
 		try {
-			const r = await fetch(`${this._base}/credentials`);
+			const r = await fetch(`${this._base}/credentials`, { method: 'POST' });
 			const d = await r.json();
 			this._names = d.names || [];
 		} catch (_) { this._names = []; }
@@ -2967,7 +2967,7 @@ class CredentialManager {
 		for (let i = 0; i < 20; i++) {
 			await new Promise(r => setTimeout(r, 3000));
 			try {
-				const r = await fetch(`${this._base}/tunnel/url`);
+				const r = await fetch(`${this._base}/tunnel/url`, { method: 'POST' });
 				const d = await r.json();
 				if (d.url) {
 					urlEl.textContent = d.url;
