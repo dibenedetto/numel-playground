@@ -1,1 +1,15 @@
-[]
+[
+  {
+    "id": "ch_ce8b620f",
+    "name": "NumelAdminBot",
+    "channel_type": "telegram",
+    "enabled": true,
+    "auto_start": true,
+    "token": "8731774688:AAEG3dLFFzxry93K3mV2GM_2xI8gJccABWc",
+    "webhook_url": null,
+    "api_endpoint": null,
+    "allowed_users": [],
+    "session_id": null,
+    "extras": {}
+  }
+]

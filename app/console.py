@@ -825,19 +825,28 @@ class ChannelAgentPool:
 		self._memory_store  = memory_store
 		self._idle_timeout  = idle_timeout          # seconds before evicting idle agent
 		self._agents: Dict[str, Agent]      = {}    # session_id → Agent
+		self._agent_tks: Dict[str, List[str]] = {}  # session_id → toolkit names used at build
 		self._last_used: Dict[str, float]   = {}    # session_id → timestamp
 		self._lock = asyncio.Lock()
 		self._cleanup_task: Optional[asyncio.Task] = None
 
-	async def _get_or_create(self, session_id: str) -> Agent:
+	async def _get_or_create(self, session_id: str,
+							 toolkits: Optional[List[str]] = None,
+							 sender_name: Optional[str] = None) -> Agent:
 		"""Return (or lazily build) the Agent for this session."""
 		async with self._lock:
 			if session_id in self._agents:
-				self._last_used[session_id] = time.time()
-				return self._agents[session_id]
+				# Rebuild if toolkit list changed
+				if toolkits is not None and sorted(toolkits) != sorted(self._agent_tks.get(session_id, [])):
+					self._agents.pop(session_id, None)
+					self._agent_tks.pop(session_id, None)
+				else:
+					self._last_used[session_id] = time.time()
+					return self._agents[session_id]
 
-			agent = await self._build_agent()
+			agent = await self._build_agent(toolkits=toolkits, sender_name=sender_name)
 			self._agents[session_id]   = agent
+			self._agent_tks[session_id] = list(toolkits) if toolkits else []
 			self._last_used[session_id] = time.time()
 
 			# Start periodic cleanup if not running
@@ -847,7 +856,15 @@ class ChannelAgentPool:
 			log_print(f"ChannelAgentPool: created agent for session {session_id[:16]} (pool size: {len(self._agents)})")
 			return agent
 
-	async def _build_agent(self) -> Agent:
+	async def evict(self, session_id: str):
+		"""Remove a cached agent so it gets rebuilt on next message."""
+		async with self._lock:
+			self._agents.pop(session_id, None)
+			self._agent_tks.pop(session_id, None)
+			self._last_used.pop(session_id, None)
+
+	async def _build_agent(self, toolkits: Optional[List[str]] = None,
+						   sender_name: Optional[str] = None) -> Agent:
 		"""Build a lightweight Agent from console_agent.json defaults."""
 		with open(self._config_path) as f:
 			config = json.load(f)
@@ -857,10 +874,14 @@ class ChannelAgentPool:
 		name      = model_cfg.get("name", "mistral")
 		model     = _build_model(source, name)
 
-		# Build tools
-		cfg_toolkits = config.get("toolkits", ["console_toolkit"])
+		# Build tools — use per-user toolkit list if provided, else config defaults
+		tk_names = toolkits if toolkits is not None else config.get("toolkits", ["console_toolkit"])
+		# Always include console_toolkit if workspace is available
+		if self._ws_mgr and "console_toolkit" not in tk_names:
+			tk_names = ["console_toolkit"] + list(tk_names)
+
 		tools = []
-		for tk_name in cfg_toolkits:
+		for tk_name in tk_names:
 			if tk_name == "console_toolkit" and self._ws_mgr:
 				toolkit = ConsoleToolkit(self._ws_mgr)
 				for attr_name in dir(toolkit):
@@ -882,11 +903,15 @@ class ChannelAgentPool:
 			db = SqliteDb(db_file=db_path)
 
 		opts = config.get("options", {})
+		instructions = list(opts.get("instructions", []))
+		if sender_name:
+			instructions.insert(0, f"You are chatting with {sender_name}.")
+
 		return Agent(
 			name                    = opts.get("name", "Numel Assistant"),
 			model                   = model,
 			description             = opts.get("description", ""),
-			instructions            = opts.get("instructions", []),
+			instructions            = instructions,
 			markdown                = opts.get("markdown", True),
 			tools                   = tools,
 			db                      = db,
@@ -896,9 +921,11 @@ class ChannelAgentPool:
 			num_history_sessions    = mem_cfg.get("session_history", 5) if db else None,
 		)
 
-	async def chat(self, message: str, session_id: str) -> dict:
+	async def chat(self, message: str, session_id: str,
+				   toolkits: Optional[List[str]] = None,
+				   sender_name: Optional[str] = None) -> dict:
 		"""Send a message to the per-session agent. Returns {session_id, response, tool_calls}."""
-		agent = await self._get_or_create(session_id)
+		agent = await self._get_or_create(session_id, toolkits=toolkits, sender_name=sender_name)
 		try:
 			response = await agent.arun(message, session_id=session_id)
 		except Exception as e:
@@ -936,6 +963,7 @@ class ChannelAgentPool:
 			async with self._lock:
 				for sid in expired:
 					self._agents.pop(sid, None)
+					self._agent_tks.pop(sid, None)
 					self._last_used.pop(sid, None)
 				if expired:
 					log_print(f"ChannelAgentPool: evicted {len(expired)} idle agents (pool size: {len(self._agents)})")

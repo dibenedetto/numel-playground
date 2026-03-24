@@ -64,9 +64,35 @@
 						</button>
 					</div>
 				</div>
+				<div id="authUserInfo" class="nw-user-info">
+					<div class="nw-user-info-row"><span class="nw-user-info-label">Role</span><span id="authUserRole" class="nw-user-info-value">—</span></div>
+					<div class="nw-user-info-row"><span class="nw-user-info-label">Email</span><span id="authUserEmail" class="nw-user-info-value">—</span></div>
+					<div class="nw-user-info-row"><span class="nw-user-info-label">Server</span><span id="authUserServer" class="nw-user-info-value">—</span></div>
+				</div>
 			</section>
 
-			<!-- Channels sub-panel — right below user -->
+			<!-- Credentials Section -->
+			<section class="nw-section nw-section-compact">
+				<div class="nw-section-header">
+					<h3 class="nw-section-title">Credentials</h3>
+					<button id="addCredentialBtn" class="nw-btn-icon" title="Add credential">＋</button>
+				</div>
+				<div id="credentialsList" class="nw-credentials-list"></div>
+				<form id="credentialForm" class="nw-credential-form" style="display:none;" onsubmit="return false">
+					<input id="credentialName"  type="text"     class="nw-input" placeholder="NAME (e.g. SLACK_TOKEN)" autocomplete="off" spellcheck="false" aria-label="Credential name">
+					<input id="credentialValue" type="password" class="nw-input" placeholder="Value" autocomplete="new-password" aria-label="Credential value">
+					<div class="nw-btn-row">
+						<button id="saveCredentialBtn"   class="nw-btn nw-btn-success nw-btn-sm">Save</button>
+						<button id="cancelCredentialBtn" class="nw-btn nw-btn-secondary nw-btn-sm">Cancel</button>
+					</div>
+				</form>
+				<div id="tunnelInfo" class="nw-tunnel-info" style="display:none;">
+					<span class="nw-tunnel-label">🌐 Public URL</span>
+					<a id="tunnelUrl" class="nw-tunnel-url" target="_blank"></a>
+				</div>
+			</section>
+
+			<!-- Channels sub-panel -->
 			<section class="nw-section nw-section-compact">
 				<div class="nw-section-header">
 					<h3 class="nw-section-title">Channels</h3>
@@ -209,27 +235,6 @@
 				<div class="nw-field">
 					<label>Execution ID</label>
 					<div id="execId" class="nw-mono-text">-</div>
-				</div>
-			</section>
-
-			<!-- Credentials Section -->
-			<section class="nw-section nw-section-compact">
-				<div class="nw-section-header">
-					<h3 class="nw-section-title">Credentials</h3>
-					<button id="addCredentialBtn" class="nw-btn-icon" title="Add credential">＋</button>
-				</div>
-				<div id="credentialsList" class="nw-credentials-list"></div>
-				<form id="credentialForm" class="nw-credential-form" style="display:none;" onsubmit="return false">
-					<input id="credentialName"  type="text"     class="nw-input" placeholder="NAME (e.g. SLACK_TOKEN)" autocomplete="off" spellcheck="false" aria-label="Credential name">
-					<input id="credentialValue" type="password" class="nw-input" placeholder="Value" autocomplete="new-password" aria-label="Credential value">
-					<div class="nw-btn-row">
-						<button id="saveCredentialBtn"   class="nw-btn nw-btn-success nw-btn-sm">Save</button>
-						<button id="cancelCredentialBtn" class="nw-btn nw-btn-secondary nw-btn-sm">Cancel</button>
-					</div>
-				</form>
-				<div id="tunnelInfo" class="nw-tunnel-info" style="display:none;">
-					<span class="nw-tunnel-label">🌐 Public URL</span>
-					<a id="tunnelUrl" class="nw-tunnel-url" target="_blank"></a>
 				</div>
 			</section>
 
@@ -579,6 +584,16 @@
 					<button id="channelAddBtn" class="nw-btn nw-btn-sm nw-btn-success">+ Add Channel</button>
 				</div>
 				<div id="channelList" class="nw-admin-list"></div>
+				<div class="nw-field nw-channel-pool-field">
+					<label>Agent idle timeout</label>
+					<select id="channelIdleTimeout" class="nw-select">
+						<option value="300">5 min</option>
+						<option value="900">15 min</option>
+						<option value="1800" selected>30 min</option>
+						<option value="3600">1 hour</option>
+						<option value="7200">2 hours</option>
+					</select>
+				</div>
 			</div>
 		</div>
 
