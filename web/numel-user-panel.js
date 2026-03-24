@@ -36,6 +36,9 @@ const NumelUserPanel = (() => {
 
 	function open() {
 		if (_panel) _panel.classList.add('open');
+		// Populate hidden username for password-form accessibility
+		const pwUser = document.getElementById('userPwUsername');
+		if (pwUser && window._numelUser) pwUser.value = window._numelUser.username || '';
 		_loadProfile();
 	}
 

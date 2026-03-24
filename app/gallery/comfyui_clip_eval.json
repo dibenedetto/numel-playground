@@ -26,7 +26,7 @@
 			{
 				"type": "model_config",
 				"source": "ollama",
-				"name": "mistral",
+				"name": "qwen3.5:cloud",
 				"extra": {"pos": [450, 50], "name": "Model"}
 			},
 			{

@@ -26,7 +26,7 @@
 			{
 				"type": "model_config",
 				"source": "ollama",
-				"name": "mistral",
+				"name": "qwen3.5:cloud",
 				"extra": {"pos": [450, 50], "name": "Model"}
 			},
 			{
@@ -65,39 +65,45 @@
 				"extra": {"pos": [950, 150], "name": "ComfyUI Connection"}
 			},
 			{
+				"type": "transform_flow",
+				"lang": "python",
+				"script": "resp = input or {}\nif isinstance(resp, dict):\n    prompt_text = resp.get('response', '') or resp.get('text', '') or str(resp)\nelse:\n    prompt_text = str(resp)\noutput = {'prompt': prompt_text}",
+				"extra": {"pos": [1150, 300], "name": "Extract Prompt"}
+			},
+			{
 				"type": "tool_flow",
 				"method": "generate_simple",
 				"args": {"width": 512, "height": 512, "steps": 20, "cfg": 7.0},
-				"extra": {"pos": [1200, 300], "name": "Generate Image"}
+				"extra": {"pos": [1350, 300], "name": "Generate Image"}
 			},
 			{
 				"type": "preview_flow",
 				"hint": "image",
-				"extra": {"pos": [1450, 300], "name": "Preview Image"}
+				"extra": {"pos": [1550, 300], "name": "Preview Image"}
 			},
 			{
 				"type": "eval_flow",
 				"script": "result = input or {}\nif isinstance(result, str):\n    import json\n    try: result = json.loads(result)\n    except: pass\nimages = result.get('images', []) if isinstance(result, dict) else []\nerror = result.get('error', '') if isinstance(result, dict) else ''\nif error:\n    score = 0.0\n    feedback = f'Generation failed: {error}'\nelif len(images) > 0:\n    score = 0.8\n    feedback = f'Generated {len(images)} image(s) successfully'\nelse:\n    score = 0.2\n    feedback = 'No images generated'",
-				"extra": {"pos": [1650, 300], "name": "Evaluate Output"}
+				"extra": {"pos": [1750, 300], "name": "Evaluate Output"}
 			},
 			{
 				"type": "if_else_flow",
 				"condition": "value >= 0.7",
-				"extra": {"pos": [1850, 300], "name": "Good Enough?"}
+				"extra": {"pos": [1950, 300], "name": "Good Enough?"}
 			},
 			{
 				"type": "transform_flow",
 				"lang": "python",
 				"script": "variables['feedback'] = str(input or '')\noutput = input",
-				"extra": {"pos": [1850, 500], "name": "Store Feedback"}
+				"extra": {"pos": [1950, 500], "name": "Store Feedback"}
 			},
 			{
 				"type": "loop_end_flow",
-				"extra": {"pos": [2050, 500], "name": "Retry"}
+				"extra": {"pos": [2150, 500], "name": "Retry"}
 			},
 			{
 				"type": "end_flow",
-				"extra": {"pos": [2100, 300], "name": "Done"}
+				"extra": {"pos": [2200, 300], "name": "Done"}
 			}
 		],
 		"edges": [
@@ -111,19 +117,21 @@
 			{"source": 6, "target": 7, "source_slot": "flow_out", "target_slot": "flow_in"},
 			{"source": 7, "target": 8, "source_slot": "output", "target_slot": "request"},
 			{"source": 7, "target": 8, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 8, "target": 10, "source_slot": "response", "target_slot": "args"},
+			{"source": 8, "target": 10, "source_slot": "response", "target_slot": "input"},
 			{"source": 8, "target": 10, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 9, "target": 10, "source_slot": "config", "target_slot": "config"},
-			{"source": 10, "target": 11, "source_slot": "output", "target_slot": "flow_in"},
-			{"source": 10, "target": 12, "source_slot": "output", "target_slot": "input"},
-			{"source": 11, "target": 12, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 10, "target": 11, "source_slot": "output", "target_slot": "args"},
+			{"source": 10, "target": 11, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 9, "target": 11, "source_slot": "config", "target_slot": "config"},
+			{"source": 11, "target": 12, "source_slot": "output", "target_slot": "flow_in"},
+			{"source": 11, "target": 13, "source_slot": "output", "target_slot": "input"},
 			{"source": 12, "target": 13, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 12, "target": 13, "source_slot": "score", "target_slot": "value"},
-			{"source": 13, "target": 16, "source_slot": "true_out", "target_slot": "flow_in"},
-			{"source": 13, "target": 14, "source_slot": "false_out", "target_slot": "flow_in"},
-			{"source": 12, "target": 14, "source_slot": "feedback", "target_slot": "input"},
-			{"source": 14, "target": 15, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 15, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true}
+			{"source": 13, "target": 14, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 13, "target": 14, "source_slot": "score", "target_slot": "value"},
+			{"source": 14, "target": 17, "source_slot": "true_out", "target_slot": "flow_in"},
+			{"source": 14, "target": 15, "source_slot": "false_out", "target_slot": "flow_in"},
+			{"source": 13, "target": 15, "source_slot": "feedback", "target_slot": "input"},
+			{"source": 15, "target": 16, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 16, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true}
 		]
 	}
 }

@@ -12,6 +12,7 @@ let visualizer         = null;
 let agentChatManager   = null;
 let schemaGraph        = null;
 let currentExecutionId = null;
+let _pendingExecEvents = [];   // buffer events arriving before currentExecutionId is set
 let pendingRemoveName  = null;
 let singleMode         = true;
 let workflowDirty      = true;
@@ -68,11 +69,13 @@ document.addEventListener('DOMContentLoaded', () => {
 	// Handle link creation - trace upward for preview data
 	schemaGraph.api.events.onLinkCreated((data) => {
 		handleLinkCreatedForPreview(data);
+		_onLinkChangedToolkitMethods(data, true);
 	});
 
 	// Handle link removal - refresh preview data for affected nodes
 	schemaGraph.api.events.onLinkRemoved((data) => {
 		handleLinkRemovedForPreview(data);
+		_onLinkChangedToolkitMethods(data, false);
 	});
 
 	// Handle node removal - refresh downstream preview nodes after graph settles
@@ -264,6 +267,14 @@ document.addEventListener('DOMContentLoaded', () => {
 	visualizer.configure({
 		defaultLayout: 'hierarchical-horizontal',
 	});
+
+	// After workflow load, resolve toolkit→tool_flow method dropdowns
+	const _origLoadWorkflow = visualizer.loadWorkflow.bind(visualizer);
+	visualizer.loadWorkflow = function(...args) {
+		const result = _origLoadWorkflow(...args);
+		if (result) setTimeout(_resolveAllToolkitMethods, 0);
+		return result;
+	};
 
 	// Keep left-panel label and options input in sync with the workflow name
 	visualizer.onNameChanged((name) => {
@@ -932,6 +943,25 @@ function setupClientEvents() {
 		}
 	});
 
+	// ── Execution event buffering ──────────────────────────────
+	// Events may arrive via WebSocket before the /start POST returns
+	// and sets currentExecutionId.  Buffer them and replay once the
+	// id is known.
+	const _execEventTypes = new Set([
+		'node.started', 'node.completed', 'node.failed',
+		'node.waiting', 'node.resumed', 'user_input.requested',
+		'workflow.completed', 'workflow.failed', 'workflow.cancelled',
+		'variable.changed',
+	]);
+
+	// Intercept ALL workflow events for buffering
+	client.on('workflow:event', (event) => {
+		if (!event.event_type || !_execEventTypes.has(event.event_type)) return;
+		if (!currentExecutionId && _pendingExecEvents !== null) {
+			_pendingExecEvents.push(event);
+		}
+	});
+
 	client.on('node.started', (event) => {
 		if (event.execution_id !== currentExecutionId) return;
 		const idx = parseInt(event.node_id);
@@ -1493,17 +1523,38 @@ async function startExecution() {
 
 		// Collect execution options from panel
 		const initialData = collectExecOptions();
+
+		// Start buffering events before the POST so nothing is lost
+		_pendingExecEvents = [];
+
 		const response = await client.startWorkflow(workflowName, initialData);
 
 		if (response.status !== 'started') {
+			_pendingExecEvents = [];
 			throw new Error('Failed to start workflow');
 		}
 
 		currentExecutionId = response.execution_id;
 
+		// Replay any events that arrived during the POST
+		_flushPendingExecEvents();
+
 	} catch (error) {
+		_pendingExecEvents = [];
 		enableStart(true);
 		addLog('error', `❌ Start failed: ${error.message}`);
+	}
+}
+
+function _flushPendingExecEvents() {
+	if (!_pendingExecEvents || !_pendingExecEvents.length) { _pendingExecEvents = []; return; }
+	const buffered = _pendingExecEvents;
+	_pendingExecEvents = [];
+	for (const event of buffered) {
+		if (event.execution_id === currentExecutionId) {
+			// Re-emit so the individual handlers pick it up
+			client.emit(event.event_type, event);
+		}
 	}
 }
 
@@ -2122,6 +2173,83 @@ function traceUpwardForPreviewData(previewNode, visited = new Set()) {
  * Handle link creation - update preview nodes by tracing upward for data
  * @param {Object} data - Event data containing linkId and optionally link object
  */
+// ========================================================================
+// Toolkit → ToolFlow: Dynamic method options
+// ========================================================================
+
+function _resolveAllToolkitMethods() {
+	if (!schemaGraph?.graph) return;
+	for (const [, link] of Object.entries(schemaGraph.graph.links)) {
+		if (!link) continue;
+		_onLinkChangedToolkitMethods({ link }, true);
+	}
+}
+
+async function _onLinkChangedToolkitMethods(data, created) {
+	if (!schemaGraph?.graph) return;
+	const link = data.link || schemaGraph.graph.links[data.linkId];
+	if (!link) return;
+
+	// Identify source and target graph nodes
+	const sourceNode = schemaGraph.graph.getNodeById(link.origin_id);
+	const targetNode = schemaGraph.graph.getNodeById(link.target_id);
+	if (!sourceNode || !targetNode) return;
+
+	// We care about: toolkit_config → tool_flow.config
+	const srcType = sourceNode.workflowType;
+	const tgtType = targetNode.workflowType;
+	if (tgtType !== 'tool_flow') return;
+
+	// Check the target slot name is 'config'
+	const tgtSlotName = targetNode.inputMeta?.[link.target_slot]?.name;
+	if (tgtSlotName !== 'config') return;
+
+	// Find the 'method' native input slot on the tool_flow node
+	let methodSlot = null;
+	for (const [idx, meta] of Object.entries(targetNode.inputMeta)) {
+		if (meta.name === 'method') { methodSlot = parseInt(idx); break; }
+	}
+	if (methodSlot === null || !targetNode.nativeInputs?.[methodSlot]) return;
+
+	if (!created || srcType !== 'toolkit_config') {
+		// Link removed or source isn't a toolkit — clear method options
+		targetNode.nativeInputs[methodSlot].options = null;
+		targetNode.nativeInputs[methodSlot].optionsSource = null;
+		schemaGraph.draw();
+		return;
+	}
+
+	// Get toolkit name from the source node's 'name' native input
+	let toolkitName = null;
+	for (const [idx, meta] of Object.entries(sourceNode.inputMeta)) {
+		if (meta.name === 'name' && sourceNode.nativeInputs?.[idx]) {
+			toolkitName = sourceNode.nativeInputs[idx].value;
+			break;
+		}
+	}
+	if (!toolkitName) return;
+
+	// Fetch toolkit methods from /toolkits/inspect
+	try {
+		const baseUrl = api?.baseUrl || $('serverUrl').value || '';
+		const resp = await fetch(`${baseUrl}/toolkits/inspect`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name: toolkitName }),
+		});
+		if (!resp.ok) return;
+		const info = await resp.json();
+		const methods = (info.methods || []).map(m => m.name);
+		if (methods.length > 0) {
+			targetNode.nativeInputs[methodSlot].options = methods;
+			targetNode.nativeInputs[methodSlot].optionsSource = null;  // use static options
+			schemaGraph.draw();
+		}
+	} catch (e) {
+		console.warn('Failed to fetch toolkit methods:', e);
+	}
+}
+
 function handleLinkCreatedForPreview(data) {
 	if (!schemaGraph?.graph) return;
 
