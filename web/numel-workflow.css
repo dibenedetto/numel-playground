@@ -339,6 +339,9 @@ body {
    ======================================================================== */
 
 .nw-collapsible .nw-collapsible-header {
+	display: flex;
+	align-items: center;
+	gap: 4px;
 	cursor: pointer;
 	user-select: none;
 	margin: -8px -10px;
@@ -452,6 +455,31 @@ body {
 	align-items: center;
 	gap: 4px;
 	margin-left: auto;
+}
+
+/* User info (expanded content) */
+.nw-user-info {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+.nw-user-info-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 11px;
+	line-height: 1.5;
+}
+.nw-user-info-label {
+	color: var(--sg-text-tertiary);
+	min-width: 42px;
+	flex-shrink: 0;
+}
+.nw-user-info-value {
+	color: var(--sg-text-secondary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 /* ========================================================================
@@ -896,17 +924,10 @@ body {
    CREDENTIALS
    ======================================================================== */
 
-.nw-cred-add-btn {
-	font-size: 16px;
-	line-height: 1;
-	padding: 0 4px;
-}
-
 .nw-credentials-list {
 	display: flex;
 	flex-direction: column;
 	gap: 4px;
-	margin-bottom: 6px;
 }
 
 .nw-credential-item {
@@ -1580,6 +1601,11 @@ body.nw-auth-pending {
 	gap: 8px;
 	margin-top: 14px;
 	justify-content: flex-end;
+}
+.nw-channel-pool-field {
+	margin-top: auto;
+	padding-top: 10px;
+	border-top: 1px solid var(--sg-border-color);
 }
 
 /* ── Channel Panel ─────────────────────────────────────────── */

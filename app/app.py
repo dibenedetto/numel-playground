@@ -15,6 +15,7 @@ warnings.filterwarnings(
 import argparse
 import asyncio
 import io
+import json
 import os
 import sys
 import uvicorn
@@ -56,6 +57,7 @@ from   api       import setup_api
 import credentials as _creds
 from   channels  import ChannelRegistry
 from   channels.api            import setup_channel_api
+from   channels.commands        import ChannelCommandHandler
 from   channels.telegram_adapter  import TelegramAdapter
 from   channels.whatsapp_adapter  import WhatsAppAdapter
 from   channels.discord_adapter   import DiscordAdapter
@@ -500,14 +502,57 @@ async def run_server(args: Any):
 	console_mgr.setup_proactive_listeners()
 
 	# ── Channel Adapters ──────────────────────────────────────
+	# Discover available toolkits for channel command handler
+	_tk_dirs = [
+		os.path.join(_app_dir, "toolkits"),
+		os.path.join(os.path.dirname(_app_dir), "contrib", "toolkits"),
+	]
+	_available_toolkits = sorted({
+		f.removesuffix(".py")
+		for d in _tk_dirs if os.path.isdir(d)
+		for f in os.listdir(d)
+		if f.endswith(".py") and not f.startswith("_")
+	})
+
+	# Read default toolkits from console_agent.json
+	_cfg_path = os.path.join(_app_dir, "console_agent.json")
+	with open(_cfg_path) as _f:
+		_default_toolkits = json.load(_f).get("toolkits", [])
+
+	channel_cmd = ChannelCommandHandler(
+		auth_provider=_auth_provider,
+		store_path=os.path.join(_app_dir, "channel_users.json"),
+		available_toolkits=_available_toolkits,
+		default_toolkits=_default_toolkits,
+	)
+
 	channel_pool = ChannelAgentPool(
 		workspace_mgr=workspace_mgr, memory_store=memory_store)
 
 	async def channel_message_handler(msg):
 		"""Route incoming channel messages to per-user agents."""
 		try:
+			# Check for /commands first
+			cmd_response = await channel_cmd.handle(
+				msg.content, msg.channel_type, msg.sender_id, msg.sender_name)
+			if cmd_response is not None:
+				# Toolkit change may require agent rebuild
+				if msg.content.strip().lower().startswith("/toolkit "):
+					session_id = msg.metadata.get("session_id") or \
+						f"ch_{msg.channel_type}_{msg.sender_id}"
+					await channel_pool.evict(session_id)
+				return cmd_response
+
 			session_id = msg.metadata.get("session_id") or f"ch_{msg.channel_type}_{msg.sender_id}"
-			result = await channel_pool.chat(msg.content, session_id)
+			# Resolve per-user toolkits
+			toolkits = channel_cmd.get_enabled_toolkits(msg.channel_type, msg.sender_id)
+			sender   = channel_cmd.get_linked_username(msg.channel_type, msg.sender_id) \
+				or msg.sender_name or msg.sender_id
+			result = await channel_pool.chat(
+				msg.content, session_id,
+				toolkits=toolkits or None,
+				sender_name=sender,
+			)
 			return result.get("response", "") or result.get("error", "")
 		except Exception as e:
 			return f"Error: {e}"
@@ -542,7 +587,7 @@ async def run_server(args: Any):
 	# ── API Routes (order matters: specific routes before static mount) ──
 	setup_api(server, app, event_bus, schema_code, workspace_mgr)
 	setup_console_api(app, console_mgr)
-	setup_channel_api(app, channel_registry)
+	setup_channel_api(app, channel_registry, pool=channel_pool)
 	setup_gallery_api(app, gallery_mgr)
 	setup_agent_tasks_api(app, task_mgr)
 	setup_published_apps_api(app, pub_app_mgr)

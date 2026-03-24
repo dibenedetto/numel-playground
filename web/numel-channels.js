@@ -65,6 +65,11 @@ const NumelChannels = (() => {
 			const channels = Array.isArray(data) ? data : (data.channels || []);
 			_renderList(channels);
 			_updateSummary(channels);
+			// Sync pool idle timeout
+			_post('/channels/pool/config', {}).then(cfg => {
+				const sel = document.getElementById('channelIdleTimeout');
+				if (sel && cfg.idle_timeout) sel.value = String(cfg.idle_timeout);
+			}).catch(() => {});
 		} catch (e) {
 			_listEl.innerHTML = `<div style="color:var(--sg-accent-red);font-size:12px;">Error: ${_esc(e.message)}</div>`;
 		}
@@ -270,6 +275,14 @@ const NumelChannels = (() => {
 		if (_openBtn)    _openBtn.onclick    = toggle;
 		if (_refreshBtn) _refreshBtn.onclick = refresh;
 		if (_addBtn)     _addBtn.onclick     = _showAddDialog;
+
+		// Agent idle timeout control
+		const idleSel = document.getElementById('channelIdleTimeout');
+		if (idleSel) {
+			idleSel.addEventListener('change', () => {
+				_post('/channels/pool/config', { idle_timeout: Number(idleSel.value) }).catch(() => {});
+			});
+		}
 	}
 
 	/** Refresh summary in left panel (call after connect). */
