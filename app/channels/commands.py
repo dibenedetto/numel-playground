@@ -27,12 +27,14 @@ class ChannelCommandHandler:
     def __init__(self, auth_provider: Optional[AuthProvider] = None,
                  store_path: Optional[str] = None,
                  available_toolkits: Optional[List[str]] = None,
-                 default_toolkits: Optional[List[str]] = None):
+                 default_toolkits: Optional[List[str]] = None,
+                 planner_callback=None):
         self._auth = auth_provider
         self._store_path = store_path or os.path.join(
             os.path.dirname(os.path.dirname(__file__)), _STORE_FILE)
         self._available = available_toolkits or []
         self._defaults = default_toolkits or []
+        self._planner_cb = planner_callback  # async fn(action, user_id, session_id, config)
         self._data = self._load()
 
     # ── Persistence ──────────────────────────────────────────────
@@ -82,6 +84,7 @@ class ChannelCommandHandler:
             "/password": self._cmd_password,
             "/toolkits": self._cmd_toolkits,
             "/toolkit":  self._cmd_toolkit,
+            "/planner":  self._cmd_planner,
         }
 
         handler = handlers.get(cmd)
@@ -102,6 +105,28 @@ class ChannelCommandHandler:
         data = self._data.get(channel_key, {})
         return data.get("numel_username")
 
+    def get_linked_user_id(self, channel_type: str, sender_id: str) -> Optional[str]:
+        """Return the Numel user ID linked to this channel identity, or None."""
+        channel_key = f"{channel_type}_{sender_id}"
+        data = self._data.get(channel_key, {})
+        return data.get("numel_user_id")
+
+    def ensure_linked(self, channel_type: str, sender_id: str,
+                      username: str, user_id: str):
+        """Ensure a channel identity is linked to the given Numel account.
+
+        Used by the web console: users authenticated via HTTP auth middleware
+        are auto-linked so that /me, /toolkits, /planner etc. work without
+        requiring an explicit /login.
+        """
+        channel_key = f"{channel_type}_{sender_id}"
+        data = self._get_user_data(channel_key)
+        if data.get("numel_user_id") != user_id:
+            data["numel_username"] = username
+            data["numel_user_id"] = user_id
+            data["linked_at"] = time.time()
+            self._save()
+
     # ── Command Handlers ─────────────────────────────────────────
 
     async def _cmd_help(self, channel_key: str, sender_name: str,
@@ -116,7 +141,8 @@ class ChannelCommandHandler:
             "/password <current> <new> — change password\n"
             "/toolkits — list available toolkits\n"
             "/toolkit enable <name> — enable a toolkit\n"
-            "/toolkit disable <name> — disable a toolkit"
+            "/toolkit disable <name> — disable a toolkit\n"
+            "/planner on|off|status — manage autonomous planner"
         )
 
     async def _cmd_register(self, channel_key: str, sender_name: str,
@@ -264,3 +290,73 @@ class ChannelCommandHandler:
         tks[tk_name] = (action == "enable")
         self._save()
         return f"Toolkit '{tk_name}' {'enabled' if tks[tk_name] else 'disabled'}."
+
+    async def _cmd_planner(self, channel_key: str, sender_name: str,
+                           args: List[str]) -> str:
+        if not self._planner_cb:
+            return "Planner is not available."
+        if not args:
+            return (
+                "Usage:\n"
+                "  /planner on [key=value ...] — enable planner\n"
+                "  /planner off — disable planner\n"
+                "  /planner status — show current planner state\n"
+                "\nOptions (space-separated key=value):\n"
+                "  profile=workflow|prompt_optimizer\n"
+                "  max_iter=10\n"
+                "  timeout=120        (per-turn seconds)\n"
+                "  session_timeout=600 (total seconds)"
+            )
+        action = args[0].lower()
+        if action == "status":
+            data = self._data.get(channel_key, {})
+            user_id = data.get("numel_user_id")
+            try:
+                result = await self._planner_cb(
+                    action="status", user_id=user_id,
+                    session_id=channel_key, config={})
+                return result or "No active planner for this session."
+            except Exception as e:
+                return f"Error: {e}"
+
+        if action not in ("on", "off", "enable", "disable"):
+            return "Usage: /planner on|off|status [key=value ...]"
+
+        data = self._data.get(channel_key, {})
+        user_id = data.get("numel_user_id")
+
+        # Parse key=value options from remaining args
+        config = {}
+        _key_map = {
+            "profile": "profile",
+            "max_iter": "max_iterations",
+            "max_iterations": "max_iterations",
+            "timeout": "timeout_s",
+            "timeout_s": "timeout_s",
+            "session_timeout": "session_timeout_s",
+            "session_timeout_s": "session_timeout_s",
+            "debounce": "debounce_ms",
+            "debounce_ms": "debounce_ms",
+        }
+        for arg in args[1:]:
+            if "=" in arg:
+                k, v = arg.split("=", 1)
+                mapped = _key_map.get(k.lower())
+                if mapped:
+                    # Convert numeric values
+                    try:
+                        v = int(v)
+                    except ValueError:
+                        pass
+                    config[mapped] = v
+
+        try:
+            result = await self._planner_cb(
+                action="enable" if action in ("on", "enable") else "disable",
+                user_id=user_id,
+                session_id=channel_key,
+                config=config,
+            )
+            return result or ("Planner enabled." if action in ("on", "enable") else "Planner disabled.")
+        except Exception as e:
+            return f"Planner error: {e}"

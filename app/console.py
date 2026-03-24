@@ -123,6 +123,41 @@ def _load_toolkit(module_name: str, args: Optional[Dict[str, Any]] = None):
 	return tools
 
 
+# ── Planner State (per-user) ────────────────────────────────────
+
+class PlannerState:
+	"""Per-session planner state.  One instance per (user, browser tab) pair."""
+
+	__slots__ = (
+		"key", "user_id", "enabled", "active", "session_id", "turn_count",
+		"max_turns", "timeout", "session_timeout", "session_start",
+		"debounce", "timer", "pending", "subs", "instructions", "profile",
+	)
+
+	def __init__(self, key: str, user_id: Optional[str] = None):
+		self.key: str               = key
+		self.user_id: Optional[str] = user_id
+		self.enabled: bool          = False
+		self.active: bool           = False
+		self.session_id: str        = f"planner-{key[:16]}-{uuid.uuid4().hex[:8]}"
+		self.turn_count: int        = 0
+		self.max_turns: int         = 10
+		self.timeout: float         = 120.0      # per-turn timeout
+		self.session_timeout: float = 600.0      # total wall-clock timeout
+		self.session_start: float   = 0.0
+		self.debounce: float        = 2.0        # seconds
+		self.timer                  = None        # debounce handle
+		self.pending: List[dict]    = []          # queued events
+		self.subs: List[str]        = []          # subscribed event type strings
+		self.instructions: str      = ""
+		self.profile: str           = ""
+
+	def reset(self):
+		self.turn_count = 0
+		self.session_id = f"planner-{self.key[:16]}-{uuid.uuid4().hex[:8]}"
+		self.pending.clear()
+
+
 # ── Manager ────────────────────────────────────────────────────
 
 class ConsoleAgentManager:
@@ -130,12 +165,15 @@ class ConsoleAgentManager:
 
 	def __init__(self, workspace_mgr, event_bus: EventBus, port: int,
 				 config_path: str = _CONFIG_PATH,
-				 memory_store: Optional['MemoryStore'] = None):
+				 memory_store: Optional['MemoryStore'] = None,
+				 user_memory_db=None):
 		self._ws_mgr       = workspace_mgr
 		self._event_bus     = event_bus
 		self._port          = port
 		self._config_path   = config_path
 		self._memory        = memory_store
+		self._user_memory_db = user_memory_db       # UserMemoryDB for per-user isolation
+		self._current_user_id: Optional[str] = None # set on start / chat
 		self._agent         = None
 		self._app           = None
 		self._server        = None
@@ -149,21 +187,34 @@ class ConsoleAgentManager:
 		self._start_lock         = asyncio.Lock()               # prevents concurrent start/stop
 		self._use_backend_memory = False                        # set during start()
 
-		# ── Planner mode ──
-		self._planner_enabled         = False
-		self._planner_lock            = asyncio.Lock()
-		self._planner_session_id      = None
-		self._planner_turn_count      = 0
-		self._planner_max_turns       = 10
-		self._planner_timeout         = 120
-		self._planner_session_timeout = 600
-		self._planner_session_start   = 0.0
-		self._planner_debounce        = 2.0                     # seconds
-		self._planner_timer           = None                    # debounce handle
-		self._planner_pending    : List[dict] = []              # queued events
-		self._planner_active          = False                   # True while planner turn is running
-		self._planner_subs       : List[str]  = []              # subscribed event type strings
-		self._planner_instructions    = ""
+		# ── Planner mode (per-session) ──
+		# Keyed by planner_key (typically "user_{user_id}_{session_id}" or
+		# "guest_{session_id}") so the same user in two tabs gets independent planners.
+		self._planners: Dict[str, PlannerState] = {}  # planner_key → PlannerState
+		self._planner_lock  = asyncio.Lock()          # serializes planner turns across sessions
+		self._workflow_lock = asyncio.Lock()           # exclusive workflow access during planner modifications
+		self._channel_pool: Optional['ChannelAgentPool'] = None  # set later via set_channel_pool()
+
+	def set_channel_pool(self, pool: 'ChannelAgentPool'):
+		"""Inject the channel pool so planner turns use per-user agents."""
+		self._channel_pool = pool
+
+	@staticmethod
+	def _planner_key(user_id: Optional[str], session_id: Optional[str]) -> str:
+		"""Build a unique key for a planner instance."""
+		uid = user_id or "anon"
+		sid = session_id or "default"
+		return f"{uid}_{sid}"
+
+	@property
+	def _planner_enabled(self) -> bool:
+		"""True if ANY session has an active planner — used by route branching."""
+		return any(p.enabled for p in self._planners.values())
+
+	def _planner_for_session(self, user_id: Optional[str], session_id: Optional[str]) -> bool:
+		"""Check if a specific session has planner enabled."""
+		p = self._planners.get(self._planner_key(user_id, session_id))
+		return p is not None and p.enabled
 
 	# ── Lifecycle ──────────────────────────────────────────────────
 
@@ -171,18 +222,21 @@ class ConsoleAgentManager:
 					model_name: Optional[str] = None,
 					toolkit_names: Optional[List[str]] = None,
 					use_backend_memory: Optional[bool] = None,
-					toolkit_args: Optional[Dict[str, Dict[str, Any]]] = None) -> int:
+					toolkit_args: Optional[Dict[str, Dict[str, Any]]] = None,
+					user_id: Optional[str] = None) -> int:
 		"""Start (or restart) the console agent server. Returns the port.
 		Concurrent calls are serialized — a second call waits for the first to finish."""
 
 		async with self._start_lock:
-			return await self._start_impl(model_source, model_name, toolkit_names, use_backend_memory, toolkit_args)
+			return await self._start_impl(model_source, model_name, toolkit_names, use_backend_memory, toolkit_args, user_id=user_id)
 
 	async def _start_impl(self, model_source: Optional[str] = None,
 						  model_name: Optional[str] = None,
 						  toolkit_names: Optional[List[str]] = None,
 						  use_backend_memory: Optional[bool] = None,
-						  toolkit_args: Optional[Dict[str, Dict[str, Any]]] = None) -> int:
+						  toolkit_args: Optional[Dict[str, Dict[str, Any]]] = None,
+						  user_id: Optional[str] = None) -> int:
+		self._current_user_id = user_id
 		_toolkit_args = toolkit_args or {}
 		# Load config for defaults and instructions
 		with open(self._config_path) as f:
@@ -248,7 +302,10 @@ class ConsoleAgentManager:
 		session_summary_manager = None
 		if use_backend:
 			from agno.db.sqlite import SqliteDb
-			db_path                 = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
+			if self._user_memory_db and user_id:
+				db_path = self._user_memory_db.get_db_path(user_id)
+			else:
+				db_path = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
 			db                      = SqliteDb(db_file=db_path)
 			enable_agentic_memory   = True
 			add_memories_to_context = True
@@ -356,42 +413,46 @@ class ConsoleAgentManager:
 		self._sessions.clear()
 		log_print("Console memory cleared")
 
-	# ── Planner Mode ──────────────────────────────────────────────
+	# ── Planner Mode (per-session) ────────────────────────────────
 
-	async def enable_planner(self, config: Optional[Dict[str, Any]] = None):
-		"""Activate planner mode — subscribe to events and enable autonomous loop."""
-		if self._planner_enabled:
+	async def enable_planner(self, config: Optional[Dict[str, Any]] = None,
+							 user_id: Optional[str] = None,
+							 session_id: Optional[str] = None):
+		"""Activate planner mode for a specific session."""
+		pkey = self._planner_key(user_id, session_id)
+		# If this session already has an active planner, skip
+		existing = self._planners.get(pkey)
+		if existing and existing.enabled:
 			return
-		cfg = config or {}
-		log_print(f"Planner enable config: {cfg}")
-		self._planner_max_turns      = cfg.get("max_iterations", cfg.get("max_autonomous_turns", 10))
-		self._planner_debounce       = cfg.get("debounce_ms", 2000) / 1000.0
-		self._planner_timeout        = cfg.get("timeout_s", 120)       # per-turn timeout
-		self._planner_session_timeout = cfg.get("session_timeout_s", 600)  # total wall-clock timeout
-		log_print(f"Planner timeout: {self._planner_timeout}s per-turn, {self._planner_session_timeout}s total, max {self._planner_max_turns} iterations")
-		self._planner_turn_count     = 0
-		self._planner_session_start  = time.time()
-		self._planner_session_id = f"planner-{uuid.uuid4().hex[:8]}"
-		self._planner_pending    = []
 
-		# Resolve profile — if a profile name is given, merge its settings
+		cfg = config or {}
+		log_print(f"Planner enable [{pkey[:20]}] config: {cfg}")
+
+		ps = PlannerState(key=pkey, user_id=user_id)
+		ps.max_turns        = cfg.get("max_iterations", cfg.get("max_autonomous_turns", 10))
+		ps.debounce         = cfg.get("debounce_ms", 2000) / 1000.0
+		ps.timeout          = cfg.get("timeout_s", 120)
+		ps.session_timeout  = cfg.get("session_timeout_s", 600)
+		ps.session_start    = time.time()
+		log_print(f"Planner [{pkey[:20]}]: {ps.timeout}s per-turn, {ps.session_timeout}s total, max {ps.max_turns} iter")
+
+		# Resolve profile
 		profile_name = cfg.get("profile", "")
 		planner_cfg = self._config.get("planner", {})
 		profiles = planner_cfg.get("profiles", {})
 		profile = profiles.get(profile_name, {}) if profile_name else {}
-		self._planner_profile = profile_name or "workflow"
+		ps.profile = profile_name or "workflow"
 
-		# Load planner instructions (profile overrides default)
+		# Load planner instructions
 		instr_file = profile.get("instructions_file") or cfg.get("instructions_file", "planner_instructions.txt")
 		instr_path = os.path.join(os.path.dirname(self._config_path), instr_file)
 		try:
 			with open(instr_path) as f:
-				self._planner_instructions = f.read().replace("{max_autonomous_turns}", str(self._planner_max_turns))
+				ps.instructions = f.read().replace("{max_autonomous_turns}", str(ps.max_turns))
 		except FileNotFoundError:
-			self._planner_instructions = ""
-			log_print(f"⚠️  Planner instructions file not found: {instr_path}")
+			log_print(f"Planner instructions file not found: {instr_path}")
 
-		# Auto-add toolkits required by the profile
+		# Auto-add toolkits required by the profile (affects singleton agent)
 		required_toolkits = profile.get("toolkits", ["workspace_toolkit", "file_toolkit"])
 		added = []
 		for tk in required_toolkits:
@@ -400,7 +461,6 @@ class ConsoleAgentManager:
 				added.append(tk)
 		if added:
 			log_print(f"Planner: auto-adding {', '.join(added)}")
-			# Force restart: stop first so the same-list comparison doesn't skip it
 			if self._started:
 				await self.stop()
 				await self.start(
@@ -409,18 +469,20 @@ class ConsoleAgentManager:
 					toolkit_names=list(self._toolkit_names),
 				)
 
-		# Subscribe to events
+		# Subscribe to events (shared handler — dispatches to all active planners)
 		event_types = cfg.get("subscribe_events", [
 			"workflow.completed", "workflow.failed", "manager.workflow_added"
 		])
-		self._planner_subs = []
-		for et in event_types:
-			self._event_bus.subscribe(et, self._on_planner_event)
-			self._planner_subs.append(et)
+		ps.subs = list(event_types)
+		# Only subscribe if this is the first active planner (events are shared)
+		if not self._planner_enabled:
+			for et in event_types:
+				self._event_bus.subscribe(et, self._on_planner_event)
 
-		self._planner_enabled = True
+		ps.enabled = True
+		self._planners[pkey] = ps
 
-		# Inject a short directive into the system prompt so the model uses tools
+		# Inject planner directive into the singleton agent's system prompt
 		if self._agent:
 			if not hasattr(self, '_base_instructions'):
 				self._base_instructions = list(self._agent.instructions or [])
@@ -428,81 +490,99 @@ class ConsoleAgentManager:
 				"You are in PLANNER MODE. When asked to build a workflow, output a complete workflow JSON inside a ```json code block. The system will load it automatically. Always include eval_flow nodes."
 			]
 
-		log_print(f"Planner mode enabled (events={event_types}, max_turns={self._planner_max_turns})")
+		log_print(f"Planner [{pkey[:20]}] enabled (events={event_types})")
 
-	def disable_planner(self):
-		"""Deactivate planner mode."""
+	def disable_planner(self, user_id: Optional[str] = None,
+						session_id: Optional[str] = None):
+		"""Deactivate planner for a specific session, or all sessions if both are None."""
+		if user_id is None and session_id is None:
+			# Disable all planners
+			keys = list(self._planners.keys())
+			for k in keys:
+				self._disable_planner_state(self._planners[k])
+			self._planners.clear()
+		else:
+			pkey = self._planner_key(user_id, session_id)
+			ps = self._planners.pop(pkey, None)
+			if ps:
+				self._disable_planner_state(ps)
+
+		# Unsubscribe from events if no planners remain active
 		if not self._planner_enabled:
-			return
-		# Restore original system prompt
-		if self._agent and hasattr(self, '_base_instructions'):
-			self._agent.instructions = self._base_instructions
+			# Gather all event types from disabled planners' subs
+			all_subs = set()
+			if ps:
+				all_subs.update(ps.subs)
+			for et in all_subs:
+				try:
+					self._event_bus.unsubscribe(et, self._on_planner_event)
+				except (ValueError, KeyError):
+					pass
+			# Restore original system prompt
+			if self._agent and hasattr(self, '_base_instructions'):
+				self._agent.instructions = self._base_instructions
 
-		for et in self._planner_subs:
-			self._event_bus.unsubscribe(et, self._on_planner_event)
-		self._planner_subs = []
-		self._planner_enabled = False
-		self._planner_active  = False
-		self._planner_pending = []
-		if self._planner_timer:
-			self._planner_timer.cancel()
-			self._planner_timer = None
-		log_print("Planner mode disabled")
+		log_print(f"Planner disabled (active planners: {sum(1 for p in self._planners.values() if p.enabled)})")
+
+	def _disable_planner_state(self, ps: PlannerState):
+		"""Clean up a single PlannerState."""
+		ps.enabled = False
+		ps.active  = False
+		ps.pending.clear()
+		if ps.timer:
+			ps.timer.cancel()
+			ps.timer = None
 
 	async def _on_planner_event(self, event):
-		"""EventBus callback — debounce and queue for processing."""
+		"""EventBus callback — dispatch event to ALL active planners with debounce."""
 		evt_type = getattr(event, 'event_type', str(event))
-		log_print(f"Planner event received: {evt_type} (enabled={self._planner_enabled}, active={self._planner_active})")
-		if not self._planner_enabled:
-			return
-		# Ignore ALL events while the planner is actively processing (including post-tool events)
-		if self._planner_active:
-			return
-		evt_data = {
-			"type": evt_type,
-			"data": getattr(event, 'data', {}),
-		}
-		self._planner_pending.append(evt_data)
-		# Cancel existing debounce
-		if self._planner_timer:
-			self._planner_timer.cancel()
-		# Schedule processing after debounce
-		loop = asyncio.get_event_loop()
-		self._planner_timer = loop.call_later(
-			self._planner_debounce,
-			lambda: asyncio.ensure_future(self._process_planner_events())
-		)
+		evt_data = {"type": evt_type, "data": getattr(event, 'data', {})}
 
-	async def _process_planner_events(self):
-		"""Process queued planner events — call agent with event context."""
-		if not self._planner_enabled or not self._planner_pending:
+		for ps in list(self._planners.values()):
+			if not ps.enabled or ps.active:
+				continue
+			ps.pending.append(evt_data)
+			# Cancel existing debounce for this planner
+			if ps.timer:
+				ps.timer.cancel()
+			loop = asyncio.get_event_loop()
+			pkey = ps.key
+			ps.timer = loop.call_later(
+				ps.debounce,
+				lambda k=pkey: asyncio.ensure_future(self._process_planner_events(k))
+			)
+
+	async def _process_planner_events(self, planner_key: str):
+		"""Process queued events for a specific planner session."""
+		ps = self._planners.get(planner_key)
+		if not ps or not ps.enabled or not ps.pending:
 			return
-		if self._planner_active:
-			return  # already processing
-		if self._planner_turn_count >= self._planner_max_turns:
+		if ps.active:
+			return
+
+		if ps.turn_count >= ps.max_turns:
 			await self.push_proactive(
-				f"Planner reached max iterations ({self._planner_max_turns}). Send a message to continue.",
+				f"Planner reached max iterations ({ps.max_turns}). Send a message to continue.",
 				"planner_paused"
 			)
 			return
-		elapsed = time.time() - self._planner_session_start
-		if elapsed >= self._planner_session_timeout:
+
+		elapsed = time.time() - ps.session_start
+		if elapsed >= ps.session_timeout:
 			await self.push_proactive(
-				f"Planner session timed out after {int(elapsed)}s (limit: {self._planner_session_timeout}s). Disabling planner.",
+				f"Planner session timed out after {int(elapsed)}s (limit: {ps.session_timeout}s). Disabling.",
 				"planner_error"
 			)
-			self.disable_planner()
+			self.disable_planner(ps.user_id, ps.key.split("_", 1)[-1] if "_" in ps.key else None)
 			return
 
-		self._planner_active = True
+		ps.active = True
 		try:
-			# Notify frontend that planner is thinking
 			await self.push_proactive("", "planner_thinking")
 
-			events = self._planner_pending[:]
-			self._planner_pending.clear()
+			events = ps.pending[:]
+			ps.pending.clear()
 
-			# Build synthetic message
 			event_summary = "\n".join(
 				f"- {e['type']}: {json.dumps(e['data'], default=str)[:200]}"
 				for e in events
@@ -515,41 +595,52 @@ class ConsoleAgentManager:
 				"do NOT modify the workflow — just report the infrastructure error and stop."
 			)
 
-			try:
-				result = await asyncio.wait_for(
-					self.chat(
-						message,
-						session_id=self._planner_session_id,
-						include_context=True,
-					),
-					timeout=self._planner_timeout,
-				)
-				self._planner_turn_count += 1
-				response = result.get("response", "")
-				if response:
-					await self.push_proactive(response, "planner_action")
-				else:
-					await self.push_proactive("Planner turn completed (no output).", "planner_action")
-			except asyncio.TimeoutError:
-				log_print(f"Planner turn timed out after {self._planner_timeout}s")
-				await self.push_proactive(
-					f"Planner turn timed out after {self._planner_timeout}s. Disabling planner.",
-					"planner_error"
-				)
-				self.disable_planner()
-			except Exception as e:
-				log_print(f"Planner error: {e}")
-				await self.push_proactive(f"Planner error: {e}", "planner_error")
+			# Acquire workflow lock for exclusive access during planner modifications
+			async with self._workflow_lock:
+				try:
+					# Use pool agent if available (per-user memory), else fall back to singleton
+					if self._channel_pool and ps.user_id:
+						pool_session = f"planner_{ps.key}"
+						result = await asyncio.wait_for(
+							self._channel_pool.chat(
+								message, pool_session,
+								sender_name="Planner",
+								user_id=ps.user_id,
+							),
+							timeout=ps.timeout,
+						)
+					else:
+						result = await asyncio.wait_for(
+							self.chat(message, session_id=ps.session_id, include_context=True),
+							timeout=ps.timeout,
+						)
+					ps.turn_count += 1
+					response = result.get("response", "")
+					if response:
+						await self.push_proactive(response, "planner_action")
+					else:
+						await self.push_proactive("Planner turn completed (no output).", "planner_action")
+				except asyncio.TimeoutError:
+					log_print(f"Planner [{planner_key[:20]}] timed out after {ps.timeout}s")
+					await self.push_proactive(
+						f"Planner turn timed out after {ps.timeout}s. Disabling.",
+						"planner_error"
+					)
+					self.disable_planner(ps.user_id)
+				except Exception as e:
+					log_print(f"Planner [{planner_key[:20]}] error: {e}")
+					await self.push_proactive(f"Planner error: {e}", "planner_error")
 		finally:
-			self._planner_active = False
-			# Always signal the frontend that the turn is done (safety net)
+			ps.active = False
 			await self.push_proactive("", "planner_done")
 
-	def reset_planner(self):
-		"""Reset planner turn count and session."""
-		self._planner_turn_count = 0
-		self._planner_session_id = f"planner-{uuid.uuid4().hex[:8]}"
-		self._planner_pending = []
+	def reset_planner(self, user_id: Optional[str] = None,
+					  session_id: Optional[str] = None):
+		"""Reset planner turn count and session for a specific session."""
+		pkey = self._planner_key(user_id, session_id)
+		ps = self._planners.get(pkey)
+		if ps:
+			ps.reset()
 
 	# ── Chat ───────────────────────────────────────────────────────
 
@@ -819,41 +910,53 @@ class ChannelAgentPool:
 
 	def __init__(self, config_path: str = _CONFIG_PATH,
 				 workspace_mgr=None, memory_store=None,
+				 user_memory_db=None,
 				 idle_timeout: float = 1800):
 		self._config_path   = config_path
 		self._ws_mgr        = workspace_mgr
 		self._memory_store  = memory_store
+		self._user_memory_db = user_memory_db       # UserMemoryDB for per-user isolation
 		self._idle_timeout  = idle_timeout          # seconds before evicting idle agent
 		self._agents: Dict[str, Agent]      = {}    # session_id → Agent
 		self._agent_tks: Dict[str, List[str]] = {}  # session_id → toolkit names used at build
+		self._agent_uids: Dict[str, str]    = {}    # session_id → user_id used at build
 		self._last_used: Dict[str, float]   = {}    # session_id → timestamp
 		self._lock = asyncio.Lock()
 		self._cleanup_task: Optional[asyncio.Task] = None
 
 	async def _get_or_create(self, session_id: str,
 							 toolkits: Optional[List[str]] = None,
-							 sender_name: Optional[str] = None) -> Agent:
+							 sender_name: Optional[str] = None,
+							 user_id: Optional[str] = None,
+							 is_guest: bool = False) -> Agent:
 		"""Return (or lazily build) the Agent for this session."""
 		async with self._lock:
 			if session_id in self._agents:
-				# Rebuild if toolkit list changed
-				if toolkits is not None and sorted(toolkits) != sorted(self._agent_tks.get(session_id, [])):
+				# Rebuild if toolkit list or user identity changed
+				tk_changed = toolkits is not None and sorted(toolkits) != sorted(self._agent_tks.get(session_id, []))
+				uid_changed = user_id is not None and user_id != self._agent_uids.get(session_id)
+				if tk_changed or uid_changed:
 					self._agents.pop(session_id, None)
 					self._agent_tks.pop(session_id, None)
+					self._agent_uids.pop(session_id, None)
 				else:
 					self._last_used[session_id] = time.time()
 					return self._agents[session_id]
 
-			agent = await self._build_agent(toolkits=toolkits, sender_name=sender_name)
+			agent = await self._build_agent(
+				toolkits=toolkits, sender_name=sender_name,
+				user_id=user_id, is_guest=is_guest)
 			self._agents[session_id]   = agent
 			self._agent_tks[session_id] = list(toolkits) if toolkits else []
+			self._agent_uids[session_id] = user_id or session_id
 			self._last_used[session_id] = time.time()
 
 			# Start periodic cleanup if not running
 			if self._cleanup_task is None or self._cleanup_task.done():
 				self._cleanup_task = asyncio.create_task(self._cleanup_loop())
 
-			log_print(f"ChannelAgentPool: created agent for session {session_id[:16]} (pool size: {len(self._agents)})")
+			log_print(f"ChannelAgentPool: created agent for session {session_id[:16]} "
+					  f"(user={user_id or 'anon'}, pool size: {len(self._agents)})")
 			return agent
 
 	async def evict(self, session_id: str):
@@ -861,10 +964,13 @@ class ChannelAgentPool:
 		async with self._lock:
 			self._agents.pop(session_id, None)
 			self._agent_tks.pop(session_id, None)
+			self._agent_uids.pop(session_id, None)
 			self._last_used.pop(session_id, None)
 
 	async def _build_agent(self, toolkits: Optional[List[str]] = None,
-						   sender_name: Optional[str] = None) -> Agent:
+						   sender_name: Optional[str] = None,
+						   user_id: Optional[str] = None,
+						   is_guest: bool = False) -> Agent:
 		"""Build a lightweight Agent from console_agent.json defaults."""
 		with open(self._config_path) as f:
 			config = json.load(f)
@@ -893,14 +999,19 @@ class ChannelAgentPool:
 			elif tk_name != "console_toolkit":
 				tools.extend(_load_toolkit(tk_name))
 
-		# Memory (backend if configured)
+		# Memory — per-user isolation via UserMemoryDB
 		mem_cfg     = config.get("memory", {})
 		use_backend = mem_cfg.get("backend", True)
 		db          = None
 		if use_backend:
 			from agno.db.sqlite import SqliteDb
-			db_path = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
+			if self._user_memory_db and user_id:
+				db_path = self._user_memory_db.get_db_path(user_id, is_guest=is_guest)
+			else:
+				# Fallback: shared db (no user isolation available)
+				db_path = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
 			db = SqliteDb(db_file=db_path)
+			log_print(f"ChannelAgentPool: memory db → {os.path.basename(db_path)}")
 
 		opts = config.get("options", {})
 		instructions = list(opts.get("instructions", []))
@@ -923,9 +1034,13 @@ class ChannelAgentPool:
 
 	async def chat(self, message: str, session_id: str,
 				   toolkits: Optional[List[str]] = None,
-				   sender_name: Optional[str] = None) -> dict:
+				   sender_name: Optional[str] = None,
+				   user_id: Optional[str] = None,
+				   is_guest: bool = False) -> dict:
 		"""Send a message to the per-session agent. Returns {session_id, response, tool_calls}."""
-		agent = await self._get_or_create(session_id, toolkits=toolkits, sender_name=sender_name)
+		agent = await self._get_or_create(
+			session_id, toolkits=toolkits, sender_name=sender_name,
+			user_id=user_id, is_guest=is_guest)
 		try:
 			response = await agent.arun(message, session_id=session_id)
 		except Exception as e:
@@ -964,9 +1079,17 @@ class ChannelAgentPool:
 				for sid in expired:
 					self._agents.pop(sid, None)
 					self._agent_tks.pop(sid, None)
+					self._agent_uids.pop(sid, None)
 					self._last_used.pop(sid, None)
 				if expired:
 					log_print(f"ChannelAgentPool: evicted {len(expired)} idle agents (pool size: {len(self._agents)})")
+			# Clean up expired guest memory databases
+			if self._user_memory_db:
+				try:
+					self._user_memory_db.cleanup_expired_guests()
+				except Exception:
+					pass
+			async with self._lock:
 				if not self._agents:
 					return  # stop loop when pool is empty
 
@@ -977,7 +1100,9 @@ class ChannelAgentPool:
 
 # ── API Routes ─────────────────────────────────────────────────
 
-def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
+def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
+					  channel_pool: Optional[ChannelAgentPool] = None,
+					  channel_cmd=None):
 	"""Register all console-related API routes on the FastAPI app."""
 
 	class ConsoleStartRequest(BaseModel):
@@ -993,8 +1118,10 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 		include_context: bool           = True   # prepend workspace state to the message
 
 	@app.post("/console/start")
-	async def console_start(request: ConsoleStartRequest = ConsoleStartRequest()):
-		port = await console_mgr.start(request.model_source, request.model_name, request.toolkit_names, request.use_backend_memory, request.toolkit_args)
+	async def console_start(req: Request, request: ConsoleStartRequest = ConsoleStartRequest()):
+		user = getattr(req.state, 'user', None)
+		user_id = user.id if user else None
+		port = await console_mgr.start(request.model_source, request.model_name, request.toolkit_names, request.use_backend_memory, request.toolkit_args, user_id=user_id)
 		return {
 			"port":          port,
 			"status":        "running",
@@ -1009,12 +1136,74 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 		return {"status": "stopped"}
 
 	@app.post("/console/chat")
-	async def console_chat(request: ConsoleChatRequest):
+	async def console_chat(request: ConsoleChatRequest, req: Request):
 		try:
-			# Reset planner session clock on each user message
-			if console_mgr._planner_enabled:
-				console_mgr._planner_session_start = time.time()
-				console_mgr._planner_turn_count = 0
+			# Extract user identity from auth middleware
+			user = getattr(req.state, 'user', None)
+			user_id = user.id if user else None
+			is_guest = user_id is None
+			sender_id = user_id or "web_guest"
+			sender_name = user.username if user else "Guest"
+			session_id = request.session_id or str(uuid.uuid4())
+
+			# ── Unified channel path: route /commands through ChannelCommandHandler ──
+			if channel_cmd and request.message.strip().startswith("/"):
+				# Auto-link web users who are already authenticated via HTTP auth
+				if user:
+					channel_cmd.ensure_linked("web", sender_id, user.username, user.id)
+				cmd_response = await channel_cmd.handle(
+					request.message, "web", sender_id, sender_name)
+				if cmd_response is not None:
+					# Toolkit change may require agent rebuild
+					if request.message.strip().lower().startswith("/toolkit "):
+						pool_session = f"web_{user_id}_{session_id}" if user_id else f"web_guest_{session_id}"
+						if channel_pool:
+							await channel_pool.evict(pool_session)
+					return {
+						"session_id": session_id,
+						"response":   cmd_response,
+						"command":    True,
+						"tool_calls": [],
+					}
+
+			# Check if THIS session has an active planner
+			pkey = console_mgr._planner_key(user_id, session_id)
+			ps = console_mgr._planners.get(pkey)
+			if ps and ps.enabled:
+				ps.session_start = time.time()
+				ps.turn_count = 0
+				# Use pool agent for planner chat (per-user memory)
+				if channel_pool and user_id:
+					pool_session = f"planner_{pkey}"
+					result = await channel_pool.chat(
+						message     = request.message,
+						session_id  = pool_session,
+						sender_name = sender_name,
+						user_id     = user_id,
+					)
+				else:
+					result = await console_mgr.chat(
+						message         = request.message,
+						session_id      = ps.session_id,
+						include_context = request.include_context,
+					)
+				result["session_id"] = session_id
+				return result
+
+			# Multi-user mode: route through ChannelAgentPool for per-user memory
+			if channel_pool:
+				pool_session = f"web_{user_id}_{session_id}" if user_id else f"web_guest_{session_id}"
+				result = await channel_pool.chat(
+					message     = request.message,
+					session_id  = pool_session,
+					sender_name = sender_name,
+					user_id     = user_id or f"guest_{session_id}",
+					is_guest    = is_guest,
+				)
+				result["session_id"] = session_id
+				return result
+
+			# Fallback: singleton ConsoleAgentManager (no pool available)
 			result = await console_mgr.chat(
 				message         = request.message,
 				session_id      = request.session_id,
@@ -1033,22 +1222,42 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 			body = await request.json()
 		except Exception:
 			body = {}
-		await console_mgr.enable_planner(body)
+		user = getattr(request.state, 'user', None)
+		user_id = user.id if user else None
+		session_id = body.pop("session_id", None)
+		await console_mgr.enable_planner(body, user_id=user_id, session_id=session_id)
 		return {"enabled": True, "port": console_mgr._port}
 
 	@app.post("/console/planner/disable")
-	async def console_planner_disable():
-		console_mgr.disable_planner()
+	async def console_planner_disable(request: Request):
+		try:
+			body = await request.json()
+		except Exception:
+			body = {}
+		user = getattr(request.state, 'user', None)
+		user_id = user.id if user else None
+		session_id = body.get("session_id")
+		console_mgr.disable_planner(user_id=user_id, session_id=session_id)
 		return {"enabled": False}
 
 	@app.post("/console/planner/status")
-	async def console_planner_status():
+	async def console_planner_status(request: Request):
+		try:
+			body = await request.json()
+		except Exception:
+			body = {}
+		user = getattr(request.state, 'user', None)
+		user_id = user.id if user else None
+		session_id = body.get("session_id")
+		pkey = console_mgr._planner_key(user_id, session_id)
+		ps = console_mgr._planners.get(pkey)
 		return {
-			"enabled":    console_mgr._planner_enabled,
-			"turn_count": console_mgr._planner_turn_count,
-			"max_turns":  console_mgr._planner_max_turns,
-			"session_id": console_mgr._planner_session_id,
-			"subscribed_events": console_mgr._planner_subs,
+			"enabled":    ps.enabled if ps else False,
+			"turn_count": ps.turn_count if ps else 0,
+			"max_turns":  ps.max_turns if ps else 10,
+			"session_id": ps.session_id if ps else None,
+			"subscribed_events": ps.subs if ps else [],
+			"active_planners": sum(1 for p in console_mgr._planners.values() if p.enabled),
 		}
 
 	@app.post("/console/planner/config")
@@ -1057,19 +1266,26 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 			body = await request.json()
 		except Exception:
 			body = {}
+		user = getattr(request.state, 'user', None)
+		user_id = user.id if user else None
+		session_id = body.get("session_id")
+		pkey = console_mgr._planner_key(user_id, session_id)
+		ps = console_mgr._planners.get(pkey)
+		if not ps:
+			return {"error": "No active planner for this session"}
 		if "timeout_s" in body:
-			console_mgr._planner_timeout = max(10, int(body["timeout_s"]))
-			log_print(f"Planner per-turn timeout updated to {console_mgr._planner_timeout}s")
+			ps.timeout = max(10, int(body["timeout_s"]))
+			log_print(f"Planner [{pkey[:20]}] per-turn timeout → {ps.timeout}s")
 		if "session_timeout_s" in body:
-			console_mgr._planner_session_timeout = max(30, int(body["session_timeout_s"]))
-			log_print(f"Planner session timeout updated to {console_mgr._planner_session_timeout}s")
+			ps.session_timeout = max(30, int(body["session_timeout_s"]))
+			log_print(f"Planner [{pkey[:20]}] session timeout → {ps.session_timeout}s")
 		if "max_iterations" in body:
-			console_mgr._planner_max_turns = max(1, int(body["max_iterations"]))
-			log_print(f"Planner max iterations updated to {console_mgr._planner_max_turns}")
+			ps.max_turns = max(1, int(body["max_iterations"]))
+			log_print(f"Planner [{pkey[:20]}] max iterations → {ps.max_turns}")
 		if "max_autonomous_turns" in body and "max_iterations" not in body:
-			console_mgr._planner_max_turns = max(1, int(body["max_autonomous_turns"]))
+			ps.max_turns = max(1, int(body["max_autonomous_turns"]))
 		if "debounce_ms" in body:
-			console_mgr._planner_debounce = max(500, int(body["debounce_ms"])) / 1000.0
+			ps.debounce = max(500, int(body["debounce_ms"])) / 1000.0
 		if "profile" in body:
 			profile_name = body["profile"]
 			planner_cfg = console_mgr._config.get("planner", {})
@@ -1080,26 +1296,29 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 				instr_path = os.path.join(os.path.dirname(console_mgr._config_path), instr_file)
 				try:
 					with open(instr_path) as f:
-						console_mgr._planner_instructions = f.read().replace(
-							"{max_autonomous_turns}", str(console_mgr._planner_max_turns))
+						ps.instructions = f.read().replace("{max_autonomous_turns}", str(ps.max_turns))
 				except FileNotFoundError:
 					pass
-				console_mgr._planner_profile = profile_name
-				# Inject updated instructions into agent
-				if console_mgr._agent and hasattr(console_mgr, '_base_instructions'):
-					console_mgr._agent.instructions = console_mgr._base_instructions + [console_mgr._planner_instructions]
-				log_print(f"Planner profile switched to: {profile_name}")
+				ps.profile = profile_name
+				log_print(f"Planner [{pkey[:20]}] profile → {profile_name}")
 		return {
-			"timeout_s": console_mgr._planner_timeout,
-			"session_timeout_s": console_mgr._planner_session_timeout,
-			"max_iterations": console_mgr._planner_max_turns,
-			"debounce_s": console_mgr._planner_debounce,
-			"profile": getattr(console_mgr, '_planner_profile', 'workflow'),
+			"timeout_s": ps.timeout,
+			"session_timeout_s": ps.session_timeout,
+			"max_iterations": ps.max_turns,
+			"debounce_s": ps.debounce,
+			"profile": ps.profile,
 		}
 
 	@app.post("/console/planner/reset")
-	async def console_planner_reset():
-		console_mgr.reset_planner()
+	async def console_planner_reset(request: Request):
+		try:
+			body = await request.json()
+		except Exception:
+			body = {}
+		user = getattr(request.state, 'user', None)
+		user_id = user.id if user else None
+		session_id = body.get("session_id")
+		console_mgr.reset_planner(user_id=user_id, session_id=session_id)
 		return {"reset": True}
 
 	@app.post("/console/planner/apply")

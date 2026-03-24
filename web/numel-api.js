@@ -120,9 +120,9 @@ class NumelAPI {
 	}
 	consoleMemoryClear()          { return this.json('/console/memory/clear'); }
 	consolePlannerEnable(opts={}) { return this.json('/console/planner/enable', opts); }
-	consolePlannerDisable()       { return this.json('/console/planner/disable'); }
-	consolePlannerStatus()        { return this.json('/console/planner/status'); }
-	consolePlannerReset()         { return this.json('/console/planner/reset'); }
+	consolePlannerDisable(opts={}) { return this.json('/console/planner/disable', opts); }
+	consolePlannerStatus(opts={}) { return this.json('/console/planner/status', opts); }
+	consolePlannerReset(opts={})  { return this.json('/console/planner/reset', opts); }
 	consolePlannerConfig(opts={}) { return this.json('/console/planner/config', opts); }
 	consolePlannerApply(wf)       { return this.json('/console/planner/apply', { workflow: wf }); }
 

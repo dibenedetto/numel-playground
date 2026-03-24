@@ -25,6 +25,9 @@
 		"backend": true,
 		"session_history": 5
 	},
+	"channel_pool": {
+		"idle_timeout": 1800
+	},
 	"planner": {
 		"enabled": false,
 		"instructions_file": "planner_instructions.txt",

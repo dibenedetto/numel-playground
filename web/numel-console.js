@@ -163,26 +163,26 @@ class AgentConsoleManager {
 		// Planner profile selector
 		this._plannerProfileSel?.addEventListener('change', () => {
 			const profile = this._plannerProfileSel.value;
-			this.api.consolePlannerConfig({ profile }).catch(() => {});
+			this.api.consolePlannerConfig({ profile, session_id: this._sessionId }).catch(() => {});
 		});
 
 		// Planner timeout selector — always sync to backend (safe even if planner not yet enabled)
 		this._plannerTimeoutSel?.addEventListener('change', () => {
 			const s = parseInt(this._plannerTimeoutSel.value, 10);
 			this._plannerTimeoutMs = s * 1000;
-			this.api.consolePlannerConfig({ timeout_s: s }).catch(() => {});
+			this.api.consolePlannerConfig({ timeout_s: s, session_id: this._sessionId }).catch(() => {});
 		});
 
 		// Planner session timeout selector
 		this._plannerSessionTimeoutSel?.addEventListener('change', () => {
 			const s = parseInt(this._plannerSessionTimeoutSel.value, 10);
-			this.api.consolePlannerConfig({ session_timeout_s: s }).catch(() => {});
+			this.api.consolePlannerConfig({ session_timeout_s: s, session_id: this._sessionId }).catch(() => {});
 		});
 
 		// Planner max iterations selector
 		this._plannerMaxIterSel?.addEventListener('change', () => {
 			const n = parseInt(this._plannerMaxIterSel.value, 10);
-			this.api.consolePlannerConfig({ max_iterations: n }).catch(() => {});
+			this.api.consolePlannerConfig({ max_iterations: n, session_id: this._sessionId }).catch(() => {});
 		});
 
 		// Planner interrupt button
@@ -242,7 +242,7 @@ class AgentConsoleManager {
 			if (!this._plannerBusy) return;
 			this._hideThinking();
 			this._setPlannerBusy(false);
-			try { await this.api.consolePlannerDisable(); } catch {}
+			try { await this.api.consolePlannerDisable({ session_id: this._sessionId }); } catch {}
 			this._plannerEnabled = false;
 			if (this._plannerToggle) this._plannerToggle.checked = false;
 			if (this._plannerTimeoutRow) this._plannerTimeoutRow.style.display = 'none';
@@ -257,7 +257,7 @@ class AgentConsoleManager {
 		const ok = await this._confirm('Interrupt Planner', 'Stop the planner? The current workflow will be kept as-is.', 'Interrupt', true);
 		if (!ok) return;
 		try {
-			await this.api.consolePlannerDisable();
+			await this.api.consolePlannerDisable({ session_id: this._sessionId });
 			this._plannerEnabled = false;
 			if (this._plannerToggle) this._plannerToggle.checked = false;
 			this._setPlannerBusy(false);
@@ -283,12 +283,13 @@ class AgentConsoleManager {
 					session_timeout_s: sessionTimeoutS,
 					max_iterations: maxIter,
 					profile,
+					session_id: this._sessionId,
 				});
 				this._plannerEnabled = true;
 				// Re-sync timeout in case user changed it while enable was in flight
 				const currentS = this._plannerTimeoutMs / 1000;
 				if (currentS !== timeoutS) {
-					this.api.consolePlannerConfig({ timeout_s: currentS }).catch(() => {});
+					this.api.consolePlannerConfig({ timeout_s: currentS, session_id: this._sessionId }).catch(() => {});
 				}
 				this._addMessage('system', 'Planner mode enabled — autonomous workflow building active.');
 				// Planner auto-adds toolkits and restarts the agent → update port and reconnect AGUI
@@ -301,7 +302,7 @@ class AgentConsoleManager {
 				}
 				await this._fetchToolkits();
 			} else {
-				await this.api.consolePlannerDisable();
+				await this.api.consolePlannerDisable({ session_id: this._sessionId });
 				this._plannerEnabled = false;
 				this._setPlannerBusy(false);
 				this._addMessage('system', 'Planner mode disabled.');
@@ -712,14 +713,18 @@ class AgentConsoleManager {
 		this._addMessage('user', text);
 		this._showThinking();
 
+		// Channel commands (/help, /me, /toolkits, etc.) — always use REST
+		// so they route through ChannelCommandHandler on the backend.
+		const isCommand = finalText.startsWith('/') && !finalText.startsWith('/gen');
+
 		// Lock UI immediately when planner is active
 		if (this._plannerEnabled) this._setPlannerBusy(true);
 
 		// Planner always uses REST mode (AGUI doesn't reliably work with tool-heavy prompts)
-		if (!this._plannerEnabled && this._streamingMode && this.handler?.isConnected()) {
+		if (!isCommand && !this._plannerEnabled && this._streamingMode && this.handler?.isConnected()) {
 			await this._sendViaAGUI(text);
 		} else {
-			await this._sendViaREST(text);
+			await this._sendViaREST(isCommand ? finalText : text);
 		}
 	}
 
@@ -735,6 +740,14 @@ class AgentConsoleManager {
 
 			// Store session ID for conversation continuity
 			if (result.session_id) this._sessionId = result.session_id;
+
+			// Channel command response — show as system message and return
+			if (result.command) {
+				this._addMessage('system', result.response || '(no output)');
+				this._busy = false;
+				this._setInputEnabled(true);
+				return;
+			}
 
 			// Show tool calls if any
 			if (result.tool_calls?.length) {

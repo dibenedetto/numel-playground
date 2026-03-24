@@ -323,3 +323,90 @@ class MemoryStore:
 		os.makedirs(os.path.dirname(self._json_path), exist_ok=True)
 		with open(self._json_path, "w") as f:
 			json.dump(self._json_store, f, indent=2)
+
+
+# =============================================================================
+# PER-USER MEMORY DATABASE MANAGER
+# =============================================================================
+
+_USER_MEMORY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "storage", "user_memory")
+
+
+class UserMemoryDB:
+	"""Resolves user identities to per-user SQLite memory database paths.
+
+	Framework-agnostic: only manages file paths and cleanup.  The caller
+	(agno, langchain, etc.) creates its own DB wrapper around the path.
+
+	File layout inside ``storage_dir``::
+
+	    user_{user_id}.db      — authenticated users (shared across web + channels)
+	    anon_{channel_key}.db  — anonymous channel users (no Numel account linked)
+	    guest_{session_id}.db  — web guest sessions (ephemeral)
+	"""
+
+	def __init__(self, storage_dir: str = _USER_MEMORY_DIR):
+		self._dir = storage_dir
+		os.makedirs(storage_dir, exist_ok=True)
+
+	# ── Path resolution ───────────────────────────────────────────
+
+	def get_db_path(self, user_id: str, is_guest: bool = False) -> str:
+		"""Return the SQLite db path for a given identity.
+
+		Parameters
+		----------
+		user_id : str
+		    For authenticated users: the Numel ``user.id``.
+		    For anonymous channel users: ``"anon_{channel_type}_{sender_id}"``.
+		    For guests: a session-scoped identifier.
+		is_guest : bool
+		    If True, the db is treated as ephemeral and subject to cleanup.
+		"""
+		if is_guest:
+			safe = self._safe_name(user_id)
+			return os.path.join(self._dir, f"guest_{safe}.db")
+		safe = self._safe_name(user_id)
+		# user_id for authenticated users is typically a UUID; for anon it
+		# already starts with "anon_".
+		if safe.startswith("anon_"):
+			return os.path.join(self._dir, f"{safe}.db")
+		return os.path.join(self._dir, f"user_{safe}.db")
+
+	# ── Cleanup ───────────────────────────────────────────────────
+
+	def cleanup_guest(self, session_id: str):
+		"""Delete a specific guest db file."""
+		path = self.get_db_path(session_id, is_guest=True)
+		self._remove(path)
+
+	def cleanup_expired_guests(self, max_age_s: float = 86400):
+		"""Remove ``guest_*.db`` files older than *max_age_s* seconds."""
+		now = time.time()
+		for fname in os.listdir(self._dir):
+			if not fname.startswith("guest_") or not fname.endswith(".db"):
+				continue
+			fpath = os.path.join(self._dir, fname)
+			try:
+				age = now - os.path.getmtime(fpath)
+				if age > max_age_s:
+					self._remove(fpath)
+					log_print(f"UserMemoryDB: cleaned up expired guest db {fname}")
+			except OSError:
+				pass
+
+	# ── Helpers ───────────────────────────────────────────────────
+
+	@staticmethod
+	def _safe_name(raw: str) -> str:
+		"""Sanitize an identifier for use as a filename component."""
+		return "".join(c if (c.isalnum() or c in "-_") else "_" for c in raw)
+
+	@staticmethod
+	def _remove(path: str):
+		"""Remove a db file and its WAL/SHM companions."""
+		for suffix in ("", "-wal", "-shm"):
+			try:
+				os.remove(path + suffix)
+			except OSError:
+				pass

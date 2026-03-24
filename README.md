@@ -21,9 +21,11 @@
 | Workflow generation from text | `/gen` command + Planner | No | No |
 | Self-optimizing eval loop | `eval_flow` + Planner | No | No |
 | Real-time browser ML | MediaPipe pose/face/hands | No | No |
-| Multi-channel deployment | 7 platforms | Limited | No |
+| Unified multi-channel | 8 platforms + web console | Limited | No |
 | Agent-first architecture | Native nodes | Integration only | N/A |
+| Per-user memory isolation | Framework-agnostic, cross-channel | No | No |
 | Multi-tenant with quotas | Roles, quotas, admin panel | Enterprise only | No |
+| Autonomous agent tasks | Scheduled/event-driven background agents | Workflows only | No |
 | Swappable provider backends | Auth, Data, Execution | No | No |
 
 ---
@@ -41,6 +43,16 @@
 | Console Agent   |   WS /events                 | Workflow Engine   |
 | Media Overlay   | <-- real-time events ------- | Eval + Planner    |
 +-----------------+                              +-------------------+
+                                                        |
+  +------------+  +----------+  +---------+             |
+  |  Telegram  |  |  Discord |  |  Slack  |  ...        |
+  +------+-----+  +----+-----+  +----+----+             |
+         |             |             |                   |
+         +-------------+-------------+-------------------+
+                       |
+              ChannelCommandHandler
+              ChannelAgentPool (per-user)
+              UserMemoryDB (per-user SQLite)
 ```
 
 - **Backend**: FastAPI server (`app/`) with Pydantic models defining every node type. The raw Python schema source is sent to the frontend, which parses it to build the node palette dynamically — no build step.
@@ -103,12 +115,14 @@ Optional flags:
 
 ### Autonomous Planner
 - **Planner mode** in the assistant console — describe what you want, the agent builds it
+- **Per-session planners**: each browser tab and each channel conversation gets its own independent planner — the same user can run multiple planners simultaneously
 - **Eval-driven refinement**: `eval_flow` nodes score outputs, planner reads scores and iterates
 - **Two profiles**:
   - **Workflow Builder** — designs, runs, and refines workflows using eval scores
   - **Image Prompt Optimizer** — generates, evaluates, and refines prompts using CLIP + aesthetic scoring
-- **Configurable timeout**, max turns, and interrupt button
+- **Configurable** via UI or `/planner` command: timeout, max turns, debounce, profile
 - **Auto-applies** generated workflow JSON to the canvas in real-time
+- **Workflow lock** ensures exclusive access when multiple planners modify the shared workflow
 
 ### Real-Time Media & ML
 - **Browser Source** node captures webcam, microphone, or screen
@@ -132,10 +146,11 @@ Optional flags:
 - Persistent reactive workflows that run indefinitely
 
 ### Multi-Channel Deployment
-Deploy agents to 7 messaging platforms:
+Deploy agents to 8 platforms — including the web console itself:
 
 | Channel | Adapter |
 |---------|---------|
+| Web Console | WebChannelAdapter |
 | Telegram | TelegramAdapter |
 | WhatsApp | WhatsAppAdapter |
 | Discord | DiscordAdapter |
@@ -144,7 +159,27 @@ Deploy agents to 7 messaging platforms:
 | Microsoft Teams | TeamsAdapter |
 | Custom Webhook | WebhookChannelAdapter |
 
-All channels support auto-start, persistence, and unified message routing to the console agent.
+The web assistant console is treated as just another channel — the same code path handles command processing, memory isolation, and agent pooling for all entry points. External channels support auto-start and persistence.
+
+#### Channel Commands
+
+All channels (including the web console) support `/` commands:
+
+| Command | Description |
+|---------|-------------|
+| `/help` | Show available commands |
+| `/register <user> <email> <pass>` | Create a Numel account |
+| `/login <user> <pass>` | Link to existing account |
+| `/logout` | Unlink account |
+| `/me` | Show profile, role, email, enabled toolkits |
+| `/password <current> <new>` | Change password |
+| `/toolkits` | List available toolkits with on/off status |
+| `/toolkit enable\|disable <name>` | Toggle a toolkit |
+| `/planner on\|off\|status [opts]` | Manage autonomous planner |
+
+Planner options (space-separated `key=value`): `profile=workflow`, `max_iter=10`, `timeout=120`, `session_timeout=600`.
+
+Web console users authenticated via the login modal are auto-linked — no explicit `/login` needed.
 
 ### Published Apps
 - Export any workflow as a **standalone web endpoint** with auto-generated UI
@@ -153,10 +188,13 @@ All channels support auto-start, persistence, and unified message routing to the
 
 ### Assistant Console
 - **AI chat panel** with streaming (AGUI) and REST fallback
+- **Unified channel architecture** — the web console is treated as a channel, sharing the same command handler, agent pool, and memory isolation as Telegram/Discord/etc.
+- **`/` commands** — `/help`, `/me`, `/toolkits`, `/toolkit`, `/planner`, `/password` all work in the web console
 - **Model selection** dropdown (switch LLMs on the fly)
-- **Toolkit picker** — enable/disable toolkits per session
+- **Toolkit picker** — enable/disable toolkits per session (also via `/toolkit` command)
 - **Voice features**: Text-to-speech (with voice/language selection), speech-to-text (microphone input)
-- **Persistent memory** across sessions (SQLite-backed)
+- **Per-user memory** — each user gets an isolated SQLite memory database, persistent across sessions and shared across channels
+- **Multi-user support** — multiple users connecting to the same server each get their own agent instance via `ChannelAgentPool`
 - **Proactive suggestions** via WebSocket
 - **`/gen` command** — generate workflows from natural language
 
@@ -391,6 +429,61 @@ The `system_toolkit` exposes all admin operations as agent tools, so the AI assi
 
 ---
 
+## Per-User Memory Isolation
+
+Numel provides framework-agnostic per-user memory isolation at the platform level. Each user gets a separate SQLite memory database regardless of which entry point they use (web console, Telegram, Discord, etc.).
+
+### How It Works
+
+The `UserMemoryDB` manager resolves user identities to database file paths:
+
+| User Type | Database Path | Lifetime |
+|-----------|---------------|----------|
+| Authenticated user | `storage/user_memory/user_{user_id}.db` | Persistent |
+| Anonymous channel user | `storage/user_memory/anon_{channel}_{sender_id}.db` | Persistent |
+| Guest (web, no login) | `storage/user_memory/guest_{session_id}.db` | Ephemeral (24h) |
+
+**Cross-channel identity**: An authenticated user always resolves to the same database. If user "marco" chats via the web console and also via Telegram (after `/login`), both sessions share `user_{marco_id}.db`.
+
+**Framework-agnostic**: `UserMemoryDB` only manages file paths — it doesn't import any agent framework. The caller (agno, langchain, openai agents sdk, etc.) wraps the path in its own DB abstraction. Switching agent frameworks doesn't require changes to the memory layer.
+
+**Guest cleanup**: Ephemeral guest databases are automatically deleted after 24 hours by the `ChannelAgentPool` cleanup loop.
+
+---
+
+## Agent Tasks
+
+Run autonomous background agents on a schedule — without manual invocation.
+
+### Task Configuration
+
+| Field | Description | Default |
+|-------|-------------|---------|
+| `name` | Task display name | required |
+| `prompt` | Instructions for the agent | required |
+| `trigger` | `interval`, `cron`, `event`, or `once` | `interval` |
+| `interval_sec` | Seconds between runs (interval trigger) | 300 |
+| `cron_expr` | Cron expression (cron trigger) | `"0 * * * *"` |
+| `event_type` | EventBus event type (event trigger) | — |
+| `max_runs` | Run limit (-1 = unlimited) | -1 |
+| `enabled` | Enable/disable without deleting | true |
+
+### Examples
+
+```
+# Hourly system health check
+{"name": "Health Check", "prompt": "Check system stats and report anomalies", "trigger": "cron", "cron_expr": "0 * * * *"}
+
+# Run on every workflow completion
+{"name": "Post-Run Report", "prompt": "Summarize the latest execution results", "trigger": "event", "event_type": "workflow.completed"}
+```
+
+Tasks execute via the console agent with full toolkit access. Results (response, tool calls, errors) are persisted in `agent_tasks.json`.
+
+Manage tasks via the UI or the `/agent-tasks/*` API endpoints.
+
+---
+
 ## Credential Store
 
 Store API keys and secrets securely. Reference them in toolkit args with `${CRED_NAME}` syntax:
@@ -530,34 +623,69 @@ All endpoints use **POST** method unless otherwise noted.
 ### Console Agent
 | Endpoint | Description |
 |----------|-------------|
-| `/console/chat` | Send message (REST or AGUI WebSocket) |
-| `/console/planner/enable` | Enable planner mode |
-| `/console/planner/disable` | Disable planner |
-| `/console/planner/config` | Update planner settings |
-| `/console/clear-memory` | Clear agent memory |
+| `/console/start` | Start console agent (model, toolkits, memory) |
+| `/console/stop` | Stop console agent |
+| `/console/chat` | Send message — routes `/commands` through `ChannelCommandHandler`, per-user agents via pool |
+| `/console/status` | Agent status (model, toolkits, sessions) |
+| `/console/context` | Current workspace context |
+| `/console/toolkits` | List available toolkits with descriptions |
+| `/console/planner/enable` | Enable planner for session (accepts `session_id`) |
+| `/console/planner/disable` | Disable planner for session |
+| `/console/planner/status` | Planner state (turns, timeout, events) |
+| `/console/planner/config` | Update planner settings (timeout, max_iter, profile) |
+| `/console/planner/reset` | Reset planner turn count |
+| `/console/planner/apply` | Apply workflow JSON directly |
+| `/console/memory/search` | Search agent memory |
+| `/console/memory/add` | Add a memory entry |
+| `/console/memory/recent` | Get recent memories |
+| `/console/memory/delete` | Delete a memory entry |
+| `/console/memory/clear` | Clear all agent memory |
+| `/console/memory/stats` | Memory store statistics |
 
 ### Channels
 | Endpoint | Description |
 |----------|-------------|
+| `/channels/types` | List available channel adapter types |
 | `/channels/add` | Add channel adapter |
-| `/channels/list` | List channels |
-| `/channels/{id}/start` | Start channel |
-| `/channels/{id}/stop` | Stop channel |
+| `/channels/list` | List channels with status |
+| `/channels/remove` | Remove a channel |
+| `/channels/start` | Start channel |
+| `/channels/stop` | Stop channel |
+| `/channels/send` | Send a message through a channel |
+| `/channels/status` | Get channel status |
+| `/channels/pool/config` | Get/set agent pool settings (idle_timeout) |
+| `/channels/webhook/{id}` | Webhook ingress for external platforms |
+
+### Agent Tasks
+| Endpoint | Description |
+|----------|-------------|
+| `/agent-tasks/list` | List all tasks with status |
+| `/agent-tasks/get` | Get task details |
+| `/agent-tasks/create` | Create a new scheduled task |
+| `/agent-tasks/remove` | Delete a task |
+| `/agent-tasks/start` | Start a task |
+| `/agent-tasks/stop` | Stop a task |
+| `/agent-tasks/run` | Execute task immediately (one-shot) |
 
 ### Gallery & Apps
 | Endpoint | Description |
 |----------|-------------|
 | `/gallery/list` | List gallery items |
-| `/gallery/publish` | Publish workflow |
-| `/published-apps/publish` | Publish as app |
-| `/published-apps/run/{slug}` | Run published app |
+| `/gallery/get` | Get a gallery item |
+| `/gallery/publish` | Publish workflow to gallery |
+| `/gallery/remove` | Remove from gallery |
+| `/gallery/categories` | List categories |
+| `/gallery/tags` | List tags |
+| `/apps/list` | List published apps |
+| `/apps/publish` | Publish workflow as app |
+| `/apps/unpublish` | Unpublish an app |
 
 ### WebSocket Streams
 | Endpoint | Events |
 |----------|--------|
 | `/events` | workflow.started, .completed, .failed, node.*, workspace.changed, eval_scored |
 | `/stream/{source_id}` | Real-time media frames and display overlays |
-| `/console/proactive` | Agent suggestions and planner messages |
+| `/ws/console` | Proactive agent suggestions and planner messages |
 
 ---
 

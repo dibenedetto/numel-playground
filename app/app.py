@@ -18,6 +18,7 @@ import io
 import json
 import os
 import sys
+import time
 import uvicorn
 import webbrowser
 import zipfile
@@ -64,11 +65,12 @@ from   channels.discord_adapter   import DiscordAdapter
 from   channels.signal_adapter    import SignalAdapter
 from   channels.slack_adapter     import SlackAdapter
 from   channels.teams_adapter     import TeamsAdapter
+from   channels.web_adapter       import WebChannelAdapter
 from   channels.webhook_adapter   import WebhookChannelAdapter
 from   console   import ConsoleAgentManager, ChannelAgentPool, setup_console_api
 from   event_bus import EventBus, get_event_bus
 from   gallery   import GalleryManager, setup_gallery_api
-from   memory    import MemoryStore
+from   memory    import MemoryStore, UserMemoryDB
 from   published_apps import PublishedAppManager, setup_published_apps_api
 from   utils     import add_middleware, log_print, seed_everything
 from   workspace import WorkspaceManager as WSManager
@@ -495,10 +497,12 @@ async def run_server(args: Any):
 	# ── Persistent Memory ─────────────────────────────────────
 	memory_store = MemoryStore()
 	memory_store.initialize()
+	user_memory_db = UserMemoryDB()
 
 	# ── Console Agent ─────────────────────────────────────────
 	console_mgr = ConsoleAgentManager(workspace_mgr, event_bus, port=args.port + 1,
-									  memory_store=memory_store)
+									  memory_store=memory_store,
+									  user_memory_db=user_memory_db)
 	console_mgr.setup_proactive_listeners()
 
 	# ── Channel Adapters ──────────────────────────────────────
@@ -519,15 +523,47 @@ async def run_server(args: Any):
 	with open(_cfg_path) as _f:
 		_default_toolkits = json.load(_f).get("toolkits", [])
 
+	async def _planner_callback(action, user_id, session_id, config):
+		"""Bridge between channel /planner command and ConsoleAgentManager."""
+		if action == "enable":
+			await console_mgr.enable_planner(config, user_id=user_id, session_id=session_id)
+			pkey = console_mgr._planner_key(user_id, session_id)
+			ps = console_mgr._planners.get(pkey)
+			if ps:
+				return (f"Planner enabled (profile={ps.profile}, "
+						f"max_iter={ps.max_turns}, timeout={ps.timeout}s, "
+						f"session_timeout={ps.session_timeout}s)")
+			return "Planner enabled for this session."
+		elif action == "status":
+			pkey = console_mgr._planner_key(user_id, session_id)
+			ps = console_mgr._planners.get(pkey)
+			if not ps or not ps.enabled:
+				return "No active planner for this session."
+			elapsed = int(time.time() - ps.session_start)
+			return (f"Planner active\n"
+					f"  Profile: {ps.profile}\n"
+					f"  Turns: {ps.turn_count}/{ps.max_turns}\n"
+					f"  Elapsed: {elapsed}s / {int(ps.session_timeout)}s\n"
+					f"  Per-turn timeout: {int(ps.timeout)}s\n"
+					f"  Pending events: {len(ps.pending)}")
+		else:
+			console_mgr.disable_planner(user_id=user_id, session_id=session_id)
+			return "Planner disabled for this session."
+
 	channel_cmd = ChannelCommandHandler(
 		auth_provider=_auth_provider,
 		store_path=os.path.join(_app_dir, "channel_users.json"),
 		available_toolkits=_available_toolkits,
 		default_toolkits=_default_toolkits,
+		planner_callback=_planner_callback,
 	)
 
+	# Read pool config from console_agent.json
+	_pool_cfg = json.load(open(_cfg_path)).get("channel_pool", {})
 	channel_pool = ChannelAgentPool(
-		workspace_mgr=workspace_mgr, memory_store=memory_store)
+		workspace_mgr=workspace_mgr, memory_store=memory_store,
+		user_memory_db=user_memory_db,
+		idle_timeout=_pool_cfg.get("idle_timeout", 1800))
 
 	async def channel_message_handler(msg):
 		"""Route incoming channel messages to per-user agents."""
@@ -544,14 +580,17 @@ async def run_server(args: Any):
 				return cmd_response
 
 			session_id = msg.metadata.get("session_id") or f"ch_{msg.channel_type}_{msg.sender_id}"
-			# Resolve per-user toolkits
+			# Resolve per-user identity and toolkits
+			numel_user_id = channel_cmd.get_linked_user_id(msg.channel_type, msg.sender_id)
 			toolkits = channel_cmd.get_enabled_toolkits(msg.channel_type, msg.sender_id)
 			sender   = channel_cmd.get_linked_username(msg.channel_type, msg.sender_id) \
 				or msg.sender_name or msg.sender_id
+			mem_user_id = numel_user_id or f"anon_{msg.channel_type}_{msg.sender_id}"
 			result = await channel_pool.chat(
 				msg.content, session_id,
 				toolkits=toolkits or None,
 				sender_name=sender,
+				user_id=mem_user_id,
 			)
 			return result.get("response", "") or result.get("error", "")
 		except Exception as e:
@@ -567,6 +606,7 @@ async def run_server(args: Any):
 	ChannelRegistry.register_type("signal",   SignalAdapter)
 	ChannelRegistry.register_type("teams",    TeamsAdapter)
 	ChannelRegistry.register_type("webhook",  WebhookChannelAdapter)
+	ChannelRegistry.register_type("web",      WebChannelAdapter)
 	channel_registry.load()
 
 	# ── Workflow Gallery ──────────────────────────────────────
@@ -584,9 +624,12 @@ async def run_server(args: Any):
 	# ── Execution History ─────────────────────────────────────
 	exec_history = ExecHistoryManager()
 
+	# Wire pool into console manager so planner can use per-user agents
+	console_mgr.set_channel_pool(channel_pool)
+
 	# ── API Routes (order matters: specific routes before static mount) ──
 	setup_api(server, app, event_bus, schema_code, workspace_mgr)
-	setup_console_api(app, console_mgr)
+	setup_console_api(app, console_mgr, channel_pool=channel_pool, channel_cmd=channel_cmd)
 	setup_channel_api(app, channel_registry, pool=channel_pool)
 	setup_gallery_api(app, gallery_mgr)
 	setup_agent_tasks_api(app, task_mgr)
