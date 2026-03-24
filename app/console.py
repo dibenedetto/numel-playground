@@ -4,6 +4,7 @@
 import asyncio
 import json
 import os
+import time
 import uuid
 
 from   importlib                       import import_module
@@ -149,17 +150,20 @@ class ConsoleAgentManager:
 		self._use_backend_memory = False                        # set during start()
 
 		# ── Planner mode ──
-		self._planner_enabled    = False
-		self._planner_lock       = asyncio.Lock()
-		self._planner_session_id = None
-		self._planner_turn_count = 0
-		self._planner_max_turns  = 10
-		self._planner_debounce   = 2.0                          # seconds
-		self._planner_timer      = None                         # debounce handle
+		self._planner_enabled         = False
+		self._planner_lock            = asyncio.Lock()
+		self._planner_session_id      = None
+		self._planner_turn_count      = 0
+		self._planner_max_turns       = 10
+		self._planner_timeout         = 120
+		self._planner_session_timeout = 600
+		self._planner_session_start   = 0.0
+		self._planner_debounce        = 2.0                     # seconds
+		self._planner_timer           = None                    # debounce handle
 		self._planner_pending    : List[dict] = []              # queued events
-		self._planner_active     = False                        # True while planner turn is running
+		self._planner_active          = False                   # True while planner turn is running
 		self._planner_subs       : List[str]  = []              # subscribed event type strings
-		self._planner_instructions = ""
+		self._planner_instructions    = ""
 
 	# ── Lifecycle ──────────────────────────────────────────────────
 
@@ -360,11 +364,13 @@ class ConsoleAgentManager:
 			return
 		cfg = config or {}
 		log_print(f"Planner enable config: {cfg}")
-		self._planner_max_turns  = cfg.get("max_autonomous_turns", 10)
-		self._planner_debounce   = cfg.get("debounce_ms", 2000) / 1000.0
-		self._planner_timeout    = cfg.get("timeout_s", 120)  # per-turn timeout in seconds
-		log_print(f"Planner timeout: {self._planner_timeout}s")
-		self._planner_turn_count = 0
+		self._planner_max_turns      = cfg.get("max_iterations", cfg.get("max_autonomous_turns", 10))
+		self._planner_debounce       = cfg.get("debounce_ms", 2000) / 1000.0
+		self._planner_timeout        = cfg.get("timeout_s", 120)       # per-turn timeout
+		self._planner_session_timeout = cfg.get("session_timeout_s", 600)  # total wall-clock timeout
+		log_print(f"Planner timeout: {self._planner_timeout}s per-turn, {self._planner_session_timeout}s total, max {self._planner_max_turns} iterations")
+		self._planner_turn_count     = 0
+		self._planner_session_start  = time.time()
 		self._planner_session_id = f"planner-{uuid.uuid4().hex[:8]}"
 		self._planner_pending    = []
 
@@ -475,9 +481,17 @@ class ConsoleAgentManager:
 			return  # already processing
 		if self._planner_turn_count >= self._planner_max_turns:
 			await self.push_proactive(
-				"Planner reached maximum autonomous turns. Send a message to continue.",
+				f"Planner reached max iterations ({self._planner_max_turns}). Send a message to continue.",
 				"planner_paused"
 			)
+			return
+		elapsed = time.time() - self._planner_session_start
+		if elapsed >= self._planner_session_timeout:
+			await self.push_proactive(
+				f"Planner session timed out after {int(elapsed)}s (limit: {self._planner_session_timeout}s). Disabling planner.",
+				"planner_error"
+			)
+			self.disable_planner()
 			return
 
 		self._planner_active = True
@@ -830,6 +844,10 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 	@app.post("/console/chat")
 	async def console_chat(request: ConsoleChatRequest):
 		try:
+			# Reset planner session clock on each user message
+			if console_mgr._planner_enabled:
+				console_mgr._planner_session_start = time.time()
+				console_mgr._planner_turn_count = 0
 			result = await console_mgr.chat(
 				message         = request.message,
 				session_id      = request.session_id,
@@ -874,8 +892,14 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 			body = {}
 		if "timeout_s" in body:
 			console_mgr._planner_timeout = max(10, int(body["timeout_s"]))
-			log_print(f"Planner timeout updated to {console_mgr._planner_timeout}s")
-		if "max_autonomous_turns" in body:
+			log_print(f"Planner per-turn timeout updated to {console_mgr._planner_timeout}s")
+		if "session_timeout_s" in body:
+			console_mgr._planner_session_timeout = max(30, int(body["session_timeout_s"]))
+			log_print(f"Planner session timeout updated to {console_mgr._planner_session_timeout}s")
+		if "max_iterations" in body:
+			console_mgr._planner_max_turns = max(1, int(body["max_iterations"]))
+			log_print(f"Planner max iterations updated to {console_mgr._planner_max_turns}")
+		if "max_autonomous_turns" in body and "max_iterations" not in body:
 			console_mgr._planner_max_turns = max(1, int(body["max_autonomous_turns"]))
 		if "debounce_ms" in body:
 			console_mgr._planner_debounce = max(500, int(body["debounce_ms"])) / 1000.0
@@ -900,7 +924,8 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):
 				log_print(f"Planner profile switched to: {profile_name}")
 		return {
 			"timeout_s": console_mgr._planner_timeout,
-			"max_turns": console_mgr._planner_max_turns,
+			"session_timeout_s": console_mgr._planner_session_timeout,
+			"max_iterations": console_mgr._planner_max_turns,
 			"debounce_s": console_mgr._planner_debounce,
 			"profile": getattr(console_mgr, '_planner_profile', 'workflow'),
 		}

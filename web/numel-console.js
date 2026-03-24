@@ -59,10 +59,14 @@ class AgentConsoleManager {
 		this._autoSend        = true;
 		this._plannerToggle    = document.getElementById('consolePlannerToggle');
 		this._plannerStopBtn   = document.getElementById('consolePlannerStopBtn');
-		this._plannerTimeoutSel  = document.getElementById('consolePlannerTimeout');
-		this._plannerTimeoutRow  = document.getElementById('consolePlannerTimeoutRow');
-		this._plannerProfileSel  = document.getElementById('consolePlannerProfile');
-		this._plannerProfileRow  = document.getElementById('consolePlannerProfileRow');
+		this._plannerTimeoutSel        = document.getElementById('consolePlannerTimeout');
+		this._plannerTimeoutRow        = document.getElementById('consolePlannerTimeoutRow');
+		this._plannerSessionTimeoutSel = document.getElementById('consolePlannerSessionTimeout');
+		this._plannerSessionTimeoutRow = document.getElementById('consolePlannerSessionTimeoutRow');
+		this._plannerMaxIterSel        = document.getElementById('consolePlannerMaxIter');
+		this._plannerMaxIterRow        = document.getElementById('consolePlannerMaxIterRow');
+		this._plannerProfileSel        = document.getElementById('consolePlannerProfile');
+		this._plannerProfileRow        = document.getElementById('consolePlannerProfileRow');
 		this._plannerEnabled   = false;
 		this._plannerBusy      = false;  // true while planner is actively processing
 		this._plannerTimeoutMs = (parseInt(this._plannerTimeoutSel?.value, 10) || 120) * 1000;
@@ -151,6 +155,8 @@ class AgentConsoleManager {
 			this._togglePlanner(this._plannerToggle.checked);
 			const show = this._plannerToggle.checked ? '' : 'none';
 			if (this._plannerTimeoutRow) this._plannerTimeoutRow.style.display = show;
+			if (this._plannerSessionTimeoutRow) this._plannerSessionTimeoutRow.style.display = show;
+			if (this._plannerMaxIterRow) this._plannerMaxIterRow.style.display = show;
 			if (this._plannerProfileRow) this._plannerProfileRow.style.display = show;
 		});
 
@@ -165,6 +171,18 @@ class AgentConsoleManager {
 			const s = parseInt(this._plannerTimeoutSel.value, 10);
 			this._plannerTimeoutMs = s * 1000;
 			this.api.consolePlannerConfig({ timeout_s: s }).catch(() => {});
+		});
+
+		// Planner session timeout selector
+		this._plannerSessionTimeoutSel?.addEventListener('change', () => {
+			const s = parseInt(this._plannerSessionTimeoutSel.value, 10);
+			this.api.consolePlannerConfig({ session_timeout_s: s }).catch(() => {});
+		});
+
+		// Planner max iterations selector
+		this._plannerMaxIterSel?.addEventListener('change', () => {
+			const n = parseInt(this._plannerMaxIterSel.value, 10);
+			this.api.consolePlannerConfig({ max_iterations: n }).catch(() => {});
 		});
 
 		// Planner interrupt button
@@ -228,6 +246,8 @@ class AgentConsoleManager {
 			this._plannerEnabled = false;
 			if (this._plannerToggle) this._plannerToggle.checked = false;
 			if (this._plannerTimeoutRow) this._plannerTimeoutRow.style.display = 'none';
+			if (this._plannerSessionTimeoutRow) this._plannerSessionTimeoutRow.style.display = 'none';
+			if (this._plannerMaxIterRow) this._plannerMaxIterRow.style.display = 'none';
 			this._addMessage('error', 'Planner timed out (connection lost). Planner disabled.');
 			this._updateSettingsSummary();
 		}, fallbackMs);
@@ -255,8 +275,15 @@ class AgentConsoleManager {
 		try {
 			if (enabled) {
 				const timeoutS = (this._plannerTimeoutMs || 120_000) / 1000;
+				const sessionTimeoutS = parseInt(this._plannerSessionTimeoutSel?.value, 10) || 600;
+				const maxIter = parseInt(this._plannerMaxIterSel?.value, 10) || 10;
 				const profile = this._plannerProfileSel?.value || 'workflow';
-				const result = await this.api.consolePlannerEnable({ timeout_s: timeoutS, profile });
+				const result = await this.api.consolePlannerEnable({
+					timeout_s: timeoutS,
+					session_timeout_s: sessionTimeoutS,
+					max_iterations: maxIter,
+					profile,
+				});
 				this._plannerEnabled = true;
 				// Re-sync timeout in case user changed it while enable was in flight
 				const currentS = this._plannerTimeoutMs / 1000;

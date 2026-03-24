@@ -433,13 +433,34 @@
 						</select>
 					</div>
 					<div class="nw-console-settings-row" id="consolePlannerTimeoutRow" style="display:none">
-						<label for="consolePlannerTimeout">Timeout</label>
+						<label for="consolePlannerTimeout">Turn timeout</label>
 						<select id="consolePlannerTimeout" class="nw-console-voice-select" style="max-width:none;flex:1">
 							<option value="30">30s</option>
 							<option value="60">60s</option>
-							<option value="120" selected>2 min (default)</option>
+							<option value="120" selected>2 min</option>
 							<option value="300">5 min</option>
 							<option value="600">10 min</option>
+						</select>
+					</div>
+					<div class="nw-console-settings-row" id="consolePlannerSessionTimeoutRow" style="display:none">
+						<label for="consolePlannerSessionTimeout">Total timeout</label>
+						<select id="consolePlannerSessionTimeout" class="nw-console-voice-select" style="max-width:none;flex:1">
+							<option value="120">2 min</option>
+							<option value="300">5 min</option>
+							<option value="600" selected>10 min</option>
+							<option value="1200">20 min</option>
+							<option value="1800">30 min</option>
+							<option value="3600">1 hour</option>
+						</select>
+					</div>
+					<div class="nw-console-settings-row" id="consolePlannerMaxIterRow" style="display:none">
+						<label for="consolePlannerMaxIter">Max iterations</label>
+						<select id="consolePlannerMaxIter" class="nw-console-voice-select" style="max-width:none;flex:1">
+							<option value="3">3</option>
+							<option value="5">5</option>
+							<option value="10" selected>10</option>
+							<option value="20">20</option>
+							<option value="50">50</option>
 						</select>
 					</div>
 				</div>
