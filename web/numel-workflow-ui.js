@@ -792,6 +792,9 @@ async function connect() {
 		}
 
 		addLog('success', `✅ Connected to ${serverUrl}`);
+
+		// Refresh channel summary in left panel
+		if (typeof NumelChannels !== 'undefined') NumelChannels.refreshSummary();
 	} catch (error) {
 		console.error('Connection error:', error);
 		addLog('error', `❌ Connection failed: ${error.message}`);

@@ -808,6 +808,145 @@ class ConsoleAgentManager:
 		self._event_bus.subscribe("MANAGER_WORKFLOW_ADDED", on_workflow_added)
 
 
+# ── Channel Agent Pool ──────────────────────────────────────────
+#
+# Per-user agent instances for channel messages.  Each session_id gets
+# its own lightweight Agent (no AGUI server, no planner, no WebSocket).
+# Idle agents are cleaned up after a configurable timeout.
+
+class ChannelAgentPool:
+	"""Manages per-session Agent instances for channel message handling."""
+
+	def __init__(self, config_path: str = _CONFIG_PATH,
+				 workspace_mgr=None, memory_store=None,
+				 idle_timeout: float = 1800):
+		self._config_path   = config_path
+		self._ws_mgr        = workspace_mgr
+		self._memory_store  = memory_store
+		self._idle_timeout  = idle_timeout          # seconds before evicting idle agent
+		self._agents: Dict[str, Agent]      = {}    # session_id → Agent
+		self._last_used: Dict[str, float]   = {}    # session_id → timestamp
+		self._lock = asyncio.Lock()
+		self._cleanup_task: Optional[asyncio.Task] = None
+
+	async def _get_or_create(self, session_id: str) -> Agent:
+		"""Return (or lazily build) the Agent for this session."""
+		async with self._lock:
+			if session_id in self._agents:
+				self._last_used[session_id] = time.time()
+				return self._agents[session_id]
+
+			agent = await self._build_agent()
+			self._agents[session_id]   = agent
+			self._last_used[session_id] = time.time()
+
+			# Start periodic cleanup if not running
+			if self._cleanup_task is None or self._cleanup_task.done():
+				self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+
+			log_print(f"ChannelAgentPool: created agent for session {session_id[:16]} (pool size: {len(self._agents)})")
+			return agent
+
+	async def _build_agent(self) -> Agent:
+		"""Build a lightweight Agent from console_agent.json defaults."""
+		with open(self._config_path) as f:
+			config = json.load(f)
+
+		model_cfg = config.get("model", {})
+		source    = model_cfg.get("source", "ollama")
+		name      = model_cfg.get("name", "mistral")
+		model     = _build_model(source, name)
+
+		# Build tools
+		cfg_toolkits = config.get("toolkits", ["console_toolkit"])
+		tools = []
+		for tk_name in cfg_toolkits:
+			if tk_name == "console_toolkit" and self._ws_mgr:
+				toolkit = ConsoleToolkit(self._ws_mgr)
+				for attr_name in dir(toolkit):
+					if attr_name.startswith('_'):
+						continue
+					method = getattr(toolkit, attr_name)
+					if callable(method):
+						tools.append(method)
+			elif tk_name != "console_toolkit":
+				tools.extend(_load_toolkit(tk_name))
+
+		# Memory (backend if configured)
+		mem_cfg     = config.get("memory", {})
+		use_backend = mem_cfg.get("backend", True)
+		db          = None
+		if use_backend:
+			from agno.db.sqlite import SqliteDb
+			db_path = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
+			db = SqliteDb(db_file=db_path)
+
+		opts = config.get("options", {})
+		return Agent(
+			name                    = opts.get("name", "Numel Assistant"),
+			model                   = model,
+			description             = opts.get("description", ""),
+			instructions            = opts.get("instructions", []),
+			markdown                = opts.get("markdown", True),
+			tools                   = tools,
+			db                      = db,
+			enable_agentic_memory   = bool(db),
+			add_memories_to_context = bool(db),
+			search_session_history  = bool(db),
+			num_history_sessions    = mem_cfg.get("session_history", 5) if db else None,
+		)
+
+	async def chat(self, message: str, session_id: str) -> dict:
+		"""Send a message to the per-session agent. Returns {session_id, response, tool_calls}."""
+		agent = await self._get_or_create(session_id)
+		try:
+			response = await agent.arun(message, session_id=session_id)
+		except Exception as e:
+			return {"session_id": session_id, "error": str(e), "tool_calls": []}
+
+		# Extract response text
+		content = ""
+		if response and response.content:
+			content = response.get_content_as_string() if hasattr(response, 'get_content_as_string') else str(response.content)
+		if not content and response and response.messages:
+			for msg in reversed(response.messages):
+				if getattr(msg, 'role', None) == "assistant" and getattr(msg, 'content', None):
+					content = msg.content
+					break
+
+		tool_calls = []
+		if response and response.messages:
+			for msg in response.messages:
+				if getattr(msg, 'role', None) == "tool":
+					tool_calls.append({
+						"name":   getattr(msg, 'tool_name', None) or getattr(msg, 'tool_call_id', None),
+						"result": (msg.content[:200] if msg.content else None) if hasattr(msg, 'content') else None,
+					})
+
+		self._last_used[session_id] = time.time()
+		return {"session_id": session_id, "response": content, "tool_calls": tool_calls}
+
+	async def _cleanup_loop(self):
+		"""Periodically evict agents that haven't been used recently."""
+		while True:
+			await asyncio.sleep(300)  # check every 5 min
+			now = time.time()
+			expired = [sid for sid, ts in self._last_used.items()
+					   if now - ts > self._idle_timeout]
+			async with self._lock:
+				for sid in expired:
+					self._agents.pop(sid, None)
+					self._last_used.pop(sid, None)
+				if expired:
+					log_print(f"ChannelAgentPool: evicted {len(expired)} idle agents (pool size: {len(self._agents)})")
+				if not self._agents:
+					return  # stop loop when pool is empty
+
+	@property
+	def pool_size(self) -> int:
+		return len(self._agents)
+
+
 # ── API Routes ─────────────────────────────────────────────────
 
 def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager):

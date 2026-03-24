@@ -136,4 +136,5 @@ class ChannelAdapter(ABC):
 			"status":       self.status.value,
 			"error":        self._error,
 			"enabled":      self.config.enabled,
+			"auto_start":   self.config.auto_start,
 		}

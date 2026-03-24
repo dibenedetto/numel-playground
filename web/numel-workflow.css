@@ -407,6 +407,53 @@ body {
 	padding-top: 8px;
 }
 
+/* Clean subsection — no border lines */
+.nw-subsection.nw-subsection-clean {
+	border-top: none;
+	border-bottom: none;
+	padding: 4px 0;
+}
+
+/* Left-aligned CSS chevron for sub-sections (matches main section style) */
+.nw-sub-collapse-icon {
+	width: 10px;
+	height: 10px;
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+.nw-sub-collapse-icon::before {
+	content: '';
+	display: block;
+	width: 4px;
+	height: 4px;
+	border-right: 1.5px solid var(--sg-text-tertiary);
+	border-bottom: 1.5px solid var(--sg-text-tertiary);
+	transform: rotate(-45deg);
+	transition: transform 0.2s ease;
+}
+.nw-collapsible.expanded .nw-sub-collapse-icon::before {
+	transform: rotate(45deg);
+}
+
+/* Compact section — less vertical padding */
+.nw-section-compact {
+	padding-top: 6px;
+	padding-bottom: 6px;
+}
+.nw-section-compact .nw-section-header {
+	margin-bottom: 2px;
+}
+
+/* User actions in section header */
+.nw-section-header .nw-user-actions {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin-left: auto;
+}
+
 /* ========================================================================
    BUTTONS
    ======================================================================== */
@@ -850,7 +897,6 @@ body {
    ======================================================================== */
 
 .nw-cred-add-btn {
-	margin-left: auto;
 	font-size: 16px;
 	line-height: 1;
 	padding: 0 4px;
@@ -906,8 +952,8 @@ body {
 .nw-credentials-empty {
 	font-size: 11px;
 	color: var(--sg-text-tertiary);
-	text-align: center;
-	padding: 6px 0;
+	padding: 0 4px;
+	line-height: 1.6;
 }
 
 .nw-btn-sm {
@@ -1197,58 +1243,11 @@ body.nw-auth-pending {
 	color: var(--sg-text-primary, #ddd);
 }
 
-/* ── User bar (logged-in indicator + logout) ─────────────────── */
-.nw-user-bar {
-	display: flex;
-	align-items: center;
-	gap: 6px;
-	padding: 4px 6px;
-	margin: 0 0 6px 0;
-	background: var(--sg-bg-secondary, #2a2a2a);
-	border-radius: 4px;
-	font-size: 12px;
-}
-.nw-user-name {
-	flex: 1;
-	color: var(--sg-text-secondary, #aaa);
-	overflow: hidden;
-	text-overflow: ellipsis;
-	white-space: nowrap;
-	min-width: 0;
-}
-.nw-user-name::before {
-	content: "\25CF ";
-	color: var(--sg-accent-green, #5cb85c);
-}
+/* ── User section (logged-in indicator + actions) ────────────── */
 .nw-user-actions {
 	display: flex;
 	gap: 2px;
 	flex-shrink: 0;
-}
-.nw-user-action-btn {
-	background: none;
-	border: none;
-	color: var(--sg-text-tertiary, #666);
-	cursor: pointer;
-	padding: 3px;
-	border-radius: 3px;
-	line-height: 0;
-	transition: color 0.15s, background 0.15s;
-}
-.nw-user-action-btn:hover {
-	color: var(--sg-text-primary, #ddd);
-	background: var(--sg-bg-primary, #1a1a2e);
-}
-.nw-user-name-clickable {
-	cursor: pointer;
-}
-.nw-user-name-clickable:hover {
-	color: var(--sg-text-primary, #ddd);
-}
-/* Hide user bar when panel is collapsed */
-.nw-panel.nw-panel-collapsed .nw-user-bar {
-	opacity: 0;
-	pointer-events: none;
 }
 
 /* ── User Panel ──────────────────────────────────────────────── */
@@ -1582,3 +1581,35 @@ body.nw-auth-pending {
 	margin-top: 14px;
 	justify-content: flex-end;
 }
+
+/* ── Channel Panel ─────────────────────────────────────────── */
+.nw-channel-summary {
+	font-size: 11px;
+	color: var(--sg-text-tertiary);
+	padding: 0 4px;
+	line-height: 1.6;
+}
+.nw-channel-summary .nw-ch-dot {
+	display: inline-block;
+	width: 6px; height: 6px;
+	border-radius: 50%;
+	margin-right: 3px;
+	vertical-align: middle;
+}
+.nw-ch-dot-running  { background: var(--sg-accent-green, #5cb85c); }
+.nw-ch-dot-stopped  { background: var(--sg-text-tertiary, #888); }
+.nw-ch-dot-error    { background: var(--sg-accent-red, #d9534f); }
+.nw-ch-dot-starting { background: var(--sg-accent-yellow, #f0ad4e); }
+
+.nw-channel-status-badge {
+	display: inline-block;
+	font-size: 10px;
+	padding: 1px 6px;
+	border-radius: 8px;
+	font-weight: 600;
+}
+.nw-ch-badge-running  { background: var(--sg-accent-green, #5cb85c); color: #fff; }
+.nw-ch-badge-stopped  { background: var(--sg-text-tertiary, #888); color: #fff; }
+.nw-ch-badge-error    { background: var(--sg-accent-red, #d9534f); color: #fff; }
+.nw-ch-badge-starting { background: var(--sg-accent-yellow, #f0ad4e); color: #fff; }
+.nw-ch-badge-stopping { background: var(--sg-accent-yellow, #f0ad4e); color: #fff; }

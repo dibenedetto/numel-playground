@@ -63,7 +63,7 @@ from   channels.signal_adapter    import SignalAdapter
 from   channels.slack_adapter     import SlackAdapter
 from   channels.teams_adapter     import TeamsAdapter
 from   channels.webhook_adapter   import WebhookChannelAdapter
-from   console   import ConsoleAgentManager, setup_console_api
+from   console   import ConsoleAgentManager, ChannelAgentPool, setup_console_api
 from   event_bus import EventBus, get_event_bus
 from   gallery   import GalleryManager, setup_gallery_api
 from   memory    import MemoryStore
@@ -500,14 +500,15 @@ async def run_server(args: Any):
 	console_mgr.setup_proactive_listeners()
 
 	# ── Channel Adapters ──────────────────────────────────────
+	channel_pool = ChannelAgentPool(
+		workspace_mgr=workspace_mgr, memory_store=memory_store)
+
 	async def channel_message_handler(msg):
-		"""Route incoming channel messages to the console agent."""
+		"""Route incoming channel messages to per-user agents."""
 		try:
-			result = await console_mgr.chat(
-				message    = msg.content,
-				session_id = msg.metadata.get("session_id") or f"ch_{msg.channel_type}_{msg.sender_id}",
-			)
-			return result.get("response", "")
+			session_id = msg.metadata.get("session_id") or f"ch_{msg.channel_type}_{msg.sender_id}"
+			result = await channel_pool.chat(msg.content, session_id)
+			return result.get("response", "") or result.get("error", "")
 		except Exception as e:
 			return f"Error: {e}"
 

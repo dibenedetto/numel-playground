@@ -38,6 +38,8 @@ const NumelAdmin = (() => {
 	}
 
 	function open() {
+		// Close channels panel if open to avoid overlap
+		if (typeof NumelChannels !== 'undefined') NumelChannels.close();
 		if (_panel) _panel.classList.add('open');
 		_refreshCurrentTab();
 	}

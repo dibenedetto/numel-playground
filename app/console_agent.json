@@ -1,7 +1,7 @@
 {
 	"model": {
 		"source": "ollama",
-		"name": "mistral"
+		"name": "qwen3.5:cloud"
 	},
 	"options": {
 		"name": "Numel Assistant",

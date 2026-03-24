@@ -32,6 +32,7 @@ sqlalchemy
 # web tools
 ddgs
 duckduckgo-search
+python-telegram-bot
 
 # ai/ml frameworks
 agno
