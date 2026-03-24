@@ -1586,20 +1586,65 @@ body.nw-auth-pending {
 	color: var(--sg-text-secondary);
 	margin: 8px 0 2px;
 }
-.nw-admin-dialog input,
-.nw-admin-dialog select {
+.nw-admin-dialog input:not([type="checkbox"]):not([type="radio"]),
+.nw-admin-dialog select,
+.nw-admin-dialog textarea {
 	width: 100%;
+	box-sizing: border-box;
 	padding: 6px 8px;
 	font-size: 12px;
-	background: var(--sg-bg-secondary);
-	border: 1px solid var(--sg-border-color);
+	font-family: inherit;
+	appearance: none;
+	-webkit-appearance: none;
+	background-color: var(--sg-bg-tertiary) !important;
+	border: 1px solid var(--sg-border-color) !important;
 	border-radius: 4px;
+	color: var(--sg-text-primary) !important;
+	color-scheme: dark light;
+	outline: none;
+	transition: border-color 0.15s;
+}
+.nw-admin-dialog select {
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23707070'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 8px center;
+	padding-right: 26px;
+	cursor: pointer;
+}
+.nw-admin-dialog input:not([type="checkbox"]):not([type="radio"]):focus,
+.nw-admin-dialog select:focus,
+.nw-admin-dialog textarea:focus {
+	border-color: var(--sg-accent-blue) !important;
+}
+.nw-admin-dialog input::placeholder,
+.nw-admin-dialog textarea::placeholder {
+	color: var(--sg-text-tertiary);
+}
+.nw-admin-dialog input:-webkit-autofill,
+.nw-admin-dialog input:-webkit-autofill:focus {
+	-webkit-box-shadow: 0 0 0 1000px var(--sg-bg-tertiary) inset !important;
+	-webkit-text-fill-color: var(--sg-text-primary) !important;
+	caret-color: var(--sg-text-primary);
+}
+/* Checkbox row: label wraps the checkbox + text inline */
+.nw-admin-dialog label.nw-checkbox-row {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-top: 10px;
+	cursor: pointer;
+	font-size: 12px;
 	color: var(--sg-text-primary);
+}
+.nw-admin-dialog label.nw-checkbox-row input[type="checkbox"] {
+	width: auto;
+	accent-color: var(--sg-accent-blue);
+	cursor: pointer;
 }
 .nw-admin-dialog-btns {
 	display: flex;
 	gap: 8px;
-	margin-top: 14px;
+	margin-top: 16px;
 	justify-content: flex-end;
 }
 .nw-channel-pool-field {

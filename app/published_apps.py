@@ -719,8 +719,8 @@ textarea {{ min-height: 80px; resize: vertical; }}
 		if not os.path.exists(self._config_path):
 			return
 		try:
-			with open(self._config_path) as f:
-				raw = json.load(f)
+			import credentials as _creds
+			raw = _creds.load_json(self._config_path)
 			for slug, data in raw.items():
 				self._apps[slug] = PublishedApp(**data)
 		except Exception as e:

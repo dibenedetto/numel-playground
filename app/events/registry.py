@@ -105,9 +105,9 @@ class EventSourceRegistry:
 			return RegistryPersistence()
 
 		try:
-			with open(self._persistence_path, "r") as f:
-				data = json.load(f)
-				return RegistryPersistence(**data)
+			import credentials as _creds
+			data = _creds.load_json(self._persistence_path)
+			return RegistryPersistence(**data)
 		except Exception as e:
 			print(f"Error loading event sources persistence: {e}")
 			return RegistryPersistence()

@@ -214,6 +214,10 @@
 	flex-wrap: wrap;
 	gap: 4px 6px;
 	flex: 1;
+	max-height: 64px;
+	overflow-y: auto;
+	scrollbar-width: thin;
+	scrollbar-color: var(--sg-bg-quaternary) transparent;
 }
 .nw-console-toolkit-item {
 	display: flex;

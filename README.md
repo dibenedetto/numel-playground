@@ -484,16 +484,23 @@ Manage tasks via the UI or the `/agent-tasks/*` API endpoints.
 
 ---
 
-## Credential Store
+## Credential Store & Variable Substitution
 
-Store API keys and secrets securely. Reference them in toolkit args with `${CRED_NAME}` syntax:
+Store API keys and secrets securely. All JSON config files and toolkit args support `${VAR_NAME}` substitution:
 
 ```json
 {"name": "email_toolkit", "args": {"password": "${GMAIL_APP_PASSWORD}"}}
 ```
 
-Manage via the **Credentials** section in the left panel or via API:
-- `GET /credentials` — list names
+**Lookup order** for `${VAR_NAME}`:
+1. Credential store (`credentials.json`)
+2. Environment variables (`os.environ`, includes `.env` via `load_dotenv`)
+3. Unchanged (no match — kept as `${VAR_NAME}`)
+
+This means you can use `${VAR_NAME}` in any JSON config file (`console_agent.json`, `channels.json`, `server_config.json`, etc.) and the value will be resolved from credentials or environment variables at load time.
+
+Manage credentials via the **Credentials** section in the left panel or via API:
+- `POST /credentials` — list names
 - `POST /credentials/{name}` — set value
 - `DELETE /credentials/{name}` — remove
 

@@ -239,8 +239,8 @@ class ConsoleAgentManager:
 		self._current_user_id = user_id
 		_toolkit_args = toolkit_args or {}
 		# Load config for defaults and instructions
-		with open(self._config_path) as f:
-			config = json.load(f)
+		import credentials as _creds
+		config = _creds.load_json(self._config_path)
 		self._config = config
 
 		model_cfg = config.get("model", {})
@@ -972,8 +972,8 @@ class ChannelAgentPool:
 						   user_id: Optional[str] = None,
 						   is_guest: bool = False) -> Agent:
 		"""Build a lightweight Agent from console_agent.json defaults."""
-		with open(self._config_path) as f:
-			config = json.load(f)
+		import credentials as _creds
+		config = _creds.load_json(self._config_path)
 
 		model_cfg = config.get("model", {})
 		source    = model_cfg.get("source", "ollama")

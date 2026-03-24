@@ -179,8 +179,8 @@ const NumelChannels = (() => {
 			<label>Type</label>
 			<select id="_ch_type">${typeOptions}</select>
 			<label>Token / API Key</label>
-			<input id="_ch_token" type="password" placeholder="Bot token from provider" autocomplete="off">
-			<label style="display:flex;align-items:center;gap:6px;margin-top:8px;cursor:pointer;">
+			<input id="_ch_token" type="password" placeholder="Bot token or ${'\u0024{VAR_NAME}'}" autocomplete="off">
+			<label class="nw-checkbox-row">
 				<input id="_ch_autostart" type="checkbox" checked> Auto-start on server boot
 			</label>
 		`, async () => {
@@ -206,7 +206,7 @@ const NumelChannels = (() => {
 				<input id="_ch_name" value="${_esc(ch.name || '')}" autocomplete="off">
 				<label>Token / API Key</label>
 				<input id="_ch_token" type="password" placeholder="(unchanged if empty)" autocomplete="off">
-				<label style="display:flex;align-items:center;gap:6px;margin-top:8px;cursor:pointer;">
+				<label class="nw-checkbox-row">
 					<input id="_ch_autostart" type="checkbox" ${ch.auto_start ? 'checked' : ''}> Auto-start on server boot
 				</label>
 			`, async () => {

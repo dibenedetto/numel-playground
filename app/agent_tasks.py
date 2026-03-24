@@ -323,8 +323,8 @@ class AgentTaskManager:
 		if not os.path.exists(self._config_path):
 			return
 		try:
-			with open(self._config_path) as f:
-				raw = json.load(f)
+			import credentials as _creds
+			raw = _creds.load_json(self._config_path)
 			for tid, data in raw.items():
 				config = AgentTaskConfig(**data)
 				self._tasks[tid] = config

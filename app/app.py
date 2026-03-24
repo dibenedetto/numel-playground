@@ -15,7 +15,6 @@ warnings.filterwarnings(
 import argparse
 import asyncio
 import io
-import json
 import os
 import sys
 import time
@@ -520,8 +519,7 @@ async def run_server(args: Any):
 
 	# Read default toolkits from console_agent.json
 	_cfg_path = os.path.join(_app_dir, "console_agent.json")
-	with open(_cfg_path) as _f:
-		_default_toolkits = json.load(_f).get("toolkits", [])
+	_default_toolkits = _creds.load_json(_cfg_path).get("toolkits", [])
 
 	async def _planner_callback(action, user_id, session_id, config):
 		"""Bridge between channel /planner command and ConsoleAgentManager."""
@@ -559,7 +557,7 @@ async def run_server(args: Any):
 	)
 
 	# Read pool config from console_agent.json
-	_pool_cfg = json.load(open(_cfg_path)).get("channel_pool", {})
+	_pool_cfg = _creds.load_json(_cfg_path).get("channel_pool", {})
 	channel_pool = ChannelAgentPool(
 		workspace_mgr=workspace_mgr, memory_store=memory_store,
 		user_memory_db=user_memory_db,

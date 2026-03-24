@@ -1,5 +1,12 @@
 # credentials.py - file-backed credential / secret store
-# Values are referenced in node fields as ${CRED_NAME}.
+#
+# All JSON config files support ${VAR_NAME} variable substitution.
+# Lookup order:
+#   1. Credential store (credentials.json)
+#   2. Environment variables (os.environ — includes .env via load_dotenv)
+#   3. Unchanged (no match)
+#
+# Use load_json(path) to load any JSON file with variable resolution.
 
 import json
 import os
@@ -54,11 +61,22 @@ def delete(name: str) -> bool:
 
 
 def resolve(value: str) -> str:
-	"""Replace ${CRED_NAME} references with stored credential values."""
+	"""Replace ${VAR_NAME} references with credential or environment variable values.
+
+	Lookup order:
+	  1. Credential store (credentials.json)
+	  2. Environment variables (os.environ)
+	  3. Keep the original ${VAR_NAME} unchanged (no match)
+	"""
 	if not isinstance(value, str) or "${" not in value:
 		return value
 	data = _load()
-	return re.sub(r'\$\{([^}]+)\}', lambda m: data.get(m.group(1), m.group(0)), value)
+	def _sub(m):
+		name = m.group(1)
+		if name in data:
+			return data[name]
+		return os.environ.get(name, m.group(0))
+	return re.sub(r'\$\{([^}]+)\}', _sub, value)
 
 
 def resolve_dict(d: dict) -> dict:
@@ -72,7 +90,33 @@ def resolve_dict(d: dict) -> dict:
 		elif isinstance(v, dict):
 			result[k] = resolve_dict(v)
 		elif isinstance(v, list):
-			result[k] = [resolve(i) if isinstance(i, str) else i for i in v]
+			result[k] = _resolve_list(v)
 		else:
 			result[k] = v
 	return result
+
+
+def _resolve_list(lst: list) -> list:
+	"""Recursively resolve ${CRED_NAME} references in a list."""
+	out = []
+	for item in lst:
+		if isinstance(item, str):
+			out.append(resolve(item))
+		elif isinstance(item, dict):
+			out.append(resolve_dict(item))
+		elif isinstance(item, list):
+			out.append(_resolve_list(item))
+		else:
+			out.append(item)
+	return out
+
+
+def load_json(path: str) -> dict | list:
+	"""Load a JSON file and resolve all ${CRED_NAME} references in string values."""
+	with open(path, "r", encoding="utf-8") as f:
+		data = json.load(f)
+	if isinstance(data, dict):
+		return resolve_dict(data)
+	if isinstance(data, list):
+		return _resolve_list(data)
+	return data

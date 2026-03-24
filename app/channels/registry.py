@@ -146,8 +146,8 @@ class ChannelRegistry:
 			return
 
 		try:
-			with open(self._config_path) as f:
-				configs = json.load(f)
+			import credentials as _creds
+			configs = _creds.load_json(self._config_path)
 		except Exception as e:
 			log_print(f"Failed to load channel configs: {e}")
 			return
