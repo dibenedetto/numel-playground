@@ -546,13 +546,6 @@ function _showUserBar(user) {
 	if (!bar || !user) return;
 	document.getElementById('authUserName').textContent = user.username;
 	bar.style.display = '';
-	// Populate expanded info
-	const roleEl   = document.getElementById('authUserRole');
-	const emailEl  = document.getElementById('authUserEmail');
-	const serverEl = document.getElementById('authUserServer');
-	if (roleEl)   roleEl.textContent   = user.role || 'user';
-	if (emailEl)  emailEl.textContent  = user.email || '—';
-	if (serverEl) serverEl.textContent = ($('serverUrl').value || window.location.origin).replace(/^https?:\/\//, '');
 	// Show admin button if admin role
 	if (typeof NumelAdmin !== 'undefined') NumelAdmin.checkAdminAccess(user);
 	document.getElementById('authLogoutBtn').onclick = async () => {

@@ -31,7 +31,7 @@ class ChannelSendRequest(BaseModel):
 
 # ── Route Setup ───────────────────────────────────────────────────
 
-def setup_channel_api(app: FastAPI, registry: ChannelRegistry, pool=None):
+def setup_channel_api(app: FastAPI, registry: ChannelRegistry):
 	"""Register all channel-related API routes."""
 
 	@app.post("/channels/types")
@@ -100,20 +100,6 @@ def setup_channel_api(app: FastAPI, registry: ChannelRegistry, pool=None):
 		if not adapter:
 			return {"error": "not found"}
 		return adapter.get_status()
-
-	# ── Agent Pool Config ─────────────────────────────────────────
-
-	@app.post("/channels/pool/config")
-	async def channel_pool_config(request: dict):
-		"""Get or update channel agent pool settings."""
-		if pool is None:
-			return {"error": "agent pool not available"}
-		if "idle_timeout" in request:
-			pool._idle_timeout = max(60, float(request["idle_timeout"]))
-		return {
-			"idle_timeout": pool._idle_timeout,
-			"pool_size":    pool.pool_size,
-		}
 
 	# ── Webhook Ingress ───────────────────────────────────────────
 
