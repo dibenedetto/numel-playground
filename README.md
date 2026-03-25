@@ -162,6 +162,10 @@ Deploy agents to 8 platforms — including the web console itself:
 
 The web assistant console is treated as just another channel — the same code path handles command processing, memory isolation, and agent pooling for all entry points. External channels support auto-start and persistence.
 
+- **Cross-channel messaging** — agents can send messages to users on any running channel via the `channel_toolkit` (list channels, send to specific user, broadcast) or the **Channel Send** workflow node
+- **Per-session auth tokens** — each agent session carries its own auth token, forwarded to toolkits like `workspace_toolkit` so that API calls respect the originating user's permissions
+- **Channel ownership** — only the channel creator (or admins) can start, stop, or edit a channel; guests cannot create channels
+
 #### Channel Commands
 
 All channels (including the web console) support `/` commands:
@@ -270,6 +274,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 | **HTTP Request** | HTTP client (GET, POST, PUT, DELETE). |
 | **User Input** | Pause and prompt the user for text. |
 | **Tool Call** | Interactive tool with Execute button. |
+| **Channel Send** | Send a message to a user on any connected channel (Telegram, Discord, Slack, etc.). |
 
 ### Event Sources
 | Node | Description |
@@ -298,10 +303,11 @@ Direct value nodes: **String**, **Integer**, **Real**, **Boolean**, **List**, **
 
 ---
 
-## Built-in Toolkits (14)
+## Built-in Toolkits (15)
 
 | Toolkit | Key Methods | Description |
 |---------|-------------|-------------|
+| **channel_toolkit** | list_channels, send_message, broadcast | Cross-channel messaging (send to any running channel) |
 | **file_toolkit** | list_directory, read_file, write_file, search_files | Filesystem operations |
 | **http_toolkit** | get, post, put, delete, request | HTTP client with auth |
 | **database_toolkit** | query, execute, insert, list_tables, describe_table | SQL databases (any SQLAlchemy URL) |
