@@ -207,6 +207,13 @@
 	border-color: var(--sg-border-highlight);
 }
 
+.nw-console-settings-row:has(.nw-console-toolkit-list) {
+	align-items: start;
+}
+.nw-console-settings-row:has(.nw-console-toolkit-list) > label:first-child {
+	padding-top: 4px;
+}
+
 /* ── Toolkit Picker ────────────────────────────────────────── */
 
 .nw-console-toolkit-list {
@@ -214,7 +221,7 @@
 	flex-wrap: wrap;
 	gap: 4px 6px;
 	flex: 1;
-	max-height: 64px;
+	max-height: 48px;
 	overflow-y: auto;
 	scrollbar-width: thin;
 	scrollbar-color: var(--sg-bg-quaternary) transparent;

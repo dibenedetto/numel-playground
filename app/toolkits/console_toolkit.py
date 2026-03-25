@@ -17,15 +17,16 @@ Available operations:
 
 	__toolkit__ = True
 
-	def __init__(self, workspace_mgr):
+	def __init__(self, workspace_mgr, user_id=None):
 		self._ws_mgr = workspace_mgr
+		self._user_id = user_id
 
-	def _get_default_ws(self):
-		return self._ws_mgr.get_default_workspace()
+	def _get_ws(self):
+		return self._ws_mgr.resolve_workspace_sync(self._user_id)
 
 	def _get_workflow(self):
-		"""Get the first loaded workflow object from the default workspace, or None."""
-		ws = self._get_default_ws()
+		"""Get the first loaded workflow object from the user's workspace, or None."""
+		ws = self._get_ws()
 		mgr = ws.manager
 		if not mgr._workflows:
 			return None
@@ -110,7 +111,7 @@ Available operations:
 		Returns:
 			Execution status summary, or a message if no execution has run.
 		"""
-		ws = self._get_default_ws()
+		ws = self._get_ws()
 		engine = ws.engine
 		if not engine:
 			return "No execution engine available."

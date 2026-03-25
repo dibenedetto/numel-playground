@@ -218,6 +218,11 @@ class WorkflowVisualizer {
 			}
 		});
 
+		// Discard saved state when the last tab is cleared
+		schemaGraphApp.eventBus.on('tab:cleared', (data) => {
+			delete this._tabWorkflowState[data.tabId];
+		});
+
 		// Restore workflow state after tab switch
 		schemaGraphApp.eventBus.on('tab:switched', (data) => {
 			const saved = this._tabWorkflowState[data.tabId];

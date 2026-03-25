@@ -275,8 +275,8 @@ class ConsoleAgentManager:
 		tools = []
 		for tk_name in toolkits:
 			if tk_name == "console_toolkit":
-				# Built-in: pass workspace manager
-				toolkit = ConsoleToolkit(self._ws_mgr)
+				# Built-in: pass workspace manager + user_id for per-user workspace
+				toolkit = ConsoleToolkit(self._ws_mgr, user_id=user_id)
 				for attr_name in dir(toolkit):
 					if attr_name.startswith('_'):
 						continue
@@ -284,7 +284,11 @@ class ConsoleAgentManager:
 					if callable(method):
 						tools.append(method)
 			else:
-				tools.extend(_load_toolkit(tk_name, _toolkit_args.get(tk_name)))
+				tk_args = dict(_toolkit_args.get(tk_name) or {})
+				# Inject auth token into workspace_toolkit for per-user workspace
+				if tk_name == "workspace_toolkit" and getattr(self, '_auth_token', ''):
+					tk_args.setdefault("auth_token", self._auth_token)
+				tools.extend(_load_toolkit(tk_name, tk_args or None))
 
 		log_print(f"Console agent tools: {[getattr(t, '__name__', str(t)) for t in tools]}")
 
@@ -786,9 +790,9 @@ class ConsoleAgentManager:
 				pass
 		return None
 
-	async def _apply_workflow_json(self, wf_json: dict) -> str:
+	async def _apply_workflow_json(self, wf_json: dict, user_id: Optional[str] = None) -> str:
 		"""Apply a workflow JSON dict directly via the workspace manager (in-process, no HTTP)."""
-		ws = self._ws_mgr.get_default_workspace()
+		ws = self._ws_mgr.resolve_workspace_sync(user_id or self._current_user_id)
 		mgr = ws.manager
 		names = list(mgr._workflows.keys())
 		name = names[0] if names else "workspace"
@@ -824,9 +828,9 @@ class ConsoleAgentManager:
 
 	# ── Context ────────────────────────────────────────────────────
 
-	def get_context(self) -> dict:
+	def get_context(self, user_id: Optional[str] = None) -> dict:
 		"""Gather current workspace context for the console agent."""
-		ws = self._ws_mgr.get_default_workspace()
+		ws = self._ws_mgr.resolve_workspace_sync(user_id or self._current_user_id)
 		mgr = ws.manager
 
 		context_parts = []
@@ -989,7 +993,7 @@ class ChannelAgentPool:
 		tools = []
 		for tk_name in tk_names:
 			if tk_name == "console_toolkit" and self._ws_mgr:
-				toolkit = ConsoleToolkit(self._ws_mgr)
+				toolkit = ConsoleToolkit(self._ws_mgr, user_id=user_id)
 				for attr_name in dir(toolkit):
 					if attr_name.startswith('_'):
 						continue
@@ -1083,10 +1087,15 @@ class ChannelAgentPool:
 					self._last_used.pop(sid, None)
 				if expired:
 					log_print(f"ChannelAgentPool: evicted {len(expired)} idle agents (pool size: {len(self._agents)})")
-			# Clean up expired guest memory databases
+			# Clean up expired guest memory databases and workspaces
 			if self._user_memory_db:
 				try:
 					self._user_memory_db.cleanup_expired_guests()
+				except Exception:
+					pass
+			if self._ws_mgr:
+				try:
+					await self._ws_mgr.cleanup_guest_workspaces()
 				except Exception:
 					pass
 			async with self._lock:
@@ -1121,6 +1130,9 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 	async def console_start(req: Request, request: ConsoleStartRequest = ConsoleStartRequest()):
 		user = getattr(req.state, 'user', None)
 		user_id = user.id if user else None
+		# Store auth token so workspace_toolkit HTTP calls hit the user's workspace
+		token = req.headers.get("authorization", "").removeprefix("Bearer ").strip()
+		console_mgr._auth_token = token
 		port = await console_mgr.start(request.model_source, request.model_name, request.toolkit_names, request.use_backend_memory, request.toolkit_args, user_id=user_id)
 		return {
 			"port":          port,
@@ -1322,12 +1334,13 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 		return {"reset": True}
 
 	@app.post("/console/planner/apply")
-	async def console_planner_apply(request: dict):
+	async def console_planner_apply(request: dict, req: Request):
 		wf_json = request.get("workflow")
 		if not wf_json or "nodes" not in wf_json:
 			return {"error": "No valid workflow JSON"}
 		try:
-			result = await console_mgr._apply_workflow_json(wf_json)
+			user = getattr(req.state, 'user', None)
+			result = await console_mgr._apply_workflow_json(wf_json, user_id=user.id if user else None)
 			return {"ok": True, "result": result}
 		except Exception as e:
 			return {"error": str(e)}
@@ -1366,8 +1379,9 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 		return results
 
 	@app.post("/console/context")
-	async def console_context():
-		return console_mgr.get_context()
+	async def console_context(req: Request):
+		user = getattr(req.state, 'user', None)
+		return console_mgr.get_context(user_id=user.id if user else None)
 
 	@app.post("/console/status")
 	async def console_status():

@@ -10,7 +10,7 @@ import re
 import numpy as np
 from   PIL       import Image
 from   pathlib   import Path
-from   fastapi   import FastAPI, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, File, Form
+from   fastapi   import FastAPI, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect, File, Form
 from   fastapi.responses import FileResponse
 from   inspect   import iscoroutinefunction
 from   pydantic  import BaseModel
@@ -213,32 +213,29 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 	manager     = _default_ws.manager
 	engine      = _default_ws.engine
 
+	def _ws(req: Request):
+		"""Return the per-user workspace set by the workspace middleware,
+		falling back to the default workspace."""
+		return getattr(req.state, 'workspace', _default_ws)
+
 	# Setup tutorial extension API (see docs/tutorial-extension.md)
 	setup_tutorial_api(app, manager)
 
 	@app.post("/shutdown")
-	async def shutdown_server():
-		nonlocal engine, server
-		await engine.cancel_execution()
+	async def shutdown_server(req: Request):
+		nonlocal server
+		ws = _ws(req)
+		await ws.engine.cancel_execution()
 		if server and server.should_exit is False:
 			server.should_exit = True
-		engine = None
 		server = None
-		result = {
-			"status"  : "none",
-			"message" : "Server shut down",
-		}
-		return result
+		return {"status": "none", "message": "Server shut down"}
 
 
 	@app.post("/status")
-	async def server_status():
-		nonlocal engine
-		result = {
-			"status"     : "ready",
-			"executions" : engine.get_all_execution_states(),
-		}
-		return result
+	async def server_status(req: Request):
+		ws = _ws(req)
+		return {"status": "ready", "executions": ws.engine.get_all_execution_states()}
 
 
 	@app.post("/file/{file_path:path}")
@@ -293,10 +290,10 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 
 	@app.post("/tool_call")
-	async def tool_call(request: ToolCallRequest):
-		nonlocal manager
+	async def tool_call(request: ToolCallRequest, req: Request):
+		ws = _ws(req)
 		try:
-			impl = await manager.impl()
+			impl = await ws.manager.impl()
 			if not impl:
 				raise HTTPException(status_code=404, detail="No active workflow")
 
@@ -342,14 +339,14 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 
 	@app.post("/add")
-	async def add_workflow(request: WorkflowUploadRequest):
-		nonlocal manager
+	async def add_workflow(request: WorkflowUploadRequest, req: Request):
+		ws = _ws(req)
 		try:
-			name = await manager.add(request.workflow, request.name)
+			name = await ws.manager.add(request.workflow, request.name)
 			# Build implementation — optional, workflow may be incomplete during editing
 			wf = None
 			try:
-				impl = await manager.impl(name)
+				impl = await ws.manager.impl(name)
 				wf   = impl["workflow"].model_dump() if impl else None
 			except Exception:
 				pass  # incomplete workflow is fine; impl built at run time
@@ -367,9 +364,9 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 	@app.post("/remove")
 	@app.post("/remove/{name}")
-	async def remove_workflow(name: Optional[str] = None):
-		nonlocal manager
-		status = await manager.remove(name)
+	async def remove_workflow(req: Request, name: Optional[str] = None):
+		ws = _ws(req)
+		status = await ws.manager.remove(name)
 		result = {
 			"name"   : name,
 			"status" : "removed" if status else "failed",
@@ -379,9 +376,9 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 	@app.post("/get")
 	@app.post("/get/{name}")
-	async def get_workflow(name: Optional[str] = None):
-		nonlocal manager
-		workflow = await manager.get(name)
+	async def get_workflow(req: Request, name: Optional[str] = None):
+		ws = _ws(req)
+		workflow = await ws.manager.get(name)
 		if workflow:
 			if isinstance(workflow, dict):
 				workflow = {k: v.model_dump() for k, v in workflow.items()}
@@ -395,9 +392,9 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 
 	@app.post("/list")
-	async def list_workflows():
-		nonlocal manager
-		names  = await manager.list()
+	async def list_workflows(req: Request):
+		ws = _ws(req)
+		names  = await ws.manager.list()
 		result = {
 			"names": names,
 		}
@@ -405,15 +402,15 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 
 	@app.post("/start")
-	async def start_workflow(request: WorkflowStartRequest):
-		nonlocal engine, manager
+	async def start_workflow(request: WorkflowStartRequest, req: Request):
+		ws = _ws(req)
 		try:
-			impl = await manager.impl(request.name)
+			impl = await ws.manager.impl(request.name)
 			if not impl:
 				raise HTTPException(status_code=404, detail=f"Workflow 'request.name' not found")
 			options      = request.initial_data or WorkflowExecutionOptions()
 			initial_data = options.model_dump()
-			execution_id = await engine.start_workflow(
+			execution_id = await ws.engine.start_workflow(
 				workflow     = impl["workflow"],
 				backend      = impl["backend" ],
 				initial_data = initial_data,
@@ -429,10 +426,10 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 
 	@app.post("/exec_list")
-	async def list_executions():
-		nonlocal engine
+	async def list_executions(req: Request):
+		ws = _ws(req)
 		try:
-			execution_ids = engine.list_executions()
+			execution_ids = ws.engine.list_executions()
 			result =  {
 				"execution_ids": execution_ids,
 			}
@@ -444,9 +441,9 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 	@app.post("/exec_state")
 	@app.post("/exec_state/{execution_id}")
-	async def execution_state(execution_id: Optional[str] = None):
-		nonlocal engine
-		state  = engine.get_execution_state(execution_id)
+	async def execution_state(req: Request, execution_id: Optional[str] = None):
+		ws = _ws(req)
+		state  = ws.engine.get_execution_state(execution_id)
 		result = {
 			"execution_id" : execution_id,
 			"state"        : state,
@@ -456,10 +453,10 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 	@app.post("/exec_cancel")
 	@app.post("/exec_cancel/{execution_id}")
-	async def cancel_execution(execution_id: Optional[str] = None):
-		nonlocal engine
+	async def cancel_execution(req: Request, execution_id: Optional[str] = None):
+		ws = _ws(req)
 		try:
-			state  = await engine.cancel_execution(execution_id)
+			state  = await ws.engine.cancel_execution(execution_id)
 			result =  {
 				"execution_id" : execution_id,
 				"status"       : "cancelled" if state else "failed",
@@ -474,9 +471,9 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 	# ─── Execution Results ──────────────────────────────────────────────
 
 	@app.post("/exec_results/{execution_id}")
-	async def execution_results(execution_id: str):
-		nonlocal engine
-		results = engine.get_execution_results(execution_id)
+	async def execution_results(execution_id: str, req: Request):
+		ws = _ws(req)
+		results = ws.engine.get_execution_results(execution_id)
 		if results is None:
 			raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' not found")
 		return results
@@ -485,12 +482,12 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 	# ─── Batch Execution ─────────────────────────────────────────────
 
 	@app.post("/batch/start")
-	async def batch_start(request: BatchStartRequest):
-		nonlocal engine, manager
+	async def batch_start(request: BatchStartRequest, req: Request):
+		ws = _ws(req)
 		try:
 			items = []
 			for wf_req in request.workflows:
-				impl = await manager.impl(wf_req.name)
+				impl = await ws.manager.impl(wf_req.name)
 				if not impl:
 					raise HTTPException(status_code=404, detail=f"Workflow '{wf_req.name}' not found")
 				options      = wf_req.initial_data or WorkflowExecutionOptions()
@@ -500,7 +497,7 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 					"backend"      : impl["backend"],
 					"initial_data" : initial_data,
 				})
-			batch_state = await engine.start_batch(items)
+			batch_state = await ws.engine.start_batch(items)
 			return batch_state
 		except HTTPException:
 			raise
@@ -510,18 +507,18 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 
 	@app.post("/batch/state/{batch_id}")
-	async def batch_state(batch_id: str):
-		nonlocal engine
-		state = engine.get_batch_state(batch_id)
+	async def batch_state(batch_id: str, req: Request):
+		ws = _ws(req)
+		state = ws.engine.get_batch_state(batch_id)
 		if state is None:
 			raise HTTPException(status_code=404, detail=f"Batch '{batch_id}' not found")
 		return state
 
 
 	@app.post("/batch/cancel/{batch_id}")
-	async def batch_cancel(batch_id: str):
-		nonlocal engine
-		state = await engine.cancel_batch(batch_id)
+	async def batch_cancel(batch_id: str, req: Request):
+		ws = _ws(req)
+		state = await ws.engine.cancel_batch(batch_id)
 		if state is None:
 			raise HTTPException(status_code=404, detail=f"Batch '{batch_id}' not found")
 		return state
@@ -530,42 +527,42 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 	# ─── Persistence ─────────────────────────────────────────────────
 
 	@app.post("/save/{name}")
-	async def save_workflow(name: str):
-		nonlocal manager
-		ok = await manager.save(name)
+	async def save_workflow(name: str, req: Request):
+		ws = _ws(req)
+		ok = await ws.manager.save(name)
 		if not ok:
 			raise HTTPException(status_code=404, detail=f"Workflow '{name}' not found or no storage dir")
 		return {"name": name, "status": "saved"}
 
 
 	@app.post("/save_all")
-	async def save_all_workflows():
-		nonlocal manager
-		count = await manager.save_all()
+	async def save_all_workflows(req: Request):
+		ws = _ws(req)
+		count = await ws.manager.save_all()
 		return {"status": "saved", "count": count}
 
 
 	@app.post("/load")
-	async def load_workflow(request: LoadWorkflowRequest):
-		nonlocal manager
-		loaded_name = await manager.load(request.filepath, request.name)
+	async def load_workflow(request: LoadWorkflowRequest, req: Request):
+		ws = _ws(req)
+		loaded_name = await ws.manager.load(request.filepath, request.name)
 		if not loaded_name:
 			raise HTTPException(status_code=400, detail=f"Failed to load '{request.filepath}'")
 		return {"name": loaded_name, "status": "loaded"}
 
 
 	@app.post("/load_all")
-	async def load_all_workflows():
-		nonlocal manager
-		count = await manager.load_all()
+	async def load_all_workflows(req: Request):
+		ws = _ws(req)
+		count = await ws.manager.load_all()
 		return {"status": "loaded", "count": count}
 
 
 	# ─── Compose (Pipeline) ──────────────────────────────────────────
 
 	@app.post("/compose")
-	async def compose_workflows(request: ComposeRequest):
-		nonlocal engine, manager
+	async def compose_workflows(request: ComposeRequest, req: Request):
+		ws = _ws(req)
 		import asyncio as _asyncio
 		compose_id = f"compose_{get_timestamp_str()}"
 		compose_state = {
@@ -576,34 +573,34 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 			"current"    : 0,
 			"error"      : None,
 		}
-		if not hasattr(engine, "compose_states"):
-			engine.compose_states = {}
-		engine.compose_states[compose_id] = compose_state
+		if not hasattr(ws.engine, "compose_states"):
+			ws.engine.compose_states = {}
+		ws.engine.compose_states[compose_id] = compose_state
 		await event_bus.emit(
 			event_type = EventType.COMPOSE_STARTED,
 			data       = {"compose_id": compose_id},
 		)
-		_asyncio.create_task(_run_compose(compose_id, request.pipeline, manager, engine, event_bus))
+		_asyncio.create_task(_run_compose(compose_id, request.pipeline, ws.manager, ws.engine, event_bus))
 		return compose_state
 
 
 	@app.post("/compose/state/{compose_id}")
-	async def compose_state(compose_id: str):
-		nonlocal engine
-		if not hasattr(engine, "compose_states"):
+	async def compose_state(compose_id: str, req: Request):
+		ws = _ws(req)
+		if not hasattr(ws.engine, "compose_states"):
 			raise HTTPException(status_code=404, detail="No compositions found")
-		state = engine.compose_states.get(compose_id)
+		state = ws.engine.compose_states.get(compose_id)
 		if state is None:
 			raise HTTPException(status_code=404, detail=f"Composition '{compose_id}' not found")
 		return state
 
 
 	@app.post("/compose/cancel/{compose_id}")
-	async def compose_cancel(compose_id: str):
-		nonlocal engine
-		if not hasattr(engine, "compose_states"):
+	async def compose_cancel(compose_id: str, req: Request):
+		ws = _ws(req)
+		if not hasattr(ws.engine, "compose_states"):
 			raise HTTPException(status_code=404, detail="No compositions found")
-		state = engine.compose_states.get(compose_id)
+		state = ws.engine.compose_states.get(compose_id)
 		if state is None:
 			raise HTTPException(status_code=404, detail=f"Composition '{compose_id}' not found")
 		state["status"] = "cancelled"
@@ -612,15 +609,15 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		if steps:
 			last = steps[-1]
 			if last.get("status") == "running":
-				await engine.cancel_execution(last.get("execution_id"))
+				await ws.engine.cancel_execution(last.get("execution_id"))
 		return state
 
 
 	@app.post("/exec_input/{execution_id}")
-	async def provide_user_input(execution_id: str, request: UserInputRequest):
-		nonlocal engine
+	async def provide_user_input(execution_id: str, request: UserInputRequest, req: Request):
+		ws = _ws(req)
 		try:
-			await engine.provide_user_input(
+			await ws.engine.provide_user_input(
 				execution_id = execution_id,
 				node_id      = request.node_id,
 				user_input   = request.input_data
@@ -638,10 +635,10 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 
 	@app.post("/chat_response/{execution_id}")
-	async def provide_chat_response(execution_id: str, request: ChatResponseRequest):
-		nonlocal engine
+	async def provide_chat_response(execution_id: str, request: ChatResponseRequest, req: Request):
+		ws = _ws(req)
 		try:
-			await engine.provide_chat_response(
+			await ws.engine.provide_chat_response(
 				execution_id = execution_id,
 				node_id      = request.node_id,
 				response     = request.response
@@ -658,19 +655,20 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 	@app.post("/upload/{node_index}")
 	async def upload_files(
+		req        : Request,
 		node_index : int,
 		files      : List[UploadFile] = File(...),
 		node_type  : str = Form(None),
 		button_id  : str = Form(None),
 	):
 		"""Handle file uploads from node drop zones or buttons"""
-		nonlocal event_bus, manager
+		ws = _ws(req)
 		
 		upload_id = f"upload_{node_index}_{get_timestamp_str()}"
 		
 		try:
 			# Get current workflow to find node info
-			impl = await manager.impl()
+			impl = await ws.manager.impl()
 			if not impl:
 				raise HTTPException(status_code=404, detail="No active workflow")
 			
@@ -723,7 +721,7 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 			
 			# === PHASE 2: PROCESSING ===
 			handler_result = None
-			handler        = await manager.get_upload_handler(node.type)
+			handler        = await ws.manager.get_upload_handler(node.type)
 			
 			if handler:
 				await event_bus.emit(
@@ -802,12 +800,11 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 
 	@app.post("/contents/list/{node_index}")
-	async def list_contents(node_index: int):
+	async def list_contents(node_index: int, req: Request):
 		"""List all contents for a node (e.g., knowledge manager)"""
-		nonlocal manager
-
+		ws = _ws(req)
 		try:
-			impl = await manager.impl()
+			impl = await ws.manager.impl()
 			if not impl:
 				raise HTTPException(status_code=404, detail="No active workflow")
 
@@ -843,12 +840,11 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 
 	@app.post("/contents/remove/{node_index}")
-	async def remove_contents(node_index: int, request: ContentRemoveRequest):
+	async def remove_contents(node_index: int, request: ContentRemoveRequest, req: Request):
 		"""Remove contents from a node by their IDs"""
-		nonlocal event_bus, manager
-
+		ws = _ws(req)
 		try:
-			impl = await manager.impl()
+			impl = await ws.manager.impl()
 			if not impl:
 				raise HTTPException(status_code=404, detail="No active workflow")
 

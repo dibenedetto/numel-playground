@@ -7504,12 +7504,16 @@ class SchemaGraphApp {
 
 	_closeTab(tabId) {
 		if (this.tabs.length === 1) {
-			// Only one tab — clear its graph but keep the tab
+			// Only one tab — clear its graph and reset name
 			const tab = this.tabs[0];
 			tab.graphData = null;
+			tab.name = this._nextUntitledName();
 			tab.undoStack = [];
 			tab.redoStack = [];
-			this.eventBus.emit('tab:beforeSwitch', { fromTabId: this.activeTabId });
+			tab.chatState = {};
+			// Emit tab:cleared so listeners can discard saved state,
+			// then load the empty tab without a beforeSwitch (nothing to save).
+			this.eventBus.emit('tab:cleared', { tabId: tab.id });
 			this._loadTabState(tab);
 			this._renderTabs();
 			this.eventBus.emit('tab:switched', { tabId: tab.id, name: tab.name });

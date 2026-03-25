@@ -23,7 +23,7 @@
 | Real-time browser ML | MediaPipe pose/face/hands | No | No |
 | Unified multi-channel | 8 platforms + web console | Limited | No |
 | Agent-first architecture | Native nodes | Integration only | N/A |
-| Per-user memory isolation | Framework-agnostic, cross-channel | No | No |
+| Per-user isolation | Workspaces, memory, agents — cross-channel | No | No |
 | Multi-tenant with quotas | Roles, quotas, admin panel | Enterprise only | No |
 | Autonomous agent tasks | Scheduled/event-driven background agents | Workflows only | No |
 | Swappable provider backends | Auth, Data, Execution | No | No |
@@ -53,6 +53,7 @@
               ChannelCommandHandler
               ChannelAgentPool (per-user)
               UserMemoryDB (per-user SQLite)
+              WorkspaceManager (per-user)
 ```
 
 - **Backend**: FastAPI server (`app/`) with Pydantic models defining every node type. The raw Python schema source is sent to the frontend, which parses it to build the node palette dynamically — no build step.
@@ -194,6 +195,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 - **Toolkit picker** — enable/disable toolkits per session (also via `/toolkit` command)
 - **Voice features**: Text-to-speech (with voice/language selection), speech-to-text (microphone input)
 - **Per-user memory** — each user gets an isolated SQLite memory database, persistent across sessions and shared across channels
+- **Per-user workspaces** — each authenticated user gets an isolated workspace (own workflows + engine); guests get ephemeral workspaces (auto-evicted after 24 h)
 - **Multi-user support** — multiple users connecting to the same server each get their own agent instance via `ChannelAgentPool`
 - **Proactive suggestions** via WebSocket
 - **`/gen` command** — generate workflows from natural language
@@ -429,13 +431,13 @@ The `system_toolkit` exposes all admin operations as agent tools, so the AI assi
 
 ---
 
-## Per-User Memory Isolation
+## Per-User Isolation
 
-Numel provides framework-agnostic per-user memory isolation at the platform level. Each user gets a separate SQLite memory database regardless of which entry point they use (web console, Telegram, Discord, etc.).
+Numel provides per-user isolation at the platform level for both memory and workspaces. Each authenticated user gets their own resources regardless of which entry point they use (web console, Telegram, Discord, etc.).
 
-### How It Works
+### Memory
 
-The `UserMemoryDB` manager resolves user identities to database file paths:
+The `UserMemoryDB` manager resolves user identities to separate SQLite database files:
 
 | User Type | Database Path | Lifetime |
 |-----------|---------------|----------|
@@ -448,6 +450,24 @@ The `UserMemoryDB` manager resolves user identities to database file paths:
 **Framework-agnostic**: `UserMemoryDB` only manages file paths — it doesn't import any agent framework. The caller (agno, langchain, openai agents sdk, etc.) wraps the path in its own DB abstraction. Switching agent frameworks doesn't require changes to the memory layer.
 
 **Guest cleanup**: Ephemeral guest databases are automatically deleted after 24 hours by the `ChannelAgentPool` cleanup loop.
+
+### Workspaces
+
+Each authenticated user gets their own isolated workspace, created lazily on first request:
+
+| User Type | Workspace | Lifetime |
+|-----------|-----------|----------|
+| Authenticated user | `user_{user_id}` workspace | Persistent |
+| Guest (web, no login) | `guest_{session_id}` workspace | Ephemeral (24h) |
+| No auth mode | Per-tab session workspace | Ephemeral (24h) |
+
+A workspace owns its own workflow manager (add/get/list/remove/save workflows) and execution engine (start/cancel/status). Multiple workflows can run concurrently within a single user's engine. Guest workspaces are automatically evicted after 24 hours by the cleanup loop — same lifecycle as guest memory.
+
+**Cross-channel workflows**: When user "marco" enables the planner from Telegram, the generated workflow is stored in marco's workspace — the same one visible when he opens the web canvas.
+
+**All API routes** (`/add`, `/start`, `/list`, `/exec_state`, etc.) automatically resolve the caller's workspace from the auth token and session ID. No client-side changes needed.
+
+**Channel ownership**: Only the user who created a channel adapter can start, stop, edit, or remove it. Admins can manage all channels.
 
 ---
 

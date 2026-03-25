@@ -68,16 +68,21 @@ class WorkspaceToolkit:
 
 	__toolkit__ = True
 
-	def __init__(self, base_url: str = "http://localhost:11360", workflow_name: str = ""):
-		self._base = base_url.rstrip("/")
+	def __init__(self, base_url: str = "http://localhost:11360", workflow_name: str = "",
+				 auth_token: str = ""):
+		self._base  = base_url.rstrip("/")
 		self._name: Optional[str] = workflow_name or None
 		self._wf:   Optional[Dict] = None   # cached dict: {type, nodes, edges}
+		self._token: str = auth_token
 
 	# ── Internal helpers ──────────────────────────────────────────────────
 
 	def _post(self, path: str, data: Any = None) -> dict:
 		import httpx
-		r = httpx.post(f"{self._base}{path}", json=data or {}, timeout=60)
+		headers = {}
+		if self._token:
+			headers["Authorization"] = f"Bearer {self._token}"
+		r = httpx.post(f"{self._base}{path}", json=data or {}, headers=headers, timeout=60)
 		r.raise_for_status()
 		return r.json()
 

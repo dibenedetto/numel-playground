@@ -9,6 +9,12 @@ console.log('[Numel] Loading API client...');
 class NumelAPI {
 	constructor(baseUrl) {
 		this.baseUrl = baseUrl;
+		// Stable per-tab session ID — used for guest workspace isolation
+		this.sessionId = sessionStorage.getItem('numel_session_id');
+		if (!this.sessionId) {
+			this.sessionId = 'sess_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+			sessionStorage.setItem('numel_session_id', this.sessionId);
+		}
 	}
 
 	// ── Core request methods ─────────────────────────────────────
@@ -26,6 +32,8 @@ class NumelAPI {
 		// Inject auth token if available
 		const token = window._numelToken || localStorage.getItem('numel_token');
 		if (token) opts.headers['Authorization'] = `Bearer ${token}`;
+		// Always send session ID for guest workspace resolution
+		if (this.sessionId) opts.headers['X-Session-Id'] = this.sessionId;
 
 		const resp = await fetch(`${this.baseUrl}${endpoint}`, opts);
 		if (!resp.ok) {

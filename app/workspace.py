@@ -4,6 +4,7 @@
 # sharing a single global EventBus.  A "default" workspace is always
 # created so that existing (pre-workspace) API calls continue to work.
 
+import asyncio
 import uuid
 
 
@@ -54,6 +55,8 @@ class WorkspaceManager:
 		self._storage_root  : Optional[Path]             = Path(storage_root) if storage_root else None
 		self._workspaces    : Dict[str, WorkspaceState]  = {}
 		self._default_ws_id : Optional[str]              = None
+		self._user_ws       : Dict[str, str]             = {}   # user_id → workspace_id
+		self._user_ws_lock  : asyncio.Lock               = asyncio.Lock()
 
 		if self._storage_root:
 			self._storage_root.mkdir(parents=True, exist_ok=True)
@@ -75,6 +78,47 @@ class WorkspaceManager:
 	def get_default_workspace(self) -> WorkspaceState:
 		"""Return the default workspace (always exists)."""
 		return self._workspaces[self._default_ws_id]
+
+
+	async def get_or_create_user_workspace(self, user_id: str) -> WorkspaceState:
+		"""Return the workspace for *user_id*, creating it lazily on first use."""
+		# Fast path — already exists
+		ws_id = self._user_ws.get(user_id)
+		if ws_id and ws_id in self._workspaces:
+			return self._workspaces[ws_id]
+
+		# Slow path — create under lock to prevent duplicates
+		async with self._user_ws_lock:
+			ws_id = self._user_ws.get(user_id)
+			if ws_id and ws_id in self._workspaces:
+				return self._workspaces[ws_id]
+
+			ws = await self.create_workspace(
+				name=f"user_{user_id}",
+				description=f"Workspace for user {user_id}",
+			)
+			await ws.manager.initialize()
+			self._user_ws[user_id] = ws.workspace_id
+			return ws
+
+
+	async def resolve_workspace(self, user_id: Optional[str] = None) -> WorkspaceState:
+		"""Return the workspace for *user_id*, or the default workspace for
+		guests / unauthenticated callers (user_id is None)."""
+		if user_id:
+			return await self.get_or_create_user_workspace(user_id)
+		return self.get_default_workspace()
+
+
+	def resolve_workspace_sync(self, user_id: Optional[str] = None) -> WorkspaceState:
+		"""Synchronous fast-path: look up an *already-created* user workspace.
+		Falls back to the default workspace when the user workspace hasn't been
+		created yet (or user_id is None)."""
+		if user_id:
+			ws_id = self._user_ws.get(user_id)
+			if ws_id and ws_id in self._workspaces:
+				return self._workspaces[ws_id]
+		return self.get_default_workspace()
 
 
 	async def create_workspace(self, name: str, description: Optional[str] = None) -> WorkspaceState:
@@ -141,3 +185,29 @@ class WorkspaceManager:
 	async def list_workspaces(self) -> List[dict]:
 		"""List all workspaces with summary info."""
 		return [ws.to_dict() for ws in self._workspaces.values()]
+
+
+	async def evict_user_workspace(self, user_key: str) -> bool:
+		"""Remove an ephemeral workspace by its user key (e.g. 'guest_...')."""
+		ws_id = self._user_ws.pop(user_key, None)
+		if not ws_id:
+			return False
+		return await self.delete_workspace(ws_id)
+
+
+	async def cleanup_guest_workspaces(self, max_age_s: float = 86400):
+		"""Evict guest workspaces older than *max_age_s* seconds."""
+		now = datetime.now()
+		to_evict = []
+		for user_key, ws_id in list(self._user_ws.items()):
+			if not user_key.startswith("guest_"):
+				continue
+			ws = self._workspaces.get(ws_id)
+			if not ws:
+				to_evict.append(user_key)
+				continue
+			age = (now - datetime.fromisoformat(ws.created_at)).total_seconds()
+			if age > max_age_s:
+				to_evict.append(user_key)
+		for key in to_evict:
+			await self.evict_user_workspace(key)

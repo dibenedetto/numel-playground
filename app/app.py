@@ -170,7 +170,7 @@ async def run_server(args: Any):
 
 	@app.middleware("http")
 	async def auth_middleware(request: Request, call_next):
-		"""Inject request.state.user from bearer token.  Skip for public routes."""
+		"""Inject request.state.user and request.state.workspace from bearer token."""
 		request.state.user = None
 		request.state.auth = _auth_provider
 
@@ -180,6 +180,12 @@ async def run_server(args: Any):
 			or path.startswith("/web")
 			or path.startswith("/ws")
 			or _auth_provider.__class__.__name__ == "NoneAuthProvider"):
+			# Even with auth disabled, resolve a session-based workspace
+			session_id = request.headers.get("x-session-id", "").strip()
+			if session_id:
+				request.state.workspace = await workspace_mgr.resolve_workspace(f"guest_{session_id}")
+			else:
+				request.state.workspace = workspace_mgr.get_default_workspace()
 			return await call_next(request)
 
 		token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
@@ -187,6 +193,17 @@ async def run_server(args: Any):
 			user = await _auth_provider.authenticate(token)
 			if user:
 				request.state.user = user
+
+		# Resolve workspace: authenticated user → per-user, guest → per-session ephemeral
+		user = request.state.user
+		if user:
+			request.state.workspace = await workspace_mgr.resolve_workspace(user.id)
+		else:
+			session_id = request.headers.get("x-session-id", "").strip()
+			if session_id:
+				request.state.workspace = await workspace_mgr.resolve_workspace(f"guest_{session_id}")
+			else:
+				request.state.workspace = workspace_mgr.get_default_workspace()
 
 		return await call_next(request)
 
@@ -679,7 +696,7 @@ async def run_server(args: Any):
 	# ── Workspace ZIP Export ───────────────────────────────────
 
 	@app.post("/workspace/export")
-	async def export_workspace():
+	async def export_workspace(request: Request):
 		"""Export entire workspace (workflows + configs) as a ZIP archive."""
 		workspace_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 		include_patterns = [
@@ -698,7 +715,7 @@ async def run_server(args: Any):
 					zf.write(full_path, pattern)
 			# Also serialize workflows directly from the workspace manager
 			try:
-				ws_obj   = workspace_mgr.get_default_workspace()
+				ws_obj   = request.state.workspace
 				mgr      = ws_obj.manager
 				wf_names = await mgr.list()
 				for name in wf_names:
@@ -727,13 +744,13 @@ async def run_server(args: Any):
 		inputs        : Optional[dict] = None
 
 	@app.post("/schedule-run")
-	async def schedule_run(request: ScheduledRunRequest):
+	async def schedule_run(request: ScheduledRunRequest, req: Request):
 		"""Schedule a workflow to run after a delay (or immediately)."""
+		ws_obj = req.state.workspace
 		async def _run_later():
 			if request.delay_seconds > 0:
 				await asyncio.sleep(request.delay_seconds)
 			try:
-				ws_obj = workspace_mgr.get_default_workspace()
 				mgr    = ws_obj.manager
 				engine = ws_obj.engine
 				wf = await mgr.get(request.workflow_name)

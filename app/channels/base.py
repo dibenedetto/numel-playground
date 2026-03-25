@@ -58,6 +58,9 @@ class ChannelConfig(BaseModel):
 	allowed_users: List[str]      = Field(default_factory=list)    # Empty = allow all
 	session_id   : Optional[str]  = None         # Fixed session ID (shared memory)
 
+	# Ownership
+	created_by   : Optional[str]  = None         # User ID of the creator
+
 	# Platform-specific extras
 	extras       : Dict[str, Any] = Field(default_factory=dict)
 
@@ -137,4 +140,5 @@ class ChannelAdapter(ABC):
 			"error":        self._error,
 			"enabled":      self.config.enabled,
 			"auto_start":   self.config.auto_start,
+			"created_by":   self.config.created_by,
 		}
