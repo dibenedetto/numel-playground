@@ -1163,6 +1163,26 @@ class NotifyFlow(FlowType):
     error   : Annotated[Optional[str]         , FieldRole.OUTPUT  ] = Field(default=None,      description="Error message if the notification failed; None on success")
 
 
+@node_info(
+    title       = "Channel Send",
+    description = "Send a message to a user on a connected channel (Telegram, Discord, Slack, etc.)",
+    icon        = "💬",
+    section     = "Workflow",
+    layer       = 2,
+    visible     = True
+)
+class ChannelSendFlow(FlowType):
+    """Send a message to a specific user/chat on any running channel adapter.
+    Wire channel_id and recipient_id from upstream nodes or set them as defaults.
+    The message input accepts strings or dicts (dicts are JSON-serialised)."""
+    type         : Annotated[Literal["channel_send_flow"], FieldRole.CONSTANT] = "channel_send_flow"
+    channel_id   : Annotated[str                         , FieldRole.INPUT   ] = Field(default="",    description="Channel adapter ID (from /channels/list)")
+    recipient_id : Annotated[str                         , FieldRole.INPUT   ] = Field(default="",    description="Platform-specific user or chat ID")
+    message      : Annotated[Optional[Any]               , FieldRole.INPUT   ] = Field(default=None,  description="Message content; dicts are JSON-serialised")
+    sent         : Annotated[bool                        , FieldRole.OUTPUT  ] = Field(default=False, description="True if the message was sent successfully")
+    error        : Annotated[Optional[str]               , FieldRole.OUTPUT  ] = Field(default=None,  description="Error message on failure; None on success")
+
+
 # =============================================================================
 # EXTERNAL EVENT LISTENER NODE
 # =============================================================================

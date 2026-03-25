@@ -105,8 +105,9 @@ class WorkflowExecutionState(BaseModel):
 class WorkflowEngine:
 	"""Frontier-based workflow execution engine"""
 
-	def __init__(self, event_bus: EventBus):
+	def __init__(self, event_bus: EventBus, channel_registry=None):
 		self.event_bus           : EventBus                          = event_bus
+		self.channel_registry    : Any                               = channel_registry
 		self.executions          : Dict[str, WorkflowExecutionState] = {}
 		self.execution_tasks     : Dict[str, asyncio.Task]           = {}
 		self.pending_user_inputs    : Dict[str, asyncio.Future]         = {}
@@ -1203,11 +1204,12 @@ class WorkflowEngine:
 
 		try:
 			context = NodeExecutionContext()
-			context.inputs      = self._gather_inputs(edges, node_idx, node_outputs, node_config)
-			context.variables   = variables
-			context.node_index  = node_idx
-			context.node_config = node_config
-			context.event_bus   = self.event_bus
+			context.inputs           = self._gather_inputs(edges, node_idx, node_outputs, node_config)
+			context.variables        = variables
+			context.node_index       = node_idx
+			context.node_config      = node_config
+			context.event_bus        = self.event_bus
+			context.channel_registry = getattr(self, 'channel_registry', None)
 
 			if node_type == "user_input_flow":
 				result = await self._handle_user_input(node_idx, node, context, state, input_timeout)

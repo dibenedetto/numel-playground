@@ -17,11 +17,12 @@ from   utils	import log_print
 
 class NodeExecutionContext:
 	def __init__(self):
-		self.inputs      : Dict[str, Any] = {}
-		self.variables   : Dict[str, Any] = {}
-		self.node_index  : int            = 0
-		self.node_config : Dict[str, Any] = {}
-		self.event_bus   : Any            = None  # set by engine for nodes that publish events
+		self.inputs           : Dict[str, Any] = {}
+		self.variables        : Dict[str, Any] = {}
+		self.node_index       : int            = 0
+		self.node_config      : Dict[str, Any] = {}
+		self.event_bus        : Any            = None  # set by engine for nodes that publish events
+		self.channel_registry : Any            = None  # set by engine for channel_send_flow
 
 
 class NodeExecutionResult:
@@ -1491,6 +1492,45 @@ class WFNotifyFlow(WFFlowType):
 		return result
 
 
+class WFChannelSendFlow(WFFlowType):
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		result.outputs["sent"]  = False
+		result.outputs["error"] = None
+		try:
+			channel_id   = str(context.inputs.get("channel_id", "")).strip()
+			recipient_id = str(context.inputs.get("recipient_id", "")).strip()
+			message      = context.inputs.get("message")
+			if not channel_id:
+				raise ValueError("channel_id is required")
+			if not recipient_id:
+				raise ValueError("recipient_id is required")
+
+			import json as _json
+			if isinstance(message, (dict, list)):
+				text = _json.dumps(message)
+			elif message is None:
+				text = ""
+			else:
+				text = str(message)
+
+			registry = getattr(context, 'channel_registry', None)
+			if not registry:
+				raise ValueError("Channel registry not available in execution context")
+
+			adapter = registry._adapters.get(channel_id)
+			if not adapter:
+				raise ValueError(f"Channel '{channel_id}' not found")
+
+			await adapter.send(recipient_id, text)
+			result.outputs["sent"] = True
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+			result.outputs["error"] = str(e)
+		return result
+
+
 # =============================================================================
 # END UTILITY FLOW NODE EXECUTORS
 # =============================================================================
@@ -1568,6 +1608,7 @@ _NODE_TYPES = {
 	"retry_flow"               : WFRetryFlow,
 	"accumulate_flow"          : WFAccumulateFlow,
 	"notify_flow"              : WFNotifyFlow,
+	"channel_send_flow"        : WFChannelSendFlow,
 	"eval_flow"                : WFEvalFlow,
 
 	# ML / Stream nodes

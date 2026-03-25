@@ -123,6 +123,12 @@ def _load_toolkit(module_name: str, args: Optional[Dict[str, Any]] = None):
 	return tools
 
 
+def _extract_tools(instance) -> list:
+	"""Extract public methods from an already-instantiated toolkit."""
+	return [getattr(instance, n) for n in dir(instance)
+			if not n.startswith('_') and callable(getattr(instance, n))]
+
+
 # ── Planner State (per-user) ────────────────────────────────────
 
 class PlannerState:
@@ -275,14 +281,12 @@ class ConsoleAgentManager:
 		tools = []
 		for tk_name in toolkits:
 			if tk_name == "console_toolkit":
-				# Built-in: pass workspace manager + user_id for per-user workspace
 				toolkit = ConsoleToolkit(self._ws_mgr, user_id=user_id)
-				for attr_name in dir(toolkit):
-					if attr_name.startswith('_'):
-						continue
-					method = getattr(toolkit, attr_name)
-					if callable(method):
-						tools.append(method)
+				tools.extend(_extract_tools(toolkit))
+			elif tk_name == "channel_toolkit":
+				from toolkits.channel_toolkit import ChannelToolkit
+				toolkit = ChannelToolkit(channel_registry=getattr(self, '_channel_reg', None))
+				tools.extend(_extract_tools(toolkit))
 			else:
 				tk_args = dict(_toolkit_args.get(tk_name) or {})
 				# Inject auth token into workspace_toolkit for per-user workspace
@@ -914,16 +918,18 @@ class ChannelAgentPool:
 
 	def __init__(self, config_path: str = _CONFIG_PATH,
 				 workspace_mgr=None, memory_store=None,
-				 user_memory_db=None,
+				 user_memory_db=None, channel_registry=None,
 				 idle_timeout: float = 1800):
-		self._config_path   = config_path
-		self._ws_mgr        = workspace_mgr
-		self._memory_store  = memory_store
+		self._config_path    = config_path
+		self._ws_mgr         = workspace_mgr
+		self._memory_store   = memory_store
 		self._user_memory_db = user_memory_db       # UserMemoryDB for per-user isolation
-		self._idle_timeout  = idle_timeout          # seconds before evicting idle agent
+		self._channel_reg    = channel_registry      # ChannelRegistry for cross-channel messaging
+		self._idle_timeout   = idle_timeout          # seconds before evicting idle agent
 		self._agents: Dict[str, Agent]      = {}    # session_id → Agent
 		self._agent_tks: Dict[str, List[str]] = {}  # session_id → toolkit names used at build
 		self._agent_uids: Dict[str, str]    = {}    # session_id → user_id used at build
+		self._agent_tokens: Dict[str, str]  = {}    # session_id → auth token
 		self._last_used: Dict[str, float]   = {}    # session_id → timestamp
 		self._lock = asyncio.Lock()
 		self._cleanup_task: Optional[asyncio.Task] = None
@@ -932,9 +938,14 @@ class ChannelAgentPool:
 							 toolkits: Optional[List[str]] = None,
 							 sender_name: Optional[str] = None,
 							 user_id: Optional[str] = None,
-							 is_guest: bool = False) -> Agent:
+							 is_guest: bool = False,
+							 auth_token: Optional[str] = None) -> Agent:
 		"""Return (or lazily build) the Agent for this session."""
 		async with self._lock:
+			# Update stored token if a fresh one is provided
+			if auth_token:
+				self._agent_tokens[session_id] = auth_token
+
 			if session_id in self._agents:
 				# Rebuild if toolkit list or user identity changed
 				tk_changed = toolkits is not None and sorted(toolkits) != sorted(self._agent_tks.get(session_id, []))
@@ -947,9 +958,10 @@ class ChannelAgentPool:
 					self._last_used[session_id] = time.time()
 					return self._agents[session_id]
 
+			token = self._agent_tokens.get(session_id, "")
 			agent = await self._build_agent(
 				toolkits=toolkits, sender_name=sender_name,
-				user_id=user_id, is_guest=is_guest)
+				user_id=user_id, is_guest=is_guest, auth_token=token)
 			self._agents[session_id]   = agent
 			self._agent_tks[session_id] = list(toolkits) if toolkits else []
 			self._agent_uids[session_id] = user_id or session_id
@@ -969,12 +981,14 @@ class ChannelAgentPool:
 			self._agents.pop(session_id, None)
 			self._agent_tks.pop(session_id, None)
 			self._agent_uids.pop(session_id, None)
+			self._agent_tokens.pop(session_id, None)
 			self._last_used.pop(session_id, None)
 
 	async def _build_agent(self, toolkits: Optional[List[str]] = None,
 						   sender_name: Optional[str] = None,
 						   user_id: Optional[str] = None,
-						   is_guest: bool = False) -> Agent:
+						   is_guest: bool = False,
+						   auth_token: str = "") -> Agent:
 		"""Build a lightweight Agent from console_agent.json defaults."""
 		import credentials as _creds
 		config = _creds.load_json(self._config_path)
@@ -991,17 +1005,21 @@ class ChannelAgentPool:
 			tk_names = ["console_toolkit"] + list(tk_names)
 
 		tools = []
+		_INJECTED = {"console_toolkit", "channel_toolkit"}
 		for tk_name in tk_names:
 			if tk_name == "console_toolkit" and self._ws_mgr:
 				toolkit = ConsoleToolkit(self._ws_mgr, user_id=user_id)
-				for attr_name in dir(toolkit):
-					if attr_name.startswith('_'):
-						continue
-					method = getattr(toolkit, attr_name)
-					if callable(method):
-						tools.append(method)
-			elif tk_name != "console_toolkit":
-				tools.extend(_load_toolkit(tk_name))
+				tools.extend(_extract_tools(toolkit))
+			elif tk_name == "channel_toolkit" and self._channel_reg:
+				from toolkits.channel_toolkit import ChannelToolkit
+				toolkit = ChannelToolkit(channel_registry=self._channel_reg)
+				tools.extend(_extract_tools(toolkit))
+			elif tk_name not in _INJECTED:
+				tk_args = {}
+				# Inject per-session auth token into workspace_toolkit
+				if tk_name == "workspace_toolkit" and auth_token:
+					tk_args["auth_token"] = auth_token
+				tools.extend(_load_toolkit(tk_name, tk_args or None))
 
 		# Memory — per-user isolation via UserMemoryDB
 		mem_cfg     = config.get("memory", {})
@@ -1040,11 +1058,12 @@ class ChannelAgentPool:
 				   toolkits: Optional[List[str]] = None,
 				   sender_name: Optional[str] = None,
 				   user_id: Optional[str] = None,
-				   is_guest: bool = False) -> dict:
+				   is_guest: bool = False,
+				   auth_token: Optional[str] = None) -> dict:
 		"""Send a message to the per-session agent. Returns {session_id, response, tool_calls}."""
 		agent = await self._get_or_create(
 			session_id, toolkits=toolkits, sender_name=sender_name,
-			user_id=user_id, is_guest=is_guest)
+			user_id=user_id, is_guest=is_guest, auth_token=auth_token)
 		try:
 			response = await agent.arun(message, session_id=session_id)
 		except Exception as e:
@@ -1084,6 +1103,7 @@ class ChannelAgentPool:
 					self._agents.pop(sid, None)
 					self._agent_tks.pop(sid, None)
 					self._agent_uids.pop(sid, None)
+					self._agent_tokens.pop(sid, None)
 					self._last_used.pop(sid, None)
 				if expired:
 					log_print(f"ChannelAgentPool: evicted {len(expired)} idle agents (pool size: {len(self._agents)})")
@@ -1187,11 +1207,13 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 				# Use pool agent for planner chat (per-user memory)
 				if channel_pool and user_id:
 					pool_session = f"planner_{pkey}"
+					_token = req.headers.get("authorization", "").removeprefix("Bearer ").strip()
 					result = await channel_pool.chat(
 						message     = request.message,
 						session_id  = pool_session,
 						sender_name = sender_name,
 						user_id     = user_id,
+						auth_token  = _token or None,
 					)
 				else:
 					result = await console_mgr.chat(
@@ -1205,12 +1227,14 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 			# Multi-user mode: route through ChannelAgentPool for per-user memory
 			if channel_pool:
 				pool_session = f"web_{user_id}_{session_id}" if user_id else f"web_guest_{session_id}"
+				token = req.headers.get("authorization", "").removeprefix("Bearer ").strip()
 				result = await channel_pool.chat(
 					message     = request.message,
 					session_id  = pool_session,
 					sender_name = sender_name,
 					user_id     = user_id or f"guest_{session_id}",
 					is_guest    = is_guest,
+					auth_token  = token or None,
 				)
 				result["session_id"] = session_id
 				return result

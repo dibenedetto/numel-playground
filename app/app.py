@@ -623,6 +623,11 @@ async def run_server(args: Any):
 	ChannelRegistry.register_type("webhook",  WebhookChannelAdapter)
 	ChannelRegistry.register_type("web",      WebChannelAdapter)
 	channel_registry.load()
+	# Make channel registry available to workspace engines and agent pool
+	workspace_mgr._channel_registry = channel_registry
+	for _ws in workspace_mgr._workspaces.values():
+		_ws.engine.channel_registry = channel_registry
+	channel_pool._channel_reg = channel_registry
 
 	# ── Workflow Gallery ──────────────────────────────────────
 	gallery_mgr = GalleryManager()
@@ -639,8 +644,9 @@ async def run_server(args: Any):
 	# ── Execution History ─────────────────────────────────────
 	exec_history = ExecHistoryManager()
 
-	# Wire pool into console manager so planner can use per-user agents
+	# Wire pool and channel registry into console manager
 	console_mgr.set_channel_pool(channel_pool)
+	console_mgr._channel_reg = channel_registry
 
 	# ── API Routes (order matters: specific routes before static mount) ──
 	setup_api(server, app, event_bus, schema_code, workspace_mgr)

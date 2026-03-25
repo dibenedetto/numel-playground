@@ -48,15 +48,17 @@ class WorkspaceManager:
 	PORT_BLOCK = 100
 
 	def __init__(self, base_port: int, event_bus: EventBus,
-				 storage_root: Optional[Path] = None):
-		self._event_bus     : EventBus                   = event_bus
-		self._base_port     : int                        = base_port
-		self._next_port     : int                        = base_port + 2  # +0 = main server, +1 = console agent
-		self._storage_root  : Optional[Path]             = Path(storage_root) if storage_root else None
-		self._workspaces    : Dict[str, WorkspaceState]  = {}
-		self._default_ws_id : Optional[str]              = None
-		self._user_ws       : Dict[str, str]             = {}   # user_id → workspace_id
-		self._user_ws_lock  : asyncio.Lock               = asyncio.Lock()
+				 storage_root: Optional[Path] = None,
+				 channel_registry=None):
+		self._event_bus        : EventBus                   = event_bus
+		self._base_port        : int                        = base_port
+		self._next_port        : int                        = base_port + 2  # +0 = main server, +1 = console agent
+		self._storage_root     : Optional[Path]             = Path(storage_root) if storage_root else None
+		self._channel_registry                              = channel_registry
+		self._workspaces       : Dict[str, WorkspaceState]  = {}
+		self._default_ws_id    : Optional[str]              = None
+		self._user_ws          : Dict[str, str]             = {}   # user_id → workspace_id
+		self._user_ws_lock     : asyncio.Lock               = asyncio.Lock()
 
 		if self._storage_root:
 			self._storage_root.mkdir(parents=True, exist_ok=True)
@@ -136,7 +138,7 @@ class WorkspaceManager:
 			storage_dir.mkdir(parents=True, exist_ok=True)
 
 		mgr    = WorkflowManager(port, self._event_bus, storage_dir=storage_dir)
-		eng    = WorkflowEngine(self._event_bus)
+		eng    = WorkflowEngine(self._event_bus, channel_registry=self._channel_registry)
 
 		ws = WorkspaceState(
 			workspace_id = workspace_id,
