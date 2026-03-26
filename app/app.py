@@ -63,6 +63,7 @@ from   channels.whatsapp_adapter  import WhatsAppAdapter
 from   channels.discord_adapter   import DiscordAdapter
 from   channels.signal_adapter    import SignalAdapter
 from   channels.slack_adapter     import SlackAdapter
+from   channels.email_adapter     import EmailAdapter
 from   channels.teams_adapter     import TeamsAdapter
 from   channels.web_adapter       import WebChannelAdapter
 from   channels.webhook_adapter   import WebhookChannelAdapter
@@ -620,6 +621,7 @@ async def run_server(args: Any):
 	ChannelRegistry.register_type("slack",    SlackAdapter)
 	ChannelRegistry.register_type("signal",   SignalAdapter)
 	ChannelRegistry.register_type("teams",    TeamsAdapter)
+	ChannelRegistry.register_type("email",    EmailAdapter)
 	ChannelRegistry.register_type("webhook",  WebhookChannelAdapter)
 	ChannelRegistry.register_type("web",      WebChannelAdapter)
 	channel_registry.load()

@@ -21,7 +21,7 @@
 | Workflow generation from text | `/gen` command + Planner | No | No |
 | Self-optimizing eval loop | `eval_flow` + Planner | No | No |
 | Real-time browser ML | MediaPipe pose/face/hands | No | No |
-| Unified multi-channel | 8 platforms + web console | Limited | No |
+| Unified multi-channel | 9 platforms + web console | Limited | No |
 | Agent-first architecture | Native nodes | Integration only | N/A |
 | Per-user isolation | Workspaces, memory, agents — cross-channel | No | No |
 | Multi-tenant with quotas | Roles, quotas, admin panel | Enterprise only | No |
@@ -147,7 +147,7 @@ Optional flags:
 - Persistent reactive workflows that run indefinitely
 
 ### Multi-Channel Deployment
-Deploy agents to 8 platforms — including the web console itself:
+Deploy agents to 9 platforms — including the web console itself:
 
 | Channel | Adapter |
 |---------|---------|
@@ -158,6 +158,7 @@ Deploy agents to 8 platforms — including the web console itself:
 | Slack | SlackAdapter |
 | Signal | SignalAdapter |
 | Microsoft Teams | TeamsAdapter |
+| Email | EmailAdapter |
 | Custom Webhook | WebhookChannelAdapter |
 
 The web assistant console is treated as just another channel — the same code path handles command processing, memory isolation, and agent pooling for all entry points. External channels support auto-start and persistence.
