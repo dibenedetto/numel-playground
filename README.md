@@ -94,7 +94,7 @@ Optional flags:
 ## Features at a Glance
 
 ### Visual Workflow Editor
-- **71+ node types** across configuration, data flow, control flow, events, AI/ML, and interactive categories
+- **70+ node types** across configuration, data flow, control flow, events, AI/ML, and interactive categories
 - **Pan, zoom, select, connect** — full graph editing with undo/redo
 - **Inline field editing** with type-aware inputs (text, number, code, dropdown)
 - **Code editor modal** for Python/Jinja2 script fields
@@ -218,7 +218,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 
 ---
 
-## Node Types (71+)
+## Node Types (70+)
 
 ### Endpoints
 | Node | Description |
