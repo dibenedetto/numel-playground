@@ -1303,6 +1303,26 @@ class BrowserSourceFlow(FlowType):
 	registered_id : Annotated[Optional[str]                              , FieldRole.OUTPUT  ] = Field(default=None,       description="The ID assigned to this browser source after registration; wire to event_listener.sources")
 
 
+@node_info(
+	title       = "Channel Receive",
+	description = "Listens for incoming messages on one or all channel adapters. "
+	              "Connect its output to an Event Listener's sources input.",
+	icon        = "📨",
+	section     = "Event Sources",
+	layer       = 2,
+	visible     = True
+)
+class ChannelReceiveFlow(FlowType):
+	"""Channel Receive node - emits an event whenever a message arrives on a channel adapter.
+	Leave channel_id empty to listen on all channels, or set it to a specific adapter ID."""
+	type           : Annotated[Literal["channel_receive_flow"]  , FieldRole.CONSTANT] = "channel_receive_flow"
+	source_id      : Annotated[Optional[str]                    , FieldRole.INPUT   ] = Field(default=None,  description="Optional stable identifier; auto-generated if not set")
+	channel_id     : Annotated[str                              , FieldRole.INPUT   ] = Field(default="",    description="Adapter ID to listen on (empty = all channels)")
+	channel_types  : Annotated[Optional[str]                    , FieldRole.INPUT   ] = Field(default="",    description="Comma-separated channel types to accept (e.g. 'telegram,discord'); empty = all")
+	sender_filter  : Annotated[Optional[str]                    , FieldRole.INPUT   ] = Field(default=None,  description="Regex filter on sender_id (optional)")
+	registered_id  : Annotated[Optional[str]                    , FieldRole.OUTPUT  ] = Field(default=None,  description="The ID assigned after registration; wire to event_listener.sources")
+
+
 # =============================================================================
 # ML INFERENCE / STREAM DISPLAY FLOW NODES
 # =============================================================================

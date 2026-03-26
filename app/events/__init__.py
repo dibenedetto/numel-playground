@@ -14,6 +14,8 @@ from .sources import (
 	WebhookSourceConfig,
 	BrowserSource,
 	BrowserSourceConfig,
+	ChannelSource,
+	ChannelSourceConfig,
 )
 
 from .registry import (
@@ -37,6 +39,8 @@ __all__ = [
 	"WebhookSourceConfig",
 	"BrowserSource",
 	"BrowserSourceConfig",
+	"ChannelSource",
+	"ChannelSourceConfig",
 	# Registry
 	"EventSourceRegistry",
 	"init_event_registry",

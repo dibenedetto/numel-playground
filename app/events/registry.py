@@ -23,6 +23,7 @@ from   .sources import (
 	FSWatchSourceConfig,
 	WebhookSourceConfig,
 	BrowserSourceConfig,
+	ChannelSourceConfig,
 	AnySourceConfig,
 	create_event_source,
 )
@@ -156,11 +157,13 @@ class EventSourceRegistry:
 			EventSourceType.FSWATCH.value: FSWatchSourceConfig,
 			EventSourceType.WEBHOOK.value: WebhookSourceConfig,
 			EventSourceType.BROWSER.value: BrowserSourceConfig,
+			EventSourceType.CHANNEL.value: ChannelSourceConfig,
 			# Also handle enum directly
 			EventSourceType.TIMER: TimerSourceConfig,
 			EventSourceType.FSWATCH: FSWatchSourceConfig,
 			EventSourceType.WEBHOOK: WebhookSourceConfig,
 			EventSourceType.BROWSER: BrowserSourceConfig,
+			EventSourceType.CHANNEL: ChannelSourceConfig,
 		}
 
 		config_class = config_map.get(source_type)

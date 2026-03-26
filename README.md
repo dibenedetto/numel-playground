@@ -164,6 +164,7 @@ Deploy agents to 9 platforms — including the web console itself:
 The web assistant console is treated as just another channel — the same code path handles command processing, memory isolation, and agent pooling for all entry points. External channels support auto-start and persistence.
 
 - **Cross-channel messaging** — agents can send messages to users on any running channel via the `channel_toolkit` (list channels, send to specific user, broadcast) or the **Channel Send** workflow node
+- **Channel-to-channel workflows** — **Channel Receive** event source + **Channel Send** node enable workflows that bridge channels: e.g. translate Telegram messages and forward to Discord, or archive all channel messages to email
 - **Per-session auth tokens** — each agent session carries its own auth token, forwarded to toolkits like `workspace_toolkit` so that API calls respect the originating user's permissions
 - **Channel ownership** — only the channel creator (or admins) can start, stop, or edit a channel; guests cannot create channels
 
@@ -284,6 +285,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 | **FS Watch Source** | File system change monitor. |
 | **Webhook Source** | HTTP endpoint creator. |
 | **Browser Source** | Webcam / microphone / screen capture. |
+| **Channel Receive** | Listen for incoming messages on channel adapters (all or filtered). |
 | **Event Listener** | Wait for events (any/all/race mode). |
 
 ### ML / Vision

@@ -581,9 +581,27 @@ async def run_server(args: Any):
 		user_memory_db=user_memory_db,
 		idle_timeout=_pool_cfg.get("idle_timeout", 1800))
 
+	async def _dispatch_to_channel_sources(msg):
+		"""Push incoming message to any registered ChannelSource event sources."""
+		try:
+			from events import get_event_registry
+			from events.sources import ChannelSource
+			registry = get_event_registry()
+			for source in registry._sources.values():
+				if isinstance(source, ChannelSource) and source.is_running:
+					await source.receive_message(
+						channel_id=msg.channel_id, channel_type=msg.channel_type,
+						sender_id=msg.sender_id, sender_name=msg.sender_name,
+						content=msg.content, metadata=msg.metadata)
+		except Exception:
+			pass  # best-effort; don't break the message pipeline
+
 	async def channel_message_handler(msg):
 		"""Route incoming channel messages to per-user agents."""
 		try:
+			# Push to any workflow channel_receive_flow sources (best-effort)
+			await _dispatch_to_channel_sources(msg)
+
 			# Check for /commands first
 			cmd_response = await channel_cmd.handle(
 				msg.content, msg.channel_type, msg.sender_id, msg.sender_name)

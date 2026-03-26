@@ -10,7 +10,7 @@ from   pydantic import BaseModel
 from   typing   import Any, Callable, Dict, List, Optional
 
 
-from   events   import get_event_registry, TimerSourceConfig, FSWatchSourceConfig, WebhookSourceConfig, BrowserSourceConfig
+from   events   import get_event_registry, TimerSourceConfig, FSWatchSourceConfig, WebhookSourceConfig, BrowserSourceConfig, ChannelSourceConfig
 from   schema   import DEFAULT_TRANSFORM_NODE_LANG, DEFAULT_TRANSFORM_NODE_SCRIPT, BaseType
 from   utils	import log_print
 
@@ -770,6 +770,38 @@ class WFBrowserSourceFlow(WFFlowType):
 				id=source_id, name=name, device_type=device_type,
 				mode=mode, interval_ms=interval_ms,
 				resolution=resolution, audio_format=audio_format
+			)
+			if registry.get(source_id):
+				await registry.update(source_id, config)
+			else:
+				await registry.register(config)
+
+			result.outputs["registered_id"] = source_id
+		except Exception as e:
+			result.success = False
+			result.error = str(e)
+		return result
+
+
+class WFChannelReceiveFlow(WFFlowType):
+	"""Channel Receive node executor — registers a channel message event source."""
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		try:
+			source_id      = _src_get(context, "source_id", self.config) or f"wf_channel_{context.node_index}"
+			name           = _src_get(context, "name", self.config) or source_id
+			channel_id     = _src_get(context, "channel_id", self.config, "")
+			channel_types  = _src_get(context, "channel_types", self.config, "")
+			sender_filter  = _src_get(context, "sender_filter", self.config)
+
+			# Split comma-separated string into list
+			if isinstance(channel_types, str):
+				channel_types = [t.strip() for t in channel_types.split(",") if t.strip()]
+
+			registry = get_event_registry()
+			config = ChannelSourceConfig(
+				id=source_id, name=name, channel_id=channel_id,
+				channel_types=channel_types, sender_filter=sender_filter
 			)
 			if registry.get(source_id):
 				await registry.update(source_id, config)
@@ -1600,6 +1632,7 @@ _NODE_TYPES = {
 	"fswatch_source_flow"      : WFFSWatchSourceFlow,
 	"webhook_source_flow"      : WFWebhookSourceFlow,
 	"browser_source_flow"      : WFBrowserSourceFlow,
+	"channel_receive_flow"     : WFChannelReceiveFlow,
 
 	# Utility nodes
 	"http_request_flow"        : WFHttpRequestFlow,

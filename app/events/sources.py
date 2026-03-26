@@ -27,6 +27,7 @@ class EventSourceType(str, Enum):
 	FSWATCH  = "fswatch"
 	WEBHOOK  = "webhook"
 	BROWSER  = "browser"  # Webcam, microphone, etc.
+	CHANNEL  = "channel"  # Incoming channel messages
 
 
 class EventSourceStatus(str, Enum):
@@ -101,8 +102,16 @@ class BrowserSourceConfig(EventSourceConfig):
 	audio_format : Optional[str]        = None   # e.g., "wav", "webm"
 
 
+class ChannelSourceConfig(EventSourceConfig):
+	"""Configuration for channel message event source — receives messages from channel adapters."""
+	source_type    : Literal[EventSourceType.CHANNEL] = EventSourceType.CHANNEL
+	channel_id     : str              = ""      # Adapter ID to listen on ("" = all channels)
+	channel_types  : List[str]        = Field(default_factory=list)  # Filter by type (empty = all)
+	sender_filter  : Optional[str]    = None    # Regex filter on sender_id
+
+
 # Union type for all configs
-AnySourceConfig = Union[TimerSourceConfig, FSWatchSourceConfig, WebhookSourceConfig, BrowserSourceConfig]
+AnySourceConfig = Union[TimerSourceConfig, FSWatchSourceConfig, WebhookSourceConfig, BrowserSourceConfig, ChannelSourceConfig]
 
 
 # =============================================================================
@@ -576,6 +585,74 @@ class BrowserSource(EventSource):
 
 
 # =============================================================================
+# CHANNEL MESSAGE SOURCE
+# =============================================================================
+
+class ChannelSource(EventSource):
+	"""
+	Channel message event source — emits events when messages arrive on
+	channel adapters.  Unlike other sources this has no internal loop;
+	it is push-driven via ``receive_message()``, called from the global
+	channel_message_handler in app.py.
+	"""
+
+	def __init__(self, config: ChannelSourceConfig):
+		super().__init__(config)
+		self._filter_re = None
+		if config.sender_filter:
+			import re as _re
+			self._filter_re = _re.compile(config.sender_filter)
+
+	@property
+	def channel_config(self) -> ChannelSourceConfig:
+		return self.config  # type: ignore
+
+	async def _start_impl(self):
+		pass  # nothing to initialise
+
+	async def _stop_impl(self):
+		pass
+
+	async def _run_loop(self):
+		# Push-driven — just sleep until stopped
+		while not self._stop_event.is_set():
+			try:
+				await asyncio.wait_for(self._stop_event.wait(), timeout=60)
+				break
+			except asyncio.TimeoutError:
+				continue
+
+	def _accepts(self, channel_id: str, channel_type: str, sender_id: str) -> bool:
+		"""Return True if this message passes the configured filters."""
+		cfg = self.channel_config
+		if cfg.channel_id and cfg.channel_id != channel_id:
+			return False
+		if cfg.channel_types and channel_type not in cfg.channel_types:
+			return False
+		if self._filter_re and not self._filter_re.search(sender_id):
+			return False
+		return True
+
+	async def receive_message(self, *, channel_id: str, channel_type: str,
+							  sender_id: str, sender_name: str,
+							  content: str, metadata: Dict[str, Any] = None):
+		"""Called externally when a channel message arrives."""
+		if not self.is_running:
+			return
+		if not self._accepts(channel_id, channel_type, sender_id):
+			return
+		await self._emit({
+			"channel_id":   channel_id,
+			"channel_type": channel_type,
+			"sender_id":    sender_id,
+			"sender_name":  sender_name,
+			"content":      content,
+			"metadata":     metadata or {},
+			"received_at":  datetime.now().isoformat(),
+		})
+
+
+# =============================================================================
 # FACTORY FUNCTION
 # =============================================================================
 
@@ -586,6 +663,7 @@ def create_event_source(config: AnySourceConfig) -> EventSource:
 		EventSourceType.FSWATCH: FSWatchSource,
 		EventSourceType.WEBHOOK: WebhookSource,
 		EventSourceType.BROWSER: BrowserSource,
+		EventSourceType.CHANNEL: ChannelSource,
 	}
 
 	source_class = source_map.get(config.source_type)
