@@ -149,20 +149,21 @@ Optional flags:
 ### Multi-Channel Deployment
 Deploy agents to 9 platforms — including the web console itself:
 
-| Channel | Adapter |
-|---------|---------|
-| Web Console | WebChannelAdapter |
-| Telegram | TelegramAdapter |
-| WhatsApp | WhatsAppAdapter |
-| Discord | DiscordAdapter |
-| Slack | SlackAdapter |
-| Signal | SignalAdapter |
-| Microsoft Teams | TeamsAdapter |
-| Email | EmailAdapter |
-| Custom Webhook | WebhookChannelAdapter |
+| Channel | Adapter | Media Support |
+|---------|---------|---------------|
+| Web Console | WebChannelAdapter | Text |
+| Telegram | TelegramAdapter | Photos, documents, audio, video, voice, stickers |
+| WhatsApp | WhatsAppAdapter | Images, video, audio, documents, stickers |
+| Discord | DiscordAdapter | File attachments (any type) |
+| Slack | SlackAdapter | File uploads (any type) |
+| Signal | SignalAdapter | Attachments via signal-cli |
+| Microsoft Teams | TeamsAdapter | Bot Framework attachments |
+| Email | EmailAdapter | MIME attachments (any type) |
+| Custom Webhook | WebhookChannelAdapter | JSON attachment payloads |
 
 The web assistant console is treated as just another channel — the same code path handles command processing, memory isolation, and agent pooling for all entry points. External channels support auto-start and persistence.
 
+- **Media & attachment support** — all adapters can send and receive files, images, audio, video, and documents. Incoming attachments are normalized into `Attachment` objects (url, mime_type, filename, size) on the `ChannelMessage`. Outgoing attachments are sent via each platform's native media API (e.g. Telegram `send_photo`, Discord file upload, Slack `files.uploadV2`, WhatsApp media messages, Signal base64 attachments, Teams Bot Framework attachments, Email MIME parts)
 - **Cross-channel messaging** — agents can send messages to users on any running channel via the `channel_toolkit` (list channels, send to specific user, broadcast) or the **Channel Send** workflow node
 - **Channel-to-channel workflows** — **Channel Receive** event source + **Channel Send** node enable workflows that bridge channels: e.g. translate Telegram messages and forward to Discord, or archive all channel messages to email
 - **Per-session auth tokens** — each agent session carries its own auth token, forwarded to toolkits like `workspace_toolkit` so that API calls respect the originating user's permissions
