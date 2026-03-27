@@ -8,7 +8,7 @@ import asyncio
 from   typing   import Optional
 from   utils    import log_print
 
-from   channels.base import ChannelAdapter, ChannelConfig, ChannelMessage, ChannelStatus, MessageHandler
+from   channels.base import Attachment, ChannelAdapter, ChannelConfig, ChannelMessage, ChannelStatus, MessageHandler
 
 
 class DiscordAdapter(ChannelAdapter):
@@ -80,7 +80,17 @@ class DiscordAdapter(ChannelAdapter):
 			elif has_prefix:
 				content = content[len(adapter._command_prefix):].strip()
 
-			if not content:
+			# Extract attachments
+			attachments = []
+			for att in message.attachments:
+				attachments.append(Attachment(
+					url       = att.url,
+					mime_type = att.content_type or "application/octet-stream",
+					filename  = att.filename,
+					size      = att.size,
+				))
+
+			if not content and not attachments:
 				return
 
 			msg = ChannelMessage(
@@ -89,6 +99,7 @@ class DiscordAdapter(ChannelAdapter):
 				sender_id    = str(message.author.id),
 				sender_name  = message.author.display_name,
 				content      = content,
+				attachments  = attachments,
 				metadata     = {
 					"guild_id":   str(message.guild.id) if message.guild else None,
 					"channel_id": str(message.channel.id),
@@ -127,25 +138,55 @@ class DiscordAdapter(ChannelAdapter):
 		self.status = ChannelStatus.STOPPED
 
 	async def send(self, recipient_id: str, text: str, **kwargs) -> bool:
-		"""Send a message to a Discord channel or user."""
+		"""Send a message to a Discord channel or user.
+
+		kwargs:
+		  attachments: list of Attachment objects (or dicts with url, mime_type, filename)
+		  media_url:   single media URL shorthand
+		"""
 		if not self._client:
 			return False
+
+		import discord
+
+		attachments = kwargs.get("attachments", [])
+		media_url   = kwargs.get("media_url")
+		if media_url and not attachments:
+			attachments = [{"url": media_url, "filename": "file", "mime_type": ""}]
+
 		try:
+			# Build discord.File objects from attachment URLs
+			files = []
+			if attachments:
+				import httpx
+				async with httpx.AsyncClient() as http:
+					for att in attachments:
+						url  = att.url if hasattr(att, "url") else att.get("url", "")
+						name = (att.filename if hasattr(att, "filename") else att.get("filename")) or "file"
+						if not url:
+							continue
+						resp = await http.get(url, timeout=30)
+						if resp.status_code == 200:
+							import io
+							files.append(discord.File(io.BytesIO(resp.content), filename=name))
+
 			# Try as channel first, then as user DM
-			channel = self._client.get_channel(int(recipient_id))
-			if channel:
-				for chunk in _split_text(text, 2000):
-					await channel.send(chunk)
-				return True
+			target = self._client.get_channel(int(recipient_id))
+			if not target:
+				user = self._client.get_user(int(recipient_id))
+				if user:
+					target = await user.create_dm()
 
-			user = self._client.get_user(int(recipient_id))
-			if user:
-				dm = await user.create_dm()
-				for chunk in _split_text(text, 2000):
-					await dm.send(chunk)
-				return True
+			if not target:
+				return False
 
-			return False
+			if files:
+				await target.send(text[:2000] if text else None, files=files)
+			else:
+				for chunk in _split_text(text, 2000):
+					await target.send(chunk)
+
+			return True
 		except Exception as e:
 			self._error = str(e)
 			return False

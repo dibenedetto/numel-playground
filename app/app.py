@@ -626,9 +626,12 @@ async def run_server(args: Any):
 				sender_name=sender,
 				user_id=mem_user_id,
 			)
-			return result.get("response", "") or result.get("error", "")
+			if result.get("error"):
+				return f"⚠ {result['error']}"
+			return result.get("response", "") or "(no response from agent)"
 		except Exception as e:
-			return f"Error: {e}"
+			log_print(f"Channel message handler error: {e}")
+			return f"⚠ Something went wrong: {e}"
 
 	channel_registry = ChannelRegistry(message_handler=channel_message_handler,
 									   config_path=os.path.join(_app_dir, "channels.json"))

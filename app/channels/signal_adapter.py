@@ -10,7 +10,7 @@ import json
 from   typing   import Any, Dict, List, Optional
 from   utils    import log_print
 
-from   channels.base import ChannelAdapter, ChannelConfig, ChannelMessage, ChannelStatus, MessageHandler
+from   channels.base import Attachment, ChannelAdapter, ChannelConfig, ChannelMessage, ChannelStatus, MessageHandler
 
 
 _DEFAULT_SIGNAL_API = "http://localhost:8080"
@@ -81,15 +81,45 @@ class SignalAdapter(ChannelAdapter):
 		self.status = ChannelStatus.STOPPED
 
 	async def send(self, recipient_id: str, text: str, **kwargs) -> bool:
-		"""Send a message to a Signal user."""
+		"""Send a message to a Signal user.
+
+		kwargs:
+		  attachments: list of Attachment objects (or dicts with url, mime_type, filename)
+		  media_url:   single media URL shorthand
+		"""
+		attachments = kwargs.get("attachments", [])
+		media_url   = kwargs.get("media_url")
+		if media_url and not attachments:
+			attachments = [{"url": media_url, "filename": "file", "mime_type": ""}]
+
 		try:
 			import httpx
 			async with httpx.AsyncClient() as client:
-				payload = {
+				payload: Dict[str, Any] = {
 					"message":    text,
 					"number":     self._phone_number,
 					"recipients": [recipient_id],
 				}
+
+				# signal-cli REST API accepts base64 attachments
+				if attachments:
+					import base64
+					att_list = []
+					for att in attachments:
+						url  = att.url if hasattr(att, "url") else att.get("url", "")
+						name = (att.filename if hasattr(att, "filename") else att.get("filename")) or "file"
+						mime = (att.mime_type if hasattr(att, "mime_type") else att.get("mime_type")) or ""
+						if not url:
+							continue
+						try:
+							dl = await client.get(url, timeout=30)
+							if dl.status_code == 200:
+								att_list.append(f"data:{mime};filename={name};base64,{base64.b64encode(dl.content).decode()}")
+						except Exception:
+							pass
+					if att_list:
+						payload["base64_attachments"] = att_list
+
 				resp = await client.post(
 					f"{self._api_url}/v2/send",
 					json=payload,
@@ -133,7 +163,18 @@ class SignalAdapter(ChannelAdapter):
 			return
 
 		text = data_msg.get("message", "")
-		if not text:
+
+		# Extract attachments
+		attachments = []
+		for att in data_msg.get("attachments", []):
+			attachments.append(Attachment(
+				url       = att.get("id", ""),      # signal-cli attachment ID
+				mime_type = att.get("contentType", "application/octet-stream"),
+				filename  = att.get("filename"),
+				size      = att.get("size"),
+			))
+
+		if not text and not attachments:
 			return
 
 		sender = envelope.get("source", "")
@@ -149,6 +190,7 @@ class SignalAdapter(ChannelAdapter):
 			sender_id    = sender,
 			sender_name  = sender_name,
 			content      = text,
+			attachments  = attachments,
 			metadata     = {
 				"timestamp": envelope.get("timestamp"),
 				"group_id":  group_id,

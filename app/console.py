@@ -686,8 +686,8 @@ class ConsoleAgentManager:
 						parts.append(mem_ctx)
 				if parts:
 					augmented = "\n\n".join(parts) + f"\n\n[User message]\n{message}"
-			except Exception:
-				pass
+			except Exception as e:
+				log_print(f"Console chat: context augmentation failed: {e}")
 
 		# Track turn count per session for memory persistence
 		if session_id not in self._sessions:
@@ -697,7 +697,11 @@ class ConsoleAgentManager:
 		# Run the agent asynchronously with session_id for built-in history
 		tool_names = [getattr(t, '__name__', getattr(t, 'name', str(t))) for t in (self._agent.tools or [])]
 		log_print(f"Console chat: running agent (session={session_id[:8]}..., tools={tool_names}, msg={message[:60]}...)")
-		response = await self._agent.arun(augmented, session_id=session_id)
+		try:
+			response = await self._agent.arun(augmented, session_id=session_id)
+		except Exception as e:
+			log_print(f"ERROR    Error in Agent run: {e}")
+			return {"session_id": session_id, "error": str(e), "tool_calls": []}
 		log_print(f"Console chat: agent done (tools={len(response.tools or [])} msgs={len(response.messages or [])})")
 
 		# Extract the assistant response
@@ -1061,12 +1065,17 @@ class ChannelAgentPool:
 				   is_guest: bool = False,
 				   auth_token: Optional[str] = None) -> dict:
 		"""Send a message to the per-session agent. Returns {session_id, response, tool_calls}."""
-		agent = await self._get_or_create(
-			session_id, toolkits=toolkits, sender_name=sender_name,
-			user_id=user_id, is_guest=is_guest, auth_token=auth_token)
+		try:
+			agent = await self._get_or_create(
+				session_id, toolkits=toolkits, sender_name=sender_name,
+				user_id=user_id, is_guest=is_guest, auth_token=auth_token)
+		except Exception as e:
+			log_print(f"ChannelAgentPool: agent creation failed for {session_id[:16]}: {e}")
+			return {"session_id": session_id, "error": f"Failed to create agent: {e}", "tool_calls": []}
 		try:
 			response = await agent.arun(message, session_id=session_id)
 		except Exception as e:
+			log_print(f"ChannelAgentPool: agent run failed for {session_id[:16]}: {e}")
 			return {"session_id": session_id, "error": str(e), "tool_calls": []}
 
 		# Extract response text
@@ -1087,6 +1096,11 @@ class ChannelAgentPool:
 						"name":   getattr(msg, 'tool_name', None) or getattr(msg, 'tool_call_id', None),
 						"result": (msg.content[:200] if msg.content else None) if hasattr(msg, 'content') else None,
 					})
+
+		# Detect model/infra errors returned as assistant content by agno
+		_ERROR_PATTERNS = ("not found", "status code:", "connection refused", "timed out", "unreachable")
+		if content and not tool_calls and any(p in content.lower() for p in _ERROR_PATTERNS):
+			return {"session_id": session_id, "error": content, "tool_calls": []}
 
 		self._last_used[session_id] = time.time()
 		return {"session_id": session_id, "response": content, "tool_calls": tool_calls}
@@ -1334,7 +1348,8 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 					with open(instr_path) as f:
 						ps.instructions = f.read().replace("{max_autonomous_turns}", str(ps.max_turns))
 				except FileNotFoundError:
-					pass
+					log_print(f"Planner: instructions file not found: {instr_path}")
+					return {"error": f"Profile '{profile_name}' instructions file not found: {instr_file}"}
 				ps.profile = profile_name
 				log_print(f"Planner [{pkey[:20]}] profile → {profile_name}")
 		return {

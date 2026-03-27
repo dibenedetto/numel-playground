@@ -10,7 +10,7 @@ import json
 from   typing   import Any, Dict, Optional
 from   utils    import log_print
 
-from   channels.base import ChannelAdapter, ChannelConfig, ChannelMessage, ChannelStatus, MessageHandler
+from   channels.base import Attachment, ChannelAdapter, ChannelConfig, ChannelMessage, ChannelStatus, MessageHandler
 
 
 _SLACK_API_BASE = "https://slack.com/api"
@@ -79,12 +79,15 @@ class SlackAdapter(ChannelAdapter):
 			if adapter._allowed_channels and channel_id not in adapter._allowed_channels:
 				return
 
+			attachments = _extract_slack_files(event)
+
 			msg = ChannelMessage(
 				channel_type = "slack",
 				channel_id   = adapter.config.id,
 				sender_id    = event.get("user", ""),
 				sender_name  = "",  # Resolved later if needed
 				content      = event.get("text", ""),
+				attachments  = attachments,
 				metadata     = {
 					"channel":   channel_id,
 					"ts":        event.get("ts"),
@@ -145,33 +148,73 @@ class SlackAdapter(ChannelAdapter):
 		self.status = ChannelStatus.STOPPED
 
 	async def send(self, recipient_id: str, text: str, **kwargs) -> bool:
-		"""Send a message to a Slack channel or user via Web API."""
+		"""Send a message to a Slack channel or user via Web API.
+
+		kwargs:
+		  thread_ts:   reply in thread
+		  attachments: list of Attachment objects (or dicts with url, filename, mime_type)
+		  media_url:   single file URL shorthand
+		"""
 		if not self.config.token:
 			return False
 
-		thread_ts = kwargs.get("thread_ts")
+		thread_ts   = kwargs.get("thread_ts")
+		attachments = kwargs.get("attachments", [])
+		media_url   = kwargs.get("media_url")
+		if media_url and not attachments:
+			attachments = [{"url": media_url, "filename": "file", "mime_type": ""}]
 
 		try:
 			import httpx
-			async with httpx.AsyncClient() as client:
-				payload = {
-					"channel": recipient_id,
-					"text":    text,
-				}
-				if thread_ts:
-					payload["thread_ts"] = thread_ts
+			headers = {"Authorization": f"Bearer {self.config.token}"}
 
-				resp = await client.post(
-					f"{_SLACK_API_BASE}/chat.postMessage",
-					headers={"Authorization": f"Bearer {self.config.token}"},
-					json=payload,
-					timeout=30,
-				)
-				data = resp.json()
-				if data.get("ok"):
-					return True
-				self._error = data.get("error", "unknown")
-				return False
+			async with httpx.AsyncClient() as client:
+				# Upload files if any
+				for att in attachments:
+					url  = att.url if hasattr(att, "url") else att.get("url", "")
+					name = (att.filename if hasattr(att, "filename") else att.get("filename")) or "file"
+					if not url:
+						continue
+					try:
+						dl = await client.get(url, timeout=30)
+						if dl.status_code != 200:
+							continue
+						# files.uploadV2
+						resp = await client.post(
+							f"{_SLACK_API_BASE}/files.uploadV2",
+							headers=headers,
+							data={
+								"channel_id":      recipient_id,
+								"filename":        name,
+								"initial_comment": text or "",
+								**({"thread_ts": thread_ts} if thread_ts else {}),
+							},
+							files={"file": (name, dl.content)},
+							timeout=60,
+						)
+						if resp.json().get("ok"):
+							text = ""  # comment sent with file
+					except Exception:
+						pass  # best-effort file upload
+
+				# Send text message (if no files consumed the text)
+				if text:
+					payload = {"channel": recipient_id, "text": text}
+					if thread_ts:
+						payload["thread_ts"] = thread_ts
+
+					resp = await client.post(
+						f"{_SLACK_API_BASE}/chat.postMessage",
+						headers=headers,
+						json=payload,
+						timeout=30,
+					)
+					data = resp.json()
+					if not data.get("ok"):
+						self._error = data.get("error", "unknown")
+						return False
+
+			return True
 		except ImportError:
 			self._error = "httpx not available"
 			return False
@@ -226,7 +269,9 @@ class SlackAdapter(ChannelAdapter):
 			import re
 			text = re.sub(r"<@[A-Z0-9]+>", "", text).strip()
 
-		if not text:
+		attachments = _extract_slack_files(event)
+
+		if not text and not attachments:
 			return json.dumps({"ok": True})
 
 		msg = ChannelMessage(
@@ -234,6 +279,7 @@ class SlackAdapter(ChannelAdapter):
 			channel_id   = self.config.id,
 			sender_id    = event.get("user", ""),
 			content      = text,
+			attachments  = attachments,
 			metadata     = {
 				"channel":   channel_id,
 				"ts":        event.get("ts"),
@@ -247,6 +293,11 @@ class SlackAdapter(ChannelAdapter):
 			await self.send(channel_id, response, thread_ts=thread_ts)
 
 		return json.dumps({"ok": True})
+
+	@staticmethod
+	def _extract_files_from_event(event: Dict[str, Any]) -> list:
+		"""Alias for module-level helper."""
+		return _extract_slack_files(event)
 
 	def _verify_request(self, body: Dict[str, Any], headers: Dict[str, str]) -> bool:
 		"""Verify Slack request signature."""
@@ -275,3 +326,18 @@ class SlackAdapter(ChannelAdapter):
 		).hexdigest()
 
 		return hmac.compare_digest(my_signature, signature)
+
+
+def _extract_slack_files(event: Dict[str, Any]) -> list:
+	"""Extract Attachment objects from Slack event files."""
+	files = event.get("files", [])
+	attachments = []
+	for f in files:
+		url = f.get("url_private_download") or f.get("url_private") or f.get("permalink", "")
+		attachments.append(Attachment(
+			url       = url,
+			mime_type = f.get("mimetype", "application/octet-stream"),
+			filename  = f.get("name") or f.get("title"),
+			size      = f.get("size"),
+		))
+	return attachments

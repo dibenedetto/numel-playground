@@ -9,7 +9,7 @@ import json
 from   typing   import Optional
 from   utils    import log_print
 
-from   channels.base import ChannelAdapter, ChannelConfig, ChannelMessage, ChannelStatus, MessageHandler
+from   channels.base import Attachment, ChannelAdapter, ChannelConfig, ChannelMessage, ChannelStatus, MessageHandler
 
 
 class TelegramAdapter(ChannelAdapter):
@@ -44,7 +44,79 @@ class TelegramAdapter(ChannelAdapter):
 
 		# Register message handler
 		async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-			if not update.message or not update.message.text:
+			if not update.message:
+				return
+
+			# Extract text (may be empty for media-only messages)
+			text = update.message.text or update.message.caption or ""
+
+			# Extract attachments from photos, documents, audio, video, voice, stickers
+			attachments = []
+			bot = context.bot
+
+			if update.message.photo:
+				# Telegram sends multiple sizes; take the largest
+				photo = update.message.photo[-1]
+				f = await bot.get_file(photo.file_id)
+				attachments.append(Attachment(
+					url       = f.file_path or "",
+					mime_type = "image/jpeg",
+					filename  = f"{photo.file_unique_id}.jpg",
+					size      = photo.file_size,
+				))
+
+			if update.message.document:
+				doc = update.message.document
+				f = await bot.get_file(doc.file_id)
+				attachments.append(Attachment(
+					url       = f.file_path or "",
+					mime_type = doc.mime_type or "application/octet-stream",
+					filename  = doc.file_name,
+					size      = doc.file_size,
+				))
+
+			if update.message.audio:
+				aud = update.message.audio
+				f = await bot.get_file(aud.file_id)
+				attachments.append(Attachment(
+					url       = f.file_path or "",
+					mime_type = aud.mime_type or "audio/mpeg",
+					filename  = aud.file_name or f"{aud.file_unique_id}.mp3",
+					size      = aud.file_size,
+				))
+
+			if update.message.video:
+				vid = update.message.video
+				f = await bot.get_file(vid.file_id)
+				attachments.append(Attachment(
+					url       = f.file_path or "",
+					mime_type = vid.mime_type or "video/mp4",
+					filename  = vid.file_name or f"{vid.file_unique_id}.mp4",
+					size      = vid.file_size,
+				))
+
+			if update.message.voice:
+				voice = update.message.voice
+				f = await bot.get_file(voice.file_id)
+				attachments.append(Attachment(
+					url       = f.file_path or "",
+					mime_type = voice.mime_type or "audio/ogg",
+					filename  = f"{voice.file_unique_id}.ogg",
+					size      = voice.file_size,
+				))
+
+			if update.message.sticker:
+				stk = update.message.sticker
+				f = await bot.get_file(stk.file_id)
+				attachments.append(Attachment(
+					url       = f.file_path or "",
+					mime_type = "image/webp",
+					filename  = f"{stk.file_unique_id}.webp",
+					size      = stk.file_size,
+				))
+
+			# Skip if no text and no attachments
+			if not text and not attachments:
 				return
 
 			msg = ChannelMessage(
@@ -52,7 +124,8 @@ class TelegramAdapter(ChannelAdapter):
 				channel_id   = self.config.id,
 				sender_id    = str(update.message.from_user.id),
 				sender_name  = update.message.from_user.first_name or "",
-				content      = update.message.text,
+				content      = text,
+				attachments  = attachments,
 				metadata     = {
 					"chat_id":    update.message.chat_id,
 					"message_id": update.message.message_id,
@@ -66,7 +139,13 @@ class TelegramAdapter(ChannelAdapter):
 				for chunk in _split_text(response, 4096):
 					await update.message.reply_text(chunk)
 
-		self._app.add_handler(TGHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+		# Accept text, photos, documents, audio, video, voice, stickers
+		self._app.add_handler(TGHandler(
+			(filters.TEXT | filters.PHOTO | filters.Document.ALL |
+			 filters.AUDIO | filters.VIDEO | filters.VOICE | filters.Sticker.ALL)
+			& ~filters.COMMAND,
+			handle_message,
+		))
 
 		# /start command
 		async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -100,12 +179,51 @@ class TelegramAdapter(ChannelAdapter):
 		self.status = ChannelStatus.STOPPED
 
 	async def send(self, recipient_id: str, text: str, **kwargs) -> bool:
-		"""Send a message to a Telegram chat."""
+		"""Send a message to a Telegram chat.
+
+		kwargs:
+		  attachments: list of Attachment objects (or dicts with url, mime_type)
+		  media_url:   single media URL shorthand
+		  media_type:  MIME type for media_url
+		"""
 		if not self._app or not self._app.bot:
 			return False
+
+		chat_id = int(recipient_id)
+		attachments = kwargs.get("attachments", [])
+		media_url   = kwargs.get("media_url")
+		media_type  = kwargs.get("media_type", "")
+
+		# Single media shorthand → attachments list
+		if media_url and not attachments:
+			attachments = [{"url": media_url, "mime_type": media_type}]
+
 		try:
-			for chunk in _split_text(text, 4096):
-				await self._app.bot.send_message(chat_id=int(recipient_id), text=chunk)
+			# Send attachments
+			for att in attachments:
+				url  = att.url if hasattr(att, "url") else att.get("url", "")
+				mime = att.mime_type if hasattr(att, "mime_type") else att.get("mime_type", "")
+				if not url:
+					continue
+
+				if mime.startswith("image/"):
+					await self._app.bot.send_photo(chat_id=chat_id, photo=url, caption=text[:1024] if text else None)
+					text = ""  # caption sent with first media
+				elif mime.startswith("video/"):
+					await self._app.bot.send_video(chat_id=chat_id, video=url, caption=text[:1024] if text else None)
+					text = ""
+				elif mime.startswith("audio/"):
+					await self._app.bot.send_audio(chat_id=chat_id, audio=url, caption=text[:1024] if text else None)
+					text = ""
+				else:
+					await self._app.bot.send_document(chat_id=chat_id, document=url, caption=text[:1024] if text else None)
+					text = ""
+
+			# Send remaining text (if no attachments or text wasn't used as caption)
+			if text:
+				for chunk in _split_text(text, 4096):
+					await self._app.bot.send_message(chat_id=chat_id, text=chunk)
+
 			return True
 		except Exception as e:
 			self._error = str(e)

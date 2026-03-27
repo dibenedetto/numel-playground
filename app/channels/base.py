@@ -26,6 +26,14 @@ class ChannelStatus(str, Enum):
 	DISCONNECTED = "disconnected"
 
 
+class Attachment(BaseModel):
+	"""A single file/media attachment on a channel message."""
+	url          : str            = ""           # Download URL or data URI
+	mime_type    : str            = ""           # e.g. "image/jpeg", "application/pdf"
+	filename     : Optional[str]  = None         # Original filename
+	size         : Optional[int]  = None         # Size in bytes (if known)
+
+
 class ChannelMessage(BaseModel):
 	"""Normalized message that flows between channels and the agent."""
 	id           : str            = Field(default_factory=lambda: f"msg_{uuid.uuid4().hex[:12]}")
@@ -34,8 +42,9 @@ class ChannelMessage(BaseModel):
 	sender_id    : str            = ""           # Platform-specific user ID
 	sender_name  : str            = ""           # Display name
 	content      : str            = ""           # Text content
-	media_url    : Optional[str]  = None         # Attached media URL
-	media_type   : Optional[str]  = None         # MIME type of media
+	media_url    : Optional[str]  = None         # Primary media URL (legacy, prefer attachments)
+	media_type   : Optional[str]  = None         # MIME type of primary media (legacy)
+	attachments  : List[Attachment] = Field(default_factory=list)  # All file/media attachments
 	reply_to     : Optional[str]  = None         # Message ID being replied to
 	metadata     : Dict[str, Any] = Field(default_factory=dict)
 	timestamp    : str            = Field(default_factory=lambda: datetime.now().isoformat())

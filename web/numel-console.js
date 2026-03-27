@@ -163,26 +163,30 @@ class AgentConsoleManager {
 		// Planner profile selector
 		this._plannerProfileSel?.addEventListener('change', () => {
 			const profile = this._plannerProfileSel.value;
-			this.api.consolePlannerConfig({ profile, session_id: this._sessionId }).catch(() => {});
+			this.api.consolePlannerConfig({ profile, session_id: this._sessionId })
+				.catch(e => this._addMessage('error', `Planner config failed: ${e.message}`));
 		});
 
 		// Planner timeout selector — always sync to backend (safe even if planner not yet enabled)
 		this._plannerTimeoutSel?.addEventListener('change', () => {
 			const s = parseInt(this._plannerTimeoutSel.value, 10);
 			this._plannerTimeoutMs = s * 1000;
-			this.api.consolePlannerConfig({ timeout_s: s, session_id: this._sessionId }).catch(() => {});
+			this.api.consolePlannerConfig({ timeout_s: s, session_id: this._sessionId })
+				.catch(e => this._addMessage('error', `Planner config failed: ${e.message}`));
 		});
 
 		// Planner session timeout selector
 		this._plannerSessionTimeoutSel?.addEventListener('change', () => {
 			const s = parseInt(this._plannerSessionTimeoutSel.value, 10);
-			this.api.consolePlannerConfig({ session_timeout_s: s, session_id: this._sessionId }).catch(() => {});
+			this.api.consolePlannerConfig({ session_timeout_s: s, session_id: this._sessionId })
+				.catch(e => this._addMessage('error', `Planner config failed: ${e.message}`));
 		});
 
 		// Planner max iterations selector
 		this._plannerMaxIterSel?.addEventListener('change', () => {
 			const n = parseInt(this._plannerMaxIterSel.value, 10);
-			this.api.consolePlannerConfig({ max_iterations: n, session_id: this._sessionId }).catch(() => {});
+			this.api.consolePlannerConfig({ max_iterations: n, session_id: this._sessionId })
+				.catch(e => this._addMessage('error', `Planner config failed: ${e.message}`));
 		});
 
 		// Planner interrupt button
@@ -289,7 +293,8 @@ class AgentConsoleManager {
 				// Re-sync timeout in case user changed it while enable was in flight
 				const currentS = this._plannerTimeoutMs / 1000;
 				if (currentS !== timeoutS) {
-					this.api.consolePlannerConfig({ timeout_s: currentS, session_id: this._sessionId }).catch(() => {});
+					this.api.consolePlannerConfig({ timeout_s: currentS, session_id: this._sessionId })
+					.catch(e => this._addMessage('error', `Planner config sync failed: ${e.message}`));
 				}
 				this._addMessage('system', 'Planner mode enabled — autonomous workflow building active.');
 				// Planner auto-adds toolkits and restarts the agent → update port and reconnect AGUI
@@ -824,8 +829,9 @@ class AgentConsoleManager {
 			console.log('[Console] AGUI runAgent on port', this.agentPort);
 			await this.handler.agent.runAgent({});
 		} catch (err) {
-			// AGUI protocol error (e.g. parallel tool calls) → fall back to REST silently
+			// AGUI protocol error (e.g. parallel tool calls) → fall back to REST
 			console.warn('[Console] AGUI error, falling back to REST:', err.message);
+			this._addMessage('system', `Streaming unavailable (${err.message}), retrying...`);
 			this._setStatus('REST mode');
 			// Remove the history entry we just added (the REST path manages its own session)
 			this._history.pop();
@@ -849,6 +855,12 @@ class AgentConsoleManager {
 				role: 'assistant',
 				content: lastAssistant,
 			});
+		} else {
+			// No assistant content produced — likely a model/connection error
+			// that AGUI swallowed silently.  Show a notice so the user isn't
+			// left staring at a blank console.
+			this._addMessage('error',
+				'No response from the model. Check that the selected model is available and running.');
 		}
 
 		// Handle /gen response

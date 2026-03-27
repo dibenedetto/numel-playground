@@ -4,5 +4,5 @@
 # Discord, etc.) to the Numel console agent, allowing users to interact
 # with the assistant from any connected channel.
 
-from channels.base    import ChannelAdapter, ChannelMessage, ChannelConfig, ChannelStatus
+from channels.base    import Attachment, ChannelAdapter, ChannelMessage, ChannelConfig, ChannelStatus
 from channels.registry import ChannelRegistry

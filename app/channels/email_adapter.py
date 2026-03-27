@@ -28,12 +28,14 @@ import re
 import smtplib
 
 from email.header         import decode_header as _decode_header
+from email.mime.base      import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text      import MIMEText
 from email.utils          import make_msgid, formataddr, parseaddr
+from email                import encoders as _encoders
 from typing               import Any, Dict, List, Optional
 
-from channels.base import ChannelAdapter, ChannelConfig, ChannelMessage, ChannelStatus, MessageHandler
+from channels.base import Attachment, ChannelAdapter, ChannelConfig, ChannelMessage, ChannelStatus, MessageHandler
 from utils         import log_print
 
 
@@ -76,6 +78,37 @@ def _extract_body(msg) -> str:
 				return re.sub(r"<[^>]+>", "", text).strip()
 			return text
 	return ""
+
+
+def _extract_attachments(msg) -> list:
+	"""Extract file attachments from an email.message.Message as Attachment objects."""
+	import base64
+	results = []
+	if not msg.is_multipart():
+		return results
+	for part in msg.walk():
+		cd = str(part.get("Content-Disposition", ""))
+		if "attachment" not in cd and "inline" not in cd:
+			continue
+		ct = part.get_content_type()
+		if ct in ("text/plain", "text/html") and "attachment" not in cd:
+			continue  # body parts
+		payload = part.get_payload(decode=True)
+		if not payload:
+			continue
+		filename = part.get_filename()
+		if filename:
+			filename = _decode_str(filename)
+		# Create data URI for the attachment content
+		b64 = base64.b64encode(payload).decode()
+		data_uri = f"data:{ct};base64,{b64}"
+		results.append(Attachment(
+			url       = data_uri,
+			mime_type = ct,
+			filename  = filename,
+			size      = len(payload),
+		))
+	return results
 
 
 class EmailAdapter(ChannelAdapter):
@@ -163,9 +196,20 @@ class EmailAdapter(ChannelAdapter):
 	# ── Send (SMTP) ──────────────────────────────────────────────
 
 	async def send(self, recipient_id: str, text: str, **kwargs) -> bool:
-		"""Send an email reply.  recipient_id is the email address."""
-		subject = kwargs.get("subject", "")
-		thread  = self._threads.get(recipient_id)
+		"""Send an email reply.  recipient_id is the email address.
+
+		kwargs:
+		  subject:     email subject
+		  attachments: list of Attachment objects (or dicts with url, mime_type, filename)
+		  media_url:   single attachment URL shorthand
+		"""
+		subject     = kwargs.get("subject", "")
+		att_list    = kwargs.get("attachments", [])
+		media_url   = kwargs.get("media_url")
+		if media_url and not att_list:
+			att_list = [{"url": media_url, "filename": "file", "mime_type": ""}]
+
+		thread = self._threads.get(recipient_id)
 
 		if not subject:
 			if thread:
@@ -174,7 +218,7 @@ class EmailAdapter(ChannelAdapter):
 			else:
 				subject = "Numel Assistant"
 
-		msg = MIMEMultipart("alternative")
+		msg = MIMEMultipart("mixed")
 		msg["From"]    = formataddr(("Numel Assistant", self._from_addr))
 		msg["To"]      = recipient_id
 		msg["Subject"] = subject
@@ -185,6 +229,40 @@ class EmailAdapter(ChannelAdapter):
 			msg["References"]  = thread["message_id"]
 
 		msg.attach(MIMEText(text, "plain"))
+
+		# Attach files
+		import base64
+		for att in att_list:
+			att_url  = att.url if hasattr(att, "url") else att.get("url", "")
+			att_mime = (att.mime_type if hasattr(att, "mime_type") else att.get("mime_type", "")) or "application/octet-stream"
+			att_name = (att.filename if hasattr(att, "filename") else att.get("filename")) or "attachment"
+			if not att_url:
+				continue
+
+			# Handle data URIs (from received email attachments)
+			if att_url.startswith("data:"):
+				try:
+					_, b64data = att_url.split(",", 1)
+					file_data = base64.b64decode(b64data)
+				except Exception:
+					continue
+			else:
+				# Download URL
+				try:
+					import httpx
+					resp = httpx.get(att_url, timeout=30)
+					if resp.status_code != 200:
+						continue
+					file_data = resp.content
+				except Exception:
+					continue
+
+			maintype, _, subtype = att_mime.partition("/")
+			part = MIMEBase(maintype or "application", subtype or "octet-stream")
+			part.set_payload(file_data)
+			_encoders.encode_base64(part)
+			part.add_header("Content-Disposition", "attachment", filename=att_name)
+			msg.attach(part)
 
 		try:
 			await asyncio.get_event_loop().run_in_executor(
@@ -264,10 +342,12 @@ class EmailAdapter(ChannelAdapter):
 			return
 
 		body = _extract_body(parsed)
-		if not body.strip():
+		attachments = _extract_attachments(parsed)
+
+		if not body.strip() and not attachments:
 			return
 
-		# Truncate
+		# Truncate body
 		if len(body) > self._max_body_len:
 			body = body[:self._max_body_len] + "\n[truncated]"
 
@@ -291,6 +371,7 @@ class EmailAdapter(ChannelAdapter):
 			sender_id    = from_addr,
 			sender_name  = from_name or from_addr.split("@")[0],
 			content      = body,
+			attachments  = attachments,
 			metadata     = {
 				"subject":    subject,
 				"message_id": message_id,
