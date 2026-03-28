@@ -635,13 +635,14 @@ class ChannelSource(EventSource):
 
 	async def receive_message(self, *, channel_id: str, channel_type: str,
 							  sender_id: str, sender_name: str,
-							  content: str, metadata: Dict[str, Any] = None):
+							  content: str, metadata: Dict[str, Any] = None,
+							  attachments: list = None):
 		"""Called externally when a channel message arrives."""
 		if not self.is_running:
 			return
 		if not self._accepts(channel_id, channel_type, sender_id):
 			return
-		await self._emit({
+		event_data = {
 			"channel_id":   channel_id,
 			"channel_type": channel_type,
 			"sender_id":    sender_id,
@@ -649,7 +650,14 @@ class ChannelSource(EventSource):
 			"content":      content,
 			"metadata":     metadata or {},
 			"received_at":  datetime.now().isoformat(),
-		})
+		}
+		if attachments:
+			event_data["attachments"] = [
+				{"url": a.url, "mime_type": a.mime_type, "filename": a.filename, "size": a.size}
+				if hasattr(a, "url") else a
+				for a in attachments
+			]
+		await self._emit(event_data)
 
 
 # =============================================================================

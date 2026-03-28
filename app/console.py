@@ -63,6 +63,32 @@ def _build_model(source: str, name: str):
 		raise ValueError(f"Unsupported console agent model source: {source}")
 
 
+def _describe_attachments(message: str, attachments: list) -> str:
+	"""Inject a textual description of attachments into the message prompt.
+	This allows the LLM to know about files even though it can't see binary content."""
+	lines = []
+	for att in attachments:
+		url      = att.url if hasattr(att, "url") else att.get("url", "")
+		mime     = att.mime_type if hasattr(att, "mime_type") else att.get("mime_type", "")
+		filename = (att.filename if hasattr(att, "filename") else att.get("filename")) or None
+		size     = (att.size if hasattr(att, "size") else att.get("size")) or None
+		parts = []
+		if filename:
+			parts.append(filename)
+		if mime:
+			parts.append(f"type: {mime}")
+		if size:
+			kb = size / 1024
+			parts.append(f"size: {kb:.1f} KB" if kb < 1024 else f"size: {kb/1024:.1f} MB")
+		if url:
+			parts.append(f"url: {url[:120]}")
+		lines.append(f"  - {', '.join(parts)}")
+	if lines:
+		block = "[Attachments]\n" + "\n".join(lines)
+		return f"{block}\n\n{message}" if message else block
+	return message
+
+
 def _load_toolkit(module_name: str, args: Optional[Dict[str, Any]] = None):
 	"""Dynamically load a toolkit by module name.
 	Returns list of public methods (tools), or empty list on failure.
@@ -653,9 +679,11 @@ class ConsoleAgentManager:
 	# ── Chat ───────────────────────────────────────────────────────
 
 	async def chat(self, message: str, session_id: Optional[str] = None,
-				   include_context: bool = True) -> dict:
+				   include_context: bool = True,
+				   attachments: Optional[list] = None) -> dict:
 		"""Send a message and get a response. Uses agno's built-in session history.
-		Returns { session_id, response, tool_calls }."""
+		Returns { session_id, response, tool_calls }.
+		attachments: list of Attachment objects from ChannelMessage (described in prompt)."""
 
 		if not self._started or not self._agent:
 			raise RuntimeError("Console agent is not running. Call /console/start first.")
@@ -667,6 +695,10 @@ class ConsoleAgentManager:
 		# Reset planner turn count on user-initiated messages (not planner events)
 		if self._planner_enabled and session_id != self._planner_session_id:
 			self._planner_turn_count = 0
+
+		# Inject attachment descriptions into the message
+		if attachments:
+			message = _describe_attachments(message, attachments)
 
 		# Prepend planner instructions + workspace context to the user message
 		augmented = message
@@ -1063,8 +1095,10 @@ class ChannelAgentPool:
 				   sender_name: Optional[str] = None,
 				   user_id: Optional[str] = None,
 				   is_guest: bool = False,
-				   auth_token: Optional[str] = None) -> dict:
-		"""Send a message to the per-session agent. Returns {session_id, response, tool_calls}."""
+				   auth_token: Optional[str] = None,
+				   attachments: Optional[list] = None) -> dict:
+		"""Send a message to the per-session agent. Returns {session_id, response, tool_calls}.
+		attachments: list of Attachment objects from ChannelMessage (described in prompt)."""
 		try:
 			agent = await self._get_or_create(
 				session_id, toolkits=toolkits, sender_name=sender_name,
@@ -1072,6 +1106,11 @@ class ChannelAgentPool:
 		except Exception as e:
 			log_print(f"ChannelAgentPool: agent creation failed for {session_id[:16]}: {e}")
 			return {"session_id": session_id, "error": f"Failed to create agent: {e}", "tool_calls": []}
+
+		# Inject attachment descriptions into the message so the agent knows about them
+		if attachments:
+			message = _describe_attachments(message, attachments)
+
 		try:
 			response = await agent.arun(message, session_id=session_id)
 		except Exception as e:

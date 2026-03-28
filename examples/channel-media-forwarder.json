@@ -1,0 +1,83 @@
+{
+  "type": "workflow",
+  "description": "Forward media attachments between channels. Listens for incoming messages with attachments on any channel, extracts the attachment list, and forwards both text and media to a target channel via Channel Send.",
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": {"pos": [0, 0], "name": "Start"}
+    },
+    {
+      "type": "channel_receive_flow",
+      "channel_id": "",
+      "channel_types": "",
+      "extra": {"pos": [240, 0], "name": "Listen All Channels"}
+    },
+    {
+      "type": "loop_start_flow",
+      "condition": true,
+      "max_iter": 10000,
+      "extra": {"pos": [480, 0], "name": "Event Loop"}
+    },
+    {
+      "type": "event_listener_flow",
+      "mode": "any",
+      "extra": {"pos": [720, 0], "name": "Wait for Message"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Extract message content and attachments from the event\ne = input if isinstance(input, dict) else {}\nsender = e.get('sender_name', 'unknown')\nch = e.get('channel_type', '?')\ntxt = e.get('content', '')\natts = e.get('attachments', [])\n\n# Build forwarded message with sender attribution\nprefix = f'[{ch}/{sender}]'\nmsg = f'{prefix} {txt}' if txt else f'{prefix} (media)'\n\noutput = {\n    'text': msg,\n    'attachments': atts,\n    'has_media': len(atts) > 0,\n    'sender': sender,\n    'source_channel': ch,\n}",
+      "extra": {"pos": [960, 0], "name": "Extract Content + Media"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Pass through the attachments list for Channel Send\n# Each attachment is {url, mime_type, filename, size}\noutput = input.get('attachments', []) if isinstance(input, dict) else []",
+      "extra": {"pos": [1200, 180], "name": "Extract Attachments"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Pass through the text message\noutput = input.get('text', '') if isinstance(input, dict) else str(input)",
+      "extra": {"pos": [1200, 0], "name": "Extract Text"}
+    },
+    {
+      "type": "channel_send_flow",
+      "channel_id": "",
+      "recipient_id": "",
+      "extra": {"pos": [1480, 0], "name": "Forward to Target Channel"}
+    },
+    {
+      "type": "preview_flow",
+      "hint": "text",
+      "extra": {"pos": [1720, 0], "name": "Log Result"}
+    },
+    {
+      "type": "loop_end_flow",
+      "extra": {"pos": [1960, 0], "name": "Loop End"}
+    },
+    {
+      "type": "end_flow",
+      "extra": {"pos": [2200, 0], "name": "End"}
+    }
+  ],
+  "edges": [
+    { "source": 0,  "target": 1,  "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 1,  "target": 2,  "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 1,  "target": 3,  "source_slot": "registered_id", "target_slot": "sources.channel" },
+    { "source": 2,  "target": 3,  "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 3,  "target": 4,  "source_slot": "event",         "target_slot": "input" },
+    { "source": 3,  "target": 4,  "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 4,  "target": 5,  "source_slot": "output",        "target_slot": "input" },
+    { "source": 4,  "target": 6,  "source_slot": "output",        "target_slot": "input" },
+    { "source": 4,  "target": 6,  "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 6,  "target": 7,  "source_slot": "output",        "target_slot": "message" },
+    { "source": 5,  "target": 7,  "source_slot": "output",        "target_slot": "attachments" },
+    { "source": 6,  "target": 7,  "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 7,  "target": 8,  "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 7,  "target": 8,  "source_slot": "sent",          "target_slot": "input" },
+    { "source": 8,  "target": 9,  "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source": 9,  "target": 2,  "source_slot": "flow_out",      "target_slot": "flow_in", "loop": true },
+    { "source": 9,  "target": 10, "source_slot": "flow_out",      "target_slot": "flow_in" }
+  ]
+}

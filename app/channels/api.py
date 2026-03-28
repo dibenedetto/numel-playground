@@ -28,6 +28,7 @@ class ChannelSendRequest(BaseModel):
 	channel_id   : str
 	recipient_id : str
 	text         : str
+	attachments  : Optional[List[Dict[str, Any]]] = None  # [{url, mime_type, filename}]
 
 
 # ── Route Setup ───────────────────────────────────────────────────
@@ -123,7 +124,10 @@ def setup_channel_api(app: FastAPI, registry: ChannelRegistry, pool=None):
 		adapter = registry.get(request.channel_id)
 		if not adapter:
 			return {"error": "channel not found"}
-		ok = await adapter.send(request.recipient_id, request.text)
+		send_kwargs = {}
+		if request.attachments:
+			send_kwargs["attachments"] = request.attachments
+		ok = await adapter.send(request.recipient_id, request.text, **send_kwargs)
 		return {"sent": ok}
 
 	@app.post("/channels/status")

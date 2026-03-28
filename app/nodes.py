@@ -1533,6 +1533,7 @@ class WFChannelSendFlow(WFFlowType):
 			channel_id   = str(context.inputs.get("channel_id", "")).strip()
 			recipient_id = str(context.inputs.get("recipient_id", "")).strip()
 			message      = context.inputs.get("message")
+			attachments  = context.inputs.get("attachments")
 			if not channel_id:
 				raise ValueError("channel_id is required")
 			if not recipient_id:
@@ -1554,7 +1555,18 @@ class WFChannelSendFlow(WFFlowType):
 			if not adapter:
 				raise ValueError(f"Channel '{channel_id}' not found")
 
-			await adapter.send(recipient_id, text)
+			# Normalize attachments to list of dicts
+			send_kwargs = {}
+			if attachments:
+				if isinstance(attachments, str):
+					try:
+						attachments = _json.loads(attachments)
+					except Exception:
+						attachments = None
+				if isinstance(attachments, list):
+					send_kwargs["attachments"] = attachments
+
+			await adapter.send(recipient_id, text, **send_kwargs)
 			result.outputs["sent"] = True
 		except Exception as e:
 			result.success = False

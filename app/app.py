@@ -592,7 +592,8 @@ async def run_server(args: Any):
 					await source.receive_message(
 						channel_id=msg.channel_id, channel_type=msg.channel_type,
 						sender_id=msg.sender_id, sender_name=msg.sender_name,
-						content=msg.content, metadata=msg.metadata)
+						content=msg.content, metadata=msg.metadata,
+						attachments=msg.attachments if msg.attachments else None)
 		except Exception:
 			pass  # best-effort; don't break the message pipeline
 
@@ -625,6 +626,7 @@ async def run_server(args: Any):
 				toolkits=toolkits or None,
 				sender_name=sender,
 				user_id=mem_user_id,
+				attachments=msg.attachments if msg.attachments else None,
 			)
 			if result.get("error"):
 				return f"⚠ {result['error']}"

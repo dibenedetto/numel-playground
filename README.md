@@ -163,7 +163,7 @@ Deploy agents to 9 platforms — including the web console itself:
 
 The web assistant console is treated as just another channel — the same code path handles command processing, memory isolation, and agent pooling for all entry points. External channels support auto-start and persistence.
 
-- **Media & attachment support** — all adapters can send and receive files, images, audio, video, and documents. Incoming attachments are normalized into `Attachment` objects (url, mime_type, filename, size) on the `ChannelMessage`. Outgoing attachments are sent via each platform's native media API (e.g. Telegram `send_photo`, Discord file upload, Slack `files.uploadV2`, WhatsApp media messages, Signal base64 attachments, Teams Bot Framework attachments, Email MIME parts)
+- **End-to-end media & attachments** — all adapters can send and receive files, images, audio, video, and documents. Incoming attachments are normalized into `Attachment` objects (url, mime_type, filename, size) on `ChannelMessage` and flow through the entire pipeline: the agent receives a textual description of each attachment (filename, type, size, URL) injected into the prompt, workflow event sources include attachment metadata in emitted events, and the **Channel Send** node, `/channels/send` API, and `channel_toolkit.send_message()` all accept an `attachments` list that gets dispatched via each platform's native media API (Telegram `send_photo`/`send_document`, Discord file upload, Slack `files.uploadV2`, WhatsApp media messages, Signal base64, Teams Bot Framework, Email MIME parts, Webhook JSON payloads)
 - **Cross-channel messaging** — agents can send messages to users on any running channel via the `channel_toolkit` (list channels, send to specific user, broadcast) or the **Channel Send** workflow node
 - **Channel-to-channel workflows** — **Channel Receive** event source + **Channel Send** node enable workflows that bridge channels: e.g. translate Telegram messages and forward to Discord, or archive all channel messages to email
 - **Per-session auth tokens** — each agent session carries its own auth token, forwarded to toolkits like `workspace_toolkit` so that API calls respect the originating user's permissions
@@ -277,7 +277,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 | **HTTP Request** | HTTP client (GET, POST, PUT, DELETE). |
 | **User Input** | Pause and prompt the user for text. |
 | **Tool Call** | Interactive tool with Execute button. |
-| **Channel Send** | Send a message to a user on any connected channel (Telegram, Discord, Slack, etc.). |
+| **Channel Send** | Send a message (with optional attachments) to a user on any connected channel. |
 
 ### Event Sources
 | Node | Description |
@@ -311,7 +311,7 @@ Direct value nodes: **String**, **Integer**, **Real**, **Boolean**, **List**, **
 
 | Toolkit | Key Methods | Description |
 |---------|-------------|-------------|
-| **channel_toolkit** | list_channels, send_message, broadcast | Cross-channel messaging (send to any running channel) |
+| **channel_toolkit** | list_channels, send_message, broadcast | Cross-channel messaging with attachment support (send text + files to any running channel) |
 | **file_toolkit** | list_directory, read_file, write_file, search_files | Filesystem operations |
 | **http_toolkit** | get, post, put, delete, request | HTTP client with auth |
 | **database_toolkit** | query, execute, insert, list_tables, describe_table | SQL databases (any SQLAlchemy URL) |
@@ -586,7 +586,7 @@ Pre-built workflow examples accessible from the Gallery panel:
 
 | Category | Examples |
 |----------|----------|
-| **examples** | Hello workflow, timer-driven agent, webhook handler, list processor |
+| **examples** | Hello workflow, timer-driven agent, webhook handler, list processor, channel media forwarder, email attachments to channel |
 | **comfyui** | Agent-guided image generation, CLIP-scored refinement loop |
 | **planner** | Self-refining agent, email summary, file monitor, research pipeline, webhook responder |
 | **webcam** | Pose detection (frontend + backend), audio gate |
@@ -688,7 +688,7 @@ All endpoints use **POST** method unless otherwise noted.
 | `/channels/remove` | Remove a channel |
 | `/channels/start` | Start channel |
 | `/channels/stop` | Stop channel |
-| `/channels/send` | Send a message through a channel |
+| `/channels/send` | Send a message (with optional attachments) through a channel |
 | `/channels/status` | Get channel status |
 | `/channels/pool/config` | Get/set agent pool settings (idle_timeout) |
 | `/channels/webhook/{id}` | Webhook ingress for external platforms |

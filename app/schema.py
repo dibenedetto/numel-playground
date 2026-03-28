@@ -1174,11 +1174,13 @@ class NotifyFlow(FlowType):
 class ChannelSendFlow(FlowType):
     """Send a message to a specific user/chat on any running channel adapter.
     Wire channel_id and recipient_id from upstream nodes or set them as defaults.
-    The message input accepts strings or dicts (dicts are JSON-serialised)."""
+    The message input accepts strings or dicts (dicts are JSON-serialised).
+    Attachments is an optional list of dicts with url, mime_type, filename keys."""
     type         : Annotated[Literal["channel_send_flow"], FieldRole.CONSTANT] = "channel_send_flow"
     channel_id   : Annotated[str                         , FieldRole.INPUT   ] = Field(default="",    description="Channel adapter ID (from /channels/list)")
     recipient_id : Annotated[str                         , FieldRole.INPUT   ] = Field(default="",    description="Platform-specific user or chat ID")
     message      : Annotated[Optional[Any]               , FieldRole.INPUT   ] = Field(default=None,  description="Message content; dicts are JSON-serialised")
+    attachments  : Annotated[Optional[Any]               , FieldRole.INPUT   ] = Field(default=None,  description="List of attachments [{url, mime_type, filename}]")
     sent         : Annotated[bool                        , FieldRole.OUTPUT  ] = Field(default=False, description="True if the message was sent successfully")
     error        : Annotated[Optional[str]               , FieldRole.OUTPUT  ] = Field(default=None,  description="Error message on failure; None on success")
 

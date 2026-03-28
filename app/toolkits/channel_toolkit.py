@@ -29,11 +29,13 @@ class ChannelToolkit:
 			})
 		return result
 
-	def send_message(self, channel_id: str, recipient_id: str, text: str) -> Dict[str, Any]:
+	def send_message(self, channel_id: str, recipient_id: str, text: str,
+					 attachments: str = "") -> Dict[str, Any]:
 		"""Send a message to a specific user on a channel.
 		channel_id: the adapter ID (from list_channels).
 		recipient_id: platform-specific user/chat ID (e.g. Telegram chat_id, Discord channel_id).
 		text: message content to send.
+		attachments: optional JSON string of attachment list, e.g. '[{"url":"https://...","mime_type":"image/png","filename":"photo.png"}]'.
 		Returns {sent: bool, error: str or None}."""
 		if not self._registry:
 			return {"sent": False, "error": "Channel registry not available"}
@@ -43,17 +45,28 @@ class ChannelToolkit:
 		status = adapter.status.value if hasattr(adapter.status, 'value') else str(adapter.status)
 		if status != "running":
 			return {"sent": False, "error": f"Channel '{channel_id}' is not running (status: {status})"}
+
+		# Parse attachments JSON
+		send_kwargs = {}
+		if attachments:
+			import json
+			try:
+				att_list = json.loads(attachments) if isinstance(attachments, str) else attachments
+				if isinstance(att_list, list):
+					send_kwargs["attachments"] = att_list
+			except Exception:
+				pass  # ignore malformed attachments JSON
+
 		import asyncio
 		try:
 			loop = asyncio.get_event_loop()
 			if loop.is_running():
-				# We're inside an async context — schedule and block via thread
 				import concurrent.futures
 				with concurrent.futures.ThreadPoolExecutor() as pool:
-					future = pool.submit(asyncio.run, adapter.send(recipient_id, text))
+					future = pool.submit(asyncio.run, adapter.send(recipient_id, text, **send_kwargs))
 					future.result(timeout=30)
 			else:
-				loop.run_until_complete(adapter.send(recipient_id, text))
+				loop.run_until_complete(adapter.send(recipient_id, text, **send_kwargs))
 			return {"sent": True, "error": None}
 		except Exception as e:
 			return {"sent": False, "error": str(e)}
