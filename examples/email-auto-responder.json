@@ -1,5 +1,6 @@
 {
   "type": "workflow",
+  "description": "Poll an email inbox for unread messages, use an agent to draft a reply, and send it back. Spam/automated emails are skipped when the agent replies with SKIP.",
   "nodes": [
     {
       "type": "start_flow",
@@ -8,13 +9,13 @@
     {
       "type": "backend_config",
       "name": "agno",
-      "extra": {"pos": [0, 160], "name": "Backend (Agno)"}
+      "extra": {"pos": [0, 180], "name": "Backend (Agno)"}
     },
     {
       "type": "model_config",
       "source": "ollama",
       "name": "mistral",
-      "extra": {"pos": [0, 300], "name": "Model (Mistral)"}
+      "extra": {"pos": [0, 320], "name": "Model (Mistral)"}
     },
     {
       "type": "agent_options_config",
@@ -25,11 +26,11 @@
         "Keep replies under 200 words. Do NOT use markdown — plain text only.",
         "If the email is spam or automated, reply with: SKIP"
       ],
-      "extra": {"pos": [0, 440], "name": "Agent Options"}
+      "extra": {"pos": [0, 460], "name": "Agent Options"}
     },
     {
       "type": "agent_config",
-      "extra": {"pos": [260, 300], "name": "Agent Config"}
+      "extra": {"pos": [280, 320], "name": "Agent Config"}
     },
     {
       "type": "toolkit_config",
@@ -39,116 +40,112 @@
         "username": "${EMAIL_USER}",
         "password": "${EMAIL_PASSWORD}"
       },
-      "extra": {"pos": [520, 300], "name": "Email Toolkit"}
+      "extra": {"pos": [280, 480], "name": "Email Toolkit"}
     },
     {
       "type": "timer_source_flow",
       "interval_ms": 60000,
       "max_triggers": -1,
       "immediate": true,
-      "extra": {"pos": [520, 0], "name": "Check Every 60s"}
+      "extra": {"pos": [560, 0], "name": "Check Every 60s"}
     },
     {
       "type": "loop_start_flow",
       "condition": true,
       "max_iter": 10000,
-      "extra": {"pos": [760, 0], "name": "Event Loop"}
+      "extra": {"pos": [800, 0], "name": "Event Loop"}
     },
     {
       "type": "event_listener_flow",
       "mode": "any",
-      "extra": {"pos": [1000, 0], "name": "Wait for Tick"}
+      "extra": {"pos": [1040, 0], "name": "Wait for Tick"}
     },
     {
       "type": "tool_flow",
       "method": "fetch",
       "args": {"folder": "INBOX", "limit": 1, "unread": true},
-      "extra": {"pos": [1240, 0], "name": "Fetch Unread Email"}
+      "extra": {"pos": [1280, 0], "name": "Fetch Unread Email"}
     },
     {
       "type": "if_else_flow",
       "condition": "bool(value) and len(value) > 0",
-      "extra": {"pos": [1480, 0], "name": "Has Email?"}
+      "extra": {"pos": [1520, 0], "name": "Has Email?"}
     },
     {
       "type": "transform_flow",
       "lang": "python",
       "script": "emails = input if isinstance(input, list) else [input]\ne = emails[0] if emails else {}\nsubject = e.get('subject', '(no subject)')\nbody = e.get('body', '')[:2000]\nsender = e.get('from', '')\noutput = f'Reply to this email.\\n\\nFrom: {sender}\\nSubject: {subject}\\n\\n{body}'",
-      "extra": {"pos": [1720, 0], "name": "Build Prompt"}
+      "extra": {"pos": [1760, 0], "name": "Build Prompt"}
     },
     {
       "type": "agent_flow",
-      "extra": {"pos": [1960, 0], "name": "Draft Reply"}
+      "extra": {"pos": [2000, 0], "name": "Draft Reply"}
     },
     {
       "type": "transform_flow",
       "lang": "python",
-      "script": "r = input\nreply = r.get('response', {}).get('content', str(r)) if isinstance(r, dict) else str(r)\noutput = reply.strip() if reply.strip() != 'SKIP' else None",
-      "extra": {"pos": [2200, 0], "name": "Extract & Filter"}
+      "script": "r = input\nif isinstance(r, dict):\n    resp = r.get('response', {})\n    reply = resp.get('content', str(resp)) if isinstance(resp, dict) else str(resp)\nelse:\n    reply = str(r)\noutput = reply.strip() if reply.strip().upper() != 'SKIP' else None",
+      "extra": {"pos": [2240, 0], "name": "Extract & Filter"}
     },
     {
       "type": "if_else_flow",
       "condition": "value is not None and value != ''",
-      "extra": {"pos": [2440, 0], "name": "Skip?"}
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Grab the sender address from the fetched email context\nimport re\nemail_data = context.get('fetch_result', context)\n# The reply text is in 'input', sender is passed via context\noutput = input",
-      "extra": {"pos": [2680, 0], "name": "Pass Reply"}
+      "extra": {"pos": [2480, 0], "name": "Not Spam?"}
     },
     {
       "type": "preview_flow",
       "hint": "text",
-      "extra": {"pos": [2920, 0], "name": "Log Reply"}
+      "extra": {"pos": [2720, 0], "name": "Log Reply"}
     },
     {
       "type": "tool_flow",
       "method": "mark_read",
       "args": {"folder": "INBOX", "count": 1},
-      "extra": {"pos": [1720, 180], "name": "Mark Read"}
+      "extra": {"pos": [2960, 0], "name": "Mark Read"}
     },
     {
       "type": "loop_end_flow",
-      "extra": {"pos": [3160, 0], "name": "Loop End"}
+      "extra": {"pos": [3200, 0], "name": "Loop End"}
     },
     {
       "type": "end_flow",
-      "extra": {"pos": [3400, 0], "name": "End"}
+      "extra": {"pos": [3440, 0], "name": "End"}
     }
   ],
   "edges": [
-    { "source": 0,  "target": 7,  "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 1,  "target": 4,  "source_slot": "config",        "target_slot": "backend" },
-    { "source": 2,  "target": 4,  "source_slot": "config",        "target_slot": "model" },
-    { "source": 3,  "target": 4,  "source_slot": "options",       "target_slot": "options" },
-    { "source": 4,  "target": 13, "source_slot": "config",        "target_slot": "config" },
-    { "source": 6,  "target": 10, "source_slot": "config",        "target_slot": "config" },
-    { "source": 6,  "target": 18, "source_slot": "config",        "target_slot": "config" },
-    { "source": 7,  "target": 8,  "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 7,  "target": 9,  "source_slot": "registered_id", "target_slot": "sources.timer" },
-    { "source": 8,  "target": 9,  "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 9,  "target": 10, "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 10, "target": 11, "source_slot": "output",        "target_slot": "value" },
-    { "source": 10, "target": 11, "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 11, "target": 12, "source_slot": "true_out",      "target_slot": "flow_in" },
-    { "source": 11, "target": 18, "source_slot": "false_out",     "target_slot": "flow_in" },
-    { "source": 10, "target": 12, "source_slot": "output",        "target_slot": "input" },
-    { "source": 12, "target": 13, "source_slot": "output",        "target_slot": "request" },
-    { "source": 12, "target": 13, "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 13, "target": 14, "source_slot": "response",      "target_slot": "input" },
-    { "source": 13, "target": 14, "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 14, "target": 15, "source_slot": "output",        "target_slot": "value" },
-    { "source": 14, "target": 15, "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 15, "target": 16, "source_slot": "true_out",      "target_slot": "flow_in" },
-    { "source": 14, "target": 16, "source_slot": "output",        "target_slot": "input" },
-    { "source": 16, "target": 17, "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 16, "target": 17, "source_slot": "output",        "target_slot": "input" },
-    { "source": 15, "target": 18, "source_slot": "false_out",     "target_slot": "flow_in" },
-    { "source": 11, "target": 18, "source_slot": "true_out",      "target_slot": "flow_in" },
-    { "source": 17, "target": 19, "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 18, "target": 19, "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 19, "target": 8,  "source_slot": "flow_out",      "target_slot": "flow_in", "loop": true },
-    { "source": 19, "target": 20, "source_slot": "flow_out",      "target_slot": "flow_in" }
+    {"source": 1,  "target": 4,  "source_slot": "config",        "target_slot": "backend"},
+    {"source": 2,  "target": 4,  "source_slot": "config",        "target_slot": "model"},
+    {"source": 3,  "target": 4,  "source_slot": "options",       "target_slot": "options"},
+    {"source": 4,  "target": 12, "source_slot": "config",        "target_slot": "config"},
+    {"source": 5,  "target": 9,  "source_slot": "config",        "target_slot": "config"},
+    {"source": 5,  "target": 16, "source_slot": "config",        "target_slot": "config"},
+
+    {"source": 0,  "target": 6,  "source_slot": "flow_out",      "target_slot": "flow_in"},
+    {"source": 6,  "target": 7,  "source_slot": "flow_out",      "target_slot": "flow_in"},
+    {"source": 6,  "target": 8,  "source_slot": "registered_id", "target_slot": "sources.timer"},
+    {"source": 7,  "target": 8,  "source_slot": "flow_out",      "target_slot": "flow_in"},
+    {"source": 8,  "target": 9,  "source_slot": "flow_out",      "target_slot": "flow_in"},
+    {"source": 9,  "target": 10, "source_slot": "flow_out",      "target_slot": "flow_in"},
+    {"source": 9,  "target": 10, "source_slot": "output",        "target_slot": "value"},
+
+    {"source": 10, "target": 11, "source_slot": "true_out",      "target_slot": "flow_in"},
+    {"source": 9,  "target": 11, "source_slot": "output",        "target_slot": "input"},
+    {"source": 11, "target": 12, "source_slot": "flow_out",      "target_slot": "flow_in"},
+    {"source": 11, "target": 12, "source_slot": "output",        "target_slot": "request"},
+    {"source": 12, "target": 13, "source_slot": "flow_out",      "target_slot": "flow_in"},
+    {"source": 12, "target": 13, "source_slot": "response",      "target_slot": "input"},
+    {"source": 13, "target": 14, "source_slot": "flow_out",      "target_slot": "flow_in"},
+    {"source": 13, "target": 14, "source_slot": "output",        "target_slot": "value"},
+
+    {"source": 14, "target": 15, "source_slot": "true_out",      "target_slot": "flow_in"},
+    {"source": 13, "target": 15, "source_slot": "output",        "target_slot": "input"},
+    {"source": 15, "target": 16, "source_slot": "flow_out",      "target_slot": "flow_in"},
+    {"source": 16, "target": 17, "source_slot": "flow_out",      "target_slot": "flow_in"},
+
+    {"source": 10, "target": 17, "source_slot": "false_out",     "target_slot": "flow_in"},
+    {"source": 14, "target": 17, "source_slot": "false_out",     "target_slot": "flow_in"},
+
+    {"source": 17, "target": 7,  "source_slot": "flow_out",      "target_slot": "flow_in", "loop": true},
+    {"source": 17, "target": 18, "source_slot": "flow_out",      "target_slot": "flow_in"}
   ]
 }

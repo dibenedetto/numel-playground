@@ -1591,6 +1591,10 @@ WorkflowNodeUnion = Union[
 	FSWatchSourceFlow,
 	WebhookSourceFlow,
 	BrowserSourceFlow,
+	ChannelReceiveFlow,
+
+	# Channel nodes
+	ChannelSendFlow,
 
 	# ML / Stream nodes
 	PoseDetectorFlow,
