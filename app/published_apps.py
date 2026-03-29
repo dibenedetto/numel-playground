@@ -234,11 +234,40 @@ class PublishedAppManager:
 
 	# ── HTML Generation ───────────────────────────────────────────
 
+	@staticmethod
+	def _scan_media_nodes(workflow: Dict[str, Any]) -> dict:
+		"""Pre-scan workflow for preview_flow and browser_source_flow nodes."""
+		nodes = workflow.get("nodes", [])
+		previews = []      # [{index, name, hint}]
+		sources  = []      # [{index, name, device_type, mode, interval_ms, resolution}]
+		for i, node in enumerate(nodes):
+			ntype = node.get("type", "")
+			name  = (node.get("extra") or {}).get("name", f"Node {i}")
+			if ntype == "preview_flow":
+				previews.append({"index": i, "name": name,
+								 "hint": node.get("hint", "auto")})
+			elif ntype == "browser_source_flow":
+				sources.append({"index": i, "name": name,
+								"device_type": node.get("device_type", "webcam"),
+								"mode": node.get("mode", "event"),
+								"interval_ms": node.get("interval_ms", 1000),
+								"resolution": node.get("resolution", "")})
+		return {"previews": previews, "sources": sources}
+
 	def render_form(self, slug: str, base_url: str = "", embed: bool = False) -> str:
 		"""Generate an HTML form for a published app with user-input dialog support."""
 		app = self._apps.get(slug)
 		if not app:
 			return "<h1>App not found</h1>"
+
+		# Pre-scan for media nodes
+		media_info = self._scan_media_nodes(app.workflow)
+		has_media  = bool(media_info["previews"] or media_info["sources"])
+
+		# Build conditional media sections
+		media_css  = self._render_media_css()            if has_media else ""
+		media_html = self._render_media_html(media_info) if has_media else ""
+		media_js   = self._render_media_js(media_info)   if has_media else ""
 
 		input_fields = ""
 		for inp in app.inputs:
@@ -354,7 +383,7 @@ textarea {{ min-height: 80px; resize: vertical; }}
 .modal-submit {{ background: #2d5a7b; color: #fff; border: none; border-radius: 6px;
     padding: 10px 20px; font-size: 14px; cursor: pointer; width: 100%; }}
 .modal-submit:hover {{ background: #3a6f96; }}
-</style>
+{media_css}</style>
 </head>
 <body>
 <div class="container">
@@ -373,6 +402,7 @@ textarea {{ min-height: 80px; resize: vertical; }}
     <div class="event-log" id="eventLog"></div>
   </div>
   <div id="result" class="result"></div>
+  {media_html}
   <div class="footer">Powered by <a href="/">Numel Playground</a></div>
 </div>
 
@@ -409,6 +439,7 @@ textarea {{ min-height: 80px; resize: vertical; }}
   var modalInput  = document.getElementById('modalInput');
   var modalSubmit = document.getElementById('modalSubmit');
 
+{media_js}
   /* ── helpers ───────────────────────────────────────── */
 
   function setStatus(msg, cls) {{
@@ -446,6 +477,7 @@ textarea {{ min-height: 80px; resize: vertical; }}
   function cleanup() {{
     if (pollTimer) {{ clearInterval(pollTimer); pollTimer = null; }}
     if (ws) {{ try {{ ws.close(); }} catch(e) {{}} ws = null; }}
+    if (typeof cleanupMedia === 'function') cleanupMedia();
     runBtn.disabled    = false;
     runBtn.textContent = 'Run';
     cancelBtn.style.display = 'none';
@@ -503,6 +535,8 @@ textarea {{ min-height: 80px; resize: vertical; }}
       else if (ev.error)   desc = ev.error;
       addLog(etype, desc);
     }}
+
+    if (typeof handleMediaEvent === 'function') handleMediaEvent(ev, etype, data);
 
     if (etype === 'user_input.requested') {{
       openModal(data.prompt, ev.node_id);
@@ -649,6 +683,7 @@ textarea {{ min-height: 80px; resize: vertical; }}
       addLog('workflow.started', execId);
 
       connectEvents();
+      if (typeof initMediaPanels === 'function') initMediaPanels();
       pollTimer = setInterval(pollStatus, 1500);
 
     }} catch (err) {{
@@ -709,6 +744,275 @@ textarea {{ min-height: 80px; resize: vertical; }}
 						"required": True,
 					})
 		return inputs
+
+	@staticmethod
+	def _render_media_css() -> str:
+		"""CSS for preview panels and browser source elements in published apps."""
+		return """/* Media: previews & browser sources */
+.media-section { margin-top: 16px; display: flex; flex-direction: column; gap: 12px; }
+.preview-panel { background: #1a1a22; border: 1px solid #333; border-radius: 6px;
+    overflow: hidden; display: none; }
+.preview-header { padding: 8px 12px; font-size: 11px; color: #888; text-transform: uppercase;
+    letter-spacing: 0.06em; border-bottom: 1px solid #222; background: #15151c; }
+.preview-content { padding: 12px; max-height: 500px; overflow: auto; }
+.preview-content pre { margin: 0; white-space: pre-wrap; word-break: break-word;
+    font-size: 13px; color: #e0e0e0; font-family: monospace; }
+.preview-content img, .preview-content video { max-width: 100%; border-radius: 4px; display: block; }
+.preview-content audio { width: 100%; }
+.source-panel { background: #1a1a22; border: 1px solid #333; border-radius: 6px;
+    overflow: hidden; }
+.source-header { padding: 8px 12px; font-size: 11px; color: #888; text-transform: uppercase;
+    letter-spacing: 0.06em; border-bottom: 1px solid #222; background: #15151c;
+    display: flex; justify-content: space-between; align-items: center; }
+.source-header button { background: #2d5a7b; color: #fff; border: none; border-radius: 4px;
+    padding: 4px 10px; font-size: 11px; cursor: pointer; }
+.source-body { position: relative; background: #000; min-height: 120px; }
+.source-body video { width: 100%; display: block; }
+.source-body canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; }
+"""
+
+	@staticmethod
+	def _render_media_html(media_info: dict) -> str:
+		"""HTML panels for preview outputs and browser source capture areas."""
+		panels = ""
+		for p in media_info["previews"]:
+			panels += (
+				f'  <div class="preview-panel" id="preview-{p["index"]}" data-hint="{p["hint"]}">'
+				f'<div class="preview-header">{p["name"]}</div>'
+				f'<div class="preview-content" id="preview-content-{p["index"]}"></div>'
+				f'</div>\n')
+		for s in media_info["sources"]:
+			panels += (
+				f'  <div class="source-panel" id="source-{s["index"]}" data-device="{s["device_type"]}">'
+				f'<div class="source-header">'
+				f'<span>{s["name"]} ({s["device_type"]})</span>'
+				f'<button onclick="window._toggleSource({s["index"]})">Start</button>'
+				f'</div>'
+				f'<div class="source-body">'
+				f'<video id="source-video-{s["index"]}" autoplay muted playsinline></video>'
+				f'<canvas id="source-canvas-{s["index"]}"></canvas>'
+				f'</div>'
+				f'</div>\n')
+		return '<div class="media-section" id="mediaSection">\n' + panels + '</div>'
+
+	@staticmethod
+	def _render_media_js(media_info: dict) -> str:
+		"""JavaScript for preview rendering, browser source capture, and stream display."""
+		info_json = json.dumps(media_info)
+		return "  var MEDIA_INFO = " + info_json + ";\n" + """  var activeStreams = {};
+
+  function handleMediaEvent(ev, etype, data) {
+    if (etype === 'node.completed') {
+      var nodeIdx = parseInt(ev.node_id, 10);
+      for (var pi = 0; pi < MEDIA_INFO.previews.length; pi++) {
+        if (MEDIA_INFO.previews[pi].index === nodeIdx) {
+          renderPreview(nodeIdx, data.outputs || {}, MEDIA_INFO.previews[pi].hint);
+          break;
+        }
+      }
+      for (var si = 0; si < MEDIA_INFO.sources.length; si++) {
+        if (MEDIA_INFO.sources[si].index === nodeIdx) {
+          var regId = (data.outputs || {}).registered_id;
+          if (regId) {
+            activeStreams[nodeIdx] = activeStreams[nodeIdx] || {};
+            activeStreams[nodeIdx].sourceId = regId;
+            var sp = document.getElementById('source-' + nodeIdx);
+            if (sp) sp.style.display = 'block';
+            if (activeStreams[nodeIdx].stream) {
+              connectStreamWs(nodeIdx, regId, MEDIA_INFO.sources[si]);
+            }
+          }
+          break;
+        }
+      }
+    }
+    if (etype === 'stream.display') {
+      var sid = data.source_id;
+      for (var key in activeStreams) {
+        if (activeStreams[key].sourceId === sid) {
+          if (!activeStreams[key].ws || activeStreams[key].ws.readyState !== 1) {
+            renderStreamDisplay(parseInt(key), {render_type: data.render_type, payload: data.payload});
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  function initMediaPanels() {
+    for (var i = 0; i < MEDIA_INFO.sources.length; i++) {
+      var s = MEDIA_INFO.sources[i];
+      var panel = document.getElementById('source-' + s.index);
+      if (panel) panel.style.display = 'block';
+    }
+  }
+
+  function cleanupMedia() {
+    for (var key in activeStreams) { stopSource(parseInt(key)); }
+  }
+
+  function renderPreview(nodeIdx, outputs, hint) {
+    var panel = document.getElementById('preview-' + nodeIdx);
+    var content = document.getElementById('preview-content-' + nodeIdx);
+    if (!panel || !content) return;
+    panel.style.display = 'block';
+    var val = outputs.flow_out !== undefined ? outputs.flow_out
+            : (outputs.output !== undefined ? outputs.output : outputs);
+    if (val === undefined || val === null) { content.innerHTML = '<pre>(no data)</pre>'; return; }
+    if (hint === 'auto') {
+      if (typeof val === 'string') {
+        if (val.match(/^data:image\\//) || val.match(/\\.(png|jpg|jpeg|gif|webp|svg)$/i)) hint = 'image';
+        else if (val.match(/^data:audio\\//) || val.match(/\\.(mp3|wav|ogg|m4a)$/i)) hint = 'audio';
+        else if (val.match(/^data:video\\//) || val.match(/\\.(mp4|webm|mov)$/i)) hint = 'video';
+        else hint = 'text';
+      } else hint = 'json';
+    }
+    var src;
+    if (hint === 'image') {
+      src = typeof val === 'string' ? val : (val.url || val.src || val.data || '');
+      content.innerHTML = '<img src="' + _mEscAttr(src) + '" alt="preview">';
+    } else if (hint === 'audio') {
+      src = typeof val === 'string' ? val : (val.url || val.src || val.data || '');
+      content.innerHTML = '<audio controls src="' + _mEscAttr(src) + '"></audio>';
+    } else if (hint === 'video') {
+      src = typeof val === 'string' ? val : (val.url || val.src || val.data || '');
+      content.innerHTML = '<video controls src="' + _mEscAttr(src) + '" style="max-width:100%"></video>';
+    } else if (hint === 'json') {
+      var txt = typeof val === 'string' ? val : JSON.stringify(val, null, 2);
+      content.innerHTML = '<pre>' + _mEscHtml(txt) + '</pre>';
+    } else {
+      content.innerHTML = '<pre>' + _mEscHtml(String(val)) + '</pre>';
+    }
+  }
+
+  function _mEscHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+  function _mEscAttr(s) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+  window._toggleSource = async function(nodeIdx) {
+    var info = activeStreams[nodeIdx];
+    if (info && info.stream) { stopSource(nodeIdx); return; }
+    var cfg = null;
+    for (var i = 0; i < MEDIA_INFO.sources.length; i++) {
+      if (MEDIA_INFO.sources[i].index === nodeIdx) { cfg = MEDIA_INFO.sources[i]; break; }
+    }
+    if (!cfg) return;
+    activeStreams[nodeIdx] = activeStreams[nodeIdx] || {};
+    activeStreams[nodeIdx].cfg = cfg;
+    await startCapture(nodeIdx, cfg);
+    if (activeStreams[nodeIdx].sourceId) connectStreamWs(nodeIdx, activeStreams[nodeIdx].sourceId, cfg);
+  };
+
+  async function startCapture(nodeIdx, cfg) {
+    var video = document.getElementById('source-video-' + nodeIdx);
+    if (!video) return;
+    var stream;
+    try {
+      if (cfg.device_type === 'screen') stream = await navigator.mediaDevices.getDisplayMedia({video: true});
+      else if (cfg.device_type === 'microphone') stream = await navigator.mediaDevices.getUserMedia({audio: true});
+      else {
+        var vc = true;
+        if (cfg.resolution) { var p = cfg.resolution.split('x'); if (p.length === 2) vc = {width: {ideal: +p[0]}, height: {ideal: +p[1]}}; }
+        stream = await navigator.mediaDevices.getUserMedia({video: vc});
+      }
+    } catch(e) { console.error('Capture failed:', e); return; }
+    video.srcObject = stream;
+    video.play();
+    activeStreams[nodeIdx].stream = stream;
+    _updateSourceBtn(nodeIdx, true);
+  }
+
+  function connectStreamWs(nodeIdx, sourceId, cfg) {
+    var info = activeStreams[nodeIdx];
+    if (!info || info.ws) return;
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var sws = new WebSocket(proto + '//' + location.host + '/ws/stream/' + sourceId);
+    info.ws = sws;
+    sws.binaryType = 'arraybuffer';
+    sws.onopen = function() {
+      if (cfg.device_type !== 'microphone') {
+        var video = document.getElementById('source-video-' + nodeIdx);
+        var cvs = document.createElement('canvas');
+        var cctx = cvs.getContext('2d');
+        info.sendInterval = setInterval(function() {
+          if (!video || !video.videoWidth || sws.readyState !== 1) return;
+          cvs.width = video.videoWidth; cvs.height = video.videoHeight;
+          cctx.drawImage(video, 0, 0);
+          cvs.toBlob(function(b) { if (b && sws.readyState === 1) sws.send(b); }, 'image/jpeg', 0.8);
+        }, cfg.interval_ms || 1000);
+      }
+    };
+    sws.onmessage = function(e) {
+      if (typeof e.data === 'string') {
+        try { var msg = JSON.parse(e.data); if (msg.type === 'stream.display') renderStreamDisplay(nodeIdx, msg); } catch(ex) {}
+      } else if (e.data instanceof ArrayBuffer) {
+        var arr = new Uint8Array(e.data);
+        if (arr[0] === 0x01) {
+          var blob = new Blob([arr.slice(1)], {type: 'image/jpeg'});
+          var url = URL.createObjectURL(blob);
+          var ov = document.getElementById('source-canvas-' + nodeIdx);
+          if (ov) {
+            var img = new Image();
+            img.onload = function() { ov.width = img.width; ov.height = img.height; ov.getContext('2d').drawImage(img, 0, 0); URL.revokeObjectURL(url); };
+            img.src = url;
+          }
+        }
+      }
+    };
+    sws.onclose = function() { if (info) info.ws = null; };
+  }
+
+  function renderStreamDisplay(nodeIdx, msg) {
+    var canvas = document.getElementById('source-canvas-' + nodeIdx);
+    if (!canvas) return;
+    var video = document.getElementById('source-video-' + nodeIdx);
+    if (video && video.videoWidth) { canvas.width = video.videoWidth; canvas.height = video.videoHeight; }
+    var ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    var rt = msg.render_type, payload = msg.payload;
+    if (rt === 'text' && payload) {
+      ctx.fillStyle = 'rgba(0,255,0,0.9)'; ctx.font = '16px monospace';
+      ctx.fillText(typeof payload === 'string' ? payload : JSON.stringify(payload), 10, 30);
+    } else if (rt === 'pose' && Array.isArray(payload)) {
+      _drawPose(ctx, payload, canvas.width, canvas.height);
+    } else if (rt === 'image' && typeof payload === 'string') {
+      var im = new Image();
+      im.onload = function() { ctx.drawImage(im, 0, 0, canvas.width, canvas.height); };
+      im.src = payload.startsWith('data:') ? payload : 'data:image/jpeg;base64,' + payload;
+    }
+  }
+
+  function _drawPose(ctx, lm, w, h) {
+    ctx.fillStyle = '#00ff00';
+    for (var i = 0; i < lm.length; i++) {
+      ctx.beginPath(); ctx.arc((lm[i].x||0)*w, (lm[i].y||0)*h, 3, 0, Math.PI*2); ctx.fill();
+    }
+    ctx.strokeStyle = '#00ff00'; ctx.lineWidth = 2;
+    var cn = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[24,26],[25,27],[26,28]];
+    for (var c = 0; c < cn.length; c++) {
+      var a = lm[cn[c][0]], b = lm[cn[c][1]];
+      if (a && b) { ctx.beginPath(); ctx.moveTo(a.x*w,a.y*h); ctx.lineTo(b.x*w,b.y*h); ctx.stroke(); }
+    }
+  }
+
+  function stopSource(nodeIdx) {
+    var info = activeStreams[nodeIdx]; if (!info) return;
+    if (info.sendInterval) clearInterval(info.sendInterval);
+    if (info.ws) try { info.ws.close(); } catch(e) {}
+    if (info.stream) info.stream.getTracks().forEach(function(t) { t.stop(); });
+    var video = document.getElementById('source-video-' + nodeIdx);
+    if (video) video.srcObject = null;
+    activeStreams[nodeIdx] = {};
+    _updateSourceBtn(nodeIdx, false);
+  }
+
+  function _updateSourceBtn(nodeIdx, on) {
+    var p = document.getElementById('source-' + nodeIdx);
+    if (!p) return;
+    var btn = p.querySelector('.source-header button');
+    if (btn) { btn.textContent = on ? 'Stop' : 'Start'; btn.style.background = on ? '#b91c1c' : '#2d5a7b'; }
+  }
+"""
 
 	def _save(self):
 		data = {slug: app.model_dump() for slug, app in self._apps.items()}
