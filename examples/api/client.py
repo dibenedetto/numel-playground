@@ -325,10 +325,12 @@ class NumelClient:
 	async def channel_stop(self, channel_id: str) -> dict:
 		return await self._post("/channels/stop", {"channel_id": channel_id})
 
-	async def channel_send(self, channel_id: str, recipient_id: str, text: str) -> dict:
-		return await self._post("/channels/send", {
-			"channel_id": channel_id, "recipient_id": recipient_id, "text": text,
-		})
+	async def channel_send(self, channel_id: str, recipient_id: str, text: str,
+						  attachments: list = None) -> dict:
+		payload = {"channel_id": channel_id, "recipient_id": recipient_id, "text": text}
+		if attachments:
+			payload["attachments"] = attachments
+		return await self._post("/channels/send", payload)
 
 	# ── Gallery ────────────────────────────────────────────────────
 
