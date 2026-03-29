@@ -191,8 +191,13 @@ Web console users authenticated via the login modal are auto-linked — no expli
 
 ### Published Apps
 - Export any workflow as a **standalone web endpoint** with auto-generated UI
-- Access via `/published-apps/run/{slug}`
-- Share workflows as deployable services
+- Access via `/apps/{slug}` — anyone with the URL can run it
+- **User input modals** — workflows with `user_input_flow` nodes pause and prompt the user inline
+- **Live event log** — real-time WebSocket updates (node progress, errors) with REST polling fallback
+- **Preview rendering** — workflows containing `preview_flow` nodes render outputs inline (auto-detects images, audio, video, JSON, text based on hint)
+- **Browser source capture** — workflows with `browser_source_flow` nodes show webcam/mic/screen capture panels with Start/Stop controls; frames stream to backend via `/ws/stream/{source_id}`
+- **Stream display overlays** — pose landmarks, text, and annotated images rendered on a canvas overlay above the video feed
+- Cancel running executions from the UI
 
 ### Assistant Console
 - **AI chat panel** with streaming (AGUI) and REST fallback
@@ -716,6 +721,9 @@ All endpoints use **POST** method unless otherwise noted.
 | `/apps/list` | List published apps |
 | `/apps/publish` | Publish workflow as app |
 | `/apps/unpublish` | Unpublish an app |
+| `GET /apps/{slug}` | Serve auto-generated HTML form (public) |
+| `/apps/{slug}/start` | Start app execution, returns execution_id |
+| `/apps/{slug}/run` | Run app synchronously (blocks until complete) |
 
 ### WebSocket Streams
 | Endpoint | Events |

@@ -239,7 +239,7 @@ class PublishedAppManager:
 		"""Pre-scan workflow for preview_flow and browser_source_flow nodes."""
 		nodes = workflow.get("nodes", [])
 		previews = []      # [{index, name, hint}]
-		sources  = []      # [{index, name, device_type, mode, interval_ms, resolution}]
+		sources  = []      # [{index, name, device_type, mode, interval_ms, resolution, audio_format}]
 		for i, node in enumerate(nodes):
 			ntype = node.get("type", "")
 			name  = (node.get("extra") or {}).get("name", f"Node {i}")
@@ -251,7 +251,8 @@ class PublishedAppManager:
 								"device_type": node.get("device_type", "webcam"),
 								"mode": node.get("mode", "event"),
 								"interval_ms": node.get("interval_ms", 1000),
-								"resolution": node.get("resolution", "")})
+								"resolution": node.get("resolution", ""),
+								"audio_format": node.get("audio_format", "")})
 		return {"previews": previews, "sources": sources}
 
 	def render_form(self, slug: str, base_url: str = "", embed: bool = False) -> str:
@@ -770,6 +771,8 @@ textarea {{ min-height: 80px; resize: vertical; }}
 .source-body video { width: 100%; display: block; }
 .source-body canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     pointer-events: none; }
+.source-body-audio { min-height: 60px; display: flex; align-items: center; justify-content: center; }
+.audio-level-canvas { width: 100%; height: 60px; display: block; }
 """
 
 	@staticmethod
@@ -783,17 +786,30 @@ textarea {{ min-height: 80px; resize: vertical; }}
 				f'<div class="preview-content" id="preview-content-{p["index"]}"></div>'
 				f'</div>\n')
 		for s in media_info["sources"]:
-			panels += (
-				f'  <div class="source-panel" id="source-{s["index"]}" data-device="{s["device_type"]}">'
-				f'<div class="source-header">'
-				f'<span>{s["name"]} ({s["device_type"]})</span>'
-				f'<button onclick="window._toggleSource({s["index"]})">Start</button>'
-				f'</div>'
-				f'<div class="source-body">'
-				f'<video id="source-video-{s["index"]}" autoplay muted playsinline></video>'
-				f'<canvas id="source-canvas-{s["index"]}"></canvas>'
-				f'</div>'
-				f'</div>\n')
+			if s["device_type"] == "microphone":
+				# Audio-only: level meter canvas instead of video
+				panels += (
+					f'  <div class="source-panel" id="source-{s["index"]}" data-device="microphone">'
+					f'<div class="source-header">'
+					f'<span>{s["name"]} (microphone)</span>'
+					f'<button onclick="window._toggleSource({s["index"]})">Start</button>'
+					f'</div>'
+					f'<div class="source-body source-body-audio">'
+					f'<canvas id="source-level-{s["index"]}" class="audio-level-canvas"></canvas>'
+					f'</div>'
+					f'</div>\n')
+			else:
+				panels += (
+					f'  <div class="source-panel" id="source-{s["index"]}" data-device="{s["device_type"]}">'
+					f'<div class="source-header">'
+					f'<span>{s["name"]} ({s["device_type"]})</span>'
+					f'<button onclick="window._toggleSource({s["index"]})">Start</button>'
+					f'</div>'
+					f'<div class="source-body">'
+					f'<video id="source-video-{s["index"]}" autoplay muted playsinline></video>'
+					f'<canvas id="source-canvas-{s["index"]}"></canvas>'
+					f'</div>'
+					f'</div>\n')
 		return '<div class="media-section" id="mediaSection">\n' + panels + '</div>'
 
 	@staticmethod
@@ -904,11 +920,9 @@ textarea {{ min-height: 80px; resize: vertical; }}
   };
 
   async function startCapture(nodeIdx, cfg) {
-    var video = document.getElementById('source-video-' + nodeIdx);
-    if (!video) return;
     var stream;
     try {
-      if (cfg.device_type === 'screen') stream = await navigator.mediaDevices.getDisplayMedia({video: true});
+      if (cfg.device_type === 'screen') stream = await navigator.mediaDevices.getDisplayMedia({video: true, audio: true});
       else if (cfg.device_type === 'microphone') stream = await navigator.mediaDevices.getUserMedia({audio: true});
       else {
         var vc = true;
@@ -916,10 +930,51 @@ textarea {{ min-height: 80px; resize: vertical; }}
         stream = await navigator.mediaDevices.getUserMedia({video: vc});
       }
     } catch(e) { console.error('Capture failed:', e); return; }
-    video.srcObject = stream;
-    video.play();
     activeStreams[nodeIdx].stream = stream;
+    if (cfg.device_type === 'microphone') {
+      _startAudioLevel(nodeIdx, stream);
+    } else {
+      var video = document.getElementById('source-video-' + nodeIdx);
+      if (video) {
+        video.srcObject = stream;
+        if (cfg.device_type === 'webcam') video.parentElement.style.transform = 'scaleX(-1)';
+        video.play();
+      }
+    }
     _updateSourceBtn(nodeIdx, true);
+    /* Auto-stop when the browser ends the stream (e.g. user clicks "Stop sharing") */
+    stream.getTracks().forEach(function(track) {
+      track.addEventListener('ended', function() { stopSource(nodeIdx); });
+    });
+  }
+
+  function _startAudioLevel(nodeIdx, stream) {
+    var canvas = document.getElementById('source-level-' + nodeIdx);
+    if (!canvas) return;
+    var actx = new (window.AudioContext || window.webkitAudioContext)();
+    var src = actx.createMediaStreamSource(stream);
+    var analyser = actx.createAnalyser();
+    analyser.fftSize = 256;
+    src.connect(analyser);
+    var buf = new Uint8Array(analyser.frequencyBinCount);
+    var info = activeStreams[nodeIdx];
+    info.audioCtx = actx;
+    function draw() {
+      if (!activeStreams[nodeIdx] || !activeStreams[nodeIdx].audioCtx) return;
+      info.levelRaf = requestAnimationFrame(draw);
+      analyser.getByteFrequencyData(buf);
+      var w = canvas.clientWidth, h = canvas.clientHeight;
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+      var ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#000'; ctx.fillRect(0, 0, w, h);
+      var bars = buf.length, bw = w / bars;
+      for (var i = 0; i < bars; i++) {
+        var bh = (buf[i] / 255) * h;
+        ctx.fillStyle = 'hsl(' + (120 - (buf[i] / 255) * 80) + ',80%,50%)';
+        ctx.fillRect(i * bw, h - bh, bw - 1, bh);
+      }
+    }
+    draw();
   }
 
   function connectStreamWs(nodeIdx, sourceId, cfg) {
@@ -930,7 +985,18 @@ textarea {{ min-height: 80px; resize: vertical; }}
     info.ws = sws;
     sws.binaryType = 'arraybuffer';
     sws.onopen = function() {
-      if (cfg.device_type !== 'microphone') {
+      if (cfg.device_type === 'microphone') {
+        if (info.stream) {
+          var mimeType = 'audio/webm;codecs=opus';
+          if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'audio/webm';
+          var recorder = new MediaRecorder(info.stream, {mimeType: mimeType});
+          info.recorder = recorder;
+          recorder.ondataavailable = function(e) {
+            if (e.data && e.data.size > 0 && sws.readyState === 1) sws.send(e.data);
+          };
+          recorder.start(cfg.interval_ms || 1000);
+        }
+      } else {
         var video = document.getElementById('source-video-' + nodeIdx);
         var cvs = document.createElement('canvas');
         var cctx = cvs.getContext('2d');
@@ -998,10 +1064,15 @@ textarea {{ min-height: 80px; resize: vertical; }}
   function stopSource(nodeIdx) {
     var info = activeStreams[nodeIdx]; if (!info) return;
     if (info.sendInterval) clearInterval(info.sendInterval);
+    if (info.recorder) try { info.recorder.stop(); } catch(e) {}
+    if (info.levelRaf) cancelAnimationFrame(info.levelRaf);
+    if (info.audioCtx) try { info.audioCtx.close(); } catch(e) {}
     if (info.ws) try { info.ws.close(); } catch(e) {}
     if (info.stream) info.stream.getTracks().forEach(function(t) { t.stop(); });
     var video = document.getElementById('source-video-' + nodeIdx);
     if (video) video.srcObject = null;
+    var lvl = document.getElementById('source-level-' + nodeIdx);
+    if (lvl) { var lctx = lvl.getContext('2d'); lctx.fillStyle = '#000'; lctx.fillRect(0, 0, lvl.width, lvl.height); }
     activeStreams[nodeIdx] = {};
     _updateSourceBtn(nodeIdx, false);
   }
