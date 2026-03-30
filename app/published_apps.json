@@ -297,7 +297,11 @@
     "published": "2026-03-17T14:39:38.527841",
     "enabled": true,
     "runs": 8,
-    "author": ""
+    "author": "",
+    "run_count": 0,
+    "error_count": 0,
+    "last_run_at": null,
+    "last_error": null
   },
   "untitled": {
     "id": "app_d388345f",
@@ -951,7 +955,11 @@
     "published": "2026-03-17T15:10:27.336983",
     "enabled": true,
     "runs": 2,
-    "author": ""
+    "author": "",
+    "run_count": 0,
+    "error_count": 0,
+    "last_run_at": null,
+    "last_error": null
   },
   "microphone-audio-gate": {
     "id": "app_49afc178",
@@ -1286,6 +1294,178 @@
     "published": "2026-03-17T15:23:54.490034",
     "enabled": true,
     "runs": 1,
-    "author": ""
+    "author": "",
+    "run_count": 0,
+    "error_count": 0,
+    "last_run_at": null,
+    "last_error": null
+  },
+  "webcam-cv-frontend": {
+    "id": "app_a844a7a8",
+    "name": "Webcam Cv Frontend",
+    "slug": "webcam-cv-frontend",
+    "description": "Example workflow: Webcam Cv Frontend",
+    "workflow": {
+      "type": "workflow",
+      "nodes": [
+        {
+          "type": "start_flow",
+          "extra": {
+            "pos": [
+              0,
+              0
+            ],
+            "name": "Start"
+          }
+        },
+        {
+          "type": "browser_source_flow",
+          "device_type": "webcam",
+          "mode": "stream",
+          "source_id": "cam_cv",
+          "extra": {
+            "pos": [
+              220,
+              0
+            ],
+            "name": "Webcam"
+          }
+        },
+        {
+          "type": "computer_vision_flow",
+          "task": "pose",
+          "model_size": "lite",
+          "min_confidence": 0.5,
+          "inference_location": "frontend",
+          "extra": {
+            "pos": [
+              440,
+              0
+            ],
+            "name": "CV Pose (Browser Worker)"
+          }
+        },
+        {
+          "type": "preview_flow",
+          "hint": "image",
+          "extra": {
+            "pos": [
+              660,
+              0
+            ],
+            "name": "Pose Preview"
+          }
+        },
+        {
+          "type": "loop_start_flow",
+          "condition": true,
+          "max_iter": 10000000,
+          "extra": {
+            "pos": [
+              880,
+              0
+            ],
+            "name": "Keep Alive"
+          }
+        },
+        {
+          "type": "delay_flow",
+          "duration_ms": 5000,
+          "extra": {
+            "pos": [
+              1100,
+              0
+            ],
+            "name": "Heartbeat (5s)"
+          }
+        },
+        {
+          "type": "loop_end_flow",
+          "extra": {
+            "pos": [
+              1320,
+              0
+            ],
+            "name": "Loop End"
+          }
+        },
+        {
+          "type": "end_flow",
+          "extra": {
+            "pos": [
+              1540,
+              0
+            ],
+            "name": "End"
+          }
+        }
+      ],
+      "edges": [
+        {
+          "source": 0,
+          "target": 1,
+          "source_slot": "flow_out",
+          "target_slot": "flow_in"
+        },
+        {
+          "source": 1,
+          "target": 2,
+          "source_slot": "flow_out",
+          "target_slot": "flow_in"
+        },
+        {
+          "source": 1,
+          "target": 2,
+          "source_slot": "registered_id",
+          "target_slot": "source_id"
+        },
+        {
+          "source": 2,
+          "target": 3,
+          "source_slot": "rendered_image",
+          "target_slot": "flow_in"
+        },
+        {
+          "source": 3,
+          "target": 4,
+          "source_slot": "flow_out",
+          "target_slot": "flow_in"
+        },
+        {
+          "source": 4,
+          "target": 5,
+          "source_slot": "flow_out",
+          "target_slot": "flow_in"
+        },
+        {
+          "source": 5,
+          "target": 6,
+          "source_slot": "flow_out",
+          "target_slot": "flow_in"
+        },
+        {
+          "source": 6,
+          "target": 4,
+          "source_slot": "flow_out",
+          "target_slot": "flow_in",
+          "loop": true
+        },
+        {
+          "source": 6,
+          "target": 7,
+          "source_slot": "flow_out",
+          "target_slot": "flow_in"
+        }
+      ]
+    },
+    "inputs": [],
+    "published": "2026-03-29T20:36:28.828536",
+    "enabled": true,
+    "runs": 2,
+    "author": "",
+    "run_count": 2,
+    "error_count": 2,
+    "last_run_at": "2026-03-30T10:27:07.449676",
+    "last_error": "Cancelled by user"
   }
 }

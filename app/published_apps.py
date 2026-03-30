@@ -236,10 +236,12 @@ class PublishedAppManager:
 
 	@staticmethod
 	def _scan_media_nodes(workflow: Dict[str, Any]) -> dict:
-		"""Pre-scan workflow for preview_flow and browser_source_flow nodes."""
+		"""Pre-scan workflow for preview_flow, browser_source_flow, and computer_vision_flow nodes."""
 		nodes = workflow.get("nodes", [])
-		previews = []      # [{index, name, hint}]
-		sources  = []      # [{index, name, device_type, mode, interval_ms, resolution, audio_format}]
+		edges = workflow.get("edges", [])
+		previews   = []   # [{index, name, hint}]
+		sources    = []   # [{index, name, device_type, mode, interval_ms, resolution, audio_format}]
+		cv_nodes   = []   # [{index, name, task, model_size, min_confidence, inference_location, source_index, preview_index}]
 		for i, node in enumerate(nodes):
 			ntype = node.get("type", "")
 			name  = (node.get("extra") or {}).get("name", f"Node {i}")
@@ -253,7 +255,26 @@ class PublishedAppManager:
 								"interval_ms": node.get("interval_ms", 1000),
 								"resolution": node.get("resolution", ""),
 								"audio_format": node.get("audio_format", "")})
-		return {"previews": previews, "sources": sources}
+			elif ntype == "computer_vision_flow":
+				cv_nodes.append({"index": i, "name": name,
+								 "task": node.get("task", "pose"),
+								 "model_size": node.get("model_size", "lite"),
+								 "min_confidence": node.get("min_confidence", 0.5),
+								 "inference_location": node.get("inference_location", "frontend"),
+								 "source_index": -1, "preview_index": -1})
+
+		# Resolve CV node connections via edges
+		for cv in cv_nodes:
+			ci = cv["index"]
+			for edge in edges:
+				# source_id edge: browser_source → cv node
+				if edge.get("target") == ci and edge.get("target_slot") == "source_id":
+					cv["source_index"] = edge["source"]
+				# rendered_image → preview's flow_in
+				if edge.get("source") == ci and edge.get("source_slot") == "rendered_image":
+					cv["preview_index"] = edge["target"]
+
+		return {"previews": previews, "sources": sources, "cv_nodes": cv_nodes}
 
 	def render_form(self, slug: str, base_url: str = "", embed: bool = False) -> str:
 		"""Generate an HTML form for a published app with user-input dialog support."""
@@ -263,12 +284,39 @@ class PublishedAppManager:
 
 		# Pre-scan for media nodes
 		media_info = self._scan_media_nodes(app.workflow)
-		has_media  = bool(media_info["previews"] or media_info["sources"])
+		has_media  = bool(media_info["previews"] or media_info["sources"] or media_info["cv_nodes"])
 
 		# Build conditional media sections
 		media_css  = self._render_media_css()            if has_media else ""
 		media_html = self._render_media_html(media_info) if has_media else ""
 		media_js   = self._render_media_js(media_info)   if has_media else ""
+		# Conditional CDN scripts
+		has_frontend_cv = any(cv["inference_location"] == "frontend" for cv in media_info.get("cv_nodes", []))
+		has_3d = any(p["hint"] == "model3d" for p in media_info.get("previews", []))
+		media_head_parts = []
+		if has_frontend_cv:
+			media_head_parts.append(
+				'<script>\n'
+				'import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/+esm")\n'
+				'.then(function(v){window._mpVision=v;console.log("[CV] MediaPipe loaded");})\n'
+				'.catch(function(e){console.error("[CV] MediaPipe load failed:",e);});\n'
+				'</script>')
+		if has_3d:
+			media_head_parts.append(
+				'<script async src="https://cdn.jsdelivr.net/npm/es-module-shims@1.10.0/dist/es-module-shims.min.js"></script>\n'
+				'<script type="importmap">{"imports":{'
+				'"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js",'
+				'"three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}</script>\n'
+				'<script type="module">\n'
+				'import * as THREE from "three";\n'
+				'import {OrbitControls} from "three/addons/controls/OrbitControls.js";\n'
+				'import {GLTFLoader} from "three/addons/loaders/GLTFLoader.js";\n'
+				'import {OBJLoader} from "three/addons/loaders/OBJLoader.js";\n'
+				'import {STLLoader} from "three/addons/loaders/STLLoader.js";\n'
+				'window._three={THREE,OrbitControls,GLTFLoader,OBJLoader,STLLoader};\n'
+				'console.log("[3D] Three.js loaded");\n'
+				'</script>')
+		media_head = "\n".join(media_head_parts)
 
 		input_fields = ""
 		for inp in app.inputs:
@@ -385,6 +433,7 @@ textarea {{ min-height: 80px; resize: vertical; }}
     padding: 10px 20px; font-size: 14px; cursor: pointer; width: 100%; }}
 .modal-submit:hover {{ background: #3a6f96; }}
 {media_css}</style>
+{media_head}
 </head>
 <body>
 <div class="container">
@@ -619,13 +668,12 @@ textarea {{ min-height: 80px; resize: vertical; }}
         handleEvent(msg.event);
 
       }} else if (msg.type === 'event_history') {{
-        /* scan past events — may contain user_input.requested already fired */
+        /* replay past events — catches node.completed, user_input, etc. fired before WS connected */
         var events = msg.events || [];
         for (var i = 0; i < events.length; i++) {{
           var ev = events[i];
-          if (ev.execution_id === execId && ev.event_type === 'user_input.requested') {{
-            openModal((ev.data || {{}}).prompt, ev.node_id);
-            break;
+          if (ev.execution_id === execId) {{
+            handleEvent(ev);
           }}
         }}
       }}
@@ -865,6 +913,7 @@ textarea {{ min-height: 80px; resize: vertical; }}
   }
 
   function cleanupMedia() {
+    if (typeof _stopCVDetectors === 'function') _stopCVDetectors();
     for (var key in activeStreams) { stopSource(parseInt(key)); }
   }
 
@@ -875,14 +924,34 @@ textarea {{ min-height: 80px; resize: vertical; }}
     panel.style.display = 'block';
     var val = outputs.flow_out !== undefined ? outputs.flow_out
             : (outputs.output !== undefined ? outputs.output : outputs);
-    if (val === undefined || val === null) { content.innerHTML = '<pre>(no data)</pre>'; return; }
+    if (val === undefined || val === null) {
+      /* Skip "(no data)" if a frontend CV node will drive this preview live */
+      var cvNodes = MEDIA_INFO.cv_nodes || [];
+      for (var ci = 0; ci < cvNodes.length; ci++) {
+        if (cvNodes[ci].preview_index === nodeIdx && cvNodes[ci].inference_location === 'frontend') return;
+      }
+      content.innerHTML = '<pre style="color:#666">(no data)</pre>';
+      return;
+    }
+    /* Auto-detect content type */
     if (hint === 'auto') {
       if (typeof val === 'string') {
-        if (val.match(/^data:image\\//) || val.match(/\\.(png|jpg|jpeg|gif|webp|svg)$/i)) hint = 'image';
-        else if (val.match(/^data:audio\\//) || val.match(/\\.(mp3|wav|ogg|m4a)$/i)) hint = 'audio';
-        else if (val.match(/^data:video\\//) || val.match(/\\.(mp4|webm|mov)$/i)) hint = 'video';
-        else hint = 'text';
-      } else hint = 'json';
+        if (val.match(/^data:image\\//) || val.match(/\\.(png|jpg|jpeg|gif|webp|svg)(\\?|$)/i)) hint = 'image';
+        else if (val.match(/^data:audio\\//) || val.match(/\\.(mp3|wav|ogg|m4a|flac)(\\?|$)/i)) hint = 'audio';
+        else if (val.match(/^data:video\\//) || val.match(/\\.(mp4|webm|mov|avi)(\\?|$)/i)) hint = 'video';
+        else if (val.match(/\\.(glb|gltf|obj|stl|fbx|ply)(\\?|$)/i)) hint = 'model3d';
+        else if (val.trim().charAt(0) === '{' || val.trim().charAt(0) === '[') {
+          try { JSON.parse(val); hint = 'json'; } catch(_) { hint = 'text'; }
+        } else hint = 'text';
+      } else if (typeof val === 'object') {
+        if (val.url || val.src || val.data) {
+          var probe = val.url || val.src || val.data || '';
+          if (probe.match(/^data:image\\//) || probe.match(/\\.(png|jpg|jpeg|gif|webp|svg)(\\?|$)/i)) hint = 'image';
+          else if (probe.match(/^data:audio\\//) || probe.match(/\\.(mp3|wav|ogg)(\\?|$)/i)) hint = 'audio';
+          else if (probe.match(/^data:video\\//) || probe.match(/\\.(mp4|webm|mov)(\\?|$)/i)) hint = 'video';
+          else hint = 'json';
+        } else hint = 'json';
+      } else hint = 'text';
     }
     var src;
     if (hint === 'image') {
@@ -894,16 +963,145 @@ textarea {{ min-height: 80px; resize: vertical; }}
     } else if (hint === 'video') {
       src = typeof val === 'string' ? val : (val.url || val.src || val.data || '');
       content.innerHTML = '<video controls src="' + _mEscAttr(src) + '" style="max-width:100%"></video>';
+    } else if (hint === 'model3d') {
+      src = typeof val === 'string' ? val : (val.url || val.src || val.data || '');
+      var fname = src.split('/').pop().split('?')[0] || '3D Model';
+      if (window._three && src) {
+        _render3DModel(content, src, fname);
+      } else {
+        content.innerHTML = '<div style="text-align:center;padding:16px">'
+          + '<div style="font-size:32px;margin-bottom:8px">&#x1f4e6;</div>'
+          + '<a href="' + _mEscAttr(src) + '" download style="color:#6ba3d6">' + _mEscHtml(fname) + '</a>'
+          + '<div style="font-size:11px;color:#666;margin-top:4px">3D model — download to view</div></div>';
+      }
     } else if (hint === 'json') {
       var txt = typeof val === 'string' ? val : JSON.stringify(val, null, 2);
       content.innerHTML = '<pre>' + _mEscHtml(txt) + '</pre>';
     } else {
+      /* text fallback */
       content.innerHTML = '<pre>' + _mEscHtml(String(val)) + '</pre>';
     }
   }
 
   function _mEscHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
   function _mEscAttr(s) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+  /* ── 3D model viewer (Three.js) ────────────────────── */
+
+  function _render3DModel(container, src, fname) {
+    var T = window._three;
+    if (!T) return;
+    var THREE = T.THREE;
+
+    container.innerHTML = '';
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative;width:100%;height:300px;background:#111;border-radius:4px;overflow:hidden';
+    container.appendChild(wrap);
+
+    var scene    = new THREE.Scene();
+    scene.background = new THREE.Color(0x111116);
+    var camera   = new THREE.PerspectiveCamera(50, wrap.clientWidth / wrap.clientHeight, 0.01, 1000);
+    camera.position.set(0, 1, 3);
+    var renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(wrap.clientWidth, wrap.clientHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    wrap.appendChild(renderer.domElement);
+
+    var controls = new T.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    /* Lights */
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    var dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(5, 10, 7);
+    scene.add(dirLight);
+
+    /* Grid */
+    scene.add(new THREE.GridHelper(10, 10, 0x333333, 0x222222));
+
+    /* Status */
+    var status = document.createElement('div');
+    status.style.cssText = 'position:absolute;top:8px;left:8px;font-size:11px;color:#666';
+    status.textContent = 'Loading ' + fname + '...';
+    wrap.appendChild(status);
+
+    /* Download link */
+    var dl = document.createElement('a');
+    dl.href = src; dl.download = fname;
+    dl.style.cssText = 'position:absolute;bottom:8px;right:8px;font-size:11px;color:#6ba3d6;text-decoration:none';
+    dl.textContent = 'Download';
+    wrap.appendChild(dl);
+
+    /* Fit model to view */
+    function fitCamera(obj) {
+      var box = new THREE.Box3().setFromObject(obj);
+      var size = box.getSize(new THREE.Vector3());
+      var center = box.getCenter(new THREE.Vector3());
+      var maxDim = Math.max(size.x, size.y, size.z);
+      if (maxDim === 0) maxDim = 1;
+      var scale = 2 / maxDim;
+      obj.scale.multiplyScalar(scale);
+      box.setFromObject(obj);
+      box.getCenter(center);
+      obj.position.sub(center);
+      camera.position.set(0, 1, 3);
+      controls.target.set(0, 0, 0);
+      controls.update();
+    }
+
+    function onLoad(obj) {
+      scene.add(obj);
+      fitCamera(obj);
+      status.textContent = fname;
+    }
+
+    function onError(err) {
+      status.textContent = 'Load error';
+      console.error('[3D]', err);
+    }
+
+    /* Pick loader by extension */
+    var ext = fname.split('.').pop().toLowerCase();
+    var loader;
+    if ((ext === 'glb' || ext === 'gltf') && T.GLTFLoader) {
+      loader = new T.GLTFLoader();
+      loader.load(src, function(gltf) { onLoad(gltf.scene); }, undefined, onError);
+    } else if (ext === 'obj' && T.OBJLoader) {
+      loader = new T.OBJLoader();
+      loader.load(src, onLoad, undefined, onError);
+    } else if (ext === 'stl' && T.STLLoader) {
+      loader = new T.STLLoader();
+      loader.load(src, function(geom) {
+        var mat = new THREE.MeshStandardMaterial({ color: 0x8888cc, flatShading: true });
+        onLoad(new THREE.Mesh(geom, mat));
+      }, undefined, onError);
+    } else {
+      /* Fallback: try GLTF */
+      if (T.GLTFLoader) {
+        loader = new T.GLTFLoader();
+        loader.load(src, function(gltf) { onLoad(gltf.scene); }, undefined, onError);
+      } else { status.textContent = 'Unsupported format'; }
+    }
+
+    /* Render loop */
+    var animId;
+    function animate() { animId = requestAnimationFrame(animate); controls.update(); renderer.render(scene, camera); }
+    animate();
+
+    /* Resize observer */
+    var ro = new ResizeObserver(function() {
+      var w = wrap.clientWidth, h = wrap.clientHeight;
+      camera.aspect = w / h; camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    });
+    ro.observe(wrap);
+
+    /* Store cleanup ref */
+    container._3dCleanup = function() {
+      cancelAnimationFrame(animId); ro.disconnect();
+      renderer.dispose(); controls.dispose();
+    };
+  }
 
   window._toggleSource = async function(nodeIdx) {
     var info = activeStreams[nodeIdx];
@@ -942,6 +1140,8 @@ textarea {{ min-height: 80px; resize: vertical; }}
       }
     }
     _updateSourceBtn(nodeIdx, true);
+    /* Kick off frontend CV inference if any CV node targets this source */
+    setTimeout(function() { if (typeof _tryStartFrontendCV === 'function') _tryStartFrontendCV(); }, 200);
     /* Auto-stop when the browser ends the stream (e.g. user clicks "Stop sharing") */
     stream.getTracks().forEach(function(track) {
       track.addEventListener('ended', function() { stopSource(nodeIdx); });
@@ -1083,6 +1283,158 @@ textarea {{ min-height: 80px; resize: vertical; }}
     var btn = p.querySelector('.source-header button');
     if (btn) { btn.textContent = on ? 'Stop' : 'Start'; btn.style.background = on ? '#b91c1c' : '#2d5a7b'; }
   }
+
+  /* ── Frontend MediaPipe inference ─────────────────────── */
+
+  var _cvDetectors = {};  // cvIndex -> {detector, raf, running}
+
+  var _POSE_CONNECTIONS = [
+    [11,12],[11,13],[13,15],[12,14],[14,16],
+    [11,23],[12,24],[23,24],
+    [23,25],[25,27],[24,26],[26,28],
+    [27,29],[29,31],[28,30],[30,32],
+    [0,1],[1,2],[2,3],[3,7],[0,4],[4,5],[5,6],[6,8],[9,10]
+  ];
+
+  async function _initCVDetector(cvCfg) {
+    if (!window._mpVision) return;
+    var vision = window._mpVision;
+    var modelMap = {
+      lite:  'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
+      full:  'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task',
+      heavy: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task',
+    };
+    var modelUrl = modelMap[cvCfg.model_size] || modelMap.lite;
+    var minConf  = cvCfg.min_confidence || 0.5;
+    try {
+      var resolver = await vision.FilesetResolver.forVisionTasks(
+        'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm'
+      );
+      var detector = await vision.PoseLandmarker.createFromOptions(resolver, {
+        baseOptions: { modelAssetPath: modelUrl, delegate: 'GPU' },
+        runningMode: 'VIDEO',
+        numPoses: 1,
+        minPoseDetectionConfidence: minConf,
+        minPosePresenceConfidence:  minConf,
+        minTrackingConfidence:      minConf,
+      });
+      return detector;
+    } catch(e) { console.error('[CV] Init failed:', e); return null; }
+  }
+
+  function _startCVLoop(cvCfg, detector) {
+    var srcIdx = cvCfg.source_index;
+    var prvIdx = cvCfg.preview_index;
+    var video  = document.getElementById('source-video-' + srcIdx);
+    var canvas = document.getElementById('source-canvas-' + srcIdx);
+    if (!video || !canvas) return;
+
+    var state = { detector: detector, running: true, raf: null };
+    _cvDetectors[cvCfg.index] = state;
+
+    /* Offscreen canvas for compositing webcam + skeleton (preview output) */
+    var offCvs = document.createElement('canvas');
+    var offCtx = offCvs.getContext('2d');
+
+    var lastTs = -1;
+    function loop() {
+      if (!state.running) return;
+      state.raf = requestAnimationFrame(loop);
+      if (!video.videoWidth || video.paused) return;
+      var ts = performance.now();
+      if (ts - lastTs < 33) return;  /* ~30 fps cap */
+      lastTs = ts;
+
+      var w = video.videoWidth, h = video.videoHeight;
+      var landmarks = null;
+      try {
+        var result = detector.detectForVideo(video, ts);
+        if (result.landmarks && result.landmarks.length > 0) {
+          landmarks = result.landmarks[0];
+        }
+      } catch(_) {}
+
+      /* Draw overlay on source canvas */
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+      var ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, w, h);
+      if (landmarks) _drawPoseFull(ctx, landmarks, w, h);
+
+      /* Composite to preview panel */
+      if (prvIdx >= 0) {
+        var panel   = document.getElementById('preview-' + prvIdx);
+        var content = document.getElementById('preview-content-' + prvIdx);
+        if (panel && content) {
+          panel.style.display = 'block';
+          var prvCanvas = content.querySelector('canvas');
+          if (!prvCanvas) {
+            prvCanvas = document.createElement('canvas');
+            prvCanvas.style.maxWidth = '100%';
+            prvCanvas.style.borderRadius = '4px';
+            prvCanvas.style.display = 'block';
+            content.innerHTML = '';
+            content.appendChild(prvCanvas);
+          }
+          if (prvCanvas.width !== w || prvCanvas.height !== h) { prvCanvas.width = w; prvCanvas.height = h; }
+          offCvs.width = w; offCvs.height = h;
+          offCtx.drawImage(video, 0, 0);
+          if (landmarks) _drawPoseFull(offCtx, landmarks, w, h);
+          var pctx = prvCanvas.getContext('2d');
+          pctx.drawImage(offCvs, 0, 0);
+        }
+      }
+    }
+    loop();
+  }
+
+  function _drawPoseFull(ctx, landmarks, w, h) {
+    ctx.strokeStyle = 'rgba(0, 255, 100, 0.85)';
+    ctx.lineWidth = 2;
+    for (var c = 0; c < _POSE_CONNECTIONS.length; c++) {
+      var a = landmarks[_POSE_CONNECTIONS[c][0]], b = landmarks[_POSE_CONNECTIONS[c][1]];
+      if (a && b) {
+        ctx.beginPath(); ctx.moveTo(a.x*w, a.y*h); ctx.lineTo(b.x*w, b.y*h); ctx.stroke();
+      }
+    }
+    ctx.fillStyle = 'rgba(255, 80, 80, 0.9)';
+    for (var i = 0; i < landmarks.length; i++) {
+      ctx.beginPath(); ctx.arc(landmarks[i].x*w, landmarks[i].y*h, 4, 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  function _stopCVDetectors() {
+    for (var key in _cvDetectors) {
+      var s = _cvDetectors[key];
+      s.running = false;
+      if (s.raf) cancelAnimationFrame(s.raf);
+      if (s.detector) try { s.detector.close(); } catch(e) {}
+    }
+    _cvDetectors = {};
+  }
+
+  /* Auto-start frontend CV when source video begins playing */
+  function _tryStartFrontendCV() {
+    var cvNodes = MEDIA_INFO.cv_nodes || [];
+    var pending = false;
+    for (var ci = 0; ci < cvNodes.length; ci++) {
+      var cv = cvNodes[ci];
+      if (cv.inference_location !== 'frontend') continue;
+      if (_cvDetectors[cv.index]) continue;  /* already running */
+      var srcIdx = cv.source_index;
+      if (srcIdx < 0) continue;
+      var video = document.getElementById('source-video-' + srcIdx);
+      if (!video || !video.srcObject) { pending = true; continue; }
+      if (!window._mpVision) { pending = true; continue; }
+      /* Video + MediaPipe ready — init detector and start loop */
+      (function(cvCfg) {
+        _initCVDetector(cvCfg).then(function(det) {
+          if (det) _startCVLoop(cvCfg, det);
+        });
+      })(cv);
+    }
+    /* Retry until all CV nodes are running (MediaPipe CDN may still be loading) */
+    if (pending) setTimeout(_tryStartFrontendCV, 500);
+  }
 """
 
 	def _save(self):
@@ -1119,7 +1471,7 @@ class PublishRequest(BaseModel):
 	author        : str                = ""
 
 
-def setup_published_apps_api(app: FastAPI, app_mgr: PublishedAppManager):
+def setup_published_apps_api(app: FastAPI, app_mgr: PublishedAppManager, gallery_mgr=None):
 	"""Register published app routes."""
 
 	# Management API
@@ -1136,15 +1488,25 @@ def setup_published_apps_api(app: FastAPI, app_mgr: PublishedAppManager):
 		workflow = request.workflow
 		if workflow is None:
 			if request.workflow_name:
+				# 1) Try workspace manager first
 				ws = app_mgr._ws_mgr.get_default_workspace()
 				wf = await ws.manager.get(request.workflow_name)
-				if wf is None:
+				if wf is not None:
+					try:
+						workflow = json.loads(wf.model_dump_json())
+					except Exception:
+						workflow = json.loads(json.dumps(wf.model_dump(), default=str))
+				# 2) Fallback: search gallery by title (case-insensitive)
+				if workflow is None and gallery_mgr:
+					q = request.workflow_name.lower()
+					for item in gallery_mgr._items.values():
+						if item.title.lower() == q:
+							workflow = item.workflow
+							if not request.description and item.description:
+								request.description = item.description
+							break
+				if workflow is None:
 					return JSONResponse(status_code=404, content={"error": f"Workflow '{request.workflow_name}' not found"})
-				# Serialise to JSON-safe dict (round-trip through JSON to strip non-serializable objects)
-				try:
-					workflow = json.loads(wf.model_dump_json())
-				except Exception:
-					workflow = json.loads(json.dumps(wf.model_dump(), default=str))
 			else:
 				return JSONResponse(status_code=400, content={"error": "Provide either 'workflow' or 'workflow_name'"})
 

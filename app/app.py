@@ -679,7 +679,7 @@ async def run_server(args: Any):
 	setup_channel_api(app, channel_registry, pool=channel_pool)
 	setup_gallery_api(app, gallery_mgr)
 	setup_agent_tasks_api(app, task_mgr)
-	setup_published_apps_api(app, pub_app_mgr)
+	setup_published_apps_api(app, pub_app_mgr, gallery_mgr=gallery_mgr)
 
 	# ── Execution History Routes ───────────────────────────────
 

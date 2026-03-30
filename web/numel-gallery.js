@@ -305,6 +305,8 @@ class AppsManager {
 		removeBtn.title = 'Unpublish';
 		removeBtn.innerHTML = '<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
 		removeBtn.addEventListener('click', async () => {
+			const ok = await NumelConfirm('Unpublish App', `Remove published app "${app.name || app.slug}"?`, 'Unpublish', true);
+			if (!ok) return;
 			removeBtn.disabled = true;
 			try {
 				await this.api.appsUnpublish(app.slug);
