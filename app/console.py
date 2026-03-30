@@ -364,11 +364,22 @@ class ConsoleAgentManager:
 
 		# Build agent
 		opts = config.get("options", {})
+		instructions = list(opts.get("instructions", []))
+
+		# Inject active skill instructions
+		skill_mgr = getattr(self, '_skill_mgr', None)
+		if skill_mgr:
+			skill_instructions = skill_mgr.get_active_instructions()
+			if skill_instructions:
+				instructions.append("\n--- Active Skills ---")
+				instructions.extend(skill_instructions)
+				log_print(f"Console agent: injected {len(skill_instructions)} skill(s)")
+
 		self._agent = Agent(
 			name                    = opts.get("name", "Numel Assistant"),
 			model                   = model,
 			description             = opts.get("description", ""),
-			instructions            = opts.get("instructions", []),
+			instructions            = instructions,
 			markdown                = opts.get("markdown", True),
 			tools                   = tools,
 
@@ -1075,6 +1086,14 @@ class ChannelAgentPool:
 		instructions = list(opts.get("instructions", []))
 		if sender_name:
 			instructions.insert(0, f"You are chatting with {sender_name}.")
+
+		# Inject active skill instructions
+		skill_mgr = getattr(self, '_skill_mgr', None)
+		if skill_mgr:
+			skill_instructions = skill_mgr.get_active_instructions()
+			if skill_instructions:
+				instructions.append("\n--- Active Skills ---")
+				instructions.extend(skill_instructions)
 
 		return Agent(
 			name                    = opts.get("name", "Numel Assistant"),

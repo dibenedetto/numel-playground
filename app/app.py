@@ -70,6 +70,7 @@ from   channels.webhook_adapter   import WebhookChannelAdapter
 from   console   import ConsoleAgentManager, ChannelAgentPool, setup_console_api
 from   event_bus import EventBus, get_event_bus
 from   gallery   import GalleryManager, setup_gallery_api
+from   skills    import SkillManager, setup_skills_api
 from   memory    import MemoryStore, UserMemoryDB
 from   published_apps import PublishedAppManager, setup_published_apps_api
 from   utils     import add_middleware, log_print, seed_everything
@@ -654,6 +655,10 @@ async def run_server(args: Any):
 		_ws.engine.channel_registry = channel_registry
 	channel_pool._channel_reg = channel_registry
 
+	# ── Skills ────────────────────────────────────────────────
+	skill_mgr = SkillManager()
+	skill_mgr.initialize()
+
 	# ── Workflow Gallery ──────────────────────────────────────
 	gallery_mgr = GalleryManager()
 	gallery_mgr.initialize()
@@ -669,15 +674,18 @@ async def run_server(args: Any):
 	# ── Execution History ─────────────────────────────────────
 	exec_history = ExecHistoryManager()
 
-	# Wire pool and channel registry into console manager
+	# Wire pool, channel registry, and skills into console manager
 	console_mgr.set_channel_pool(channel_pool)
 	console_mgr._channel_reg = channel_registry
+	console_mgr._skill_mgr = skill_mgr
+	channel_pool._skill_mgr = skill_mgr
 
 	# ── API Routes (order matters: specific routes before static mount) ──
 	setup_api(server, app, event_bus, schema_code, workspace_mgr)
 	setup_console_api(app, console_mgr, channel_pool=channel_pool, channel_cmd=channel_cmd)
 	setup_channel_api(app, channel_registry, pool=channel_pool)
 	setup_gallery_api(app, gallery_mgr)
+	setup_skills_api(app, skill_mgr)
 	setup_agent_tasks_api(app, task_mgr)
 	setup_published_apps_api(app, pub_app_mgr, gallery_mgr=gallery_mgr)
 

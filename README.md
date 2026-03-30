@@ -112,6 +112,7 @@ Optional flags:
 - **Agent Flow** node for non-interactive agent execution within workflows
 - **RAG pipeline**: Content DB + Vector DB + Knowledge Manager for document-grounded agents
 - **14 built-in toolkits** (see below)
+- **Skills system**: Markdown instruction packages (SKILL.md) that teach agents new abilities without writing Python
 - **Dynamic toolkit creation**: Agents can write their own Python toolkits at runtime
 
 ### Autonomous Planner
@@ -347,6 +348,46 @@ Direct value nodes: **String**, **Integer**, **Real**, **Boolean**, **List**, **
 - **text_stats_toolkit** — Word count, keyword extraction, summarization
 
 Upload custom Python toolkits via the **Upload Toolkit** button in the UI.
+
+### Skills (`app/skills/`)
+
+Skills are markdown instruction packages that teach the console agent how to use external tools, APIs, and system environments — without writing Python code. They complement the typed toolkit system with natural language instructions.
+
+Each skill is a directory containing a `SKILL.md` file with YAML frontmatter and a markdown body:
+
+```markdown
+---
+name: my-skill
+description: One-line description for the agent
+version: 1.0.0
+tags: [search, api]
+requires:
+  env: [API_KEY]
+  toolkits: [http_toolkit]
+  bins: [curl]
+---
+
+# My Skill
+
+Instructions the agent follows when this skill is active...
+```
+
+**Built-in skills**:
+- **web-search** — Search the web via DuckDuckGo API and summarize results (requires `http_toolkit`)
+- **git-assistant** — Inspect git status, history, diffs, and branches (requires `file_toolkit`)
+- **api-tester** — Test and debug REST APIs interactively (requires `http_toolkit`)
+
+**Key differences from toolkits**:
+
+| | Toolkits | Skills |
+|---|---|---|
+| **Format** | Python class with typed methods | Markdown instructions (SKILL.md) |
+| **Execution** | Backend runs typed functions | Agent follows instructions using existing tools |
+| **Validation** | Pydantic type checking | Best-effort (LLM follows instructions) |
+| **Creation** | Write Python code | Write markdown |
+| **Best for** | Structured, repeatable operations | Multi-step procedures, external CLIs, complex API workflows |
+
+Skills are loaded at startup and injected into the agent's system prompt. Enable/disable via API or restart.
 
 ---
 
@@ -717,6 +758,17 @@ All endpoints use **POST** method unless otherwise noted.
 | `/agent-tasks/start` | Start a task |
 | `/agent-tasks/stop` | Stop a task |
 | `/agent-tasks/run` | Execute task immediately (one-shot) |
+
+### Skills
+| Endpoint | Description |
+|----------|-------------|
+| `/skills/list` | List skills (filter by tag, search, enabled_only) |
+| `/skills/get` | Get full skill details including instruction body |
+| `/skills/enable` | Enable a skill (injected into agent on next start) |
+| `/skills/disable` | Disable a skill |
+| `/skills/add` | Add a new skill from SKILL.md content |
+| `/skills/remove` | Remove a skill |
+| `/skills/check` | Check if a skill's requirements are satisfied |
 
 ### Gallery & Apps
 | Endpoint | Description |
