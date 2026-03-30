@@ -45,6 +45,7 @@ class Skill(BaseModel):
 	enabled:     bool           = True
 	body:        str            = ""    # Markdown instruction body
 	path:        str            = ""    # Directory path
+	examples:    List[str]      = []    # Example prompts extracted from body
 
 
 # =============================================================================
@@ -136,6 +137,30 @@ def parse_skill_md(text: str) -> dict:
 	return result
 
 
+def _extract_examples(body: str) -> List[str]:
+	"""Extract example prompts from '## Example Prompts' section.
+
+	Looks for bold-quoted text in list items: - **"prompt text"** or - **"prompt text"**
+	"""
+	examples = []
+	in_examples = False
+	for line in body.split("\n"):
+		stripped = line.strip()
+		# Detect section header
+		if stripped.lower().startswith("## example"):
+			in_examples = True
+			continue
+		if in_examples and stripped.startswith("## "):
+			break  # Next section
+		if not in_examples:
+			continue
+		# Extract bold-quoted prompt: - **"text"** — description
+		m = re.match(r'^-\s+\*\*["\u201c](.+?)["\u201d]\*\*', stripped)
+		if m:
+			examples.append(m.group(1))
+	return examples
+
+
 # =============================================================================
 # SKILL MANAGER
 # =============================================================================
@@ -205,6 +230,7 @@ class SkillManager:
 		if isinstance(requires, str):
 			requires = {}
 
+		body = parsed.get("body", "")
 		skill = Skill(
 			id          = sid,
 			name        = name,
@@ -213,9 +239,10 @@ class SkillManager:
 			author      = parsed.get("author", ""),
 			tags        = parsed.get("tags", []),
 			requires    = requires,
-			enabled     = self._enabled_state.get(name, True),
-			body        = parsed.get("body", ""),
+			enabled     = self._enabled_state.get(name, False),
+			body        = body,
 			path        = skill_dir,
+			examples    = parsed.get("examples", []) or _extract_examples(body),
 		)
 		self._skills[sid] = skill
 
@@ -349,6 +376,7 @@ class SkillManager:
 			"tags":        skill.tags,
 			"enabled":     skill.enabled,
 			"requires":    skill.requires,
+			"examples":    skill.examples,
 		}
 
 

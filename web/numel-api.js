@@ -142,6 +142,13 @@ class NumelAPI {
 		return this.upload(`/toolkits/upload?overwrite=${overwrite}`, formData);
 	}
 
+	// ── Skills ──────────────────────────────────────────────────
+
+	skillsList(opts = {})          { return this.json('/skills/list', opts); }
+	skillsGet(name)                { return this.json('/skills/get', { name }); }
+	skillsEnable(name)             { return this.json('/skills/enable', { name }); }
+	skillsDisable(name)            { return this.json('/skills/disable', { name }); }
+
 	// ── File Upload / Contents ───────────────────────────────────
 
 	contentsList(nodeIndex)       { return this.json(`/contents/list/${nodeIndex}`); }

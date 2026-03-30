@@ -6,6 +6,13 @@ author: system
 tags: [git, version-control, dev]
 requires:
   toolkits: [file_toolkit]
+examples:
+  - "What changed in the last 5 commits?"
+  - "Show me the git status"
+  - "What branches exist in this repo?"
+  - "When was skills.py last modified?"
+  - "What's the diff for the last commit?"
+  - "Who changed console.py recently?"
 ---
 
 # Git Assistant Skill
@@ -51,3 +58,14 @@ When the user asks "when did X change":
 - Never run destructive git commands (reset, force push, clean) — only read operations
 - If the user asks to commit or push, describe what commands they should run instead
 - When showing file paths, use relative paths from the project root
+
+## Example Prompts
+
+Try these in the assistant console after enabling this skill and `file_toolkit`:
+
+- **"What changed in the last 5 commits?"** — shows recent commit messages with a summary of each
+- **"Show me the git status"** — lists modified, staged, and untracked files
+- **"What branches exist in this repo?"** — lists local and remote branches
+- **"When was skills.py last modified?"** — searches git log for commits touching that file
+- **"What's the diff for the last commit?"** — shows the patch of the most recent commit
+- **"Who changed console.py recently?"** — runs git log filtered to that file

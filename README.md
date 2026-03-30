@@ -353,7 +353,7 @@ Upload custom Python toolkits via the **Upload Toolkit** button in the UI.
 
 Skills are markdown instruction packages that teach the console agent how to use external tools, APIs, and system environments — without writing Python code. They complement the typed toolkit system with natural language instructions.
 
-Each skill is a directory containing a `SKILL.md` file with YAML frontmatter and a markdown body:
+Each skill is a directory containing a `SKILL.md` file with YAML frontmatter and a markdown body (compatible with [OpenClaw](https://docs.openclaw.ai/tools/skills) format):
 
 ```markdown
 ---
@@ -365,6 +365,9 @@ requires:
   env: [API_KEY]
   toolkits: [http_toolkit]
   bins: [curl]
+examples:
+  - "Search the web for FastAPI best practices"
+  - "Find documentation for Pydantic v2"
 ---
 
 # My Skill
@@ -373,9 +376,12 @@ Instructions the agent follows when this skill is active...
 ```
 
 **Built-in skills**:
-- **web-search** — Search the web via DuckDuckGo API and summarize results (requires `http_toolkit`)
-- **git-assistant** — Inspect git status, history, diffs, and branches (requires `file_toolkit`)
-- **api-tester** — Test and debug REST APIs interactively (requires `http_toolkit`)
+
+| Skill | Description | Requires | Example Prompt |
+|-------|-------------|----------|----------------|
+| **web-search** | Search the web via DuckDuckGo API | `http_toolkit` | "Search the web for FastAPI best practices" |
+| **git-assistant** | Inspect git status, history, diffs | `file_toolkit` | "What changed in the last 5 commits?" |
+| **api-tester** | Test and debug REST APIs | `http_toolkit` | "Test the /schema endpoint on localhost:11360" |
 
 **Key differences from toolkits**:
 
@@ -387,7 +393,7 @@ Instructions the agent follows when this skill is active...
 | **Creation** | Write Python code | Write markdown |
 | **Best for** | Structured, repeatable operations | Multi-step procedures, external CLIs, complex API workflows |
 
-Skills are loaded at startup and injected into the agent's system prompt. Enable/disable via API or restart.
+Skills are loaded at startup but **disabled by default**. Toggle them on in the **assistant console settings** (pill buttons below Toolkits) or via `/skills/enable` API. Hovering a skill pill shows its description and a sample prompt. Only enabled skills are injected into the agent's system prompt. State persists in `app/skills/_state.json`.
 
 ---
 

@@ -6,6 +6,12 @@ author: system
 tags: [search, web, research]
 requires:
   toolkits: [http_toolkit]
+examples:
+  - "Search the web for FastAPI best practices"
+  - "What is MediaPipe? Search online."
+  - "Look up the latest Python 3.13 features"
+  - "Find documentation for Pydantic v2 model_dump"
+  - "Search for free image generation APIs"
 ---
 
 # Web Search Skill
@@ -41,18 +47,19 @@ The JSON response contains:
    - If `AbstractText` is empty, summarize from `RelatedTopics` text
 5. Always cite sources with URLs
 
-### Example
-
-User asks: "What is FastAPI?"
-
-1. GET `https://api.duckduckgo.com/?q=FastAPI&format=json&no_html=1`
-2. Extract `AbstractText`: "FastAPI is a modern, fast web framework for building APIs with Python..."
-3. List related topics with links
-4. Present a concise summary
-
 ### Rules
 
 - Always include source URLs — never present information without attribution
 - If the API returns no results, tell the user and suggest refining their query
 - Do not fabricate results — only report what the API returns
 - Keep summaries concise (3-5 sentences max)
+
+## Example Prompts
+
+Try these in the assistant console after enabling this skill and `http_toolkit`:
+
+- **"Search the web for FastAPI best practices"** — fetches and summarizes DuckDuckGo results about FastAPI
+- **"What is MediaPipe? Search online."** — searches for MediaPipe and presents a summary with source links
+- **"Look up the latest Python 3.13 features"** — searches and lists new features with citations
+- **"Find documentation for Pydantic v2 model_dump"** — searches for specific API docs
+- **"Search for free image generation APIs"** — research query with multiple related results

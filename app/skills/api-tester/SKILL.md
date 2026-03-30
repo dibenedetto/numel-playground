@@ -6,6 +6,13 @@ author: system
 tags: [api, http, testing, debug]
 requires:
   toolkits: [http_toolkit]
+examples:
+  - "Test the /schema endpoint on localhost:11360"
+  - "Hit https://httpbin.org/get and show me the response"
+  - "POST to https://httpbin.org/post with body {\"hello\": \"world\"}"
+  - "Check if https://api.github.com/repos/fastapi/fastapi returns valid data"
+  - "Test my API at localhost:8000/api/users with Bearer token abc123"
+  - "Send a DELETE to https://httpbin.org/delete and tell me what it returns"
 ---
 
 # API Tester Skill
@@ -59,3 +66,14 @@ After each request, present:
 - Warn before making destructive requests (DELETE, PUT that overwrites)
 - For large response bodies, show a summary and offer the full response on request
 - If the API returns HTML instead of JSON, note this and show the first few lines
+
+## Example Prompts
+
+Try these in the assistant console after enabling this skill and `http_toolkit`:
+
+- **"Test the /schema endpoint on localhost:11360"** — sends a POST to the local Numel server and shows the response
+- **"Hit https://httpbin.org/get and show me the response"** — simple GET request with response analysis
+- **"POST to https://httpbin.org/post with body {"hello": "world"}"** — tests a POST request with JSON body
+- **"Check if https://api.github.com/repos/fastapi/fastapi returns valid data"** — fetches a public API and analyzes the structure
+- **"Test my API at localhost:8000/api/users with Bearer token abc123"** — authenticated request with token header
+- **"Send a DELETE to https://httpbin.org/delete and tell me what it returns"** — tests destructive HTTP method with response analysis

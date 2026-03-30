@@ -71,8 +71,11 @@ class AgentConsoleManager {
 		this._plannerBusy      = false;  // true while planner is actively processing
 		this._plannerTimeoutMs = (parseInt(this._plannerTimeoutSel?.value, 10) || 120) * 1000;
 
+		this._skillList = document.getElementById('consoleSkillList');
+
 		this._setupUI();
 		this._fetchToolkits();
+		this._fetchSkills();
 		this._setupSTT();  // must run before _setupTTS so sttLangSelect is populated
 		this._setupTTS();
 		this._setInputEnabled(false);
@@ -396,8 +399,11 @@ class AgentConsoleManager {
 		const toolkits = this._getSelectedToolkits().filter(t => t !== 'console_toolkit');
 		const memOn     = this._memoryToggle    ? this._memoryToggle.checked    : true;
 		const autoGenOn = this._autoGenToggle   ? this._autoGenToggle.checked   : true;
+		const skillCount = this._skillList
+			? this._skillList.querySelectorAll('input[type="checkbox"]:checked').length : 0;
 		const parts = [modelLabel];
 		if (toolkits.length) parts.push(`+${toolkits.length} toolkit${toolkits.length > 1 ? 's' : ''}`);
+		if (skillCount)      parts.push(`+${skillCount} skill${skillCount > 1 ? 's' : ''}`);
 		if (memOn)     parts.push('mem');
 		if (autoGenOn) parts.push('auto-gen');
 		if (this._plannerEnabled) parts.push('planner');
@@ -454,6 +460,47 @@ class AgentConsoleManager {
 			}
 			this._updateSettingsSummary();
 		} catch { /* ignore — toolkits will use defaults */ }
+	}
+
+	async _fetchSkills() {
+		if (!this._skillList) return;
+		try {
+			const skills = await this.api.skillsList();
+			this._skillList.innerHTML = '';
+			if (!skills.length) {
+				this._skillList.innerHTML = '<span style="color:var(--sg-text-tertiary);font-size:11px">No skills installed</span>';
+				return;
+			}
+			for (const sk of skills) {
+				const item = document.createElement('div');
+				item.className = 'nw-console-toolkit-item';
+				const id = `console-sk-${sk.name}`;
+				const cb = document.createElement('input');
+				cb.type = 'checkbox';
+				cb.id = id;
+				cb.value = sk.name;
+				cb.checked = sk.enabled;
+				cb.addEventListener('change', async () => {
+					try {
+						if (cb.checked) await this.api.skillsEnable(sk.name);
+						else             await this.api.skillsDisable(sk.name);
+					} catch (e) {
+						cb.checked = !cb.checked; // revert on error
+					}
+					this._updateSettingsSummary();
+					this._onConfigChanged();
+				});
+				const lbl = document.createElement('label');
+				lbl.htmlFor = id;
+				lbl.textContent = sk.name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+				const example = (sk.examples && sk.examples.length) ? sk.examples[0] : '';
+				lbl.title = (sk.description || sk.name) + (example ? '\n\nTry: "' + example + '"' : '');
+				item.appendChild(cb);
+				item.appendChild(lbl);
+				this._skillList.appendChild(item);
+			}
+			this._updateSettingsSummary();
+		} catch { /* ignore */ }
 	}
 
 	async _showToolkitArgsDialog(toolkitName) {
