@@ -492,6 +492,7 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 		"index_db_config"          : [],
 		"tool_config"              : [],
 		"toolkit_config"           : [],
+		"skill_config"             : [],
 		"agent_options_config"     : [],
 		"memory_manager_config"    : [],
 		"session_manager_config"   : [],

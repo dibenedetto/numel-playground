@@ -755,6 +755,7 @@ Import any gallery item directly into the canvas.
 7. [Preview and Media](docs/tutorial-07-preview-media.md) — All preview formats
 8. [Generating Workflows](docs/tutorial-08-generate.md) — `/gen` command
 9. [File Tools](docs/tutorial-09-file-tools.md) — Tool Config + Tool Flow
+10. [Skills](docs/tutorial-10-skills.md) — Skill Config + Agent instructions
 
 ---
 

@@ -679,7 +679,10 @@ async def run_server(args: Any):
 	console_mgr._channel_reg = channel_registry
 	console_mgr.set_skill_mgr(skill_mgr)
 	channel_pool.set_skill_mgr(skill_mgr)
-	workspace_mgr._skill_mgr = skill_mgr  # for graph agent builder
+	# Propagate skill_mgr to workspace manager and all existing workflow managers
+	workspace_mgr._skill_mgr = skill_mgr
+	for ws in workspace_mgr._workspaces.values():
+		ws.manager._skill_mgr = skill_mgr
 
 	# ── API Routes (order matters: specific routes before static mount) ──
 	setup_api(server, app, event_bus, schema_code, workspace_mgr, skill_mgr=skill_mgr)

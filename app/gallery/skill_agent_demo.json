@@ -43,7 +43,7 @@
 			},
 			{
 				"type": "user_input_flow",
-				"prompt": "What would you like to research?",
+				"query": "What would you like to research?",
 				"extra": {"pos": [300, 200], "name": "User Question"}
 			},
 			{
@@ -68,7 +68,7 @@
 			{"source": 4, "target": 6, "source_slot": "config", "target_slot": "skills.search"},
 			{"source": 5, "target": 6, "source_slot": "config", "target_slot": "toolkits.http"},
 			{"source": 6, "target": 8, "source_slot": "config", "target_slot": "config"},
-			{"source": 7, "target": 8, "source_slot": "output", "target_slot": "request"},
+			{"source": 7, "target": 8, "source_slot": "message", "target_slot": "request"},
 			{"source": 7, "target": 8, "source_slot": "flow_out", "target_slot": "flow_in"},
 			{"source": 8, "target": 9, "source_slot": "response", "target_slot": "flow_in"},
 			{"source": 9, "target": 10, "source_slot": "flow_out", "target_slot": "flow_in"}

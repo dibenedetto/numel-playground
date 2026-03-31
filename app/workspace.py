@@ -59,6 +59,7 @@ class WorkspaceManager:
 		self._default_ws_id    : Optional[str]              = None
 		self._user_ws          : Dict[str, str]             = {}   # user_id → workspace_id
 		self._user_ws_lock     : asyncio.Lock               = asyncio.Lock()
+		self._skill_mgr                                     = None  # set via set_skill_mgr()
 
 		if self._storage_root:
 			self._storage_root.mkdir(parents=True, exist_ok=True)
@@ -138,6 +139,7 @@ class WorkspaceManager:
 			storage_dir.mkdir(parents=True, exist_ok=True)
 
 		mgr    = WorkflowManager(port, self._event_bus, storage_dir=storage_dir)
+		mgr._skill_mgr = self._skill_mgr
 		eng    = WorkflowEngine(self._event_bus, channel_registry=self._channel_registry)
 
 		ws = WorkspaceState(

@@ -3,12 +3,16 @@
     "enabled": false,
     "setup_done": false
   },
+  "commit-helper": {
+    "enabled": false,
+    "setup_done": false
+  },
   "git-assistant": {
-    "enabled": true,
+    "enabled": false,
     "setup_done": false
   },
   "web-search": {
-    "enabled": false,
+    "enabled": true,
     "setup_done": false
   }
 }
