@@ -57,14 +57,15 @@
 	z-index: 8500;
 	background: var(--sg-bg-primary);
 	border-left: 1px solid var(--sg-border-color);
-	box-shadow: -4px 0 20px var(--sg-node-shadow);
+	box-shadow: none;
 	display: flex;
 	flex-direction: column;
 	transform: translateX(100%);
-	transition: transform 0.25s ease;
+	transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 .nw-console-panel.open {
 	transform: translateX(0);
+	box-shadow: -4px 0 20px var(--sg-node-shadow);
 }
 
 .nw-console-header {
