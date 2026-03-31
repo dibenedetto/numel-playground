@@ -46,6 +46,9 @@ class Skill(BaseModel):
 	body:        str            = ""    # Markdown instruction body
 	path:        str            = ""    # Directory path
 	examples:    List[str]      = []    # Example prompts extracted from body
+	scripts:     List[str]      = []    # Bundled script files (relative paths)
+	install:     List[dict]     = []    # Install specs [{kind, package/formula, ...}]
+	setup_done:  bool           = False # Whether install/setup has been run
 
 
 # =============================================================================
@@ -121,11 +124,18 @@ def parse_skill_md(text: str) -> dict:
 				current_key = key
 			elif val == "" or val == "{}":
 				# Could be start of nested dict or list
-				if key in ("requires", "metadata"):
-					result[key] = {}
+				if key in ("requires", "metadata", "install"):
+					result[key] = {} if key != "install" else []
 				else:
 					result[key] = []
 					current_list = result[key]
+				current_key = key
+			elif val.startswith("{"):
+				# Inline JSON object (OpenClaw metadata format)
+				try:
+					result[key] = json.loads(val)
+				except Exception:
+					result[key] = val.strip('"').strip("'")
 				current_key = key
 			elif val.lower() in ("true", "false"):
 				result[key] = val.lower() == "true"
@@ -183,18 +193,28 @@ class SkillManager:
 	# ── Persistence ───────────────────────────────────────────
 
 	def _load_state(self):
-		"""Load enabled/disabled state."""
+		"""Load enabled/disabled and setup state."""
 		self._enabled_state: Dict[str, bool] = {}
+		self._setup_state:   Dict[str, bool] = {}
 		if os.path.exists(self._state_path):
 			try:
 				with open(self._state_path) as f:
-					self._enabled_state = json.load(f)
+					data = json.load(f)
+				# Support both old format {name: bool} and new {name: {enabled, setup_done}}
+				for k, v in data.items():
+					if isinstance(v, dict):
+						self._enabled_state[k] = v.get("enabled", False)
+						self._setup_state[k]   = v.get("setup_done", False)
+					else:
+						self._enabled_state[k] = bool(v)
 			except Exception:
 				pass
 
 	def _save_state(self):
-		"""Persist enabled/disabled state."""
-		state = {s.name: s.enabled for s in self._skills.values()}
+		"""Persist enabled/disabled and setup state."""
+		state = {}
+		for s in self._skills.values():
+			state[s.name] = {"enabled": s.enabled, "setup_done": s.setup_done}
 		with open(self._state_path, "w") as f:
 			json.dump(state, f, indent=2)
 
@@ -208,7 +228,10 @@ class SkillManager:
 			skill_dir = os.path.join(self._dir, entry)
 			if not os.path.isdir(skill_dir):
 				continue
+			# Accept both SKILL.md (Numel) and skill.md (OpenClaw)
 			md_path = os.path.join(skill_dir, "SKILL.md")
+			if not os.path.exists(md_path):
+				md_path = os.path.join(skill_dir, "skill.md")
 			if not os.path.exists(md_path):
 				continue
 			try:
@@ -225,12 +248,70 @@ class SkillManager:
 		name = parsed.get("name", os.path.basename(skill_dir))
 		sid  = name  # Use name as ID for simplicity
 
-		# Parse requires block
+		# Parse requires block — support both Numel and OpenClaw formats
 		requires = parsed.get("requires", {})
 		if isinstance(requires, str):
 			requires = {}
 
+		# OpenClaw compatibility: map metadata.openclaw.requires → requires
+		# Also support aliases: metadata.clawdbot, metadata.clawdis
+		metadata = parsed.get("metadata", {})
+		oc = {}
+		if isinstance(metadata, dict):
+			oc = metadata.get("openclaw") or metadata.get("clawdbot") or metadata.get("clawdis") or {}
+		if not isinstance(oc, dict):
+			oc = {}
+
+		if oc:
+			oc_reqs = oc.get("requires", {})
+			if isinstance(oc_reqs, dict):
+				for key in ("env", "bins", "anyBins"):
+					if key in oc_reqs and key not in requires:
+						requires[key] = oc_reqs[key]
+			# Map primaryEnv → requires.env (if not already present)
+			primary_env = oc.get("primaryEnv")
+			if primary_env:
+				env_list = requires.get("env", [])
+				if isinstance(env_list, list) and primary_env not in env_list:
+					env_list.append(primary_env)
+					requires["env"] = env_list
+
+		# Platform filter: skip skill if os field doesn't match current platform
+		oc_os = oc.get("os", [])
+		if oc_os and isinstance(oc_os, list):
+			import sys as _sys
+			plat = _sys.platform  # win32, linux, darwin
+			# OpenClaw also uses "macos" as alias for "darwin"
+			plat_aliases = {plat}
+			if plat == "darwin":
+				plat_aliases.add("macos")
+			if not plat_aliases.intersection(set(oc_os)):
+				log_print(f"Skills: skipping {name} (os={oc_os}, current={plat})")
+				return
+
+		# Discover bundled scripts (.py, .sh, .js, .ts)
+		scripts = []
+		_script_exts = {".py", ".sh", ".bash", ".js", ".ts"}
+		for root, _dirs, files in os.walk(skill_dir):
+			for fname in sorted(files):
+				if os.path.splitext(fname)[1].lower() in _script_exts:
+					rel = os.path.relpath(os.path.join(root, fname), skill_dir)
+					scripts.append(rel.replace("\\", "/"))
+
+		# Install specs — from metadata.openclaw.install or requirements.txt
+		install = oc.get("install", []) if isinstance(oc.get("install"), list) else []
+		# Also check for requirements.txt → auto-create pip install spec
+		req_txt = os.path.join(skill_dir, "requirements.txt")
+		if os.path.exists(req_txt) and not any(i.get("kind") == "pip" for i in install):
+			install.append({"kind": "pip", "file": "requirements.txt"})
+
+		# Replace {baseDir} token in body (OpenClaw convention)
 		body = parsed.get("body", "")
+		body = body.replace("{baseDir}", skill_dir.replace("\\", "/"))
+
+		# "always" flag: skill is always active regardless of enabled state
+		always = oc.get("always", False) or parsed.get("always", False)
+
 		skill = Skill(
 			id          = sid,
 			name        = name,
@@ -239,10 +320,13 @@ class SkillManager:
 			author      = parsed.get("author", ""),
 			tags        = parsed.get("tags", []),
 			requires    = requires,
-			enabled     = self._enabled_state.get(name, False),
+			enabled     = always or self._enabled_state.get(name, False),
 			body        = body,
 			path        = skill_dir,
 			examples    = parsed.get("examples", []) or _extract_examples(body),
+			scripts     = scripts,
+			install     = install,
+			setup_done  = self._setup_state.get(name, False),
 		)
 		self._skills[sid] = skill
 
@@ -316,6 +400,103 @@ class SkillManager:
 		self._save_state()
 		return True
 
+	def setup_skill(self, name: str) -> Dict[str, Any]:
+		"""Run install/setup for a skill's dependencies. Returns {ok, output, errors}."""
+		skill = self._skills.get(name)
+		if not skill:
+			return {"ok": False, "error": "skill not found"}
+
+		output_lines = []
+		errors = []
+
+		for spec in skill.install:
+			kind = spec.get("kind", "")
+			try:
+				if kind == "pip":
+					# pip install from requirements.txt or package name
+					req_file = spec.get("file")
+					if req_file:
+						req_path = os.path.join(skill.path, req_file)
+						if os.path.exists(req_path):
+							import subprocess
+							r = subprocess.run(
+								["pip", "install", "-r", req_path],
+								capture_output=True, text=True, timeout=120)
+							output_lines.append(f"pip install -r {req_file}: {'OK' if r.returncode == 0 else 'FAILED'}")
+							if r.returncode != 0:
+								errors.append(r.stderr.strip())
+					else:
+						pkg = spec.get("package", "")
+						if pkg:
+							import subprocess
+							r = subprocess.run(
+								["pip", "install", pkg],
+								capture_output=True, text=True, timeout=120)
+							output_lines.append(f"pip install {pkg}: {'OK' if r.returncode == 0 else 'FAILED'}")
+							if r.returncode != 0:
+								errors.append(r.stderr.strip())
+
+				elif kind == "node":
+					pkg = spec.get("package", "")
+					if pkg:
+						import subprocess
+						r = subprocess.run(
+							["npm", "install", "-g", pkg],
+							capture_output=True, text=True, timeout=120)
+						output_lines.append(f"npm install -g {pkg}: {'OK' if r.returncode == 0 else 'FAILED'}")
+						if r.returncode != 0:
+							errors.append(r.stderr.strip())
+
+				elif kind == "uv":
+					pkg = spec.get("package", "")
+					if pkg:
+						import subprocess
+						r = subprocess.run(
+							["uv", "pip", "install", pkg],
+							capture_output=True, text=True, timeout=120)
+						output_lines.append(f"uv pip install {pkg}: {'OK' if r.returncode == 0 else 'FAILED'}")
+						if r.returncode != 0:
+							errors.append(r.stderr.strip())
+
+				elif kind == "brew":
+					formula = spec.get("formula", "")
+					if formula:
+						import subprocess
+						r = subprocess.run(
+							["brew", "install", formula],
+							capture_output=True, text=True, timeout=120)
+						output_lines.append(f"brew install {formula}: {'OK' if r.returncode == 0 else 'FAILED'}")
+						if r.returncode != 0:
+							errors.append(r.stderr.strip())
+
+				elif kind == "go":
+					pkg = spec.get("package", "")
+					if pkg:
+						import subprocess
+						r = subprocess.run(
+							["go", "install", pkg],
+							capture_output=True, text=True, timeout=120)
+						output_lines.append(f"go install {pkg}: {'OK' if r.returncode == 0 else 'FAILED'}")
+						if r.returncode != 0:
+							errors.append(r.stderr.strip())
+
+				else:
+					output_lines.append(f"Unknown install kind: {kind} (skipped)")
+
+			except FileNotFoundError:
+				errors.append(f"{kind} command not found")
+			except Exception as e:
+				errors.append(f"{kind}: {e}")
+
+		skill.setup_done = not errors
+		self._save_state()
+
+		return {
+			"ok":     not errors,
+			"output": output_lines,
+			"errors": errors,
+		}
+
 	def get_active_instructions(self) -> List[str]:
 		"""Return instruction bodies of all enabled skills, for injection into agent context."""
 		instructions = []
@@ -324,7 +505,14 @@ class SkillManager:
 				header = f"[Skill: {skill.name}]"
 				if skill.description:
 					header += f" — {skill.description}"
-				instructions.append(f"{header}\n{skill.body}")
+				parts = [header]
+				# Include script inventory so the agent knows what's available
+				if skill.scripts:
+					parts.append(f"Scripts in {skill.path}:")
+					for s in skill.scripts:
+						parts.append(f"  - {s}")
+				parts.append(skill.body)
+				instructions.append("\n".join(parts))
 		return instructions
 
 	def get_active_requirements(self) -> Dict[str, List[str]]:
@@ -355,11 +543,18 @@ class SkillManager:
 				result["missing"].append({"type": "env", "name": var})
 				result["ok"] = False
 
-		# Check bins
+		# Check bins (all must exist)
 		import shutil
 		for bin_name in reqs.get("bins", []):
 			if not shutil.which(bin_name):
 				result["missing"].append({"type": "bin", "name": bin_name})
+				result["ok"] = False
+
+		# Check anyBins (at least one must exist)
+		any_bins = reqs.get("anyBins", [])
+		if any_bins and isinstance(any_bins, list):
+			if not any(shutil.which(b) for b in any_bins):
+				result["missing"].append({"type": "anyBins", "names": any_bins})
 				result["ok"] = False
 
 		return result
@@ -377,6 +572,9 @@ class SkillManager:
 			"enabled":     skill.enabled,
 			"requires":    skill.requires,
 			"examples":    skill.examples,
+			"scripts":     skill.scripts,
+			"install":     skill.install,
+			"setup_done":  skill.setup_done,
 		}
 
 
@@ -431,3 +629,7 @@ def setup_skills_api(app: FastAPI, mgr: SkillManager):
 	@app.post("/skills/check")
 	async def skills_check(req: NameReq):
 		return mgr.check_requirements(req.name)
+
+	@app.post("/skills/setup")
+	async def skills_setup(req: NameReq):
+		return mgr.setup_skill(req.name)

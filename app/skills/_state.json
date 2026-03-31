@@ -1,5 +1,14 @@
 {
-  "api-tester": true,
-  "git-assistant": false,
-  "web-search": false
+  "api-tester": {
+    "enabled": true,
+    "setup_done": false
+  },
+  "git-assistant": {
+    "enabled": false,
+    "setup_done": false
+  },
+  "web-search": {
+    "enabled": false,
+    "setup_done": false
+  }
 }

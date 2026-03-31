@@ -353,8 +353,9 @@ Upload custom Python toolkits via the **Upload Toolkit** button in the UI.
 
 Skills are markdown instruction packages that teach the console agent how to use external tools, APIs, and system environments — without writing Python code. They complement the typed toolkit system with natural language instructions.
 
-Each skill is a directory containing a `SKILL.md` file with YAML frontmatter and a markdown body (compatible with [OpenClaw](https://docs.openclaw.ai/tools/skills) format):
+Each skill is a directory containing a `SKILL.md` (or `skill.md`) file with optional YAML frontmatter and a markdown body. Compatible with [OpenClaw](https://docs.openclaw.ai/tools/skills) skill format — OpenClaw skills from [ClawHub](https://github.com/openclaw/clawhub) can be dropped into `app/skills/` and used directly.
 
+**Numel format** (YAML frontmatter):
 ```markdown
 ---
 name: my-skill
@@ -374,6 +375,34 @@ examples:
 
 Instructions the agent follows when this skill is active...
 ```
+
+**OpenClaw format** (inline JSON metadata):
+```markdown
+---
+name: my-openclaw-skill
+description: Does something cool
+metadata: {"openclaw": {"requires": {"env": ["API_KEY"], "bins": ["jq"]}, "primaryEnv": "API_KEY", "install": [{"kind": "pip", "package": "requests"}]}}
+---
+
+# Instructions...
+```
+
+**No-frontmatter format** (pure markdown, like many ClawHub skills):
+```markdown
+# AgentMesh
+
+> Encrypted messaging for AI agents
+
+## Installation
+pip install agentmesh
+
+## Usage
+...
+```
+
+Skills can also bundle **scripts** (`.py`, `.sh`, `.js`, `.ts`) and **dependencies** (`requirements.txt`, OpenClaw install specs). The agent sees the script inventory in its context and can reference them. Use `/skills/setup` to install dependencies.
+
+**Full OpenClaw compatibility** — supported metadata fields: `requires.env`, `requires.bins`, `requires.anyBins` (at least one must exist), `primaryEnv`, `install` (pip/npm/uv/brew/go), `os` (platform filter: `darwin`/`macos`/`linux`/`win32`), `always` (auto-enable). Metadata aliases `clawdbot` and `clawdis` are also recognized. The `{baseDir}` token in skill body is replaced with the skill's directory path at load time.
 
 **Built-in skills**:
 
@@ -775,6 +804,7 @@ All endpoints use **POST** method unless otherwise noted.
 | `/skills/add` | Add a new skill from SKILL.md content |
 | `/skills/remove` | Remove a skill |
 | `/skills/check` | Check if a skill's requirements are satisfied |
+| `/skills/setup` | Run install/setup for a skill's dependencies (pip, npm, brew, uv) |
 
 ### Gallery & Apps
 | Endpoint | Description |
