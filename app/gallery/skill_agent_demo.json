@@ -1,0 +1,77 @@
+{
+	"id": "skill_agent_demo",
+	"title": "Skill-Enhanced Agent",
+	"description": "Demonstrates wiring a Skill node to an Agent. The web-search skill is injected into the agent's system prompt, teaching it how to search the web via DuckDuckGo API using http_toolkit.",
+	"category": "examples",
+	"tags": ["example", "skill", "agent", "search"],
+	"workflow": {
+		"type": "workflow",
+		"nodes": [
+			{
+				"type": "start_flow",
+				"extra": {"pos": [50, 200], "name": "Start"}
+			},
+			{
+				"type": "backend_config",
+				"name": "agno",
+				"extra": {"pos": [50, 50], "name": "Backend"}
+			},
+			{
+				"type": "model_config",
+				"source": "ollama",
+				"name": "mistral",
+				"extra": {"pos": [250, 50], "name": "Model"}
+			},
+			{
+				"type": "agent_options_config",
+				"instructions": ["You are a helpful research assistant. Use your skills to find information when asked."],
+				"extra": {"pos": [450, 50], "name": "Instructions"}
+			},
+			{
+				"type": "skill_config",
+				"name": "web-search",
+				"extra": {"pos": [650, 50], "name": "Web Search Skill"}
+			},
+			{
+				"type": "toolkit_config",
+				"name": "toolkits.http_toolkit",
+				"extra": {"pos": [250, -80], "name": "HTTP Toolkit"}
+			},
+			{
+				"type": "agent_config",
+				"extra": {"pos": [850, 100], "name": "Research Agent"}
+			},
+			{
+				"type": "user_input_flow",
+				"prompt": "What would you like to research?",
+				"extra": {"pos": [300, 200], "name": "User Question"}
+			},
+			{
+				"type": "agent_flow",
+				"extra": {"pos": [600, 200], "name": "Research"}
+			},
+			{
+				"type": "preview_flow",
+				"hint": "text",
+				"extra": {"pos": [850, 200], "name": "Result"}
+			},
+			{
+				"type": "end_flow",
+				"extra": {"pos": [1050, 200], "name": "End"}
+			}
+		],
+		"edges": [
+			{"source": 0, "target": 7, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 1, "target": 6, "source_slot": "config", "target_slot": "backend"},
+			{"source": 2, "target": 6, "source_slot": "config", "target_slot": "model"},
+			{"source": 3, "target": 6, "source_slot": "options", "target_slot": "options"},
+			{"source": 4, "target": 6, "source_slot": "config", "target_slot": "skills.search"},
+			{"source": 5, "target": 6, "source_slot": "config", "target_slot": "toolkits.http"},
+			{"source": 6, "target": 8, "source_slot": "config", "target_slot": "config"},
+			{"source": 7, "target": 8, "source_slot": "output", "target_slot": "request"},
+			{"source": 7, "target": 8, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": 8, "target": 9, "source_slot": "response", "target_slot": "flow_in"},
+			{"source": 9, "target": 10, "source_slot": "flow_out", "target_slot": "flow_in"}
+		]
+	}
+}
