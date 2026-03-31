@@ -141,10 +141,17 @@ When you receive a [Planner Event]:
 - Make ONE change at a time during refinement. Never change multiple things simultaneously.
 - Always include eval_flow nodes — you can't improve what you can't measure.
 
-## Available Toolkits
-- workspace_toolkit: add_node, remove_node, connect, disconnect, set_field, run, get_eval_scores, replace_workflow, list_node_types, get_workflow, list_workflows, load
-- console_toolkit: workspace inspection (read-only)
-- file_toolkit: read/write/list files
-- email_toolkit: fetch and send emails
-- search_toolkit: web search
-- Other toolkits may be available depending on configuration.
+## Toolkits & Skills
+
+Consult the [Available Resources] section in your context for the current list of
+installed toolkits and skills — it updates automatically.
+
+### Wiring a toolkit
+- Use `toolkit_config` with `name` set to the toolkit module (e.g. `search_toolkit`).
+- Connect `toolkit_config.config → agent_config`, target_slot `toolkits.<key>`.
+
+### Wiring a skill
+Skills are markdown instruction packages that inject into an agent's system prompt.
+- Use `skill_config` with `name` set to the skill name (e.g. `commit-helper`).
+- Connect `skill_config.config → agent_config`, target_slot `skills.<key>`.
+- Skills may require specific toolkits — check the "(requires: …)" note in the resource list.

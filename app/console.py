@@ -224,7 +224,8 @@ class ConsoleAgentManager:
 		# ── Planner mode (per-session) ──
 		# Keyed by planner_key (typically "user_{user_id}_{session_id}" or
 		# "guest_{session_id}") so the same user in two tabs gets independent planners.
-		self._planners: Dict[str, PlannerState] = {}  # planner_key → PlannerState
+		self._resource_index: str = ""                 # cached toolkit+skill index for planner
+		self._planners: Dict[str, PlannerState] = {}   # planner_key → PlannerState
 		self._planner_lock  = asyncio.Lock()          # serializes planner turns across sessions
 		self._workflow_lock = asyncio.Lock()           # exclusive workflow access during planner modifications
 		self._channel_pool: Optional['ChannelAgentPool'] = None  # set later via set_channel_pool()
@@ -237,6 +238,53 @@ class ConsoleAgentManager:
 		"""Inject the skill manager for resolving skill instructions."""
 		self._skill_mgr = mgr
 
+	def refresh_resource_index(self) -> str:
+		"""Rebuild and cache the toolkit+skill index. Returns the new index."""
+		self._resource_index = self._build_resource_index()
+		return self._resource_index
+
+	def _build_resource_index(self) -> str:
+		"""Build a compact index of available toolkits and skills for planner context."""
+		import glob as _glob, re as _re
+		lines = []
+
+		# ── Toolkits (file-based, no import — avoids module cache staleness) ──
+		app_dir      = os.path.dirname(os.path.abspath(__file__))
+		project_root = os.path.dirname(app_dir)
+		tk_entries = []
+		for base_dir in [os.path.join(app_dir, "toolkits"),
+		                  os.path.join(project_root, "contrib", "toolkits")]:
+			for fpath in sorted(_glob.glob(os.path.join(base_dir, "*_toolkit.py"))):
+				short = os.path.basename(fpath).replace(".py", "")
+				doc   = ""
+				try:
+					text = open(fpath, encoding="utf-8").read(4096)
+					if "__toolkit__" not in text:
+						continue
+					m = _re.search(r'"""(.+?)"""', text, _re.DOTALL)
+					if m:
+						doc = m.group(1).strip().split('\n')[0]
+				except Exception:
+					pass
+				tk_entries.append(f"- {short} — {doc}" if doc else f"- {short}")
+		if tk_entries:
+			lines.append("## Available Toolkits")
+			lines.extend(tk_entries)
+
+		# ── Skills ──
+		if self._skill_mgr:
+			skills = self._skill_mgr.list()
+			if skills:
+				lines.append("\n## Available Skills")
+				for sk in skills:
+					req = ""
+					toolkits_req = (sk.get("requires") or {}).get("toolkits", [])
+					if toolkits_req:
+						req = f" (requires: {', '.join(toolkits_req)})"
+					lines.append(f"- {sk['name']} — {sk['description']}{req}")
+
+		return "\n".join(lines)
+
 	@staticmethod
 	def _planner_key(user_id: Optional[str], session_id: Optional[str]) -> str:
 		"""Build a unique key for a planner instance."""
@@ -248,6 +296,14 @@ class ConsoleAgentManager:
 	def _planner_enabled(self) -> bool:
 		"""True if ANY session has an active planner — used by route branching."""
 		return any(p.enabled for p in self._planners.values())
+
+	@property
+	def _planner_instructions(self) -> str:
+		"""Return instructions from the first active planner (for context injection)."""
+		for ps in self._planners.values():
+			if ps.enabled and ps.instructions:
+				return ps.instructions
+		return ""
 
 	def _planner_for_session(self, user_id: Optional[str], session_id: Optional[str]) -> bool:
 		"""Check if a specific session has planner enabled."""
@@ -524,6 +580,7 @@ class ConsoleAgentManager:
 					model_source=self._model_source,
 					model_name=self._model_name,
 					toolkit_names=list(self._toolkit_names),
+					skill_names=self._skill_names,
 				)
 
 		# Subscribe to events (shared handler — dispatches to all active planners)
@@ -538,6 +595,7 @@ class ConsoleAgentManager:
 
 		ps.enabled = True
 		self._planners[pkey] = ps
+		self.refresh_resource_index()
 
 		# Inject planner directive into the singleton agent's system prompt
 		if self._agent:
@@ -933,6 +991,8 @@ class ConsoleAgentManager:
 		planner_ctx = ""
 		if self._planner_enabled and self._planner_instructions:
 			planner_ctx = f"[Planner Instructions]\n{self._planner_instructions}\n\n"
+			if self._resource_index:
+				planner_ctx += f"[Available Resources]\n{self._resource_index}\n\n"
 
 		return {
 			"context":          planner_ctx + "\n".join(context_parts),
@@ -1384,6 +1444,11 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 			"subscribed_events": ps.subs if ps else [],
 			"active_planners": sum(1 for p in console_mgr._planners.values() if p.enabled),
 		}
+
+	@app.post("/console/planner/refresh-resources")
+	async def console_planner_refresh_resources():
+		index = console_mgr.refresh_resource_index()
+		return {"ok": True, "length": len(index)}
 
 	@app.post("/console/planner/config")
 	async def console_planner_config(request: Request):
