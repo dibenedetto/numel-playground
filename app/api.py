@@ -206,7 +206,7 @@ async def _run_compose(compose_id, pipeline, manager, engine, event_bus):
 	)
 
 
-def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr):
+def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr, skill_mgr=None):
 
 	# Default workspace provides manager/engine for non-workspace-prefixed endpoints
 	_default_ws = workspace_mgr.get_default_workspace()
@@ -2146,6 +2146,13 @@ The toolkit's description is automatically added to the agent prompt; each publi
 tool_flow.method to the public method name (e.g. "read_file"). Multiple tool_flow nodes
 wired to the same toolkit_config share the toolkit instance and its state.
 
+### Skills (skill_config)
+A skill provides natural language instructions loaded from SKILL.md files.
+Wire skill_config.config → agent_config, target_slot="skills.<key>".
+The skill's instruction body is added to the agent's system prompt.
+Skills do NOT provide callable tools — use toolkit_config for that.
+Set skill_config.name to a skill ID (e.g. "web-search", "git-assistant").
+
 ### Tool invocation (tool_flow)
 tool_flow executes a standalone tool or a toolkit method within the workflow graph.
 **Standalone tool**: wire tool_config.config → tool_flow.config. The tool function is called with args.
@@ -2409,7 +2416,7 @@ Example (mesh processing with toolkit):
 
 		workflow = Workflow(nodes=nodes, edges=edges)
 		workflow.link()
-		backend  = build_backend_agno(workflow)
+		backend  = build_backend_agno(workflow, skill_mgr=skill_mgr)
 
 		cache.update({"config_hash": config_hash, "backend": backend, "agent_index": agent_idx})
 		return backend, agent_idx
@@ -2569,6 +2576,14 @@ Example (mesh processing with toolkit):
 		return modules
 
 	register_options_provider("toolkit_modules", _get_toolkit_modules)
+
+	def _get_skill_names(context=None):
+		"""Options provider: list all available skill names."""
+		if skill_mgr:
+			return [s["name"] for s in skill_mgr.list()]
+		return []
+
+	register_options_provider("skill_names", _get_skill_names)
 
 	@app.post("/toolkits/list")
 	async def toolkits_list():

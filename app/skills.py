@@ -497,23 +497,32 @@ class SkillManager:
 			"errors": errors,
 		}
 
+	@staticmethod
+	def _format_instruction(skill: Skill) -> str:
+		"""Format a single skill into an instruction string for agent injection."""
+		header = f"[Skill: {skill.name}]"
+		if skill.description:
+			header += f" — {skill.description}"
+		parts = [header]
+		# Include script inventory so the agent knows what's available
+		if skill.scripts:
+			parts.append(f"Scripts in {skill.path}:")
+			for s in skill.scripts:
+				parts.append(f"  - {s}")
+		parts.append(skill.body)
+		return "\n".join(parts)
+
 	def get_active_instructions(self) -> List[str]:
 		"""Return instruction bodies of all enabled skills, for injection into agent context."""
-		instructions = []
-		for skill in self._skills.values():
-			if skill.enabled and skill.body.strip():
-				header = f"[Skill: {skill.name}]"
-				if skill.description:
-					header += f" — {skill.description}"
-				parts = [header]
-				# Include script inventory so the agent knows what's available
-				if skill.scripts:
-					parts.append(f"Scripts in {skill.path}:")
-					for s in skill.scripts:
-						parts.append(f"  - {s}")
-				parts.append(skill.body)
-				instructions.append("\n".join(parts))
-		return instructions
+		return [self._format_instruction(s)
+		        for s in self._skills.values()
+		        if s.enabled and s.body.strip()]
+
+	def get_instructions_for(self, names: List[str]) -> List[str]:
+		"""Return instruction bodies for specific skill names."""
+		return [self._format_instruction(self._skills[n])
+		        for n in names
+		        if n in self._skills and self._skills[n].body.strip()]
 
 	def get_active_requirements(self) -> Dict[str, List[str]]:
 		"""Return aggregated requirements from all enabled skills."""

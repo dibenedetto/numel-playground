@@ -112,7 +112,7 @@ Optional flags:
 - **Agent Flow** node for non-interactive agent execution within workflows
 - **RAG pipeline**: Content DB + Vector DB + Knowledge Manager for document-grounded agents
 - **14 built-in toolkits** (see below)
-- **Skills system**: Markdown instruction packages (SKILL.md) that teach agents new abilities without writing Python
+- **Skills system**: Markdown instruction packages (SKILL.md) that teach agents new abilities without writing Python — wirable as schema nodes in the graph editor
 - **Dynamic toolkit creation**: Agents can write their own Python toolkits at runtime
 
 ### Autonomous Planner
@@ -423,6 +423,65 @@ Skills can also bundle **scripts** (`.py`, `.sh`, `.js`, `.ts`) and **dependenci
 | **Best for** | Structured, repeatable operations | Multi-step procedures, external CLIs, complex API workflows |
 
 Skills are loaded at startup but **disabled by default**. Toggle them on in the **assistant console settings** (pill buttons below Toolkits) or via `/skills/enable` API. Hovering a skill pill shows its description and a sample prompt. Only enabled skills are injected into the agent's system prompt. State persists in `app/skills/_state.json`.
+
+**Graph editor integration**: Skills are first-class schema nodes (`skill_config`). In the workflow graph editor, add a **Skill** node, set its `name` to a skill ID (dropdown lists all installed skills), and wire `skill_config.config` → `agent_config` with `target_slot="skills.<key>"`. The skill's instruction body is merged into the agent's system prompt at build time.
+
+#### Tutorial: Creating Your First Skill
+
+1. **Create a directory** under `app/skills/`:
+   ```
+   mkdir app/skills/my-helper
+   ```
+
+2. **Write a `SKILL.md`** file:
+   ```markdown
+   ---
+   name: my-helper
+   description: Helps the user draft commit messages from git diffs
+   tags: [git, writing]
+   requires:
+     toolkits: [code_toolkit]
+   examples:
+     - "Draft a commit message for my staged changes"
+     - "Summarize what I changed since last commit"
+   ---
+
+   # Commit Message Helper
+
+   When the user asks you to draft a commit message:
+
+   1. Use `get_git_diff` to see staged changes
+   2. Categorize changes: feature, fix, refactor, docs, test
+   3. Write a concise subject line (50 chars) + body with bullet points
+   4. Follow Conventional Commits format: `type(scope): description`
+
+   ## Example Prompts
+
+   - **"Draft a commit message for my staged changes"** — Inspect the diff and write a conventional commit
+   - **"Summarize what I changed since last commit"** — Read the diff and provide a plain-English summary
+   ```
+
+3. **Restart the app** (or call `/skills/list` to verify it loaded).
+
+4. **Enable the skill** in the assistant console settings (click the pill) or via API:
+   ```
+   POST /skills/enable  {"name": "my-helper"}
+   ```
+
+5. **Use it** — type one of the example prompts in the console:
+   > "Draft a commit message for my staged changes"
+
+   The agent will follow the skill's instructions, using toolkit tools to inspect the diff and format the message.
+
+#### Example: Wiring a Skill in the Graph Editor
+
+To add a skill to a workflow agent in the graph editor:
+
+1. Add a **Skill** node (from Configurations section)
+2. Set `name` = `"web-search"` (or any installed skill)
+3. Add an **Agent** node with model, backend, and options wired
+4. Draw an edge from `Skill.config` → `Agent` with target slot `skills.search`
+5. Run the workflow — the agent's system prompt now includes the web-search instructions
 
 ---
 

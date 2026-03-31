@@ -72,7 +72,7 @@ def _patch_agno_tool_call_id():
 _patch_agno_tool_call_id()
 
 
-def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
+def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend:
 
 	def _get_search_type(value: str) -> SearchType:
 		if value == "hybrid":
@@ -339,6 +339,13 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 		}
 
 
+	def _build_skill(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
+		item_config = workflow.nodes[index]
+		assert item_config is not None and item_config.type == "skill_config", "Invalid Agno skill"
+		item = copy.deepcopy(item_config)
+		impl[index] = item
+
+
 	def _build_agent_options(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "agent_options_config", "Invalid Agno agent options"
@@ -420,6 +427,23 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 				agent_instructions = list(agent_instructions) + extra
 			else:
 				agent_instructions = extra
+
+		# Skills: resolve names to instruction text via SkillManager
+		skills_links = node_links.get("skills")
+		if isinstance(skills_links, dict) and skills_links and skill_mgr:
+			skill_names = []
+			for src in skills_links.values():
+				skill_cfg = workflow.nodes[src]
+				if skill_cfg and hasattr(skill_cfg, 'name') and skill_cfg.name:
+					skill_names.append(skill_cfg.name)
+			if skill_names:
+				skill_instructions = skill_mgr.get_instructions_for(skill_names)
+				if skill_instructions:
+					extra = ["\n--- Active Skills ---"] + skill_instructions
+					if agent_instructions:
+						agent_instructions = list(agent_instructions) + extra
+					else:
+						agent_instructions = extra
 
 		if True:
 			item = Agent(
@@ -522,6 +546,7 @@ def build_backend_agno(workflow: Workflow) -> ImplementedBackend:
 	for i in indices["knowledge_manager_config"]: _build_knowledge_manager (workflow, links, impl, i)
 	for i in indices["tool_config"             ]: _build_tool              (workflow, links, impl, i)
 	for i in indices["toolkit_config"          ]: _build_toolkit           (workflow, links, impl, i)
+	for i in indices["skill_config"            ]: _build_skill             (workflow, links, impl, i)
 	for i in indices["agent_options_config"    ]: _build_agent_options     (workflow, links, impl, i)
 	for i in indices["agent_config"            ]: _build_agent             (workflow, links, impl, i)
 

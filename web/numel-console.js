@@ -421,6 +421,12 @@ class AgentConsoleManager {
 		return [...checks].map(cb => cb.value);
 	}
 
+	_getSelectedSkills() {
+		if (!this._skillList) return [];
+		const checks = this._skillList.querySelectorAll('input[type="checkbox"]:checked');
+		return [...checks].map(cb => cb.value);
+	}
+
 	async _fetchToolkits() {
 		if (!this._toolkitArgs) this._toolkitArgs = {};  // name → {key: val}
 		try {
@@ -635,8 +641,9 @@ class AgentConsoleManager {
 			const { source, name } = this._getSelectedModel();
 			const toolkit_names = this._getSelectedToolkits();
 			const toolkit_args = this._toolkitArgs || {};
+			const skill_names = this._getSelectedSkills();
 			const use_backend_memory = this._memoryToggle ? this._memoryToggle.checked : true;
-			const data = await this.api.consoleStart({ model_source: source, model_name: name, toolkit_names, toolkit_args, use_backend_memory });
+			const data = await this.api.consoleStart({ model_source: source, model_name: name, toolkit_names, toolkit_args, skill_names, use_backend_memory });
 			this.agentPort = data.port;
 
 			// Connect AGUI handler if streaming mode is on

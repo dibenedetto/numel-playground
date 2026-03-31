@@ -677,11 +677,12 @@ async def run_server(args: Any):
 	# Wire pool, channel registry, and skills into console manager
 	console_mgr.set_channel_pool(channel_pool)
 	console_mgr._channel_reg = channel_registry
-	console_mgr._skill_mgr = skill_mgr
-	channel_pool._skill_mgr = skill_mgr
+	console_mgr.set_skill_mgr(skill_mgr)
+	channel_pool.set_skill_mgr(skill_mgr)
+	workspace_mgr._skill_mgr = skill_mgr  # for graph agent builder
 
 	# ── API Routes (order matters: specific routes before static mount) ──
-	setup_api(server, app, event_bus, schema_code, workspace_mgr)
+	setup_api(server, app, event_bus, schema_code, workspace_mgr, skill_mgr=skill_mgr)
 	setup_console_api(app, console_mgr, channel_pool=channel_pool, channel_cmd=channel_cmd)
 	setup_channel_api(app, channel_registry, pool=channel_pool)
 	setup_gallery_api(app, gallery_mgr)

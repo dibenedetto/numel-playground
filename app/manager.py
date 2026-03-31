@@ -228,7 +228,7 @@ class WorkflowManager:
 
 
 	def _build_backend(self, workflow: Workflow) -> ImplementedBackend:
-		return build_backend_agno(workflow)
+		return build_backend_agno(workflow, skill_mgr=getattr(self, '_skill_mgr', None))
 
 
 	async def save(self, name: str, filepath: Optional[str] = None) -> bool:

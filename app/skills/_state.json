@@ -1,10 +1,10 @@
 {
   "api-tester": {
-    "enabled": true,
+    "enabled": false,
     "setup_done": false
   },
   "git-assistant": {
-    "enabled": false,
+    "enabled": true,
     "setup_done": false
   },
   "web-search": {

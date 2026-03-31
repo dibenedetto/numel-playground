@@ -214,6 +214,8 @@ class ConsoleAgentManager:
 		self._model_source  = None
 		self._model_name    = None
 		self._toolkit_names = []      # e.g. ["console_toolkit", "file_toolkit"]
+		self._skill_names   = None    # e.g. ["web-search", "git-assistant"]
+		self._skill_mgr     = None    # set via set_skill_mgr()
 		self._proactive_ws       : Set[WebSocket] = set()
 		self._sessions           : Dict[str, List[dict]] = {}  # session_id → message history
 		self._start_lock         = asyncio.Lock()               # prevents concurrent start/stop
@@ -230,6 +232,10 @@ class ConsoleAgentManager:
 	def set_channel_pool(self, pool: 'ChannelAgentPool'):
 		"""Inject the channel pool so planner turns use per-user agents."""
 		self._channel_pool = pool
+
+	def set_skill_mgr(self, mgr):
+		"""Inject the skill manager for resolving skill instructions."""
+		self._skill_mgr = mgr
 
 	@staticmethod
 	def _planner_key(user_id: Optional[str], session_id: Optional[str]) -> str:
@@ -255,18 +261,20 @@ class ConsoleAgentManager:
 					toolkit_names: Optional[List[str]] = None,
 					use_backend_memory: Optional[bool] = None,
 					toolkit_args: Optional[Dict[str, Dict[str, Any]]] = None,
+					skill_names: Optional[List[str]] = None,
 					user_id: Optional[str] = None) -> int:
 		"""Start (or restart) the console agent server. Returns the port.
 		Concurrent calls are serialized — a second call waits for the first to finish."""
 
 		async with self._start_lock:
-			return await self._start_impl(model_source, model_name, toolkit_names, use_backend_memory, toolkit_args, user_id=user_id)
+			return await self._start_impl(model_source, model_name, toolkit_names, use_backend_memory, toolkit_args, skill_names=skill_names, user_id=user_id)
 
 	async def _start_impl(self, model_source: Optional[str] = None,
 						  model_name: Optional[str] = None,
 						  toolkit_names: Optional[List[str]] = None,
 						  use_backend_memory: Optional[bool] = None,
 						  toolkit_args: Optional[Dict[str, Dict[str, Any]]] = None,
+						  skill_names: Optional[List[str]] = None,
 						  user_id: Optional[str] = None) -> int:
 		self._current_user_id = user_id
 		_toolkit_args = toolkit_args or {}
@@ -291,7 +299,8 @@ class ConsoleAgentManager:
 		if (self._started
 			and source == self._model_source
 			and name == self._model_name
-			and toolkits == self._toolkit_names):
+			and toolkits == self._toolkit_names
+			and skill_names == self._skill_names):
 			return self._port
 
 		# Restart if already running
@@ -302,6 +311,7 @@ class ConsoleAgentManager:
 		self._model_source  = source
 		self._model_name    = name
 		self._toolkit_names = toolkits
+		self._skill_names   = skill_names
 
 		# Build tools from all configured toolkits
 		tools = []
@@ -366,10 +376,12 @@ class ConsoleAgentManager:
 		opts = config.get("options", {})
 		instructions = list(opts.get("instructions", []))
 
-		# Inject active skill instructions
-		skill_mgr = getattr(self, '_skill_mgr', None)
-		if skill_mgr:
-			skill_instructions = skill_mgr.get_active_instructions()
+		# Inject skill instructions (explicit names from frontend, or all enabled as fallback)
+		if self._skill_mgr:
+			if skill_names:
+				skill_instructions = self._skill_mgr.get_instructions_for(skill_names)
+			else:
+				skill_instructions = self._skill_mgr.get_active_instructions()
 			if skill_instructions:
 				instructions.append("\n--- Active Skills ---")
 				instructions.extend(skill_instructions)
@@ -973,6 +985,7 @@ class ChannelAgentPool:
 		self._user_memory_db = user_memory_db       # UserMemoryDB for per-user isolation
 		self._channel_reg    = channel_registry      # ChannelRegistry for cross-channel messaging
 		self._idle_timeout   = idle_timeout          # seconds before evicting idle agent
+		self._skill_mgr      = None                  # set via set_skill_mgr()
 		self._agents: Dict[str, Agent]      = {}    # session_id → Agent
 		self._agent_tks: Dict[str, List[str]] = {}  # session_id → toolkit names used at build
 		self._agent_uids: Dict[str, str]    = {}    # session_id → user_id used at build
@@ -980,6 +993,10 @@ class ChannelAgentPool:
 		self._last_used: Dict[str, float]   = {}    # session_id → timestamp
 		self._lock = asyncio.Lock()
 		self._cleanup_task: Optional[asyncio.Task] = None
+
+	def set_skill_mgr(self, mgr):
+		"""Inject the skill manager for resolving skill instructions."""
+		self._skill_mgr = mgr
 
 	async def _get_or_create(self, session_id: str,
 							 toolkits: Optional[List[str]] = None,
@@ -1087,10 +1104,9 @@ class ChannelAgentPool:
 		if sender_name:
 			instructions.insert(0, f"You are chatting with {sender_name}.")
 
-		# Inject active skill instructions
-		skill_mgr = getattr(self, '_skill_mgr', None)
-		if skill_mgr:
-			skill_instructions = skill_mgr.get_active_instructions()
+		# Inject skill instructions (all enabled — channels don't send explicit skill_names)
+		if self._skill_mgr:
+			skill_instructions = self._skill_mgr.get_active_instructions()
 			if skill_instructions:
 				instructions.append("\n--- Active Skills ---")
 				instructions.extend(skill_instructions)
@@ -1212,6 +1228,7 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 		toolkit_names:      Optional[List[str]]              = None   # e.g. ["console_toolkit", "file_toolkit"]
 		toolkit_args:       Optional[Dict[str, Dict[str, Any]]] = None   # e.g. {"file_toolkit": {"root": "."}}
 		use_backend_memory: Optional[bool]                   = None   # None = use console_agent.json default
+		skill_names:        Optional[List[str]]              = None   # e.g. ["web-search", "git-assistant"]
 
 	class ConsoleChatRequest(BaseModel):
 		message:         str
@@ -1225,7 +1242,7 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 		# Store auth token so workspace_toolkit HTTP calls hit the user's workspace
 		token = req.headers.get("authorization", "").removeprefix("Bearer ").strip()
 		console_mgr._auth_token = token
-		port = await console_mgr.start(request.model_source, request.model_name, request.toolkit_names, request.use_backend_memory, request.toolkit_args, user_id=user_id)
+		port = await console_mgr.start(request.model_source, request.model_name, request.toolkit_names, request.use_backend_memory, request.toolkit_args, skill_names=request.skill_names, user_id=user_id)
 		return {
 			"port":          port,
 			"status":        "running",

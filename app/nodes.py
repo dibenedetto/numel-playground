@@ -135,6 +135,10 @@ class WFToolkitConfig(WFConfigType):
 	pass
 
 
+class WFSkillConfig(WFConfigType):
+	pass
+
+
 class WFAgentOptionsConfig(WFConfigType):
 	pass
 
@@ -1611,6 +1615,7 @@ _NODE_TYPES = {
 	"knowledge_manager_config" : WFKnowledgeManagerConfig,
 	"tool_config"              : WFToolConfig,
 	"toolkit_config"           : WFToolkitConfig,
+	"skill_config"             : WFSkillConfig,
 	"agent_options_config"     : WFAgentOptionsConfig,
 	"agent_config"             : WFAgentConfig,
 

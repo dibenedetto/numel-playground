@@ -591,6 +591,24 @@ class ToolkitConfig(ToolBaseConfig):
 
 
 @node_info(
+	title       = "Skill",
+	description = "Instructional skill loaded from SKILL.md",
+	icon        = "📜",
+	section     = "Configurations",
+	layer       = 2,
+	visible     = True
+)
+class SkillConfig(ConfigType):
+	"""Skill providing natural language instructions to agents. Set name to a skill ID (e.g. 'web-search'). The skill's SKILL.md body is injected into the agent's instructions. Wire config→agent_config, target_slot='skills.<key>'."""
+	type : Annotated[Literal["skill_config"], FieldRole.CONSTANT] = "skill_config"
+	name : Annotated[str                    , FieldRole.INPUT   ] = Field(default="", json_schema_extra={"options_source": "skill_names"}, description="Skill name/ID as listed by the skill manager")
+
+	@property
+	def config(self) -> Annotated[SkillConfig, FieldRole.OUTPUT]:
+		return self
+
+
+@node_info(
 	title       = "Agent Options",
 	description = "Stores agent configuration options",
 	icon        = "🛠️",
@@ -631,6 +649,7 @@ class AgentConfig(ConfigType):
 	knowledge_mgr : Annotated[Optional[KnowledgeManagerConfig]  , FieldRole.INPUT      ] = Field(default=None, description="Optional KnowledgeManagerConfig enabling RAG retrieval from a document store")
 	tools         : Annotated[Optional[Dict[str, ToolConfig]]   , FieldRole.MULTI_INPUT] = Field(default=None, description="Dict of ToolConfig nodes; each key becomes a callable tool name available to the agent")
 	toolkits      : Annotated[Optional[Dict[str, ToolkitConfig]], FieldRole.MULTI_INPUT] = Field(default=None, description="Dict of ToolkitConfig nodes; each toolkit's module docstring is added to the agent prompt and its functions become tools")
+	skills        : Annotated[Optional[Dict[str, SkillConfig]] , FieldRole.MULTI_INPUT] = Field(default=None, description="Dict of SkillConfig nodes; each skill's SKILL.md body is added to the agent instructions")
 
 	@property
 	def config(self) -> Annotated[AgentConfig, FieldRole.OUTPUT]:
