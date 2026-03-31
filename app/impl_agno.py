@@ -568,18 +568,18 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 	async def run_agent(agent: Any, *args, **kwargs) -> dict:
 		# If image is provided, build a multimodal message
 		image_b64 = kwargs.pop("image", None)
-		if image_b64 and args:
-			request = args[0]
-			if isinstance(request, str):
+		message = args[0] if args else ""
+		if image_b64 and message:
+			if isinstance(message, str):
 				from agno.media import Image as AgnoImage
 				# strip data: prefix if present
 				if "," in image_b64:
 					image_b64 = image_b64.split(",", 1)[1]
-				args = ([
-					{"type": "text", "text": request},
+				message = [
+					{"type": "text", "text": message},
 					AgnoImage(base64_data=image_b64),
-				],) + args[1:]
-		raw    = await agent.arun(input=args, **kwargs)
+				]
+		raw    = await agent.arun(input=message, **kwargs)
 		result = dict(
 			content_type = raw.content_type,
 			content      = raw.content,

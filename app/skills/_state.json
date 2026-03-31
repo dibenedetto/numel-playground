@@ -12,7 +12,7 @@
     "setup_done": false
   },
   "web-search": {
-    "enabled": true,
+    "enabled": false,
     "setup_done": false
   }
 }
