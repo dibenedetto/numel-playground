@@ -220,7 +220,9 @@ class LocalIdentityProvider(IdentityProvider):
             ).fetchone()
             if existing is not None:
                 raise ValueError("Username or email already exists")
-            user_count = conn.execute("SELECT COUNT(*) AS count FROM users").fetchone()["count"]
+            user_count = conn.execute(
+                "SELECT COUNT(*) AS count FROM users WHERE active = 1"
+            ).fetchone()["count"]
             role = (
                 UserRole.ADMIN
                 if user_count == 0 and self.config.bootstrap_first_user_as_admin

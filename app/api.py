@@ -1,6 +1,7 @@
 # api
 
 import base64
+from   contextlib import asynccontextmanager
 import importlib
 import io
 import json
@@ -1094,17 +1095,20 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 	# EVENT SOURCE MANAGEMENT API
 	# =========================================================================
 
-	@app.on_event("startup")
-	async def init_event_sources():
-		"""Initialize event source registry on startup"""
-		await init_event_registry()
-		log_print("✅ Event source registry initialized")
+	_previous_lifespan = app.router.lifespan_context
 
-	@app.on_event("shutdown")
-	async def shutdown_event_sources():
-		"""Shutdown event source registry"""
-		await shutdown_event_registry()
-		log_print("✅ Event source registry shut down")
+	@asynccontextmanager
+	async def _api_lifespan(_app: FastAPI):
+		async with _previous_lifespan(_app):
+			await init_event_registry()
+			log_print("✅ Event source registry initialized")
+			try:
+				yield
+			finally:
+				await shutdown_event_registry()
+				log_print("✅ Event source registry shut down")
+
+	app.router.lifespan_context = _api_lifespan
 
 	@app.post("/event-sources/list")
 	async def list_event_sources():

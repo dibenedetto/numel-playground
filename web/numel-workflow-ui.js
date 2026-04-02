@@ -1102,11 +1102,11 @@ function setupClientEvents() {
 // ========================================================================
 
 async function refreshSpaceList(loadWorkflow = false) {
-	if (!client) return;
+	if (!api) return;
 
 	try {
-		const currentResp = await client.getCurrentSpace();
-		const listResp = await client.listSpaces();
+		const currentResp = await api.getCurrentSpace();
+		const listResp = await api.listSpaces();
 		const spaces = listResp.spaces || [];
 		currentSpaceInfo = currentResp.space || spaces.find(space => space.id === listResp.current_space_id) || null;
 		currentSpaceId = currentSpaceInfo?.id || listResp.current_space_id || null;
@@ -1132,10 +1132,10 @@ async function refreshSpaceList(loadWorkflow = false) {
 }
 
 async function loadCurrentWorkflow() {
-	if (!client) return;
+	if (!api) return;
 
 	try {
-		const response = await client.getWorkflow();
+		const response = await api.getWorkflow();
 		const workflow = response?.workflow || null;
 		const name = response?.name || 'Untitled';
 
@@ -1172,7 +1172,7 @@ async function loadCurrentWorkflow() {
 }
 
 async function createSpace() {
-	if (!client) return;
+	if (!api) return;
 	const title = prompt('New space name:', 'New Space');
 	if (!title || !title.trim()) return;
 
@@ -1180,7 +1180,7 @@ async function createSpace() {
 		if (workflowDirty && visualizer?.currentWorkflow) {
 			await syncWorkflow();
 		}
-		const response = await client.createSpace(title.trim());
+		const response = await api.createSpace(title.trim());
 		currentSpaceInfo = response.space || null;
 		currentSpaceId = currentSpaceInfo?.id || null;
 		await refreshSpaceList(true);
@@ -1191,7 +1191,7 @@ async function createSpace() {
 }
 
 async function removeCurrentSpace() {
-	if (!client || !currentSpaceId || !currentSpaceInfo) return;
+	if (!api || !currentSpaceId || !currentSpaceInfo) return;
 	const ok = await NumelConfirm(
 		'Delete Space',
 		`Delete space "${currentSpaceInfo.title || currentSpaceInfo.slug || currentSpaceId}"? This will remove its saved workflow from the current UI surface.`,
@@ -1201,7 +1201,7 @@ async function removeCurrentSpace() {
 	if (!ok) return;
 
 	try {
-		await client.deleteSpace(currentSpaceId);
+		await api.deleteSpace(currentSpaceId);
 		currentSpaceId = null;
 		currentSpaceInfo = null;
 		await refreshSpaceList(true);
@@ -1213,13 +1213,13 @@ async function removeCurrentSpace() {
 
 async function selectCurrentSpace() {
 	const nextSpaceId = $('spaceSelect').value;
-	if (!client || !nextSpaceId || nextSpaceId === currentSpaceId) return;
+	if (!api || !nextSpaceId || nextSpaceId === currentSpaceId) return;
 
 	try {
 		if (workflowDirty && visualizer?.currentWorkflow) {
 			await syncWorkflow();
 		}
-		const response = await client.selectSpace(nextSpaceId);
+		const response = await api.selectSpace(nextSpaceId);
 		currentSpaceInfo = response.space || null;
 		currentSpaceId = currentSpaceInfo?.id || nextSpaceId;
 		await loadCurrentWorkflow();
@@ -1246,7 +1246,7 @@ async function syncWorkflow(workflow = null, _name = null, force = false) {
 		const exported = visualizer.exportWorkflow();
 		if (exported) workflow = exported;
 
-		const response = await client.saveWorkflow(workflow);
+		const response = await api.saveWorkflow(workflow);
 
 		if (response.status === 'saved') {
 			// Clear handlers (node IDs will change)
@@ -1484,7 +1484,7 @@ async function startExecution() {
 		// Start buffering events before the POST so nothing is lost
 		_pendingExecEvents = [];
 
-		const response = await client.startWorkflow(initialData);
+		const response = await api.startWorkflow(initialData);
 
 		if (response.status !== 'started') {
 			_pendingExecEvents = [];
@@ -1756,11 +1756,11 @@ function collectExecOptions() {
 }
 
 async function cancelExecution() {
-	if (!client || !currentExecutionId) return;
+	if (!api || !currentExecutionId) return;
 
 	try {
 		$('cancelBtn').disabled = true;
-		await client.cancelExecution(currentPlatformExecutionId || currentExecutionId);
+		await api.cancelExecution(currentPlatformExecutionId || currentExecutionId);
 	} catch (error) {
 		addLog('error', `❌ Cancel failed: ${error.message}`);
 		$('cancelBtn').disabled = false;
@@ -2445,7 +2445,7 @@ async function cancelUserInput() {
 	closeModal();
 	if (client) {
 		try {
-			await client.cancelExecution(savedEvent.execution_id);
+			await api.cancelExecution(savedEvent.execution_id);
 		} catch (err) {
 			addLog('error', `❌ Failed to cancel execution: ${err.message}`);
 		}
@@ -2469,7 +2469,7 @@ async function submitUserInput() {
 	closeModal();
 
 	try {
-		await client.provideUserInput(
+		await api.provideUserInput(
 			savedEvent.execution_id,
 			savedEvent.node_id,
 			input

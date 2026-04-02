@@ -20,6 +20,7 @@ import sys
 import time
 import uvicorn
 import webbrowser
+from   contextlib import asynccontextmanager
 from   fastapi.staticfiles  import StaticFiles
 
 
@@ -156,7 +157,17 @@ async def run_server(args: Any):
 
 	schema_code = getsource(schema)
 
-	app: FastAPI = FastAPI(title="App")
+	_platform = None
+
+	@asynccontextmanager
+	async def _lifespan(_app: FastAPI):
+		try:
+			yield
+		finally:
+			if _platform is not None:
+				await _platform.aclose()
+
+	app: FastAPI = FastAPI(title="App", lifespan=_lifespan)
 	add_middleware(app)
 
 	# ── Platform Stack ────────────────────────────────────────
@@ -172,10 +183,6 @@ async def run_server(args: Any):
 	app.state.platform_stack = _platform_stack
 	app.state.platform_target = build_db_git_platform_spec()
 	app.state.platform_internal_token = _platform_internal_token
-
-	@app.on_event("shutdown")
-	async def _close_platform_client():
-		await _platform.aclose()
 
 	# Public routes that don't require authentication
 	_PUBLIC_ROUTES = frozenset({

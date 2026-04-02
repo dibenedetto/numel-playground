@@ -232,7 +232,7 @@ def setup_platform_api(app: FastAPI, stack, internal_token: str) -> None:
 
     @app.post("/platform/auth/status")
     async def platform_auth_status():
-        users = await stack.identity.list_users(limit=1, active_only=False)
+        users = await stack.identity.list_users(limit=1, active_only=True)
         return {
             "enabled": True,
             "provider": stack.identity.__class__.__name__,
