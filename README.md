@@ -26,7 +26,7 @@
 | Per-user isolation | Spaces, credentials, memory, executions — cross-channel | No | No |
 | Multi-tenant with quotas | Roles, quotas, admin panel | Enterprise only | No |
 | Autonomous agent tasks | Scheduled/event-driven background agents | Workflows only | No |
-| Swappable provider backends | Auth, Data, Execution | No | No |
+| Config-selected platform backends | `platform_local` now, `platform_prod` later | No | No |
 
 ---
 
@@ -85,10 +85,9 @@ Optional flags:
 
 ### Connecting the Frontend
 
-1. Open `web/index.html` in your browser (serve via any static file server, or open directly)
-2. Enter the server URL (default: `http://localhost:11360`)
-3. Sign in or create an account
-4. Click **Connect** — the status indicator turns green
+1. Open `http://localhost:11360`
+2. Sign in or create an account
+3. Click **Connect** — the status indicator turns green
 
 ### Current Space Workflow Model
 
@@ -241,10 +240,10 @@ Web console users authenticated via the login modal are auto-linked — no expli
 - **Per-user resource quotas** (CPU, storage, GPU, concurrent runs)
 - **User panel** — profile info, quota usage bars, and password change
 - **Admin panel** — slide-out UI with user management, execution monitoring, and system stats
-- **Shared server resources are protected** — shared credentials plus toolkit upload/removal are admin-only operations
+- **Shared server resources are protected** — contrib toolkit upload/removal is admin-only, while credentials are user-scoped
 - **System toolkit** — AI assistant can manage users, quotas, and executions via natural language
 - **User-scoped data** — execution history filtered by user (admins see all)
-- **Provider abstraction** — swappable auth, data, and execution backends via `server_config.json`
+- **Platform backend selection** — choose the active backend via `app/platform_backend.json`
 
 ---
 
@@ -514,30 +513,33 @@ To add a skill to a workflow agent in the graph editor:
 
 Numel supports multi-user mode with registration, login, role-based access control, and per-user resource quotas.
 
-### Auth Modes
+### Platform Backend Selection
 
-Configure via `app/server_config.json`:
-
-| Mode | Config | Description |
-|------|--------|-------------|
-| **None** | `"type": "none"` | Single-user, no login required (default for development) |
-| **Local** | `"type": "local"` | File-backed users (`users.json`), HMAC tokens |
-| **Django** | `"type": "django"` | Django user management (planned) |
+Configure the active backend in `app/platform_backend.json`:
 
 ```json
 {
-  "auth":      { "type": "local", "path": "users.json" },
-  "data":      { "type": "local", "root": "storage/repos" },
-  "execution": { "type": "local", "api_url": "http://localhost:11360" }
+  "backend": "local"
 }
 ```
 
+Available backends:
+
+| Backend | Description |
+|---------|-------------|
+| **`local`** | Full working local/reference backend: local identity, SQLite metadata, Git-backed spaces, local secrets, local runtime bridge |
+| **`prod`** | Production-oriented stack shape: Django identity adapter plus db+git+docker-oriented composition (future integration target) |
+
+The app reads this file at startup through `app/platform_loader.py`, and the same HTTP platform contract is used in both modes.
+
 ### Login Flow
 
-When auth is enabled (`"type": "local"`), the frontend shows a login modal at startup with two options:
+At startup, the frontend shows a login modal with two options:
 
 1. **Sign In** — username and password
-2. **Create Account** — register a new user (first user automatically becomes admin)
+2. **Create Account** — register a new user
+
+When the local backend has no active users yet, the first account is labeled **Create Admin Account** and becomes the initial admin automatically.
 
 After login, a Bearer token is stored in `localStorage` and injected into all API requests. The **User Panel** (click the user icon or username) shows your profile, quota usage with color-coded progress bars, and a password change form.
 
@@ -545,11 +547,9 @@ After login, a Bearer token is stored in `localStorage` and injected into all AP
 
 | Role | Access |
 |------|--------|
-| **Admin** | Full access: user management, quota control, all executions, system stats, shared credentials, shared toolkit upload/removal |
-| **User** | Standard access: own workflows, own execution history, use shared toolkits/skills |
+| **Admin** | Full access: user management, quota control, all executions, system stats, contrib toolkit upload/removal, and shared server administration |
+| **User** | Standard access: own spaces, own execution history, own credentials, and use shared toolkits/skills |
 | **Viewer** | Read-only access |
-
-Permissions can be granted per resource (e.g., `repo:user/data`, `workflow:my-flow`) with levels: `none`, `read`, `write`, `execute`, `owner`.
 
 ### Resource Quotas
 
@@ -561,21 +561,9 @@ Each user has configurable resource limits:
 | Storage | 1 GB |
 | Concurrent runs | 5 |
 | GPU hours | 0 (disabled) |
-| Max repos | 50 |
+| Max spaces | 50 |
 
 Admins can adjust quotas per user via the Admin Panel or `system_toolkit`.
-
-### Provider Architecture
-
-All backend services are abstracted behind provider interfaces, allowing swappable implementations:
-
-| Provider | Interface | Local Implementation |
-|----------|-----------|---------------------|
-| **AuthProvider** | `providers/auth.py` | `local_auth.py` (JSON file) |
-| **DataProvider** | `providers/data.py` | `local_data.py` (filesystem) |
-| **ExecutionProvider** | `providers/execution.py` | `local_exec.py` (in-process) |
-
-Add new implementations (Django, Gitea, Docker) by creating a class that implements the ABC and registering it in `providers_impl/loader.py`.
 
 ---
 
@@ -586,7 +574,7 @@ The Admin Panel is a slide-out UI accessible to admin users via the **Admin** bu
 ### Users Tab
 - List all registered users with role badges and quota summaries
 - **Edit** — change email, role (admin/user/viewer)
-- **Quota** — adjust CPU, storage, concurrent runs, GPU hours, max repos
+- **Quota** — adjust CPU, storage, concurrent runs, GPU hours, max spaces
 - **Deactivate** — soft-delete a user account
 - Toggle to show/hide inactive users
 
@@ -688,25 +676,37 @@ Manage tasks via the UI or the `/agent-tasks/*` API endpoints.
 
 ---
 
-## Credential Store & Variable Substitution
+## Credentials & Variable Substitution
 
-Store API keys and secrets securely. All JSON config files and toolkit args support `${VAR_NAME}` substitution:
+Numel currently has two credential paths:
+
+1. **Platform credentials** for authenticated users, managed through the UI and `/credentials` API.
+2. **Process-level `${VAR_NAME}` substitution** for local JSON config files, backed by `app/credentials.json` plus environment variables.
+
+### Platform Credentials
+
+Authenticated users can store their own credentials, optionally scoped to a space. The public app routes work on the current user:
+
+- `POST /credentials` — list the current user's credential names
+- `POST /credentials/{name}` — set a credential for the current user
+- `DELETE /credentials/{name}` — remove a credential for the current user
+
+Pass `space_id` in the request body to scope a credential to a specific space; omit it for a user-wide credential.
+
+### `${VAR_NAME}` Substitution For Local Config Files
+
+Local JSON config files and toolkit args still support `${VAR_NAME}` substitution:
 
 ```json
 {"name": "email_toolkit", "args": {"password": "${GMAIL_APP_PASSWORD}"}}
 ```
 
 **Lookup order** for `${VAR_NAME}`:
-1. Credential store (`credentials.json`)
+1. `app/credentials.json`
 2. Environment variables (`os.environ`, includes `.env` via `load_dotenv`)
 3. Unchanged (no match — kept as `${VAR_NAME}`)
 
-This means you can use `${VAR_NAME}` in any JSON config file (`console_agent.json`, `channels.json`, `server_config.json`, etc.) and the value will be resolved from credentials or environment variables at load time.
-
-Manage **shared server credentials** via the **Credentials** section in the left panel or via API. These routes are admin-only when authentication is enabled:
-- `POST /credentials` — list names
-- `POST /credentials/{name}` — set value
-- `DELETE /credentials/{name}` — remove
+This substitution path is used for process-level local config files such as `console_agent.json` and `channels.json`. It is separate from the per-user/platform credential store described above.
 
 ---
 
@@ -811,7 +811,7 @@ All endpoints use **POST** method unless otherwise noted.
 ### Authentication
 | Endpoint | Description |
 |----------|-------------|
-| `/auth/status` | Check if auth is enabled (public) |
+| `/auth/status` | Auth/bootstrap status for the active backend (public) |
 | `/auth/register` | Register new user (public) |
 | `/auth/login` | Login, returns Bearer token (public) |
 | `/auth/logout` | Invalidate token |
@@ -822,13 +822,10 @@ All endpoints use **POST** method unless otherwise noted.
 | Endpoint | Description |
 |----------|-------------|
 | `/admin/users` | List users with quotas |
-| `/admin/users/{id}` | Get user detail + permissions |
+| `/admin/users/{id}` | Get user detail, profile, and quota |
 | `/admin/users/{id}/update` | Update email, role, active status |
 | `/admin/users/{id}/delete` | Deactivate user |
 | `/admin/users/{id}/quota` | Update quota limits |
-| `/admin/users/{id}/permissions` | List user permissions |
-| `/admin/users/{id}/permissions/grant` | Grant permission on resource |
-| `/admin/users/{id}/permissions/revoke` | Revoke permission |
 | `/admin/stats` | System-wide statistics |
 | `/admin/executions` | All execution history |
 | `/admin/executions/{id}/cancel` | Cancel a running execution |
