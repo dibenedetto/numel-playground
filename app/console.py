@@ -715,12 +715,28 @@ class ConsoleAgentManager:
 				try:
 					# Use pool agent if available (per-user memory), else fall back to singleton
 					if self._channel_pool and ps.user_id:
+						# Augment message with planner context (pool agent has no built-in injection)
+						augmented = message
+						try:
+							ctx = self.get_context(user_id=ps.user_id)
+							parts = []
+							if ctx.get("context"):
+								parts.append(f"[Current workspace state]\n{ctx['context']}")
+							if parts:
+								augmented = "\n\n".join(parts) + f"\n\n{message}"
+						except Exception:
+							pass
+						_planner_directive = [
+							"You are in PLANNER MODE. When asked to build a workflow, output a complete workflow JSON inside a ```json code block. The system will load it automatically. Always include eval_flow nodes."
+						]
 						pool_session = f"planner_{ps.key}"
 						result = await asyncio.wait_for(
 							self._channel_pool.chat(
-								message, pool_session,
+								augmented, pool_session,
+								toolkits=list(self._toolkit_names),
 								sender_name="Planner",
 								user_id=ps.user_id,
+								extra_instructions=_planner_directive,
 							),
 							timeout=ps.timeout,
 						)
@@ -774,8 +790,10 @@ class ConsoleAgentManager:
 			session_id = str(uuid.uuid4())
 
 		# Reset planner turn count on user-initiated messages (not planner events)
-		if self._planner_enabled and session_id != self._planner_session_id:
-			self._planner_turn_count = 0
+		if self._planner_enabled:
+			for ps in self._planners.values():
+				if ps.enabled and session_id != ps.session_id:
+					ps.turn_count = 0
 
 		# Inject attachment descriptions into the message
 		if attachments:
@@ -993,6 +1011,18 @@ class ConsoleAgentManager:
 			planner_ctx = f"[Planner Instructions]\n{self._planner_instructions}\n\n"
 			if self._resource_index:
 				planner_ctx += f"[Available Resources]\n{self._resource_index}\n\n"
+			# Include generation prompt (node catalog + JSON schema) so the planner can build workflows
+			build_prompt = getattr(getattr(self, '_fastapi_app', None), 'state', None)
+			build_prompt = getattr(build_prompt, 'build_generation_prompt', None) if build_prompt else None
+			if build_prompt:
+				try:
+					gen_prompt = build_prompt()
+					log_print(f"Planner: injecting node catalog ({len(gen_prompt)} chars)")
+					planner_ctx += f"[Node Catalog & JSON Format]\n{gen_prompt}\n\n"
+				except Exception as e:
+					log_print(f"Planner: node catalog build failed: {e}")
+			else:
+				log_print(f"Planner: no build_generation_prompt (fastapi_app={self._fastapi_app is not None})")
 
 		return {
 			"context":          planner_ctx + "\n".join(context_parts),
@@ -1063,7 +1093,8 @@ class ChannelAgentPool:
 							 sender_name: Optional[str] = None,
 							 user_id: Optional[str] = None,
 							 is_guest: bool = False,
-							 auth_token: Optional[str] = None) -> Agent:
+							 auth_token: Optional[str] = None,
+							 extra_instructions: Optional[List[str]] = None) -> Agent:
 		"""Return (or lazily build) the Agent for this session."""
 		async with self._lock:
 			# Update stored token if a fresh one is provided
@@ -1085,7 +1116,8 @@ class ChannelAgentPool:
 			token = self._agent_tokens.get(session_id, "")
 			agent = await self._build_agent(
 				toolkits=toolkits, sender_name=sender_name,
-				user_id=user_id, is_guest=is_guest, auth_token=token)
+				user_id=user_id, is_guest=is_guest, auth_token=token,
+				extra_instructions=extra_instructions)
 			self._agents[session_id]   = agent
 			self._agent_tks[session_id] = list(toolkits) if toolkits else []
 			self._agent_uids[session_id] = user_id or session_id
@@ -1112,7 +1144,8 @@ class ChannelAgentPool:
 						   sender_name: Optional[str] = None,
 						   user_id: Optional[str] = None,
 						   is_guest: bool = False,
-						   auth_token: str = "") -> Agent:
+						   auth_token: str = "",
+						   extra_instructions: Optional[List[str]] = None) -> Agent:
 		"""Build a lightweight Agent from console_agent.json defaults."""
 		import credentials as _creds
 		config = _creds.load_json(self._config_path)
@@ -1171,6 +1204,10 @@ class ChannelAgentPool:
 				instructions.append("\n--- Active Skills ---")
 				instructions.extend(skill_instructions)
 
+		# Inject extra instructions (e.g. planner directive)
+		if extra_instructions:
+			instructions.extend(extra_instructions)
+
 		return Agent(
 			name                    = opts.get("name", "Numel Assistant"),
 			model                   = model,
@@ -1191,13 +1228,15 @@ class ChannelAgentPool:
 				   user_id: Optional[str] = None,
 				   is_guest: bool = False,
 				   auth_token: Optional[str] = None,
-				   attachments: Optional[list] = None) -> dict:
+				   attachments: Optional[list] = None,
+				   extra_instructions: Optional[List[str]] = None) -> dict:
 		"""Send a message to the per-session agent. Returns {session_id, response, tool_calls}.
 		attachments: list of Attachment objects from ChannelMessage (described in prompt)."""
 		try:
 			agent = await self._get_or_create(
 				session_id, toolkits=toolkits, sender_name=sender_name,
-				user_id=user_id, is_guest=is_guest, auth_token=auth_token)
+				user_id=user_id, is_guest=is_guest, auth_token=auth_token,
+				extra_instructions=extra_instructions)
 		except Exception as e:
 			log_print(f"ChannelAgentPool: agent creation failed for {session_id[:16]}: {e}")
 			return {"session_id": session_id, "error": f"Failed to create agent: {e}", "tool_calls": []}
@@ -1279,8 +1318,10 @@ class ChannelAgentPool:
 
 def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 					  channel_pool: Optional[ChannelAgentPool] = None,
-					  channel_cmd=None):
+					  channel_cmd=None,
+					  schema_code: Optional[str] = None):
 	"""Register all console-related API routes on the FastAPI app."""
+	console_mgr._fastapi_app = app
 
 	class ConsoleStartRequest(BaseModel):
 		model_source:       Optional[str]                    = None   # "ollama", "openai", "anthropic"
@@ -1347,22 +1388,42 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 						"tool_calls": [],
 					}
 
-			# Check if THIS session has an active planner
-			pkey = console_mgr._planner_key(user_id, session_id)
-			ps = console_mgr._planners.get(pkey)
-			if ps and ps.enabled:
+			# Check if this user has an active planner (any session)
+			ps = None
+			for _ps in console_mgr._planners.values():
+				if _ps.enabled and _ps.user_id == (user_id or "anon"):
+					ps = _ps
+					break
+			if ps:
 				ps.session_start = time.time()
 				ps.turn_count = 0
 				# Use pool agent for planner chat (per-user memory)
 				if channel_pool and user_id:
-					pool_session = f"planner_{pkey}"
+					# Augment message with planner context (pool agent has no built-in injection)
+					augmented = request.message
+					try:
+						ctx = console_mgr.get_context(user_id=user_id)
+						parts = []
+						if ctx.get("context"):
+							parts.append(f"[Current workspace state]\n{ctx['context']}")
+						if parts:
+							augmented = "\n\n".join(parts) + f"\n\n[User message]\n{request.message}"
+					except Exception as e:
+						log_print(f"Planner context augmentation failed: {e}")
+					log_print(f"Planner augmented msg length: {len(augmented)} chars, starts: {augmented[:200]}...")
+					pool_session = f"planner_{ps.key}"
 					_token = req.headers.get("authorization", "").removeprefix("Bearer ").strip()
+					_planner_directive = [
+						"You are in PLANNER MODE. When asked to build a workflow, output a complete workflow JSON inside a ```json code block. The system will load it automatically. Always include eval_flow nodes."
+					]
 					result = await channel_pool.chat(
-						message     = request.message,
+						message     = augmented,
 						session_id  = pool_session,
+						toolkits    = list(console_mgr._toolkit_names),
 						sender_name = sender_name,
 						user_id     = user_id,
 						auth_token  = _token or None,
+						extra_instructions = _planner_directive,
 					)
 				else:
 					result = await console_mgr.chat(

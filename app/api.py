@@ -2716,4 +2716,9 @@ Example (mesh processing with toolkit):
 			"has_toolkit_class": has_toolkit,
 		}
 
+	# Expose generation prompt builder for planner reuse
+	app.state.build_generation_prompt = lambda: _GENERATE_SYSTEM_PROMPT.replace(
+		"{node_catalog}", _build_node_catalog(schema_code)
+	).replace("{tools_catalog}", _build_tools_catalog())
+
 	log_print("✅ Workflow API endpoints registered")

@@ -721,12 +721,19 @@ class AgentConsoleManager {
 						this._hideThinking();
 						this._setPlannerBusy(false);
 					} else if (msg.type === 'planner_action' || msg.type === 'planner_error' || msg.type === 'planner_paused') {
-						this._hideThinking();
-						this._setPlannerBusy(false);
 						if (msg.content) this._addMessage('planner', msg.content);
 						if (msg.type === 'planner_action' && msg.content) {
 							this._speak(msg.content);
-							this._plannerAutoApply(msg.content);
+							this._plannerAutoApply(msg.content).then(applied => {
+								// Keep thinking visible if workflow was applied (next event will fire)
+								if (!applied) {
+									this._hideThinking();
+									this._setPlannerBusy(false);
+								}
+							});
+						} else {
+							this._hideThinking();
+							this._setPlannerBusy(false);
 						}
 						if (!this._open) { this._badge.style.display = ''; }
 					}
