@@ -315,7 +315,7 @@ async def _handle_knowledge_upload(impl: Any, node_index: int, button_id: str, f
 			"result" : None,
 		}
 		return result
-	msg     = f"Processed {len(files)} files from '{impl["workflow"].nodes[node_index].type}' by '{button_id}'."
+	msg     = f"Processed {len(files)} files from '{impl['workflow'].nodes[node_index].type}' by '{button_id}'."
 	result  = {
 		"status" : "ok",
 		"message": msg,

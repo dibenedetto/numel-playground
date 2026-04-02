@@ -215,6 +215,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 - **`/` commands** — `/help`, `/me`, `/toolkits`, `/toolkit`, `/planner`, `/password` all work in the web console
 - **Model selection** dropdown (switch LLMs on the fly)
 - **Toolkit picker** — enable/disable toolkits per session (also via `/toolkit` command)
+- **Extensions panel** — inspect shared toolkits, upload/remove contrib toolkits, and view/add/setup/remove skills from the GUI
 - **Voice features**: Text-to-speech (with voice/language selection), speech-to-text (microphone input)
 - **Per-user memory** — each user gets an isolated SQLite memory database, persistent across sessions and shared across channels
 - **Per-user workspaces** — each authenticated user gets an isolated workspace (own workflows + engine); guests get ephemeral workspaces (auto-evicted after 24 h)
@@ -228,6 +229,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 - **Per-user resource quotas** (CPU, storage, GPU, concurrent runs)
 - **User panel** — profile info, quota usage bars, and password change
 - **Admin panel** — slide-out UI with user management, execution monitoring, and system stats
+- **Shared server resources are protected** — shared credentials plus toolkit upload/removal are admin-only operations
 - **System toolkit** — AI assistant can manage users, quotas, and executions via natural language
 - **User-scoped data** — execution history filtered by user (admins see all)
 - **Provider abstraction** — swappable auth, data, and execution backends via `server_config.json`
@@ -347,7 +349,12 @@ Direct value nodes: **String**, **Integer**, **Real**, **Boolean**, **List**, **
 - **mesh_toolkit** — 3D model processing (load, repair, decimate, smooth, remesh)
 - **text_stats_toolkit** — Word count, keyword extraction, summarization
 
-Upload custom Python toolkits via the **Upload Toolkit** button in the UI.
+Manage toolkits via the **Extensions** panel in the workflow sidebar or from **Manage → Extensions** in the assistant console settings.
+
+- **Inspect** any built-in or contrib toolkit from the GUI
+- **Upload** new contrib toolkits from the GUI (admin only)
+- **Remove** contrib toolkits from the GUI or API (admin only)
+- **Built-in toolkits are protected** and cannot be deleted
 
 ### Skills (`app/skills/`)
 
@@ -424,6 +431,12 @@ Skills can also bundle **scripts** (`.py`, `.sh`, `.js`, `.ts`) and **dependenci
 
 Skills are loaded at startup but **disabled by default**. Toggle them on in the **assistant console settings** (pill buttons below Toolkits) or via `/skills/enable` API. Hovering a skill pill shows its description and a sample prompt. Only enabled skills are injected into the agent's system prompt. State persists in `app/skills/_state.json`.
 
+The **Extensions** panel provides GUI management for shared skills:
+- **View** full skill contents
+- **Add** a skill from `SKILL.md` content
+- **Run setup** for installable dependencies
+- **Remove** a skill from the shared skill catalog
+
 **Graph editor integration**: Skills are first-class schema nodes (`skill_config`). In the workflow graph editor, add a **Skill** node, set its `name` to a skill ID (dropdown lists all installed skills), and wire `skill_config.config` → `agent_config` with `target_slot="skills.<key>"`. The skill's instruction body is merged into the agent's system prompt at build time.
 
 #### Tutorial: Creating Your First Skill
@@ -463,7 +476,7 @@ Skills are loaded at startup but **disabled by default**. Toggle them on in the 
 
 3. **Restart the app** (or call `/skills/list` to verify it loaded).
 
-4. **Enable the skill** in the assistant console settings (click the pill) or via API:
+4. **Enable the skill** in the assistant console settings (click the pill), or manage it from the **Extensions** panel / API:
    ```
    POST /skills/enable  {"name": "my-helper"}
    ```
@@ -521,8 +534,8 @@ After login, a Bearer token is stored in `localStorage` and injected into all AP
 
 | Role | Access |
 |------|--------|
-| **Admin** | Full access: user management, quota control, all executions, system stats |
-| **User** | Standard access: own workflows, own execution history |
+| **Admin** | Full access: user management, quota control, all executions, system stats, shared credentials, shared toolkit upload/removal |
+| **User** | Standard access: own workflows, own execution history, use shared toolkits/skills |
 | **Viewer** | Read-only access |
 
 Permissions can be granted per resource (e.g., `repo:user/data`, `workflow:my-flow`) with levels: `none`, `read`, `write`, `execute`, `owner`.
@@ -678,7 +691,7 @@ Store API keys and secrets securely. All JSON config files and toolkit args supp
 
 This means you can use `${VAR_NAME}` in any JSON config file (`console_agent.json`, `channels.json`, `server_config.json`, etc.) and the value will be resolved from credentials or environment variables at load time.
 
-Manage credentials via the **Credentials** section in the left panel or via API:
+Manage **shared server credentials** via the **Credentials** section in the left panel or via API. These routes are admin-only when authentication is enabled:
 - `POST /credentials` — list names
 - `POST /credentials/{name}` — set value
 - `DELETE /credentials/{name}` — remove
@@ -828,6 +841,14 @@ All endpoints use **POST** method unless otherwise noted.
 | `/console/memory/delete` | Delete a memory entry |
 | `/console/memory/clear` | Clear all agent memory |
 | `/console/memory/stats` | Memory store statistics |
+
+### Toolkits
+| Endpoint | Description |
+|----------|-------------|
+| `/toolkits/list` | List built-in and contrib toolkits with metadata |
+| `/toolkits/inspect` | Get constructor params and public methods for a toolkit |
+| `/toolkits/upload` | Upload a contrib toolkit module (admin only) |
+| `/toolkits/remove` | Remove a contrib toolkit module (admin only, built-ins protected) |
 
 ### Channels
 | Endpoint | Description |

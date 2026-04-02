@@ -32,6 +32,44 @@ const _nodeGroups      = []; // {id, label, nodeIds[]}
 // DOM Elements
 const $ = id => document.getElementById(id);
 
+function _isAdminUser() {
+	return !!(window._numelUser && String(window._numelUser.role || '').toLowerCase() === 'admin');
+}
+
+function _credentialsAccessMessage() {
+	if (!window._numelUser) {
+		return 'Sign in as an admin to manage shared server credentials.';
+	}
+	return 'Shared server credentials are managed by admins because they affect all users on this server.';
+}
+
+function _renderCredentialAccessState() {
+	const canManageCredentials = _isAdminUser();
+	const addBtn   = $('addCredentialBtn');
+	const form     = $('credentialForm');
+	const list     = $('credentialsList');
+	const note     = $('credentialsAccessNote');
+	const noteText = $('credentialsAccessText');
+
+	if (addBtn) addBtn.style.display = canManageCredentials ? '' : 'none';
+	if (list) list.style.display = canManageCredentials ? '' : 'none';
+	if (!canManageCredentials && form) form.style.display = 'none';
+	if (note) note.style.display = canManageCredentials ? 'none' : 'flex';
+	if (noteText) noteText.textContent = _credentialsAccessMessage();
+
+	if (!list || !canManageCredentials) return canManageCredentials;
+	if (list.dataset.locked === 'true') {
+		delete list.dataset.locked;
+	}
+	return true;
+}
+
+function _applyPermissionVisibility() {
+	_renderCredentialAccessState();
+
+	if (typeof NumelAdmin !== 'undefined') NumelAdmin.checkAdminAccess(window._numelUser);
+}
+
 // ========================================================================
 // Workflow name sync helper — keeps singleWorkflowName div, currentWorkflowName,
 // and the active tab label all in sync.
@@ -48,6 +86,8 @@ function _setWorkflowName(name) {
 // ========================================================================
 
 document.addEventListener('DOMContentLoaded', () => {
+	_applyPermissionVisibility();
+
 	// Initialize SchemaGraph
 	schemaGraph = new SchemaGraphApp('sg-main-canvas');
 	window.schemaGraph = schemaGraph;  // expose for console planner lock
@@ -428,7 +468,10 @@ async function _initAuth() {
 		return;
 	}
 
-	if (!authEnabled) return;  // auth disabled — proceed normally
+	if (!authEnabled) {
+		_applyPermissionVisibility();
+		return;  // auth disabled — proceed normally
+	}
 
 	// Auth is enabled — check for stored token
 	const token = localStorage.getItem('numel_token');
@@ -442,6 +485,7 @@ async function _initAuth() {
 				window._numelToken = token;
 				window._numelUser = (await resp.json()).user;
 				_showUserBar(window._numelUser);
+				_applyPermissionVisibility();
 				return;  // valid session
 			}
 		} catch {}
@@ -482,6 +526,7 @@ async function _initAuth() {
 			window._numelUser  = user;
 			modal.style.display = 'none';
 			if (user) _showUserBar(user);
+			_applyPermissionVisibility();
 			resolve();
 		};
 
@@ -553,8 +598,7 @@ function _showUserBar(user) {
 	if (roleEl)   roleEl.textContent   = user.role || 'user';
 	if (emailEl)  emailEl.textContent  = user.email || '—';
 	if (serverEl) serverEl.textContent = ($('serverUrl').value || window.location.origin).replace(/^https?:\/\//, '');
-	// Show admin button if admin role
-	if (typeof NumelAdmin !== 'undefined') NumelAdmin.checkAdminAccess(user);
+	_applyPermissionVisibility();
 	document.getElementById('authLogoutBtn').onclick = async () => {
 		const ok = await NumelConfirm('Log Out', 'Are you sure you want to log out?', 'Log Out');
 		if (!ok) return;
@@ -594,22 +638,6 @@ function setupEventListeners() {
 	// Clear workflow (both modes)
 	$('clearWorkflowBtn').addEventListener('click', clearWorkflow);
 	$('clearWorkflowBtnSingle').addEventListener('click', clearWorkflow);
-
-	// Upload toolkit
-	$('uploadToolkitBtn')?.addEventListener('click', () => $('uploadToolkitFile')?.click());
-	$('uploadToolkitFile')?.addEventListener('change', async (e) => {
-		const file = e.target.files?.[0];
-		if (!file) return;
-		e.target.value = '';
-		const formData = new FormData();
-		formData.append('file', file);
-		try {
-			const result = await api.toolkitUpload(formData, true);
-			addLog('info', `Toolkit uploaded: ${result.module}${result.has_toolkit_class ? '' : ' (warning: no __toolkit__ class found)'}`);
-		} catch (err) {
-			addLog('error', `Toolkit upload failed: ${err.message || err}`);
-		}
-	});
 
 	// Mode switch
 	$('singleModeSwitch').addEventListener('change', toggleWorkflowMode);
@@ -3016,16 +3044,47 @@ class CredentialManager {
 		this._names = [];
 	}
 
+	_canManage() {
+		return _isAdminUser();
+	}
+
+	_headers(includeJson = false) {
+		const headers = {};
+		if (includeJson) headers['Content-Type'] = 'application/json';
+		const token = window._numelToken || localStorage.getItem('numel_token');
+		if (token) headers['Authorization'] = `Bearer ${token}`;
+		const sessionId = window._numelAPI?.sessionId || sessionStorage.getItem('numel_session_id');
+		if (sessionId) headers['X-Session-Id'] = sessionId;
+		return headers;
+	}
+
+	_syncAccess() {
+		return _renderCredentialAccessState();
+	}
+
 	async init() {
-		await this._refresh();
+		if (this._syncAccess()) {
+			await this._refresh();
+		} else {
+			this._render();
+		}
 		this._bindEvents();
 		// Poll tunnel URL until available (only if server started with --tunnel)
 		this._pollTunnel();
 	}
 
 	async _refresh() {
+		if (!this._syncAccess()) {
+			this._names = [];
+			this._render();
+			return;
+		}
 		try {
-			const r = await fetch(`${this._base}/credentials`, { method: 'POST' });
+			const r = await fetch(`${this._base}/credentials`, {
+				method: 'POST',
+				headers: this._headers(),
+			});
+			if (!r.ok) throw new Error(`${r.status}`);
 			const d = await r.json();
 			this._names = d.names || [];
 		} catch (_) { this._names = []; }
@@ -3035,6 +3094,7 @@ class CredentialManager {
 	_render() {
 		const list = $('credentialsList');
 		if (!list) return;
+		if (!this._syncAccess()) return;
 		if (!this._names.length) {
 			list.innerHTML = '<div class="nw-credentials-empty">No credentials stored</div>';
 			return;
@@ -3071,13 +3131,14 @@ class CredentialManager {
 		cancelBtn?.addEventListener('click', hideForm);
 
 		saveBtn?.addEventListener('click', async () => {
+			if (!this._canManage()) return;
 			const raw  = nameInput.value.trim();
 			const name = raw.replace(/\s+/g, '_').toUpperCase();
 			const val  = valInput.value;
 			if (!name) return;
 			await fetch(`${this._base}/credentials/${encodeURIComponent(name)}`, {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
+				headers: this._headers(true),
 				body: JSON.stringify({ value: val }),
 			});
 			hideForm();
@@ -3088,11 +3149,15 @@ class CredentialManager {
 		valInput?.addEventListener('keydown',  (e) => { if (e.key === 'Enter') saveBtn?.click(); });
 
 		list?.addEventListener('click', async (e) => {
+			if (!this._canManage()) return;
 			const edit = e.target.closest('.nw-cred-edit');
 			const del  = e.target.closest('.nw-cred-delete');
 			if (edit) { showForm(edit.dataset.name); }
 			if (del) {
-				await fetch(`${this._base}/credentials/${encodeURIComponent(del.dataset.name)}`, { method: 'DELETE' });
+				await fetch(`${this._base}/credentials/${encodeURIComponent(del.dataset.name)}`, {
+					method: 'DELETE',
+					headers: this._headers(),
+				});
 				await this._refresh();
 			}
 		});

@@ -840,17 +840,20 @@ async def run_server(args: Any):
 	# ── Credential Store ───────────────────────────────────────
 
 	@app.post("/credentials")
-	async def list_credentials():
+	async def list_credentials(request: Request):
+		_require_admin(request)
 		return {"names": _creds.list_names()}
 
 	@app.post("/credentials/{name}")
 	async def set_credential(name: str, request: Request):
+		_require_admin(request)
 		body = await request.json()
 		_creds.set(name, body.get("value", ""))
 		return {"ok": True}
 
 	@app.delete("/credentials/{name}")
-	async def delete_credential(name: str):
+	async def delete_credential(name: str, request: Request):
+		_require_admin(request)
 		return {"ok": _creds.delete(name)}
 
 	# ── Webhook Tunnel ─────────────────────────────────────────

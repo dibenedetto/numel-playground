@@ -17,6 +17,27 @@ class NumelAPI {
 		}
 	}
 
+	_sameOrigin(url) {
+		try {
+			const base = new URL(this.baseUrl || window.location.origin, window.location.origin);
+			const target = new URL(url, base);
+			return target.origin === base.origin;
+		} catch {
+			return false;
+		}
+	}
+
+	_authHeaders(includeJson = false, requestUrl = null) {
+		const headers = {};
+		if (includeJson) headers['Content-Type'] = 'application/json';
+		if (requestUrl && !this._sameOrigin(requestUrl)) return headers;
+
+		const token = window._numelToken || localStorage.getItem('numel_token');
+		if (token) headers['Authorization'] = `Bearer ${token}`;
+		if (this.sessionId) headers['X-Session-Id'] = this.sessionId;
+		return headers;
+	}
+
 	// ── Core request methods ─────────────────────────────────────
 
 	/**
@@ -24,16 +45,10 @@ class NumelAPI {
 	 * Use this when you need access to headers, status, or streaming.
 	 */
 	async post(endpoint, body = null) {
-		const opts = { method: 'POST', headers: {} };
+		const opts = { method: 'POST', headers: this._authHeaders(body != null) };
 		if (body != null) {
-			opts.headers['Content-Type'] = 'application/json';
 			opts.body = JSON.stringify(body);
 		}
-		// Inject auth token if available
-		const token = window._numelToken || localStorage.getItem('numel_token');
-		if (token) opts.headers['Authorization'] = `Bearer ${token}`;
-		// Always send session ID for guest workspace resolution
-		if (this.sessionId) opts.headers['X-Session-Id'] = this.sessionId;
 
 		const resp = await fetch(`${this.baseUrl}${endpoint}`, opts);
 		if (!resp.ok) {
@@ -61,7 +76,10 @@ class NumelAPI {
 
 	/** POST with a raw URL (not endpoint-relative). Returns the raw Response. */
 	async postUrl(url) {
-		const resp = await fetch(url, { method: 'POST' });
+		const resp = await fetch(url, {
+			method: 'POST',
+			headers: this._authHeaders(false, url),
+		});
 		if (!resp.ok) throw new Error(`Fetch failed: ${resp.status}`);
 		return resp;
 	}
@@ -72,7 +90,10 @@ class NumelAPI {
 	 */
 	async fetchBlobUrl(url) {
 		if (url.startsWith('data:')) return url;
-		const resp = await fetch(url, { method: 'POST' });
+		const resp = await fetch(url, {
+			method: 'POST',
+			headers: this._authHeaders(false, url),
+		});
 		if (!resp.ok) throw new Error(`Fetch failed: ${resp.status}`);
 		const blob = await resp.blob();
 		return URL.createObjectURL(blob);
@@ -82,6 +103,7 @@ class NumelAPI {
 	async upload(endpoint, formData) {
 		const resp = await fetch(`${this.baseUrl}${endpoint}`, {
 			method: 'POST',
+			headers: this._authHeaders(),
 			body: formData,
 		});
 		if (!resp.ok) {
@@ -141,6 +163,7 @@ class NumelAPI {
 	toolkitUpload(formData, overwrite = false) {
 		return this.upload(`/toolkits/upload?overwrite=${overwrite}`, formData);
 	}
+	toolkitRemove(name)            { return this.json('/toolkits/remove', { name }); }
 
 	// ── Skills ──────────────────────────────────────────────────
 
@@ -148,6 +171,10 @@ class NumelAPI {
 	skillsGet(name)                { return this.json('/skills/get', { name }); }
 	skillsEnable(name)             { return this.json('/skills/enable', { name }); }
 	skillsDisable(name)            { return this.json('/skills/disable', { name }); }
+	skillsAdd(name, content)       { return this.json('/skills/add', { name, content }); }
+	skillsRemove(name)             { return this.json('/skills/remove', { name }); }
+	skillsCheck(name)              { return this.json('/skills/check', { name }); }
+	skillsSetup(name)              { return this.json('/skills/setup', { name }); }
 
 	// ── File Upload / Contents ───────────────────────────────────
 

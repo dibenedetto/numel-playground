@@ -20,6 +20,7 @@ from   typing    import Any, Dict, List, Optional
 from   engine    import WorkflowEngine
 from   event_bus import EventType, EventBus
 from   manager   import WorkflowManager
+from   providers.models import Role
 from   schema    import Workflow, WorkflowExecutionOptions
 from   utils     import get_now_str, get_timestamp_str, log_print, serialize_result
 from   events    import (
@@ -218,11 +219,123 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		falling back to the default workspace."""
 		return getattr(req.state, 'workspace', _default_ws)
 
+	_project_root = Path(__file__).resolve().parent.parent
+
+	def _current_user(req: Request):
+		return getattr(req.state, "user", None)
+
+	def _require_auth(req: Request):
+		user = _current_user(req)
+		if not user:
+			raise HTTPException(status_code=401, detail="Not authenticated")
+		return user
+
+	def _require_admin(req: Request):
+		user = _require_auth(req)
+		if user.role != Role.ADMIN:
+			raise HTTPException(status_code=403, detail="Admin access required")
+		return user
+
+	def _path_within_root(path: Path, root: Path) -> bool:
+		try:
+			path.relative_to(root)
+			return True
+		except ValueError:
+			return False
+
+	def _allowed_file_roots(req: Request) -> List[Path]:
+		roots: List[Path] = []
+		ws = _ws(req)
+		user = _current_user(req)
+		ws_storage = getattr(ws.manager, "_storage_dir", None)
+		if ws_storage:
+			roots.append(Path(ws_storage).resolve())
+
+		# Admins may inspect shared workspace and storage directories directly.
+		if user and user.role == Role.ADMIN:
+			shared_storage = getattr(workspace_mgr, "_storage_root", None)
+			if shared_storage:
+				roots.append(Path(shared_storage).resolve())
+			for extra_dir in ("storage", "tmp", "models", "docs"):
+				path = (_project_root / extra_dir)
+				if path.exists():
+					roots.append(path.resolve())
+		else:
+			for extra_dir in ("tmp", "docs"):
+				path = (_project_root / extra_dir)
+				if path.exists():
+					roots.append(path.resolve())
+
+		# Preserve order while removing duplicates.
+		unique: List[Path] = []
+		seen = set()
+		for root in roots:
+			key = str(root).lower()
+			if key in seen:
+				continue
+			seen.add(key)
+			unique.append(root)
+		return unique
+
+	def _resolve_file_for_request(req: Request, file_path: str) -> Path:
+		raw_path = (file_path or "").strip()
+		if not raw_path:
+			raise HTTPException(status_code=400, detail="file_path is required")
+
+		requested = Path(raw_path)
+		roots = _allowed_file_roots(req)
+		if not roots:
+			raise HTTPException(status_code=500, detail="No allowed file roots are configured")
+
+		if requested.is_absolute():
+			target = requested.resolve()
+			if not any(_path_within_root(target, root) for root in roots):
+				raise HTTPException(status_code=403, detail="File path is outside allowed roots")
+			if not target.exists() or not target.is_file():
+				raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+			return target
+
+		if ".." in requested.parts:
+			raise HTTPException(status_code=403, detail="Path traversal is not allowed")
+
+		search_bases = [*roots, _project_root]
+		seen = set()
+		for base in search_bases:
+			try:
+				candidate = (base / requested).resolve()
+			except Exception:
+				continue
+			if not any(_path_within_root(candidate, root) for root in roots):
+				continue
+			key = str(candidate).lower()
+			if key in seen:
+				continue
+			seen.add(key)
+			if candidate.exists() and candidate.is_file():
+				return candidate
+
+		raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+
+	async def _get_ws_for_request(req: Request, workspace_id: str):
+		ws = await workspace_mgr.get_workspace(workspace_id)
+		if not ws:
+			raise HTTPException(status_code=404, detail=f"Workspace '{workspace_id}' not found")
+
+		user = _require_auth(req)
+		if user.role == Role.ADMIN:
+			return ws
+
+		current_ws = _ws(req)
+		if current_ws.workspace_id != workspace_id:
+			raise HTTPException(status_code=403, detail="You do not have access to this workspace")
+		return ws
+
 	# Setup tutorial extension API (see docs/tutorial-extension.md)
 	setup_tutorial_api(app, manager)
 
 	@app.post("/shutdown")
 	async def shutdown_server(req: Request):
+		_require_admin(req)
 		nonlocal server
 		ws = _ws(req)
 		await ws.engine.cancel_execution()
@@ -239,12 +352,10 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 
 	@app.post("/file/{file_path:path}")
-	async def serve_file(file_path: str):
+	async def serve_file(file_path: str, req: Request):
 		"""Serve a file from the workspace directory."""
 		import mimetypes
-		target = Path(file_path).resolve()
-		if not target.exists() or not target.is_file():
-			raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+		target = _resolve_file_for_request(req, file_path)
 		media_type = mimetypes.guess_type(str(target))[0] or "application/octet-stream"
 		return FileResponse(str(target), media_type=media_type, filename=target.name)
 
@@ -943,67 +1054,64 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 	# =========================================================================
 
 	@app.post("/workspace/create")
-	async def workspace_create(name: str, description: Optional[str] = None):
+	async def workspace_create(req: Request, name: str, description: Optional[str] = None):
+		_require_admin(req)
 		ws = await workspace_mgr.create_workspace(name, description)
 		return ws.to_dict()
 
 	@app.post("/workspace/delete/{workspace_id}")
-	async def workspace_delete(workspace_id: str):
+	async def workspace_delete(workspace_id: str, req: Request):
+		_require_admin(req)
 		ok = await workspace_mgr.delete_workspace(workspace_id)
 		if not ok:
 			raise HTTPException(status_code=404, detail=f"Workspace '{workspace_id}' not found or is default")
 		return {"workspace_id": workspace_id, "status": "deleted"}
 
 	@app.post("/workspace/list")
-	async def workspace_list():
-		return {"workspaces": await workspace_mgr.list_workspaces()}
+	async def workspace_list(req: Request):
+		user = _require_auth(req)
+		if user.role == Role.ADMIN:
+			return {"workspaces": await workspace_mgr.list_workspaces()}
+		return {"workspaces": [_ws(req).to_dict()]}
 
 	@app.post("/workspace/get/{workspace_id}")
-	async def workspace_get(workspace_id: str):
-		ws = await workspace_mgr.get_workspace(workspace_id)
-		if not ws:
-			raise HTTPException(status_code=404, detail=f"Workspace '{workspace_id}' not found")
+	async def workspace_get(workspace_id: str, req: Request):
+		ws = await _get_ws_for_request(req, workspace_id)
 		return ws.to_dict()
 
 	# ── Workspace-scoped workflow endpoints ──────────────────────────
 
-	async def _get_ws(workspace_id: str):
-		ws = await workspace_mgr.get_workspace(workspace_id)
-		if not ws:
-			raise HTTPException(status_code=404, detail=f"Workspace '{workspace_id}' not found")
-		return ws
-
 	@app.post("/workspace/{workspace_id}/add")
-	async def ws_add_workflow(workspace_id: str, request: WorkflowUploadRequest):
-		ws   = await _get_ws(workspace_id)
+	async def ws_add_workflow(workspace_id: str, request: WorkflowUploadRequest, req: Request):
+		ws   = await _get_ws_for_request(req, workspace_id)
 		name = await ws.manager.add(request.workflow, request.name)
 		impl = await ws.manager.impl(name)
 		wf   = impl["workflow"].model_dump() if impl else None
 		return {"name": name, "workflow": wf, "status": "added" if name else "failed"}
 
 	@app.post("/workspace/{workspace_id}/remove/{name}")
-	async def ws_remove_workflow(workspace_id: str, name: str):
-		ws     = await _get_ws(workspace_id)
+	async def ws_remove_workflow(workspace_id: str, name: str, req: Request):
+		ws     = await _get_ws_for_request(req, workspace_id)
 		status = await ws.manager.remove(name)
 		return {"name": name, "status": "removed" if status else "failed"}
 
 	@app.post("/workspace/{workspace_id}/get/{name}")
-	async def ws_get_workflow(workspace_id: str, name: str):
-		ws       = await _get_ws(workspace_id)
+	async def ws_get_workflow(workspace_id: str, name: str, req: Request):
+		ws       = await _get_ws_for_request(req, workspace_id)
 		workflow = await ws.manager.get(name)
 		if workflow:
 			workflow = workflow.model_dump()
 		return {"name": name, "workflow": workflow}
 
 	@app.post("/workspace/{workspace_id}/list")
-	async def ws_list_workflows(workspace_id: str):
-		ws    = await _get_ws(workspace_id)
+	async def ws_list_workflows(workspace_id: str, req: Request):
+		ws    = await _get_ws_for_request(req, workspace_id)
 		names = await ws.manager.list()
 		return {"names": names}
 
 	@app.post("/workspace/{workspace_id}/start")
-	async def ws_start_workflow(workspace_id: str, request: WorkflowStartRequest):
-		ws   = await _get_ws(workspace_id)
+	async def ws_start_workflow(workspace_id: str, request: WorkflowStartRequest, req: Request):
+		ws   = await _get_ws_for_request(req, workspace_id)
 		impl = await ws.manager.impl(request.name)
 		if not impl:
 			raise HTTPException(status_code=404, detail=f"Workflow '{request.name}' not found")
@@ -1017,28 +1125,28 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		return {"execution_id": execution_id, "status": "started"}
 
 	@app.post("/workspace/{workspace_id}/exec_results/{execution_id}")
-	async def ws_execution_results(workspace_id: str, execution_id: str):
-		ws      = await _get_ws(workspace_id)
+	async def ws_execution_results(workspace_id: str, execution_id: str, req: Request):
+		ws      = await _get_ws_for_request(req, workspace_id)
 		results = ws.engine.get_execution_results(execution_id)
 		if results is None:
 			raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' not found")
 		return results
 
 	@app.post("/workspace/{workspace_id}/exec_state/{execution_id}")
-	async def ws_execution_state(workspace_id: str, execution_id: str):
-		ws    = await _get_ws(workspace_id)
+	async def ws_execution_state(workspace_id: str, execution_id: str, req: Request):
+		ws    = await _get_ws_for_request(req, workspace_id)
 		state = ws.engine.get_execution_state(execution_id)
 		return {"execution_id": execution_id, "state": state}
 
 	@app.post("/workspace/{workspace_id}/exec_cancel/{execution_id}")
-	async def ws_cancel_execution(workspace_id: str, execution_id: str):
-		ws    = await _get_ws(workspace_id)
+	async def ws_cancel_execution(workspace_id: str, execution_id: str, req: Request):
+		ws    = await _get_ws_for_request(req, workspace_id)
 		state = await ws.engine.cancel_execution(execution_id)
 		return {"execution_id": execution_id, "status": "cancelled" if state else "failed", "state": state}
 
 	@app.post("/workspace/{workspace_id}/exec_list")
-	async def ws_list_executions(workspace_id: str):
-		ws = await _get_ws(workspace_id)
+	async def ws_list_executions(workspace_id: str, req: Request):
+		ws = await _get_ws_for_request(req, workspace_id)
 		return {"execution_ids": ws.engine.list_executions()}
 
 
@@ -2591,7 +2699,12 @@ Example (mesh processing with toolkit):
 		import inspect as _ins
 		results = []
 		for mod_name in _discover_all_toolkit_modules():
-			entry = {"name": mod_name, "description": "", "builtin": mod_name.startswith("toolkits.")}
+			entry = {
+				"name": mod_name,
+				"description": "",
+				"builtin": mod_name.startswith("toolkits."),
+				"removable": mod_name.startswith("contrib.toolkits."),
+			}
 			try:
 				md, resolved = _resolve_toolkit_module(mod_name)
 				tk_cls = _find_toolkit_class(md)
@@ -2668,8 +2781,9 @@ Example (mesh processing with toolkit):
 		}
 
 	@app.post("/toolkits/upload")
-	async def toolkits_upload(file: UploadFile = File(...), overwrite: bool = False):
+	async def toolkits_upload(req: Request, file: UploadFile = File(...), overwrite: bool = False):
 		"""Upload a .py file to contrib/toolkits/."""
+		_require_admin(req)
 		if not file.filename or not file.filename.endswith('.py'):
 			raise HTTPException(status_code=400, detail="Only .py files are allowed")
 		if file.filename.startswith('_'):
@@ -2714,6 +2828,58 @@ Example (mesh processing with toolkit):
 			"module": mod_name,
 			"filename": file.filename,
 			"has_toolkit_class": has_toolkit,
+		}
+
+	@app.post("/toolkits/remove")
+	async def toolkits_remove(req: Request, request: dict):
+		"""Delete a user-created toolkit from contrib/toolkits/."""
+		_require_admin(req)
+		name = str(request.get("name", "")).strip()
+		if not name:
+			raise HTTPException(status_code=400, detail="name is required")
+
+		module_name = name.replace("/", ".").replace("\\", ".").removesuffix(".py")
+		short_name = module_name
+		if module_name.startswith("contrib.toolkits."):
+			short_name = module_name[len("contrib.toolkits."):]
+		elif module_name.startswith("toolkits."):
+			raise HTTPException(status_code=403, detail="Built-in toolkits cannot be removed")
+		elif "." in module_name:
+			raise HTTPException(status_code=400, detail="Only contrib toolkit modules can be removed")
+
+		if not short_name or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", short_name):
+			raise HTTPException(status_code=400, detail="Invalid toolkit name")
+
+		builtin_path = os.path.join(_app_dir, "toolkits", f"{short_name}.py")
+		contrib_path = os.path.join(_contrib_dir, f"{short_name}.py")
+		if not os.path.exists(contrib_path):
+			if os.path.exists(builtin_path):
+				raise HTTPException(status_code=403, detail="Built-in toolkits cannot be removed")
+			raise HTTPException(status_code=404, detail=f"Contrib toolkit '{short_name}' not found")
+
+		os.remove(contrib_path)
+
+		pycache_dir = os.path.join(_contrib_dir, "__pycache__")
+		if os.path.isdir(pycache_dir):
+			prefix = f"{short_name}."
+			for fname in os.listdir(pycache_dir):
+				if fname.startswith(prefix) and fname.endswith(".pyc"):
+					try:
+						os.remove(os.path.join(pycache_dir, fname))
+					except OSError:
+						pass
+
+		import sys
+		mod_name = f"contrib.toolkits.{short_name}"
+		if mod_name in sys.modules:
+			del sys.modules[mod_name]
+		importlib.invalidate_caches()
+
+		log_print(f"Toolkit removed: {contrib_path}")
+		return {
+			"status": "ok",
+			"module": mod_name,
+			"filename": os.path.basename(contrib_path),
 		}
 
 	# Expose generation prompt builder for planner reuse

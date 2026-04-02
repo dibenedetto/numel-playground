@@ -341,9 +341,9 @@ const NumelAdmin = (() => {
 
 	/** Call after login to show admin button if user is admin. */
 	function checkAdminAccess(user) {
-		if (_openBtn && user && user.role === 'admin') {
-			_openBtn.style.display = '';
-		}
+		const isAdmin = !!(user && user.role === 'admin');
+		if (_openBtn) _openBtn.style.display = isAdmin ? '' : 'none';
+		if (!isAdmin) close();
 	}
 
 	// Auto-init on DOMContentLoaded

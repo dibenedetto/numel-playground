@@ -192,6 +192,15 @@
 	width: 64px;
 	flex-shrink: 0;
 }
+
+.nw-console-inline-hint {
+	flex: 1;
+	font-size: 10px;
+	color: var(--sg-text-secondary);
+	font-style: italic;
+	line-height: 1.4;
+}
+
 .nw-console-model-select {
 	flex: 1;
 	background: var(--sg-bg-primary);

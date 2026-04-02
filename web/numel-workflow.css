@@ -334,6 +334,45 @@ body {
 	font-style: italic;
 }
 
+.nw-access-note {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+	margin-bottom: 8px;
+	padding: 8px 10px;
+	border: 1px solid var(--sg-border-color);
+	border-left: 3px solid var(--sg-accent-orange, #d47a00);
+	border-radius: 6px;
+	background: var(--sg-bg-primary);
+}
+
+.nw-access-note-compact {
+	margin: 4px 0 0;
+}
+
+.nw-access-badge {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	flex-shrink: 0;
+	min-height: 20px;
+	padding: 0 8px;
+	border-radius: 999px;
+	border: 1px solid var(--sg-border-color);
+	background: var(--sg-bg-tertiary);
+	color: var(--sg-text-primary);
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.nw-access-text {
+	font-size: 11px;
+	line-height: 1.5;
+	color: var(--sg-text-secondary);
+}
+
 /* ========================================================================
    COLLAPSIBLE SECTIONS
    ======================================================================== */
@@ -1393,6 +1432,121 @@ body.nw-auth-pending {
 	transform: translateX(0);
 	box-shadow: -4px 0 20px var(--sg-node-shadow);
 }
+
+.nw-ext-tabs {
+	display: flex;
+	border-bottom: 1px solid var(--sg-border-color);
+}
+
+.nw-ext-tab {
+	flex: 1;
+	background: transparent;
+	border: none;
+	color: var(--sg-text-secondary);
+	padding: 10px 12px;
+	cursor: pointer;
+	font-size: 12px;
+	font-weight: 600;
+	transition: color 0.15s ease, background 0.15s ease;
+}
+
+.nw-ext-tab:hover {
+	color: var(--sg-text-primary);
+	background: rgba(255, 255, 255, 0.03);
+}
+
+.nw-ext-tab.active {
+	color: var(--sg-text-primary);
+	border-bottom: 2px solid var(--sg-accent-orange, #d47a00);
+}
+
+.nw-ext-tab-content {
+	display: none;
+}
+
+.nw-ext-tab-content.active {
+	display: block;
+}
+
+.nw-ext-note {
+	color: var(--sg-text-secondary);
+	font-size: 11px;
+	line-height: 1.5;
+	margin-bottom: 10px;
+}
+
+.nw-ext-card-badges {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+}
+
+.nw-ext-badge {
+	display: inline-flex;
+	align-items: center;
+	padding: 2px 8px;
+	border-radius: 999px;
+	font-size: 10px;
+	font-weight: 600;
+	border: 1px solid var(--sg-border-color);
+	background: var(--sg-bg-tertiary);
+	color: var(--sg-text-primary);
+}
+
+.nw-ext-badge-builtin {
+	background: rgba(70, 162, 218, 0.12);
+	color: var(--sg-accent-blue, #46a2da);
+}
+
+.nw-ext-badge-shared {
+	background: rgba(212, 122, 0, 0.12);
+	color: var(--sg-accent-orange, #d47a00);
+}
+
+.nw-ext-badge-enabled {
+	background: rgba(92, 184, 92, 0.14);
+	color: var(--sg-accent-green, #5cb85c);
+}
+
+.nw-ext-badge-disabled {
+	background: rgba(160, 160, 160, 0.14);
+	color: var(--sg-text-secondary);
+}
+
+.nw-ext-badge-setup {
+	background: rgba(240, 173, 78, 0.14);
+	color: var(--sg-accent-yellow, #f0ad4e);
+}
+
+.nw-ext-empty {
+	color: var(--sg-text-tertiary);
+	font-size: 12px;
+}
+
+.nw-ext-code,
+.nw-ext-pre {
+	font-family: "Courier New", monospace;
+}
+
+.nw-ext-pre {
+	background: var(--sg-bg-primary);
+	border: 1px solid var(--sg-border-color);
+	border-radius: 6px;
+	padding: 10px;
+	font-size: 12px;
+	line-height: 1.5;
+	color: var(--sg-text-primary);
+	white-space: pre-wrap;
+	word-break: break-word;
+	max-height: 50vh;
+	overflow: auto;
+}
+
+.nw-ext-dialog-wide {
+	width: min(760px, 92vw);
+	max-width: min(760px, 92vw);
+}
+
 .nw-admin-header {
 	display: flex;
 	align-items: center;

@@ -77,6 +77,10 @@
 					<h3 class="nw-section-title">Credentials</h3>
 					<button id="addCredentialBtn" class="nw-btn-icon" title="Add credential">＋</button>
 				</div>
+				<div id="credentialsAccessNote" class="nw-access-note" style="display:none;">
+					<span class="nw-access-badge">Admin Only</span>
+					<span id="credentialsAccessText" class="nw-access-text"></span>
+				</div>
 				<div id="credentialsList" class="nw-credentials-list"></div>
 				<form id="credentialForm" class="nw-credential-form" style="display:none;" onsubmit="return false">
 					<input id="credentialName"  type="text"     class="nw-input" placeholder="NAME (e.g. SLACK_TOKEN)" autocomplete="off" spellcheck="false" aria-label="Credential name">
@@ -154,11 +158,6 @@
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 5.64"/><polyline points="1 4 5.64 5.64 4 10"/></svg>
 							<span>Clear</span>
 						</button>
-						<button id="uploadToolkitBtn" class="nw-btn nw-btn-secondary nw-btn-with-icon nw-btn-grid-full" title="Upload a Python toolkit (.py)">
-							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/></svg>
-							<span>Upload Toolkit</span>
-						</button>
-						<input type="file" id="uploadToolkitFile" accept=".py" style="display:none">
 					</div>
 				</div>
 
@@ -190,6 +189,13 @@
 							<span>Clear</span>
 						</button>
 					</div>
+				</div>
+
+				<div class="nw-btn-grid" style="margin-top:8px;">
+					<button id="extensionsOpenBtn" class="nw-btn nw-btn-secondary nw-btn-with-icon nw-btn-grid-full" title="Manage toolkits and skills">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="7" rx="1"/><rect x="14" y="4" width="7" height="7" rx="1"/><rect x="3" y="15" width="7" height="7" rx="1"/><rect x="14" y="15" width="7" height="7" rx="1"/></svg>
+						<span>Extensions</span>
+					</button>
 				</div>
 
 				<!-- Workflow Options (Collapsible, inside Workflows section) -->
@@ -390,6 +396,11 @@
 					<div class="nw-console-settings-row">
 						<label>Skills</label>
 						<div id="consoleSkillList" class="nw-console-toolkit-list"></div>
+					</div>
+					<div class="nw-console-settings-row">
+						<label>Manage</label>
+						<button id="extensionsOpenBtnConsole" class="nw-btn nw-btn-sm nw-btn-secondary" type="button">Extensions</button>
+						<span class="nw-console-inline-hint">Install, upload, inspect, and remove shared toolkits and skills.</span>
 					</div>
 					<div class="nw-console-settings-row">
 						<label for="consoleTtsToggle">Voice</label>
@@ -601,6 +612,36 @@
 			</div>
 		</div>
 
+		<div id="extensionsPanel" class="nw-admin-panel nw-ext-panel">
+			<div class="nw-admin-header">
+				<span class="nw-admin-title">Extensions</span>
+				<button id="extensionsCloseBtn" class="nw-console-close">&times;</button>
+			</div>
+			<div class="nw-ext-tabs">
+				<button class="nw-ext-tab active" data-tab="extensionsTabToolkits">Toolkits</button>
+				<button class="nw-ext-tab" data-tab="extensionsTabSkills">Skills</button>
+			</div>
+			<div class="nw-admin-body">
+				<div id="extensionsTabToolkits" class="nw-ext-tab-content active">
+					<div class="nw-admin-toolbar">
+						<button id="extensionsRefreshToolkits" class="nw-btn nw-btn-sm">Refresh</button>
+						<button id="extensionsUploadToolkitBtn" class="nw-btn nw-btn-sm nw-btn-secondary">Upload Toolkit</button>
+						<input type="file" id="extensionsUploadToolkitFile" accept=".py" style="display:none">
+					</div>
+					<div class="nw-ext-note">Toolkits are shared server modules. Uploads and removal require admin access, and built-in toolkits remain protected.</div>
+					<div id="extensionsToolkitList" class="nw-admin-list"></div>
+				</div>
+				<div id="extensionsTabSkills" class="nw-ext-tab-content">
+					<div class="nw-admin-toolbar">
+						<button id="extensionsRefreshSkills" class="nw-btn nw-btn-sm">Refresh</button>
+						<button id="extensionsAddSkillBtn" class="nw-btn nw-btn-sm nw-btn-success">Add Skill</button>
+					</div>
+					<div class="nw-ext-note">Skills are currently shared at the server level. Enabling, setup, add, and remove actions affect the shared skill catalog.</div>
+					<div id="extensionsSkillList" class="nw-admin-list"></div>
+				</div>
+			</div>
+		</div>
+
 		<!-- Footer -->
 		<div class="nw-footer">
 			© 2025 - 2026 - <a href="mailto:marco.dibenedetto@isti.cnr.it">Marco Di Benedetto</a>
@@ -660,6 +701,7 @@
 		<script src="numel-user-panel.js"></script>
 		<script src="numel-admin.js"></script>
 		<script src="numel-channels.js"></script>
+		<script src="numel-extensions.js"></script>
 		<script src="numel-workflow.js"></script>
 		<script src="numel-workflow-ui.js"></script>
 	</body>
