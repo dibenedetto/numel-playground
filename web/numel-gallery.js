@@ -1,6 +1,6 @@
 /* ========================================================================
    NUMEL GALLERY + PUBLISHED APPS MANAGERS
-   Gallery: browse/search/load workflow templates from the server.
+   Gallery: browse/search/load workflow templates into the current space.
    Apps:    publish the current workflow as a standalone web app,
             view/open/unpublish existing apps.
    ======================================================================== */
@@ -135,7 +135,7 @@ class GalleryManager {
 
 		const loadBtn = document.createElement('button');
 		loadBtn.className = 'nw-gallery-load-btn';
-		loadBtn.textContent = 'Load';
+		loadBtn.textContent = 'Load into Space';
 		loadBtn.addEventListener('click', async () => {
 			loadBtn.disabled = true;
 			loadBtn.textContent = 'Loading...';
@@ -168,7 +168,7 @@ class AppsManager {
 	constructor(serverUrl, api, getWorkflowFn) {
 		this.serverUrl    = serverUrl;
 		this.api          = api;
-		this._getWorkflow = getWorkflowFn;  // returns { name, workflow } for current graph
+		this._getWorkflow = getWorkflowFn;  // returns { name, workflow } for the current space/canvas
 		this._open        = false;
 
 		this._fab       = document.getElementById('appsToggleBtn');
@@ -235,8 +235,13 @@ class AppsManager {
 		this._publishBtn.textContent = 'Publishing...';
 		try {
 			let workflowName = null;
-			try { workflowName = this._getWorkflow().name; } catch {}
-			await this.api.appsPublish({ slug, title: title || slug, workflow_name: workflowName });
+			let workflow = null;
+			try {
+				const current = this._getWorkflow();
+				workflowName = current?.name || null;
+				workflow = current?.workflow || null;
+			} catch {}
+			await this.api.appsPublish({ slug, title: title || slug, workflow_name: workflowName, workflow });
 			this._slugInput.value = '';
 			this._titleInput.value = '';
 			delete this._slugInput.dataset.manuallyEdited;

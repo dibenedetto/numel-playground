@@ -9,7 +9,7 @@ console.log('[Numel] Loading API client...');
 class NumelAPI {
 	constructor(baseUrl) {
 		this.baseUrl = baseUrl;
-		// Stable per-tab session ID — used for guest workspace isolation
+		// Stable per-tab session ID — used for per-tab request scoping and event correlation
 		this.sessionId = sessionStorage.getItem('numel_session_id');
 		if (!this.sessionId) {
 			this.sessionId = 'sess_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
@@ -118,17 +118,28 @@ class NumelAPI {
 
 	ping()                        { return this.json('/ping'); }
 	getSchema()                   { return this.json('/schema'); }
-	listWorkflows()               { return this.json('/list'); }
-	getWorkflow(name)             { return this.json(`/get${name != null ? '/' + encodeURIComponent(name) : ''}`); }
-	addWorkflow(workflow, name)   { return this.json('/add', { workflow, name }); }
-	removeWorkflow(name)          { return this.json(`/remove${name != null ? '/' + encodeURIComponent(name) : ''}`); }
-	startWorkflow(name, data)     { return this.json('/start', { name, initial_data: data }); }
-	getExecState(executionId)     { return this.json(`/exec_state${executionId != null ? '/' + executionId : ''}`); }
-	cancelExecution(executionId)  { return this.json(`/exec_cancel${executionId != null ? '/' + executionId : ''}`); }
-	listExecutions()              { return this.json('/exec_list'); }
-	provideUserInput(execId, nodeId, inputData) {
-		return this.json(`/exec_input/${execId}`, { node_id: nodeId, input_data: inputData });
+	getCurrentSpace()             { return this.json('/spaces/current'); }
+	listSpaces()                  { return this.json('/spaces/list'); }
+	createSpace(title, slug = null, description = '') {
+		return this.json('/spaces/create', { title, slug, description, visibility: 'private' });
 	}
+	selectSpace(spaceId)          { return this.json('/spaces/select', { space_id: spaceId }); }
+	deleteSpace(spaceId)          { return this.json('/spaces/delete', { space_id: spaceId }); }
+	getWorkflow()                 { return this.json('/workflow/get'); }
+	saveWorkflow(workflow)        { return this.json('/workflow/save', { workflow }); }
+	deleteWorkflow()              { return this.json('/workflow/delete'); }
+	startWorkflow(data = null)    { return this.json('/workflow/start', { initial_data: data }); }
+	getExecState(executionId)     { return this.json(`/executions/${encodeURIComponent(executionId)}`); }
+	cancelExecution(executionId)  { return this.json(`/executions/${encodeURIComponent(executionId)}/cancel`); }
+	listExecutions()              { return this.json('/executions/list'); }
+	provideUserInput(execId, nodeId, inputData) {
+		return this.json(`/executions/${encodeURIComponent(execId)}/input`, { node_id: nodeId, input_data: inputData });
+	}
+
+	// Legacy compatibility wrappers used by a few in-repo callers.
+	listWorkflows()               { return this.getWorkflow().then((resp) => ({ names: resp?.name ? [resp.name] : [] })); }
+	addWorkflow(workflow, _name)  { return this.saveWorkflow(workflow); }
+	removeWorkflow(_name)         { return this.deleteWorkflow(); }
 
 	// ── Tool Call ────────────────────────────────────────────────
 

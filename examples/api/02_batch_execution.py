@@ -1,75 +1,68 @@
 """
-Example 2: Batch Execution
-===========================
-Run multiple workflows in parallel and collect all results.
+Example 2: Parallel Executions Across Spaces
+===========================================
+Start several workflows in different spaces. Each space keeps its own
+current workflow, but the executions run in parallel.
 
 Run:
 	python examples/api/02_batch_execution.py
 """
 
 import asyncio
+import uuid
 
 
-from   client  import NumelClient
+from client import NumelClient
 
 
 def make_transform_workflow(name: str, script: str) -> dict:
-	"""Helper to build a simple Start → Transform → End workflow."""
 	return {
 		"options": {"type": "workflow_options", "name": name},
 		"nodes": [
-			{"type": "start_flow",     "extra": {"name": "Start"}},
-			{"type": "transform_flow", "extra": {"name": "Compute"},
-			"lang": "python", "script": script},
-			{"type": "end_flow",       "extra": {"name": "End"}},
+			{"type": "start_flow", "extra": {"name": "Start"}},
+			{"type": "transform_flow", "extra": {"name": "Compute"}, "lang": "python", "script": script},
+			{"type": "end_flow", "extra": {"name": "End"}},
 		],
 		"edges": [
 			{"source": 0, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 1, "target": 2, "source_slot": "output",   "target_slot": "flow_in"},
+			{"source": 1, "target": 2, "source_slot": "output", "target_slot": "flow_in"},
 		],
 	}
 
 
 async def main():
 	async with NumelClient() as c:
-		# Upload three workflows that each compute something different
-		workflows = [
-			("squares",    'output = {"result": [x**2 for x in range(10)]}'),
-			("cubes",      'output = {"result": [x**3 for x in range(10)]}'),
+		await c.ensure_auth()
+
+		run_specs = [
+			("squares", 'output = {"result": [x**2 for x in range(10)]}'),
+			("cubes", 'output = {"result": [x**3 for x in range(10)]}'),
 			("factorials", 'import math; output = {"result": [math.factorial(x) for x in range(10)]}'),
 		]
 
-		for name, script in workflows:
-			wf = make_transform_workflow(name, script)
-			await c.add(wf, name)
-			print(f"  Added: {name}")
+		started_runs = []
+		for name, script in run_specs:
+			suffix = uuid.uuid4().hex[:6]
+			space = await c.create_space(title=f"Batch Demo: {name}", slug=f"batch-{name}-{suffix}")
+			space_id = space["space"]["id"]
+			await c.select_space(space_id)
+			await c.replace_current_workflow(make_transform_workflow(name, script), name=name)
+			started = await c.start_workflow()
+			started_runs.append({"name": name, "space_id": space_id, "execution_id": started["execution_id"]})
+			print(f"Started {name} in {space_id}: {started['execution_id']}")
 
-		# Start all three in parallel via batch API
-		batch = await c.batch_start([
-			{"name": "squares"},
-			{"name": "cubes"},
-			{"name": "factorials"},
-		])
-		batch_id = batch["batch_id"]
-		print(f"\nBatch started: {batch_id}")
-		print(f"Execution IDs: {batch['execution_ids']}")
-
-		# Wait for all to complete
-		result = await c.batch_wait(batch_id)
-		print(f"\nBatch status: {result['status']}")
-
-		# Fetch individual results
-		for exec_id in batch["execution_ids"]:
-			r = await c.results(exec_id)
-			print(f"\n  {r['workflow_id']}: {r['status']}")
-			for node_idx, outputs in r["node_outputs"].items():
+		print("\nWaiting for parallel executions...")
+		for item in started_runs:
+			await c.select_space(item["space_id"])
+			results = await c.wait(item["execution_id"])
+			print(f"\n{item['name']}: {results['status']}")
+			for node_idx, outputs in results["node_outputs"].items():
 				if "result" in outputs:
-					print(f"    result = {outputs['result']}")
+					print(f"  node {node_idx}: {outputs['result']}")
 
-		# Clean up
-		for name, _ in workflows:
-			await c.remove(name)
-		print("\nCleaned up.")
+		for item in started_runs:
+			await c.delete_space(item["space_id"])
+		print("\nCleaned up example spaces.")
 
 
 if __name__ == "__main__":

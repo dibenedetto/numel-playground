@@ -14,13 +14,12 @@ warnings.filterwarnings(
 
 import argparse
 import asyncio
-import io
 import os
+import secrets
 import sys
 import time
 import uvicorn
 import webbrowser
-import zipfile
 from   fastapi.staticfiles  import StaticFiles
 
 
@@ -37,12 +36,8 @@ if _app_dir not in sys.path:
 
 from   dotenv    import load_dotenv
 from   fastapi   import FastAPI, HTTPException, Request
-from   fastapi.responses import StreamingResponse
 from   inspect   import getsource
 from   typing    import Any, Optional
-
-from   providers.models import AccessLevel, Role
-
 
 import schema
 
@@ -73,6 +68,10 @@ from   gallery   import GalleryManager, setup_gallery_api
 from   skills    import SkillManager, setup_skills_api
 from   memory    import MemoryStore, UserMemoryDB
 from   published_apps import PublishedAppManager, setup_published_apps_api
+from   domain.concrete import build_db_git_platform_spec
+from   platform_client import PlatformHttpClient, PlatformRequestError
+from   platform_http import setup_platform_api
+from   platform_impl import build_local_platform_stack
 from   utils     import add_middleware, log_print, seed_everything
 from   workspace import WorkspaceManager as WSManager
 
@@ -160,9 +159,23 @@ async def run_server(args: Any):
 	app: FastAPI = FastAPI(title="App")
 	add_middleware(app)
 
-	# ── Auth Provider ─────────────────────────────────────────
-	from providers_impl.loader import load_providers as _load_providers
-	_auth_provider, _data_provider, _exec_provider = _load_providers()
+	# ── Platform Stack ────────────────────────────────────────
+	_platform_stack = build_local_platform_stack(
+		workspace_manager = workspace_mgr,
+	)
+	_platform_internal_token = secrets.token_urlsafe(32)
+	setup_platform_api(app, _platform_stack, _platform_internal_token)
+	_platform = PlatformHttpClient(app, _platform_internal_token)
+	app.state.platform = _platform
+	app.state.platform_backend = _platform_stack
+	app.state.platform_client = _platform
+	app.state.platform_stack = _platform_stack
+	app.state.platform_target = build_db_git_platform_spec()
+	app.state.platform_internal_token = _platform_internal_token
+
+	@app.on_event("shutdown")
+	async def _close_platform_client():
+		await _platform.aclose()
 
 	# Public routes that don't require authentication
 	_PUBLIC_ROUTES = frozenset({
@@ -170,19 +183,22 @@ async def run_server(args: Any):
 		"/", "/status", "/ping",
 	})
 
+	def _platform_http_error(exc: PlatformRequestError):
+		raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+
 	@app.middleware("http")
 	async def auth_middleware(request: Request, call_next):
 		"""Inject request.state.user and request.state.workspace from bearer token."""
 		request.state.user = None
-		request.state.auth = _auth_provider
+		request.state.auth = _platform
 
 		path = request.url.path.rstrip("/")
-		# Skip auth for public routes, static files, and when auth is disabled
+		# Skip auth for public routes and static files.
 		if (path in _PUBLIC_ROUTES
 			or path.startswith("/web")
 			or path.startswith("/ws")
-			or _auth_provider.__class__.__name__ == "NoneAuthProvider"):
-			# Even with auth disabled, resolve a session-based workspace
+			or path.startswith("/platform")):
+			# Resolve a session-based workspace for guests on public routes.
 			session_id = request.headers.get("x-session-id", "").strip()
 			if session_id:
 				request.state.workspace = await workspace_mgr.resolve_workspace(f"guest_{session_id}")
@@ -192,9 +208,18 @@ async def run_server(args: Any):
 
 		token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
 		if token:
-			user = await _auth_provider.authenticate(token)
-			if user:
-				request.state.user = user
+			try:
+				request.state.user = await _platform.authenticate(token)
+			except PlatformRequestError:
+				request.state.user = None
+		if request.state.user is None:
+			internal_token = request.headers.get("x-numel-platform-internal", "")
+			acting_user_id = request.headers.get("x-numel-acting-user", "").strip()
+			if internal_token == _platform_internal_token and acting_user_id:
+				try:
+					request.state.user = await _platform.get_user(acting_user_id)
+				except PlatformRequestError:
+					request.state.user = None
 
 		# Resolve workspace: authenticated user → per-user, guest → per-session ephemeral
 		user = request.state.user
@@ -225,11 +250,13 @@ async def run_server(args: Any):
 		if not email:
 			email = f"{username}@local"
 		try:
-			user  = await _auth_provider.create_user(username, email, password)
-			token = await _auth_provider.login(username, password)
-			return {"token": token, "user": {"id": user.id, "username": user.username, "email": user.email, "role": user.role.value}}
+			result = await _platform.register(username, email, password)
+			user = result["user"]
+			return {"token": result["token"], "user": {"id": user.id, "username": user.username, "email": user.email, "role": user.role.value}}
 		except ValueError as e:
 			raise HTTPException(409, str(e))
+		except PlatformRequestError as exc:
+			_platform_http_error(exc)
 
 	@app.post("/auth/login")
 	async def auth_login(request: Request):
@@ -241,17 +268,23 @@ async def run_server(args: Any):
 		password = body.get("password", "")
 		if not username or not password:
 			raise HTTPException(400, "username and password are required")
-		token = await _auth_provider.login(username, password)
-		if not token:
+		try:
+			result = await _platform.login_result(username, password)
+		except PlatformRequestError as exc:
+			_platform_http_error(exc)
+		if not result:
 			raise HTTPException(401, "Invalid credentials")
-		user = await _auth_provider.get_user_by_username(username)
-		return {"token": token, "user": {"id": user.id, "username": user.username, "email": user.email, "role": user.role.value}}
+		user = result["user"]
+		return {"token": result["token"], "user": {"id": user.id, "username": user.username, "email": user.email, "role": user.role.value}}
 
 	@app.post("/auth/logout")
 	async def auth_logout(request: Request):
 		token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()
 		if token:
-			await _auth_provider.logout(token)
+			try:
+				await _platform.logout(token)
+			except PlatformRequestError as exc:
+				_platform_http_error(exc)
 		return {"ok": True}
 
 	@app.post("/auth/me")
@@ -259,31 +292,18 @@ async def run_server(args: Any):
 		user = request.state.user
 		if not user:
 			raise HTTPException(401, "Not authenticated")
-		quota = await _auth_provider.get_quota(user.id)
-		return {
-			"user": {"id": user.id, "username": user.username, "email": user.email, "role": user.role.value},
-			"quota": {
-				"cpu_seconds_remaining":   quota.cpu_seconds_remaining,
-				"max_concurrent_runs":     quota.max_concurrent_runs,
-				"storage_bytes_remaining": quota.storage_bytes_remaining,
-				"max_loop_hours":          quota.max_loop_hours,
-				"gpu_hours_remaining":     quota.gpu_hours_remaining,
-			}
-		}
+		try:
+			return await _platform.post_json(f"/platform/users/{user.id}", {})
+		except PlatformRequestError as exc:
+			_platform_http_error(exc)
 
 	@app.post("/auth/status")
 	async def auth_status():
-		"""Check if auth is enabled, what provider is active, and if any users exist."""
-		provider_name = _auth_provider.__class__.__name__
-		enabled = provider_name != "NoneAuthProvider"
-		has_users = True
-		if enabled:
-			try:
-				users = await _auth_provider.list_users(limit=1, active_only=False)
-				has_users = len(users) > 0
-			except Exception:
-				pass
-		return {"enabled": enabled, "provider": provider_name, "has_users": has_users}
+		"""Check the active auth backend and whether any local users exist."""
+		try:
+			return await _platform.auth_status()
+		except PlatformRequestError as exc:
+			_platform_http_error(exc)
 
 	@app.post("/auth/change-password")
 	async def auth_change_password(request: Request):
@@ -300,23 +320,24 @@ async def run_server(args: Any):
 			raise HTTPException(400, "current_password and new_password are required")
 		if len(new_pw) < 4:
 			raise HTTPException(400, "Password must be at least 4 characters")
-		# Verify current password via login attempt
-		token = await _auth_provider.login(user.username, current)
-		if not token:
+		try:
+			ok = await _platform.change_password(user.id, current, new_pw)
+		except PlatformRequestError as exc:
+			_platform_http_error(exc)
+		if not ok:
 			raise HTTPException(403, "Current password is incorrect")
-		# Invalidate the verification token
-		await _auth_provider.logout(token)
-		# Update password hash
-		import hashlib as _hl
-		new_hash = _hl.sha256(new_pw.encode()).hexdigest()
-		if hasattr(_auth_provider, '_data'):
-			u = _auth_provider._data["users"].get(user.id)
-			if u:
-				u["password_hash"] = new_hash
-				_auth_provider._save()
 		return {"ok": True}
 
 	# ── Role helpers ─────────────────────────────────────────
+
+	def _role_value(user) -> str:
+		if not user:
+			return ""
+		role = getattr(user, "role", "")
+		return str(getattr(role, "value", role)).lower()
+
+	def _is_admin(user) -> bool:
+		return _role_value(user) == "admin"
 
 	def _require_auth(request: Request):
 		"""Return the authenticated user or raise 401."""
@@ -328,7 +349,7 @@ async def run_server(args: Any):
 	def _require_admin(request: Request):
 		"""Return the authenticated admin user or raise 403."""
 		user = _require_auth(request)
-		if user.role != Role.ADMIN:
+		if not _is_admin(user):
 			raise HTTPException(403, "Admin access required")
 		return user
 
@@ -340,50 +361,22 @@ async def run_server(args: Any):
 		body = {}
 		try: body = await request.json()
 		except Exception: pass
-		offset      = body.get("offset", 0)
-		limit       = body.get("limit", 50)
-		active_only = body.get("active_only", True)
-		users = await _auth_provider.list_users(offset=offset, limit=limit, active_only=active_only)
-		result = []
-		for u in users:
-			quota = await _auth_provider.get_quota(u.id)
-			result.append({
-				"id": u.id, "username": u.username, "email": u.email,
-				"role": u.role.value, "active": u.active,
-				"created_at": u.created_at, "metadata": u.metadata,
-				"quota": {
-					"cpu_seconds_remaining":   quota.cpu_seconds_remaining,
-					"max_concurrent_runs":     quota.max_concurrent_runs,
-					"storage_bytes_remaining": quota.storage_bytes_remaining,
-					"gpu_hours_remaining":     quota.gpu_hours_remaining,
-					"max_repos":               quota.max_repos,
-				},
-			})
-		return {"users": result, "count": len(result)}
+		try:
+			return await _platform.list_user_rows(
+				offset=body.get("offset", 0),
+				limit=body.get("limit", 50),
+				active_only=body.get("active_only", True),
+			)
+		except PlatformRequestError as exc:
+			_platform_http_error(exc)
 
 	@app.post("/admin/users/{user_id}")
 	async def admin_get_user(user_id: str, request: Request):
 		_require_admin(request)
-		user = await _auth_provider.get_user(user_id)
-		if not user:
-			raise HTTPException(404, "User not found")
-		quota = await _auth_provider.get_quota(user.id)
-		perms = await _auth_provider.list_permissions(user.id)
-		return {
-			"user": {
-				"id": user.id, "username": user.username, "email": user.email,
-				"role": user.role.value, "active": user.active,
-				"created_at": user.created_at, "metadata": user.metadata,
-			},
-			"quota": {
-				"cpu_seconds_remaining":   quota.cpu_seconds_remaining,
-				"max_concurrent_runs":     quota.max_concurrent_runs,
-				"storage_bytes_remaining": quota.storage_bytes_remaining,
-				"gpu_hours_remaining":     quota.gpu_hours_remaining,
-				"max_repos":               quota.max_repos,
-			},
-			"permissions": [{"resource": p.resource, "access": p.access.value} for p in perms],
-		}
+		try:
+			return await _platform.post_json(f"/platform/users/{user_id}", {})
+		except PlatformRequestError as exc:
+			_platform_http_error(exc)
 
 	@app.post("/admin/users/{user_id}/update")
 	async def admin_update_user(user_id: str, request: Request):
@@ -392,14 +385,20 @@ async def run_server(args: Any):
 		allowed = {k: v for k, v in body.items() if k in ("email", "role", "active", "metadata")}
 		if not allowed:
 			raise HTTPException(400, "No valid fields to update")
-		user = await _auth_provider.update_user(user_id, **allowed)
-		return {"user": {"id": user.id, "username": user.username, "email": user.email,
-						 "role": user.role.value, "active": user.active}}
+		try:
+			user = await _platform.update_user(user_id, **allowed)
+			return {"user": {"id": user.id, "username": user.username, "email": user.email,
+							 "role": user.role.value, "active": user.active}}
+		except PlatformRequestError as exc:
+			_platform_http_error(exc)
 
 	@app.post("/admin/users/{user_id}/delete")
 	async def admin_delete_user(user_id: str, request: Request):
 		_require_admin(request)
-		ok = await _auth_provider.delete_user(user_id)
+		try:
+			ok = await _platform.delete_user(user_id)
+		except PlatformRequestError as exc:
+			_platform_http_error(exc)
 		if not ok:
 			raise HTTPException(404, "User not found")
 		return {"ok": True}
@@ -408,50 +407,40 @@ async def run_server(args: Any):
 	async def admin_update_quota(user_id: str, request: Request):
 		_require_admin(request)
 		body = await request.json()
-		quota = await _auth_provider.update_quota(user_id, **body)
+		try:
+			quota = await _platform.update_quota(user_id, **body)
+		except PlatformRequestError as exc:
+			_platform_http_error(exc)
 		return {
 			"quota": {
 				"user_id":                 quota.user_id,
 				"cpu_seconds_remaining":   quota.cpu_seconds_remaining,
 				"max_concurrent_runs":     quota.max_concurrent_runs,
 				"storage_bytes_remaining": quota.storage_bytes_remaining,
+				"max_loop_hours":          quota.max_loop_hours,
 				"gpu_hours_remaining":     quota.gpu_hours_remaining,
-				"max_repos":               quota.max_repos,
+				"max_spaces":              quota.max_spaces,
+				"max_assets_per_space":    quota.max_assets_per_space,
 			}
 		}
 
 	@app.post("/admin/users/{user_id}/permissions")
 	async def admin_list_user_permissions(user_id: str, request: Request):
-		_require_admin(request)
-		perms = await _auth_provider.list_permissions(user_id)
-		return {"permissions": [{"resource": p.resource, "access": p.access.value} for p in perms]}
+		raise HTTPException(410, "Legacy generic user permissions were removed; use space policies instead")
 
 	@app.post("/admin/users/{user_id}/permissions/grant")
 	async def admin_grant_permission(user_id: str, request: Request):
-		_require_admin(request)
-		body = await request.json()
-		resource = body.get("resource", "")
-		access   = body.get("access", "read")
-		if not resource:
-			raise HTTPException(400, "resource is required")
-		perm = await _auth_provider.grant_permission(user_id, resource, AccessLevel(access))
-		return {"permission": {"resource": perm.resource, "user_id": perm.user_id, "access": perm.access.value}}
+		raise HTTPException(410, "Legacy generic user permissions were removed; use space policies instead")
 
 	@app.post("/admin/users/{user_id}/permissions/revoke")
 	async def admin_revoke_permission(user_id: str, request: Request):
-		_require_admin(request)
-		body = await request.json()
-		resource = body.get("resource", "")
-		if not resource:
-			raise HTTPException(400, "resource is required")
-		ok = await _auth_provider.revoke_permission(user_id, resource)
-		return {"ok": ok}
+		raise HTTPException(410, "Legacy generic user permissions were removed; use space policies instead")
 
 	@app.post("/admin/stats")
 	async def admin_stats(request: Request):
 		"""System-wide statistics: users, executions, active runs."""
 		_require_admin(request)
-		users = await _auth_provider.list_users(limit=10000, active_only=False)
+		users = await _platform.list_users(limit=10000, active_only=False)
 		active_users  = [u for u in users if u.active]
 		history_items = exec_history.list(limit=10000)
 		# Active executions from default workspace engine
@@ -518,9 +507,12 @@ async def run_server(args: Any):
 	user_memory_db = UserMemoryDB()
 
 	# ── Console Agent ─────────────────────────────────────────
+	_main_base_url = f"http://localhost:{args.port}"
 	console_mgr = ConsoleAgentManager(workspace_mgr, event_bus, port=args.port + 1,
 									  memory_store=memory_store,
-									  user_memory_db=user_memory_db)
+									  user_memory_db=user_memory_db,
+									  base_url=_main_base_url,
+									  internal_token=_platform_internal_token)
 	console_mgr.setup_proactive_listeners()
 
 	# ── Channel Adapters ──────────────────────────────────────
@@ -568,7 +560,7 @@ async def run_server(args: Any):
 			return "Planner disabled for this session."
 
 	channel_cmd = ChannelCommandHandler(
-		auth_provider=_auth_provider,
+		auth_provider=_platform,
 		store_path=os.path.join(_app_dir, "channel_users.json"),
 		available_toolkits=_available_toolkits,
 		default_toolkits=_default_toolkits,
@@ -580,7 +572,10 @@ async def run_server(args: Any):
 	channel_pool = ChannelAgentPool(
 		workspace_mgr=workspace_mgr, memory_store=memory_store,
 		user_memory_db=user_memory_db,
-		idle_timeout=_pool_cfg.get("idle_timeout", 1800))
+		idle_timeout=_pool_cfg.get("idle_timeout", 1800),
+		base_url=_main_base_url,
+		internal_token=_platform_internal_token,
+		fastapi_app=app)
 
 	async def _dispatch_to_channel_sources(msg):
 		"""Push incoming message to any registered ChannelSource event sources."""
@@ -706,7 +701,7 @@ async def run_server(args: Any):
 		# Scope to current user (admins see all)
 		user = getattr(request.state, 'user', None)
 		user_id = None
-		if user and user.role != Role.ADMIN:
+		if user and not _is_admin(user):
 			user_id = user.id
 		return exec_history.list(workflow_name=wf_name, user_id=user_id, limit=limit, offset=offset)
 
@@ -736,125 +731,53 @@ async def run_server(args: Any):
 		rec = exec_history.record(**body)
 		return rec.model_dump()
 
-	# ── Workspace ZIP Export ───────────────────────────────────
+	# ── Credential Store ───────────────────────────────────────
 
-	@app.post("/workspace/export")
-	async def export_workspace(request: Request):
-		"""Export entire workspace (workflows + configs) as a ZIP archive."""
-		workspace_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-		include_patterns = [
-			"app/console_agent.json",
-			"app/agent_tasks.json",
-			"app/published_apps.json",
-			"app/gallery.json",
-			"app/exec_history.json",
-		]
-
-		buf = io.BytesIO()
-		with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-			for pattern in include_patterns:
-				full_path = os.path.join(workspace_dir, pattern)
-				if os.path.exists(full_path):
-					zf.write(full_path, pattern)
-			# Also serialize workflows directly from the workspace manager
-			try:
-				ws_obj   = request.state.workspace
-				mgr      = ws_obj.manager
-				wf_names = await mgr.list()
-				for name in wf_names:
-					wf = await mgr.get(name)
-					if wf:
-						import json as _json
-						zf.writestr(f"workflows/{name}.json", _json.dumps(wf.model_dump(), indent=2))
-			except Exception:
-				pass
-		buf.seek(0)
-		from datetime import datetime as _dt
-		filename = f"numel-workspace-{_dt.now().strftime('%Y%m%d-%H%M%S')}.zip"
-		return StreamingResponse(
-			buf,
-			media_type="application/zip",
-			headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-		)
-
-	# ── Scheduled Workflow Runs ────────────────────────────────
-
-	from pydantic import BaseModel as _BaseModel
-
-	class ScheduledRunRequest(_BaseModel):
-		workflow_name : str
-		delay_seconds : float        = 0
-		inputs        : Optional[dict] = None
-
-	@app.post("/schedule-run")
-	async def schedule_run(request: ScheduledRunRequest, req: Request):
-		"""Schedule a workflow to run after a delay (or immediately)."""
-		ws_obj = req.state.workspace
-		async def _run_later():
-			if request.delay_seconds > 0:
-				await asyncio.sleep(request.delay_seconds)
-			try:
-				mgr    = ws_obj.manager
-				engine = ws_obj.engine
-				wf = await mgr.get(request.workflow_name)
-				if wf is None:
-					return
-				impl = await mgr.impl(request.workflow_name)
-				if not impl:
-					return
-				exec_id = await engine.start_workflow(
-					workflow     = impl["workflow"],
-					backend      = impl["backend"],
-					initial_data = request.inputs or {},
-				)
-				log_print(f"Scheduled run started: {request.workflow_name} → {exec_id}")
-			except Exception as e:
-				log_print(f"Scheduled run failed: {e}")
-
-		asyncio.create_task(_run_later())
-		return {"ok": True, "scheduled": True, "workflow_name": request.workflow_name}
-
-	# ── Workspace Changed Notification ────────────────────────
-
-	@app.post("/workspace/changed")
-	async def notify_workspace_changed(request: Request):
-		"""Called by WorkspaceToolkit after saving; broadcasts workspace.changed
-		over the /events WebSocket so the UI can reload the workflow."""
+	@app.post("/credentials")
+	async def list_credentials(request: Request):
+		user = _require_auth(request)
 		body = {}
 		try:
 			body = await request.json()
 		except Exception:
 			pass
-		from event_bus import WorkflowEvent, EventType as _ET
-		import uuid as _uuid
-		from datetime import datetime as _dt, timezone as _tz
-		ev = WorkflowEvent(
-			event_id   = str(_uuid.uuid4()),
-			event_type = _ET.WORKSPACE_CHANGED,
-			timestamp  = _dt.now(_tz.utc).isoformat(),
-			data       = {"name": body.get("name", "")},
-		)
-		await event_bus.publish(ev)
-		return {"ok": True}
-
-	# ── Credential Store ───────────────────────────────────────
-
-	@app.post("/credentials")
-	async def list_credentials(request: Request):
-		_require_admin(request)
-		return {"names": _creds.list_names()}
+		space_id = (body.get("space_id") or "").strip() or None
+		try:
+			records = await _platform.list_credentials(user.id, space_id=space_id)
+			return {"names": [record.name for record in records]}
+		except PlatformRequestError as exc:
+			_platform_http_error(exc)
 
 	@app.post("/credentials/{name}")
 	async def set_credential(name: str, request: Request):
-		_require_admin(request)
+		user = _require_auth(request)
 		body = await request.json()
-		_creds.set(name, body.get("value", ""))
-		return {"ok": True}
+		space_id = (body.get("space_id") or "").strip() or None
+		try:
+			record = await _platform.set_credential(
+				user.id,
+				name,
+				body.get("value", ""),
+				space_id=space_id,
+				metadata=body.get("metadata"),
+			)
+			return {"ok": True, "credential": {"name": record.name, "scope": record.scope.value, "space_id": record.space_id}}
+		except PlatformRequestError as exc:
+			_platform_http_error(exc)
 
 	@app.delete("/credentials/{name}")
 	async def delete_credential(name: str, request: Request):
-		_require_admin(request)
-		return {"ok": _creds.delete(name)}
+		user = _require_auth(request)
+		body = {}
+		try:
+			body = await request.json()
+		except Exception:
+			pass
+		space_id = (body.get("space_id") or "").strip() or None
+		try:
+			return {"ok": await _platform.delete_credential(user.id, name, space_id=space_id)}
+		except PlatformRequestError as exc:
+			_platform_http_error(exc)
 
 	# ── Webhook Tunnel ─────────────────────────────────────────
 

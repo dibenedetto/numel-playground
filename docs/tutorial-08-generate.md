@@ -6,7 +6,7 @@ Use the `/gen` command inside an Agent Chat node to describe a workflow in plain
 
 - How to use the `/gen` command in the chat panel
 - How the generation prompt and node catalog work
-- Importing generated workflows into the canvas
+- Loading generated workflows into the current space
 - Tips for writing effective generation prompts
 
 ## Prerequisites
@@ -27,11 +27,11 @@ Options ──┘         ^
               Start ─┘──> End
 ```
 
-Import `tutorial-08-generate.json` as a starting point, or build your own agent configuration.
+Import `tutorial-08-generate.json` into the space you want to use as a starting point, or build your own agent configuration.
 
 ## Using /gen
 
-1. **Import** `tutorial-08-generate.json`
+1. Choose a space, then **Import** `tutorial-08-generate.json`
 2. In the chat input, type:
 
    ```
@@ -40,10 +40,10 @@ Import `tutorial-08-generate.json` as a starting point, or build your own agent 
 
 3. The agent generates a workflow JSON and streams it back as a chat message.
 4. Two controls appear below the response:
-   - **Import to Canvas** — replaces the current canvas with the generated workflow
+   - **Load into Current Space** — replaces the current canvas and saves that generated workflow as the current workflow for the selected space
    - **Preview JSON** — expandable section showing the raw JSON
 
-5. Click **Import to Canvas** to load the workflow.
+5. Click **Load into Current Space** to apply the workflow.
 6. The canvas updates with the new nodes and edges, auto-laid out.
 
 ## How It Works
@@ -57,7 +57,7 @@ When you type `/gen [description]`, the following happens:
 3. The description is combined with the generation prompt and sent to the connected agent
 4. The agent's LLM generates a workflow JSON following the format rules
 5. The frontend extracts the JSON from the response (handles raw JSON, markdown code blocks, or embedded JSON)
-6. The "Import to Canvas" button is rendered alongside the response
+6. The "Load into Current Space" button is rendered alongside the response
 
 ### The Node Catalog
 
@@ -136,13 +136,13 @@ Here are some prompts to try:
 | Invalid JSON | The model may have included explanation text — try a more capable model |
 | Missing connections | The model may have used wrong slot names — check edges manually |
 | Unknown node types | The model may have invented types — ensure it's using the catalog |
-| Import button missing | The JSON extraction failed — check "Preview JSON" or copy from chat |
+| Load button missing | The JSON extraction failed — check "Preview JSON" or copy from chat |
 
 ## What's Next
 
 Combine `/gen` with manual editing for rapid prototyping:
 
 1. Generate a skeleton workflow with `/gen`
-2. Import it to the canvas
+2. Load it into the current space
 3. Fine-tune node properties, add connections, or insert additional nodes manually
 4. Use the workflow immediately or export it as JSON for reuse

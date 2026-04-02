@@ -1,8 +1,8 @@
 """
-Example 7: Load Existing Workflow JSON and Run
-================================================
-Load one of the tutorial/example JSON files from docs/
-and execute it programmatically.
+Example 7: Load Workflow JSON from Disk and Run It
+==================================================
+Load one of the tutorial JSON files from docs/, save it as the current
+workflow in a new space, and execute it.
 
 Run:
 	python examples/api/07_load_and_run.py
@@ -10,45 +10,44 @@ Run:
 
 import asyncio
 import os
+import uuid
 
 
-from   client  import NumelClient, load_workflow
+from client import NumelClient, load_workflow
 
 
-# Path to docs/ relative to this file
 DOCS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "docs")
 
 
 async def main():
-	# Load the tutorial-02-transform workflow from docs/
 	wf_path = os.path.join(DOCS_DIR, "tutorial-02-transform.json")
 	workflow = load_workflow(wf_path)
 	wf_name = workflow.get("options", {}).get("name", "loaded-wf")
 	print(f"Loaded: {wf_name} from {wf_path}")
 
 	async with NumelClient() as c:
-		# Upload
-		r = await c.add(workflow, wf_name)
-		print(f"Added: {r['name']} (status={r['status']})")
+		await c.ensure_auth()
+		suffix = uuid.uuid4().hex[:6]
+		space = await c.create_space(title="Load and Run Demo", slug=f"load-run-{suffix}")
+		await c.select_space(space["space"]["id"])
 
-		# Execute
-		exec_id = await c.start(wf_name)
-		print(f"Started: {exec_id}")
+		saved = await c.replace_current_workflow(workflow, name=wf_name)
+		print(f"Saved into current space: {saved['name']} (status={saved['status']})")
 
-		# Wait and get results
-		results = await c.wait(exec_id)
+		started = await c.start_workflow()
+		print(f"Started: {started['execution_id']}")
+
+		results = await c.wait(started["execution_id"])
 		print(f"\nStatus: {results['status']}")
-		print(f"Duration: {results.get('start_time', '?')} → {results.get('end_time', '?')}")
+		print(f"Duration: {results.get('start_time', '?')} -> {results.get('end_time', '?')}")
 
-		# Print each node's outputs
 		for node_idx, outputs in sorted(results["node_outputs"].items(), key=lambda x: x[0]):
 			if outputs:
-				print(f"\n  Node {node_idx}:")
+				print(f"\nNode {node_idx}:")
 				for key, value in outputs.items():
-					print(f"    {key} = {value}")
+					print(f"  {key} = {value}")
 
-		# Clean up
-		await c.remove(wf_name)
+		await c.delete_space(space["space"]["id"])
 		print("\nDone.")
 
 

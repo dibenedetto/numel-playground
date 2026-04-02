@@ -25,6 +25,8 @@ Start ──┤  ├──> Dict as Text ──> Hint: Text ──────�
 
 Seven parallel branches demonstrate different preview types. The first four use Transform nodes to produce data, while the last three use Browser Source nodes to capture live media from your browser. All branches converge at End.
 
+Load this tutorial JSON into the space you want to experiment in. The imported graph becomes that space's current workflow.
+
 ## Preview Types
 
 ### Text

@@ -151,15 +151,18 @@ const NumelAdmin = (() => {
 				<input id="_adm_conc" type="number" value="${q.max_concurrent_runs}">
 				<label>GPU hours remaining</label>
 				<input id="_adm_gpu" type="number" value="${q.gpu_hours_remaining}">
-				<label>Max repos</label>
-				<input id="_adm_repos" type="number" value="${q.max_repos}">
+				<label>Max spaces</label>
+				<input id="_adm_spaces" type="number" value="${q.max_spaces}">
+				<label>Max assets per space</label>
+				<input id="_adm_assets" type="number" value="${q.max_assets_per_space}">
 			`, async () => {
 				await _post(`/admin/users/${uid}/quota`, {
 					cpu_seconds_remaining:   parseFloat(document.getElementById('_adm_cpu').value),
 					storage_bytes_remaining: parseInt(document.getElementById('_adm_sto').value),
 					max_concurrent_runs:     parseInt(document.getElementById('_adm_conc').value),
 					gpu_hours_remaining:     parseFloat(document.getElementById('_adm_gpu').value),
-					max_repos:               parseInt(document.getElementById('_adm_repos').value),
+					max_spaces:              parseInt(document.getElementById('_adm_spaces').value),
+					max_assets_per_space:    parseInt(document.getElementById('_adm_assets').value),
 				});
 				_loadUsers();
 			});

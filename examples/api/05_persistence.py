@@ -1,76 +1,68 @@
 """
-Example 5: Save and Load Workflows
-====================================
-Demonstrate saving workflows to disk and loading them back.
+Example 5: Workflow Persistence Inside a Space
+==============================================
+Saving a current workflow writes it to the selected space. When you
+leave that space and come back, the workflow is still there.
 
 Run:
 	python examples/api/05_persistence.py
 """
 
 import asyncio
+import uuid
 
 
-from   client  import NumelClient
+from client import NumelClient
 
 
 WORKFLOW = {
 	"options": {"type": "workflow_options", "name": "persistent-wf"},
 	"nodes": [
-		{"type": "start_flow",     "extra": {"name": "Start"}},
-		{"type": "transform_flow", "extra": {"name": "Compute"},
-		"lang": "python",
-		"script": 'output = {"saved": True, "message": "I survived a restart!"}'},
-		{"type": "end_flow",       "extra": {"name": "End"}},
+		{"type": "start_flow", "extra": {"name": "Start"}},
+		{
+			"type": "transform_flow",
+			"extra": {"name": "Compute"},
+			"lang": "python",
+			"script": 'output = {"saved": True, "message": "I survived a space switch!"}',
+		},
+		{"type": "end_flow", "extra": {"name": "End"}},
 	],
 	"edges": [
 		{"source": 0, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in"},
-		{"source": 1, "target": 2, "source_slot": "output",   "target_slot": "flow_in"},
+		{"source": 1, "target": 2, "source_slot": "output", "target_slot": "flow_in"},
 	],
 }
 
 
 async def main():
 	async with NumelClient() as c:
-		# Add a workflow
-		await c.add(WORKFLOW, "persistent-wf")
-		print("Added: persistent-wf")
+		await c.ensure_auth()
+		suffix = uuid.uuid4().hex[:6]
 
-		# Save it to disk
-		r = await c.save("persistent-wf")
-		print(f"Saved: {r}")
+		primary = await c.create_space(title="Persistence Demo", slug=f"persist-demo-{suffix}")
+		secondary = await c.create_space(title="Scratch Space", slug=f"scratch-demo-{suffix}")
+		primary_id = primary["space"]["id"]
+		secondary_id = secondary["space"]["id"]
 
-		# Save all workflows
-		r = await c.save_all()
-		print(f"Save all: {r}")
+		await c.select_space(primary_id)
+		await c.replace_current_workflow(WORKFLOW, name="persistent-wf")
+		print("Saved workflow in the primary space.")
 
-		# List current workflows
-		names = await c.list()
-		print(f"Current workflows: {names}")
+		await c.select_space(secondary_id)
+		empty = await c.get_workflow()
+		print(f"Secondary space current workflow: {empty['name']}")
 
-		# Remove it from memory
-		await c.remove("persistent-wf")
-		names = await c.list()
-		print(f"After remove: {names}")
+		await c.select_space(primary_id)
+		restored = await c.get_workflow()
+		print(f"Restored workflow: {restored['name']}")
 
-		# Load all from disk (restores saved workflows)
-		r = await c.load_all()
-		print(f"Load all: {r}")
+		started = await c.start_workflow()
+		results = await c.wait(started["execution_id"])
+		print(f"Execution result: {results['status']}")
+		print(f"Outputs: {results['node_outputs']}")
 
-		# Verify it's back
-		names = await c.list()
-		print(f"After load_all: {names}")
-
-		# Run it to prove it works
-		if "persistent-wf" in names:
-			exec_id = await c.start("persistent-wf")
-			results = await c.wait(exec_id)
-			print(f"Execution result: {results['status']}")
-			for idx, outputs in results["node_outputs"].items():
-				if outputs:
-					print(f"  node {idx}: {outputs}")
-
-		# Clean up
-		await c.remove("persistent-wf")
+		await c.delete_space(primary_id)
+		await c.delete_space(secondary_id)
 		print("Done.")
 
 

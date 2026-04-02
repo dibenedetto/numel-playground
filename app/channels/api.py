@@ -9,7 +9,6 @@ from   typing    import Any, Dict, List, Optional
 
 from   channels.base     import ChannelConfig
 from   channels.registry import ChannelRegistry
-from   providers.models  import Role
 
 
 # ── Request Models ────────────────────────────────────────────────
@@ -41,7 +40,8 @@ def setup_channel_api(app: FastAPI, registry: ChannelRegistry, pool=None):
 		user = getattr(request.state, "user", None)
 		if not user:
 			return None, False
-		return user.id, user.role == Role.ADMIN
+		role = getattr(user, "role", "")
+		return user.id, str(getattr(role, "value", role)).lower() == "admin"
 
 	def _require_owner(request: Request, adapter):
 		"""Raise 403 if the caller is not the channel creator or an admin."""

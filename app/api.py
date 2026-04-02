@@ -17,10 +17,8 @@ from   pydantic  import BaseModel
 from   typing    import Any, Dict, List, Optional
 
 
-from   engine    import WorkflowEngine
 from   event_bus import EventType, EventBus
-from   manager   import WorkflowManager
-from   providers.models import Role
+from   platform_client import PlatformRequestError
 from   schema    import Workflow, WorkflowExecutionOptions
 from   utils     import get_now_str, get_timestamp_str, log_print, serialize_result
 from   events    import (
@@ -51,13 +49,11 @@ def _decode_frame_to_ndarray(frame_bytes: bytes) -> np.ndarray:
 	return np.array(Image.open(io.BytesIO(frame_bytes)).convert("RGB"))
 
 
-class WorkflowUploadRequest(BaseModel):
+class CurrentWorkflowSaveRequest(BaseModel):
 	workflow : Workflow
-	name     : Optional[str] = None
 
 
-class WorkflowStartRequest(BaseModel):
-	name         : str
+class CurrentWorkflowStartRequest(BaseModel):
 	initial_data : WorkflowExecutionOptions = None
 
 
@@ -88,23 +84,15 @@ class TemplateRenameRequest(BaseModel):
 	name : str
 
 
-class BatchStartRequest(BaseModel):
-	workflows : List[WorkflowStartRequest]
+class SpaceCreateRequest(BaseModel):
+	title       : str
+	slug        : Optional[str] = None
+	description : Optional[str] = None
+	visibility  : str = "private"
 
 
-class ComposeStep(BaseModel):
-	workflow_name : str
-	initial_data  : Optional[WorkflowExecutionOptions] = None
-	input_map     : Optional[Dict[str, str]] = None  # target_slot -> "node_idx.source_slot"
-
-
-class ComposeRequest(BaseModel):
-	pipeline : List[ComposeStep]
-
-
-class LoadWorkflowRequest(BaseModel):
-	filepath : str
-	name     : Optional[str] = None
+class SpaceSelectRequest(BaseModel):
+	space_id : str
 
 
 class GenerateWorkflowRequest(BaseModel):
@@ -124,89 +112,6 @@ class GenerateWorkflowRequest(BaseModel):
 	history     : Optional[List[dict]] = None
 
 
-async def _run_compose(compose_id, pipeline, manager, engine, event_bus):
-	"""Execute a composition pipeline — run workflows sequentially, wiring outputs."""
-	import asyncio as _asyncio
-	from engine import WorkflowNodeStatus
-
-	state       = engine.compose_states[compose_id]
-	prev_outputs = {}
-
-	for i, step in enumerate(pipeline):
-		if state["status"] == "cancelled":
-			break
-
-		state["current"] = i
-		step_info = {"index": i, "workflow_name": step.workflow_name, "status": "running", "execution_id": None, "error": None}
-		state["steps"].append(step_info)
-
-		await event_bus.emit(
-			event_type = EventType.COMPOSE_STEP,
-			data       = {"compose_id": compose_id, "step": i, "workflow_name": step.workflow_name},
-		)
-
-		try:
-			impl = await manager.impl(step.workflow_name)
-			if not impl:
-				raise ValueError(f"Workflow '{step.workflow_name}' not found")
-
-			# Build initial_data by merging step config with mapped outputs from previous step
-			initial_data = step.initial_data.model_dump() if step.initial_data else {}
-			if step.input_map and prev_outputs:
-				for target_key, source_key in step.input_map.items():
-					if source_key in prev_outputs:
-						initial_data[target_key] = prev_outputs[source_key]
-
-			exec_id = await engine.start_workflow(
-				workflow     = impl["workflow"],
-				backend      = impl["backend"],
-				initial_data = initial_data,
-			)
-			step_info["execution_id"] = exec_id
-
-			# Wait for completion
-			while True:
-				if state["status"] == "cancelled":
-					break
-				exec_state = engine.get_execution_state(exec_id)
-				if exec_state and exec_state.status in (WorkflowNodeStatus.COMPLETED, WorkflowNodeStatus.FAILED):
-					break
-				await _asyncio.sleep(0.3)
-
-			exec_state = engine.get_execution_state(exec_id)
-			if not exec_state or exec_state.status == WorkflowNodeStatus.FAILED:
-				step_info["status"] = "failed"
-				step_info["error"]  = exec_state.error if exec_state else "Unknown error"
-				state["status"]     = "failed"
-				state["error"]      = f"Step {i} failed: {step_info['error']}"
-				break
-
-			step_info["status"] = "completed"
-
-			# Collect outputs for next step
-			prev_outputs = {}
-			for node_idx, outputs in exec_state.node_outputs.items():
-				for key, value in outputs.items():
-					prev_outputs[key] = value
-					prev_outputs[f"{node_idx}.{key}"] = value
-
-		except Exception as e:
-			step_info["status"] = "failed"
-			step_info["error"]  = str(e)
-			state["status"]     = "failed"
-			state["error"]      = f"Step {i} failed: {e}"
-			break
-
-	if state["status"] == "running":
-		state["status"] = "completed"
-
-	event_type = EventType.COMPOSE_FAILED if state["status"] == "failed" else EventType.COMPOSE_COMPLETED
-	await event_bus.emit(
-		event_type = event_type,
-		data       = {"compose_id": compose_id, "status": state["status"]},
-	)
-
-
 def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr, skill_mgr=None):
 
 	# Default workspace provides manager/engine for non-workspace-prefixed endpoints
@@ -224,6 +129,15 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 	def _current_user(req: Request):
 		return getattr(req.state, "user", None)
 
+	def _role_value(user) -> str:
+		if not user:
+			return ""
+		role = getattr(user, "role", "")
+		return str(getattr(role, "value", role)).lower()
+
+	def _is_admin(user) -> bool:
+		return _role_value(user) == "admin"
+
 	def _require_auth(req: Request):
 		user = _current_user(req)
 		if not user:
@@ -232,7 +146,7 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 	def _require_admin(req: Request):
 		user = _require_auth(req)
-		if user.role != Role.ADMIN:
+		if not _is_admin(user):
 			raise HTTPException(status_code=403, detail="Admin access required")
 		return user
 
@@ -252,7 +166,7 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 			roots.append(Path(ws_storage).resolve())
 
 		# Admins may inspect shared workspace and storage directories directly.
-		if user and user.role == Role.ADMIN:
+		if user and _is_admin(user):
 			shared_storage = getattr(workspace_mgr, "_storage_root", None)
 			if shared_storage:
 				roots.append(Path(shared_storage).resolve())
@@ -316,22 +230,446 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 
 		raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
 
-	async def _get_ws_for_request(req: Request, workspace_id: str):
-		ws = await workspace_mgr.get_workspace(workspace_id)
-		if not ws:
-			raise HTTPException(status_code=404, detail=f"Workspace '{workspace_id}' not found")
+	_CURRENT_WORKFLOW_PATH = "workflow.json"
 
+	def _platform(req: Request):
+		platform = getattr(req.state, "auth", None) or getattr(req.app.state, "platform", None)
+		if platform is None:
+			raise HTTPException(status_code=500, detail="Platform client is not available")
+		return platform
+
+	async def _refresh_user(req: Request):
 		user = _require_auth(req)
-		if user.role == Role.ADMIN:
-			return ws
+		try:
+			fresh = await _platform(req).get_user(user.id)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		if fresh is not None:
+			req.state.user = fresh
+			return fresh
+		return user
 
-		current_ws = _ws(req)
-		if current_ws.workspace_id != workspace_id:
-			raise HTTPException(status_code=403, detail="You do not have access to this workspace")
-		return ws
+	def _space_slug(value: str) -> str:
+		slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", (value or "").strip().lower()).strip("-._")
+		return slug or "space"
+
+	async def _list_owned_spaces(req: Request, user_id: str) -> List[Dict[str, Any]]:
+		try:
+			data = await _platform(req).post_json(
+				"/platform/spaces/list-owned",
+				{"user_id": user_id, "owner_user_id": user_id},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		return data.get("spaces", []) or []
+
+	async def _set_current_space_id(req: Request, user_id: str, space_id: str):
+		user = await _platform(req).get_user(user_id)
+		metadata = dict(getattr(user, "metadata", {}) or {})
+		metadata["current_space_id"] = space_id
+		try:
+			await _platform(req).post_json(
+				f"/platform/users/{user_id}/update",
+				{"metadata": metadata},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		if getattr(req.state, "user", None) and req.state.user.id == user_id:
+			req.state.user.metadata = metadata
+		return metadata
+
+	async def _create_default_space(req: Request, user) -> Dict[str, Any]:
+		payload = {
+			"user_id": user.id,
+			"owner_user_id": user.id,
+			"slug": "home",
+			"title": f"{user.username} Space",
+			"description": f"Home space for {user.username}",
+			"visibility": "private",
+		}
+		try:
+			data = await _platform(req).post_json("/platform/spaces/create", payload)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		space = data.get("space") or {}
+		await _set_current_space_id(req, user.id, str(space.get("id", "") or ""))
+		return space
+
+	async def _ensure_current_space(req: Request):
+		user = await _refresh_user(req)
+		spaces = await _list_owned_spaces(req, user.id)
+		if not spaces:
+			space = await _create_default_space(req, user)
+			return user, space
+
+		current_space_id = str((getattr(user, "metadata", {}) or {}).get("current_space_id", "") or "").strip()
+		current = next((item for item in spaces if item.get("id") == current_space_id), None)
+		if current is None:
+			spaces = sorted(spaces, key=lambda item: float(item.get("created_at", 0.0) or 0.0))
+			current = spaces[0]
+			await _set_current_space_id(req, user.id, str(current.get("id", "") or ""))
+		return user, current
+
+	def _workflow_name_from_doc(doc: Optional[Dict[str, Any]]) -> Optional[str]:
+		if not isinstance(doc, dict):
+			return None
+		options = doc.get("options")
+		if not isinstance(options, dict):
+			return None
+		name = str(options.get("name", "") or "").strip()
+		return name or None
+
+	def _workflow_doc_from_model(workflow: Workflow) -> Dict[str, Any]:
+		doc = workflow.model_dump()
+		doc["type"] = "workflow"
+		return doc
+
+	def _workflow_model_from_doc(doc: Dict[str, Any]) -> Workflow:
+		payload = dict(doc or {})
+		payload.pop("type", None)
+		if hasattr(Workflow, "model_validate"):
+			return Workflow.model_validate(payload)
+		if hasattr(Workflow, "parse_obj"):
+			return Workflow.parse_obj(payload)
+		return Workflow(**payload)
+
+	async def _read_current_workflow_doc(req: Request, user_id: str, space_id: str) -> Optional[Dict[str, Any]]:
+		try:
+			data = await _platform(req).post_json(
+				f"/platform/spaces/{space_id}/assets/read",
+				{
+					"user_id": user_id,
+					"path": _CURRENT_WORKFLOW_PATH,
+					"ref": "main",
+				},
+			)
+		except PlatformRequestError as exc:
+			if exc.status_code == 404:
+				return None
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		text = data.get("text")
+		if text is None:
+			content = base64.b64decode(str(data.get("content_base64", "") or "").encode("ascii"))
+			text = content.decode("utf-8")
+		try:
+			return json.loads(text)
+		except json.JSONDecodeError as exc:
+			raise HTTPException(status_code=500, detail=f"Saved workflow is invalid JSON: {exc}")
+
+	async def _cache_current_workflow(req: Request, workflow: Workflow) -> str:
+		ws = _ws(req)
+		name = (
+			workflow.options.name
+			if getattr(workflow, "options", None) is not None and workflow.options.name
+			else "workflow"
+		)
+		await ws.manager.remove()
+		await ws.manager.add(workflow, name)
+		return name
+
+	async def _clear_cached_workflow(req: Request) -> None:
+		ws = _ws(req)
+		await ws.manager.remove()
+
+	async def _emit_workflow_changed(name: str = "") -> None:
+		await event_bus.emit(
+			event_type = EventType.WORKSPACE_CHANGED,
+			data       = {"name": name},
+		)
+
+	def _execution_public_id(record: Dict[str, Any]) -> str:
+		metadata = record.get("metadata", {}) or {}
+		engine_execution_id = str(metadata.get("engine_execution_id", "") or "").strip()
+		return engine_execution_id or str(record.get("execution_id", "") or "")
+
+	async def _find_execution_record(req: Request, execution_id: str) -> Optional[Dict[str, Any]]:
+		user = _require_auth(req)
+		try:
+			data = await _platform(req).post_json(
+				"/platform/executions/list",
+				{"user_id": user.id, "limit": 200},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		for record in data.get("executions", []) or []:
+			if str(record.get("execution_id", "") or "") == execution_id:
+				return record
+			if _execution_public_id(record) == execution_id:
+				return record
+		return None
+
+	async def _resolve_engine_execution_id(req: Request, execution_id: str) -> str:
+		record = await _find_execution_record(req, execution_id)
+		if not record:
+			return execution_id
+		return _execution_public_id(record)
+
+	def _execution_state_payload(record: Dict[str, Any]) -> Dict[str, Any]:
+		return {
+			"execution_id": _execution_public_id(record),
+			"platform_execution_id": record.get("execution_id"),
+			"state": {
+				"status": record.get("status"),
+				"start_time": record.get("started_at"),
+				"end_time": record.get("finished_at"),
+				"error": record.get("error"),
+				"node_outputs": record.get("outputs", {}) or {},
+			},
+		}
+
+	def _execution_results_payload(record: Dict[str, Any]) -> Dict[str, Any]:
+		public_id = _execution_public_id(record)
+		return {
+			"execution_id": public_id,
+			"platform_execution_id": record.get("execution_id"),
+			"workflow_id": record.get("asset_path"),
+			"status": record.get("status"),
+			"start_time": record.get("started_at"),
+			"end_time": record.get("finished_at"),
+			"error": record.get("error"),
+			"node_outputs": record.get("outputs", {}) or {},
+		}
 
 	# Setup tutorial extension API (see docs/tutorial-extension.md)
 	setup_tutorial_api(app, manager)
+
+	@app.post("/spaces/current")
+	async def current_space(req: Request):
+		_, space = await _ensure_current_space(req)
+		return {"space": space}
+
+	@app.post("/spaces/list")
+	async def list_spaces(req: Request):
+		user, current = await _ensure_current_space(req)
+		spaces = await _list_owned_spaces(req, user.id)
+		return {
+			"spaces": spaces,
+			"current_space_id": current.get("id"),
+		}
+
+	@app.post("/spaces/create")
+	async def create_space(request: SpaceCreateRequest, req: Request):
+		user = await _refresh_user(req)
+		slug = _space_slug(request.slug or request.title)
+		try:
+			data = await _platform(req).post_json(
+				"/platform/spaces/create",
+				{
+					"user_id": user.id,
+					"owner_user_id": user.id,
+					"slug": slug,
+					"title": request.title.strip(),
+					"description": request.description or "",
+					"visibility": request.visibility or "private",
+				},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		space = data.get("space") or {}
+		await _set_current_space_id(req, user.id, str(space.get("id", "") or ""))
+		await _clear_cached_workflow(req)
+		return {"space": space}
+
+	@app.post("/spaces/select")
+	async def select_space(request: SpaceSelectRequest, req: Request):
+		user = await _refresh_user(req)
+		spaces = await _list_owned_spaces(req, user.id)
+		space = next((item for item in spaces if item.get("id") == request.space_id), None)
+		if space is None:
+			raise HTTPException(status_code=404, detail=f"Space '{request.space_id}' not found")
+		await _set_current_space_id(req, user.id, request.space_id)
+		await _clear_cached_workflow(req)
+		return {"space": space}
+
+	@app.post("/spaces/delete")
+	async def delete_space(request: SpaceSelectRequest, req: Request):
+		user = await _refresh_user(req)
+		spaces = await _list_owned_spaces(req, user.id)
+		space = next((item for item in spaces if item.get("id") == request.space_id), None)
+		if space is None:
+			raise HTTPException(status_code=404, detail=f"Space '{request.space_id}' not found")
+		try:
+			data = await _platform(req).post_json(
+				f"/platform/spaces/{request.space_id}/delete",
+				{"user_id": user.id},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		if not data.get("ok"):
+			raise HTTPException(status_code=404, detail=f"Space '{request.space_id}' not found")
+		await _clear_cached_workflow(req)
+		_, current = await _ensure_current_space(req)
+		return {"ok": True, "current_space_id": current.get("id")}
+
+	@app.post("/workflow/get")
+	async def get_current_workflow(req: Request):
+		user, space = await _ensure_current_space(req)
+		doc = await _read_current_workflow_doc(req, user.id, str(space.get("id", "") or ""))
+		if doc is not None:
+			try:
+				await _cache_current_workflow(req, _workflow_model_from_doc(doc))
+			except Exception:
+				pass
+		return {
+			"space": space,
+			"name": _workflow_name_from_doc(doc),
+			"workflow": doc,
+		}
+
+	@app.post("/workflow/save")
+	async def save_current_workflow(request: CurrentWorkflowSaveRequest, req: Request):
+		user, space = await _ensure_current_space(req)
+		workflow = request.workflow
+		name = (
+			workflow.options.name
+			if getattr(workflow, "options", None) is not None and workflow.options.name
+			else "Untitled"
+		)
+		doc = _workflow_doc_from_model(workflow)
+		try:
+			await _platform(req).post_json(
+				f"/platform/spaces/{space['id']}/assets/write",
+				{
+					"user_id": user.id,
+					"path": _CURRENT_WORKFLOW_PATH,
+					"kind": "workflow",
+					"title": name,
+					"description": getattr(getattr(workflow, "options", None), "description", "") or "",
+					"executable": True,
+					"text": json.dumps(doc, indent=2),
+					"message": f"Save workflow '{name}'",
+				},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		await _cache_current_workflow(req, workflow)
+		await _emit_workflow_changed(name)
+		return {
+			"space": space,
+			"name": name,
+			"workflow": doc,
+			"status": "saved",
+		}
+
+	@app.post("/workflow/delete")
+	async def delete_current_workflow(req: Request):
+		user, space = await _ensure_current_space(req)
+		try:
+			await _platform(req).post_json(
+				f"/platform/spaces/{space['id']}/assets/delete",
+				{
+					"user_id": user.id,
+					"path": _CURRENT_WORKFLOW_PATH,
+					"message": "Delete current workflow",
+				},
+			)
+		except PlatformRequestError as exc:
+			if exc.status_code != 404:
+				raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		await _clear_cached_workflow(req)
+		await _emit_workflow_changed("")
+		return {"status": "deleted", "space": space}
+
+	@app.post("/workflow/start")
+	async def start_current_workflow(request: CurrentWorkflowStartRequest, req: Request):
+		user, space = await _ensure_current_space(req)
+		doc = await _read_current_workflow_doc(req, user.id, str(space.get("id", "") or ""))
+		if doc is None:
+			raise HTTPException(status_code=404, detail="No workflow is saved in the current space")
+		options = request.initial_data or WorkflowExecutionOptions()
+		inputs = options.model_dump() if options else {}
+		try:
+			data = await _platform(req).post_json(
+				"/platform/executions/start",
+				{
+					"user_id": user.id,
+					"space_id": space["id"],
+					"asset_path": _CURRENT_WORKFLOW_PATH,
+					"inputs": inputs,
+					"resolve_credentials": True,
+				},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		record = data.get("execution") or {}
+		return {
+			"execution_id": _execution_public_id(record),
+			"platform_execution_id": record.get("execution_id"),
+			"status": "started",
+		}
+
+	@app.post("/executions/list")
+	async def current_space_executions(req: Request):
+		user, space = await _ensure_current_space(req)
+		try:
+			data = await _platform(req).post_json(
+				"/platform/executions/list",
+				{
+					"user_id": user.id,
+					"space_id": space["id"],
+					"limit": 100,
+				},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		records = data.get("executions", []) or []
+		return {
+			"execution_ids": [_execution_public_id(record) for record in records],
+			"executions": records,
+		}
+
+	@app.post("/executions/{execution_id}")
+	async def current_execution_state(execution_id: str, req: Request):
+		record = await _find_execution_record(req, execution_id)
+		if record is None:
+			raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' not found")
+		return _execution_state_payload(record)
+
+	@app.post("/executions/{execution_id}/cancel")
+	async def current_cancel_execution(execution_id: str, req: Request):
+		record = await _find_execution_record(req, execution_id)
+		if record is None:
+			raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' not found")
+		user = _require_auth(req)
+		try:
+			data = await _platform(req).post_json(
+				f"/platform/executions/{record['execution_id']}/cancel",
+				{"user_id": user.id},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		return {
+			"execution_id": _execution_public_id(record),
+			"platform_execution_id": record.get("execution_id"),
+			"status": "cancelled" if data.get("ok") else "failed",
+		}
+
+	@app.post("/executions/{execution_id}/results")
+	async def current_execution_results(execution_id: str, req: Request):
+		record = await _find_execution_record(req, execution_id)
+		if record is None:
+			raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' not found")
+		return _execution_results_payload(record)
+
+	@app.post("/executions/{execution_id}/input")
+	async def current_execution_input(execution_id: str, request: UserInputRequest, req: Request):
+		ws = _ws(req)
+		try:
+			engine_execution_id = await _resolve_engine_execution_id(req, execution_id)
+			await ws.engine.provide_user_input(
+				execution_id = engine_execution_id,
+				node_id      = request.node_id,
+				user_input   = request.input_data,
+			)
+			return {
+				"execution_id": execution_id,
+				"platform_execution_id": engine_execution_id,
+				"status": "input_received",
+				"node_id": request.node_id,
+				"input_data": request.input_data,
+			}
+		except Exception as e:
+			raise HTTPException(status_code=500, detail=str(e))
 
 	@app.post("/shutdown")
 	async def shutdown_server(req: Request):
@@ -448,307 +786,11 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 			log_print(f"[API] Tool call error: {str(e)}")
 			raise HTTPException(status_code=500, detail=str(e))
 
-
-	@app.post("/add")
-	async def add_workflow(request: WorkflowUploadRequest, req: Request):
-		ws = _ws(req)
-		try:
-			name = await ws.manager.add(request.workflow, request.name)
-			# Build implementation — optional, workflow may be incomplete during editing
-			wf = None
-			try:
-				impl = await ws.manager.impl(name)
-				wf   = impl["workflow"].model_dump() if impl else None
-			except Exception:
-				pass  # incomplete workflow is fine; impl built at run time
-			result = {
-				"name"     : name,
-				"workflow" : wf,
-				"status"   : "added" if name else "failed",
-			}
-			return result
-		except Exception as e:
-			import traceback
-			log_print(f"[API] /add error: {e}\n{traceback.format_exc()}")
-			raise HTTPException(status_code=500, detail=str(e))
-
-
-	@app.post("/remove")
-	@app.post("/remove/{name}")
-	async def remove_workflow(req: Request, name: Optional[str] = None):
-		ws = _ws(req)
-		status = await ws.manager.remove(name)
-		result = {
-			"name"   : name,
-			"status" : "removed" if status else "failed",
-		}
-		return result
-
-
-	@app.post("/get")
-	@app.post("/get/{name}")
-	async def get_workflow(req: Request, name: Optional[str] = None):
-		ws = _ws(req)
-		workflow = await ws.manager.get(name)
-		if workflow:
-			if isinstance(workflow, dict):
-				workflow = {k: v.model_dump() for k, v in workflow.items()}
-			else:
-				workflow = workflow.model_dump()
-		result   = {
-			"name"     : name,
-			"workflow" : workflow,
-		}
-		return result
-
-
-	@app.post("/list")
-	async def list_workflows(req: Request):
-		ws = _ws(req)
-		names  = await ws.manager.list()
-		result = {
-			"names": names,
-		}
-		return result
-
-
-	@app.post("/start")
-	async def start_workflow(request: WorkflowStartRequest, req: Request):
-		ws = _ws(req)
-		try:
-			impl = await ws.manager.impl(request.name)
-			if not impl:
-				raise HTTPException(status_code=404, detail=f"Workflow 'request.name' not found")
-			options      = request.initial_data or WorkflowExecutionOptions()
-			initial_data = options.model_dump()
-			execution_id = await ws.engine.start_workflow(
-				workflow     = impl["workflow"],
-				backend      = impl["backend" ],
-				initial_data = initial_data,
-			)
-			result = {
-				"execution_id" : execution_id,
-				"status"       : "started",
-			}
-			return result
-		except Exception as e:
-			log_print(f"Error starting workflow: {e}")
-			raise HTTPException(status_code=500, detail=str(e))
-
-
-	@app.post("/exec_list")
-	async def list_executions(req: Request):
-		ws = _ws(req)
-		try:
-			execution_ids = ws.engine.list_executions()
-			result =  {
-				"execution_ids": execution_ids,
-			}
-			return result
-		except Exception as e:
-			log_print(f"Error listing executions: {e}")
-			raise HTTPException(status_code=500, detail=str(e))
-
-
-	@app.post("/exec_state")
-	@app.post("/exec_state/{execution_id}")
-	async def execution_state(req: Request, execution_id: Optional[str] = None):
-		ws = _ws(req)
-		state  = ws.engine.get_execution_state(execution_id)
-		result = {
-			"execution_id" : execution_id,
-			"state"        : state,
-		}
-		return result
-
-
-	@app.post("/exec_cancel")
-	@app.post("/exec_cancel/{execution_id}")
-	async def cancel_execution(req: Request, execution_id: Optional[str] = None):
-		ws = _ws(req)
-		try:
-			state  = await ws.engine.cancel_execution(execution_id)
-			result =  {
-				"execution_id" : execution_id,
-				"status"       : "cancelled" if state else "failed",
-				"state"        : state,
-			}
-			return result
-		except Exception as e:
-			log_print(f"Error cancelling execution: {e}")
-			raise HTTPException(status_code=500, detail=str(e))
-
-
-	# ─── Execution Results ──────────────────────────────────────────────
-
-	@app.post("/exec_results/{execution_id}")
-	async def execution_results(execution_id: str, req: Request):
-		ws = _ws(req)
-		results = ws.engine.get_execution_results(execution_id)
-		if results is None:
-			raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' not found")
-		return results
-
-
-	# ─── Batch Execution ─────────────────────────────────────────────
-
-	@app.post("/batch/start")
-	async def batch_start(request: BatchStartRequest, req: Request):
-		ws = _ws(req)
-		try:
-			items = []
-			for wf_req in request.workflows:
-				impl = await ws.manager.impl(wf_req.name)
-				if not impl:
-					raise HTTPException(status_code=404, detail=f"Workflow '{wf_req.name}' not found")
-				options      = wf_req.initial_data or WorkflowExecutionOptions()
-				initial_data = options.model_dump()
-				items.append({
-					"workflow"     : impl["workflow"],
-					"backend"      : impl["backend"],
-					"initial_data" : initial_data,
-				})
-			batch_state = await ws.engine.start_batch(items)
-			return batch_state
-		except HTTPException:
-			raise
-		except Exception as e:
-			log_print(f"Error starting batch: {e}")
-			raise HTTPException(status_code=500, detail=str(e))
-
-
-	@app.post("/batch/state/{batch_id}")
-	async def batch_state(batch_id: str, req: Request):
-		ws = _ws(req)
-		state = ws.engine.get_batch_state(batch_id)
-		if state is None:
-			raise HTTPException(status_code=404, detail=f"Batch '{batch_id}' not found")
-		return state
-
-
-	@app.post("/batch/cancel/{batch_id}")
-	async def batch_cancel(batch_id: str, req: Request):
-		ws = _ws(req)
-		state = await ws.engine.cancel_batch(batch_id)
-		if state is None:
-			raise HTTPException(status_code=404, detail=f"Batch '{batch_id}' not found")
-		return state
-
-
-	# ─── Persistence ─────────────────────────────────────────────────
-
-	@app.post("/save/{name}")
-	async def save_workflow(name: str, req: Request):
-		ws = _ws(req)
-		ok = await ws.manager.save(name)
-		if not ok:
-			raise HTTPException(status_code=404, detail=f"Workflow '{name}' not found or no storage dir")
-		return {"name": name, "status": "saved"}
-
-
-	@app.post("/save_all")
-	async def save_all_workflows(req: Request):
-		ws = _ws(req)
-		count = await ws.manager.save_all()
-		return {"status": "saved", "count": count}
-
-
-	@app.post("/load")
-	async def load_workflow(request: LoadWorkflowRequest, req: Request):
-		ws = _ws(req)
-		loaded_name = await ws.manager.load(request.filepath, request.name)
-		if not loaded_name:
-			raise HTTPException(status_code=400, detail=f"Failed to load '{request.filepath}'")
-		return {"name": loaded_name, "status": "loaded"}
-
-
-	@app.post("/load_all")
-	async def load_all_workflows(req: Request):
-		ws = _ws(req)
-		count = await ws.manager.load_all()
-		return {"status": "loaded", "count": count}
-
-
-	# ─── Compose (Pipeline) ──────────────────────────────────────────
-
-	@app.post("/compose")
-	async def compose_workflows(request: ComposeRequest, req: Request):
-		ws = _ws(req)
-		import asyncio as _asyncio
-		compose_id = f"compose_{get_timestamp_str()}"
-		compose_state = {
-			"compose_id" : compose_id,
-			"pipeline"   : [s.model_dump() for s in request.pipeline],
-			"status"     : "running",
-			"steps"      : [],
-			"current"    : 0,
-			"error"      : None,
-		}
-		if not hasattr(ws.engine, "compose_states"):
-			ws.engine.compose_states = {}
-		ws.engine.compose_states[compose_id] = compose_state
-		await event_bus.emit(
-			event_type = EventType.COMPOSE_STARTED,
-			data       = {"compose_id": compose_id},
-		)
-		_asyncio.create_task(_run_compose(compose_id, request.pipeline, ws.manager, ws.engine, event_bus))
-		return compose_state
-
-
-	@app.post("/compose/state/{compose_id}")
-	async def compose_state(compose_id: str, req: Request):
-		ws = _ws(req)
-		if not hasattr(ws.engine, "compose_states"):
-			raise HTTPException(status_code=404, detail="No compositions found")
-		state = ws.engine.compose_states.get(compose_id)
-		if state is None:
-			raise HTTPException(status_code=404, detail=f"Composition '{compose_id}' not found")
-		return state
-
-
-	@app.post("/compose/cancel/{compose_id}")
-	async def compose_cancel(compose_id: str, req: Request):
-		ws = _ws(req)
-		if not hasattr(ws.engine, "compose_states"):
-			raise HTTPException(status_code=404, detail="No compositions found")
-		state = ws.engine.compose_states.get(compose_id)
-		if state is None:
-			raise HTTPException(status_code=404, detail=f"Composition '{compose_id}' not found")
-		state["status"] = "cancelled"
-		# Cancel current execution if running
-		steps = state.get("steps", [])
-		if steps:
-			last = steps[-1]
-			if last.get("status") == "running":
-				await ws.engine.cancel_execution(last.get("execution_id"))
-		return state
-
-
-	@app.post("/exec_input/{execution_id}")
-	async def provide_user_input(execution_id: str, request: UserInputRequest, req: Request):
-		ws = _ws(req)
-		try:
-			await ws.engine.provide_user_input(
-				execution_id = execution_id,
-				node_id      = request.node_id,
-				user_input   = request.input_data
-			)
-			result =  {
-				"execution_id" : execution_id,
-				"status"       : "input_received",
-				"node_id"      : request.node_id,
-				"input_data"   : request.input_data,
-			}
-			return result
-		except Exception as e:
-			log_print(f"Error providing user input: {e}")
-			raise HTTPException(status_code=500, detail=str(e))
-
-
 	@app.post("/chat_response/{execution_id}")
 	async def provide_chat_response(execution_id: str, request: ChatResponseRequest, req: Request):
 		ws = _ws(req)
 		try:
+			execution_id = await _resolve_engine_execution_id(req, execution_id)
 			await ws.engine.provide_chat_response(
 				execution_id = execution_id,
 				node_id      = request.node_id,
@@ -1047,108 +1089,6 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		except Exception as e:
 			log_print(f"WebSocket error: {e}")
 		event_bus.remove_websocket_client(websocket)
-
-
-	# =========================================================================
-	# WORKSPACE API
-	# =========================================================================
-
-	@app.post("/workspace/create")
-	async def workspace_create(req: Request, name: str, description: Optional[str] = None):
-		_require_admin(req)
-		ws = await workspace_mgr.create_workspace(name, description)
-		return ws.to_dict()
-
-	@app.post("/workspace/delete/{workspace_id}")
-	async def workspace_delete(workspace_id: str, req: Request):
-		_require_admin(req)
-		ok = await workspace_mgr.delete_workspace(workspace_id)
-		if not ok:
-			raise HTTPException(status_code=404, detail=f"Workspace '{workspace_id}' not found or is default")
-		return {"workspace_id": workspace_id, "status": "deleted"}
-
-	@app.post("/workspace/list")
-	async def workspace_list(req: Request):
-		user = _require_auth(req)
-		if user.role == Role.ADMIN:
-			return {"workspaces": await workspace_mgr.list_workspaces()}
-		return {"workspaces": [_ws(req).to_dict()]}
-
-	@app.post("/workspace/get/{workspace_id}")
-	async def workspace_get(workspace_id: str, req: Request):
-		ws = await _get_ws_for_request(req, workspace_id)
-		return ws.to_dict()
-
-	# ── Workspace-scoped workflow endpoints ──────────────────────────
-
-	@app.post("/workspace/{workspace_id}/add")
-	async def ws_add_workflow(workspace_id: str, request: WorkflowUploadRequest, req: Request):
-		ws   = await _get_ws_for_request(req, workspace_id)
-		name = await ws.manager.add(request.workflow, request.name)
-		impl = await ws.manager.impl(name)
-		wf   = impl["workflow"].model_dump() if impl else None
-		return {"name": name, "workflow": wf, "status": "added" if name else "failed"}
-
-	@app.post("/workspace/{workspace_id}/remove/{name}")
-	async def ws_remove_workflow(workspace_id: str, name: str, req: Request):
-		ws     = await _get_ws_for_request(req, workspace_id)
-		status = await ws.manager.remove(name)
-		return {"name": name, "status": "removed" if status else "failed"}
-
-	@app.post("/workspace/{workspace_id}/get/{name}")
-	async def ws_get_workflow(workspace_id: str, name: str, req: Request):
-		ws       = await _get_ws_for_request(req, workspace_id)
-		workflow = await ws.manager.get(name)
-		if workflow:
-			workflow = workflow.model_dump()
-		return {"name": name, "workflow": workflow}
-
-	@app.post("/workspace/{workspace_id}/list")
-	async def ws_list_workflows(workspace_id: str, req: Request):
-		ws    = await _get_ws_for_request(req, workspace_id)
-		names = await ws.manager.list()
-		return {"names": names}
-
-	@app.post("/workspace/{workspace_id}/start")
-	async def ws_start_workflow(workspace_id: str, request: WorkflowStartRequest, req: Request):
-		ws   = await _get_ws_for_request(req, workspace_id)
-		impl = await ws.manager.impl(request.name)
-		if not impl:
-			raise HTTPException(status_code=404, detail=f"Workflow '{request.name}' not found")
-		options      = request.initial_data or WorkflowExecutionOptions()
-		initial_data = options.model_dump()
-		execution_id = await ws.engine.start_workflow(
-			workflow     = impl["workflow"],
-			backend      = impl["backend"],
-			initial_data = initial_data,
-		)
-		return {"execution_id": execution_id, "status": "started"}
-
-	@app.post("/workspace/{workspace_id}/exec_results/{execution_id}")
-	async def ws_execution_results(workspace_id: str, execution_id: str, req: Request):
-		ws      = await _get_ws_for_request(req, workspace_id)
-		results = ws.engine.get_execution_results(execution_id)
-		if results is None:
-			raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' not found")
-		return results
-
-	@app.post("/workspace/{workspace_id}/exec_state/{execution_id}")
-	async def ws_execution_state(workspace_id: str, execution_id: str, req: Request):
-		ws    = await _get_ws_for_request(req, workspace_id)
-		state = ws.engine.get_execution_state(execution_id)
-		return {"execution_id": execution_id, "state": state}
-
-	@app.post("/workspace/{workspace_id}/exec_cancel/{execution_id}")
-	async def ws_cancel_execution(workspace_id: str, execution_id: str, req: Request):
-		ws    = await _get_ws_for_request(req, workspace_id)
-		state = await ws.engine.cancel_execution(execution_id)
-		return {"execution_id": execution_id, "status": "cancelled" if state else "failed", "state": state}
-
-	@app.post("/workspace/{workspace_id}/exec_list")
-	async def ws_list_executions(workspace_id: str, req: Request):
-		ws = await _get_ws_for_request(req, workspace_id)
-		return {"execution_ids": ws.engine.list_executions()}
-
 
 	# =========================================================================
 	# EVENT SOURCE MANAGEMENT API

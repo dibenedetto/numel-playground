@@ -107,7 +107,7 @@ The `instructions` field is a list of strings that guide the agent's behavior:
 ## Steps
 
 1. **Start Ollama** if it's not already running.
-2. **Import** `tutorial-06-agent.json`.
+2. Choose a space, then **Import** `tutorial-06-agent.json`.
 3. Observe the two layers: config nodes (no flow connections between them) and flow nodes.
 4. Click **Start**. The Agent Chat panel opens.
 5. Type: `List the files in the current directory`

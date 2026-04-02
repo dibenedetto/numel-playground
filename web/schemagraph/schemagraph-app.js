@@ -1191,7 +1191,7 @@ class SchemaGraphApp {
 					<div class="sg-generate-preview-header">Generated Workflow</div>
 					<pre id="sg-generatePreviewJson"></pre>
 					<div class="sg-generate-preview-actions">
-						<button id="sg-generateImport" class="sg-generate-btn">Import to Canvas</button>
+						<button id="sg-generateImport" class="sg-generate-btn">Load into Current Space</button>
 						<button id="sg-generateMerge" class="sg-generate-btn secondary">Merge into Canvas</button>
 						<button id="sg-generateCopy" class="sg-generate-btn secondary">Copy JSON</button>
 						<button id="sg-generateOpenTab" class="sg-generate-btn secondary">Open in new Tab</button>
@@ -1376,7 +1376,7 @@ class SchemaGraphApp {
 			// Add import button if workflow JSON exists
 			if (hasWorkflow) {
 				const jsonFile = filename.replace(/\.md$/, '.json');
-				html = `<button class="sg-docs-import-btn" data-json="${this._escapeHtml(jsonFile)}">Import to Canvas</button>\n` + html;
+				html = `<button class="sg-docs-import-btn" data-json="${this._escapeHtml(jsonFile)}">Load into Current Space</button>\n` + html;
 			}
 
 			this._docsContentCache[filename] = html;

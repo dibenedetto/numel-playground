@@ -23,6 +23,9 @@ Prerequisites:
     pip install httpx
     python app/app.py          # start the server
 
+By default the example signs in as `demo` / `demo-pass`.
+Override with `NUMEL_USERNAME`, `NUMEL_EMAIL`, and `NUMEL_PASSWORD`.
+
 Run:
     python examples/api/10_channels.py
 """
@@ -33,6 +36,7 @@ from client import NumelClient
 
 async def main():
     async with NumelClient() as c:
+        await c.ensure_auth()
         print("=== Multi-Channel Messaging ===\n")
 
         # 1. List available channel types

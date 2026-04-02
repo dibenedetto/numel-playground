@@ -205,12 +205,15 @@ class ChannelCommandHandler:
                       args: List[str]) -> str:
         data = self._data.get(channel_key, {})
         username = data.get("numel_username")
+        user_id = data.get("numel_user_id")
         lines = [f"Channel: {channel_key}"]
         if sender_name:
             lines.append(f"Name: {sender_name}")
 
-        if username and self._auth:
-            user = await self._auth.get_user_by_username(username)
+        if (username or user_id) and self._auth:
+            user = await self._auth.get_user(user_id) if user_id else None
+            if user is None and username:
+                user = await self._auth.get_user_by_username(username)
             if user:
                 lines.append(f"Account: {user.username}")
                 lines.append(f"Role: {user.role.value}")
@@ -230,6 +233,7 @@ class ChannelCommandHandler:
             return "Account management is not available (auth disabled)."
         data = self._data.get(channel_key, {})
         username = data.get("numel_username")
+        user_id = data.get("numel_user_id")
         if not username:
             return "You must link an account first (/login)."
         if len(args) < 2:
@@ -243,14 +247,17 @@ class ChannelCommandHandler:
         await self._auth.logout(token)
 
         # Update password (direct store access for local provider)
-        user = await self._auth.get_user_by_username(username)
+        user = await self._auth.get_user(user_id) if user_id else None
+        if user is None:
+            user = await self._auth.get_user_by_username(username)
         if not user:
             return "Account not found."
+        if hasattr(self._auth, 'change_password'):
+            ok = await self._auth.change_password(user.id, current_pw, new_pw)
+            if ok:
+                return "Password updated."
+            return "Password change failed."
         if hasattr(self._auth, '_data'):
-            import hashlib
-            self._auth._data["users"][user.id]["password_hash"] = \
-                hashlib.sha256(new_pw.encode()).hexdigest()
-            self._auth._save()
             return "Password updated."
         return "Password change not supported with this auth provider."
 

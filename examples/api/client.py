@@ -1,31 +1,43 @@
 """
 Numel API Client
 ================
-Lightweight Python client for the Numel Playground backend API.
-All examples in this directory use this client.
+Async helper used by the example scripts in this directory.
 
-Usage:
-	from client import NumelClient
-
-	async with NumelClient() as c:
-		await c.add_workflow(workflow_dict, "my-workflow")
-		result = await c.start("my-workflow")
+The current public workflow interface is space-based:
+- authenticate
+- create or select a space
+- save one current workflow into that space
+- start executions for the current workflow
 """
 
 import asyncio
-import httpx
 import json
+import os
+import uuid
+
+import httpx
 
 
-from   typing  import Any, List, Optional
+from typing import Any, List, Optional
 
 
 class NumelClient:
-	"""Async client for the Numel Playground REST + WebSocket API."""
+	"""Async client for the Numel REST API."""
 
-	def __init__(self, base_url: str = "http://localhost:11360"):
+	def __init__(
+		self,
+		base_url: str = "http://localhost:11360",
+		username: Optional[str] = None,
+		email: Optional[str] = None,
+		password: Optional[str] = None,
+	):
 		self.base_url = base_url.rstrip("/")
 		self._http: Optional[httpx.AsyncClient] = None
+		self.session_id = f"sess_{uuid.uuid4().hex[:16]}"
+		self.token: Optional[str] = None
+		self.username = username or os.environ.get("NUMEL_USERNAME", "demo")
+		self.email = email or os.environ.get("NUMEL_EMAIL", f"{self.username}@local")
+		self.password = password or os.environ.get("NUMEL_PASSWORD", "demo-pass")
 
 	async def __aenter__(self):
 		self._http = httpx.AsyncClient(base_url=self.base_url, timeout=120)
@@ -35,153 +47,162 @@ class NumelClient:
 		if self._http:
 			await self._http.aclose()
 
+	def _headers(self, include_json: bool = True) -> dict:
+		headers = {}
+		if include_json:
+			headers["Content-Type"] = "application/json"
+		if self.token:
+			headers["Authorization"] = f"Bearer {self.token}"
+		headers["X-Session-Id"] = self.session_id
+		return headers
+
 	async def _post(self, path: str, json_data: Any = None) -> dict:
-		resp = await self._http.post(path, json=json_data)
+		resp = await self._http.post(path, json=json_data, headers=self._headers(json_data is not None))
 		resp.raise_for_status()
 		return resp.json()
 
-	# ── Workflow Management ────────────────────────────────────────
+	# ── Auth ─────────────────────────────────────────────────────
 
-	async def add(self, workflow: dict, name: Optional[str] = None) -> dict:
-		return await self._post("/add", {"workflow": workflow, "name": name})
+	async def auth_status(self) -> dict:
+		return await self._post("/auth/status")
 
-	async def remove(self, name: str) -> dict:
-		return await self._post(f"/remove/{name}")
+	async def register(self, username: str, email: str, password: str) -> dict:
+		result = await self._post("/auth/register", {"username": username, "email": email, "password": password})
+		self.token = result.get("token")
+		return result
 
-	async def get(self, name: str) -> dict:
-		return await self._post(f"/get/{name}")
+	async def login(self, username: str, password: str) -> dict:
+		result = await self._post("/auth/login", {"username": username, "password": password})
+		self.token = result.get("token")
+		return result
 
-	async def list(self) -> List[str]:
-		r = await self._post("/list")
-		return r.get("names", [])
+	async def logout(self) -> dict:
+		result = await self._post("/auth/logout")
+		self.token = None
+		return result
 
-	# ── Execution ──────────────────────────────────────────────────
+	async def me(self) -> dict:
+		return await self._post("/auth/me")
 
-	async def start(self, name: str, **exec_opts) -> str:
-		"""Start a workflow. Returns execution_id."""
-		body = {"name": name}
-		if exec_opts:
-			body["initial_data"] = exec_opts
-		r = await self._post("/start", body)
-		return r["execution_id"]
+	async def ensure_auth(self, username: Optional[str] = None, email: Optional[str] = None, password: Optional[str] = None) -> dict:
+		"""Login if possible, otherwise register the requested user."""
+		username = username or self.username
+		email = email or self.email
+		password = password or self.password
 
-	async def state(self, execution_id: str) -> dict:
-		return await self._post(f"/exec_state/{execution_id}")
+		status = await self.auth_status()
+		if not status.get("enabled", False):
+			return {"enabled": False}
 
-	async def results(self, execution_id: str) -> dict:
-		return await self._post(f"/exec_results/{execution_id}")
+		try:
+			return await self.login(username, password)
+		except httpx.HTTPStatusError as exc:
+			if exc.response.status_code != 401:
+				raise
+		return await self.register(username, email, password)
 
-	async def cancel(self, execution_id: str) -> dict:
-		return await self._post(f"/exec_cancel/{execution_id}")
+	# ── Core / Space Workflow Interface ─────────────────────────
 
-	async def wait(self, execution_id: str, poll: float = 0.5) -> dict:
-		"""Poll until execution completes or fails. Returns results."""
-		while True:
-			r = await self.state(execution_id)
-			s = r.get("state", {})
-			status = s.get("status") if isinstance(s, dict) else getattr(s, "status", None)
-			if status in ("completed", "failed"):
-				return await self.results(execution_id)
-			await asyncio.sleep(poll)
+	async def ping(self) -> dict:
+		return await self._post("/ping")
 
-	# ── Batch ──────────────────────────────────────────────────────
-
-	async def batch_start(self, workflows: List[dict]) -> dict:
-		"""Start multiple workflows in parallel.
-		workflows: list of {"name": "...", "initial_data": {...}}
-		"""
-		return await self._post("/batch/start", {"workflows": workflows})
-
-	async def batch_state(self, batch_id: str) -> dict:
-		return await self._post(f"/batch/state/{batch_id}")
-
-	async def batch_cancel(self, batch_id: str) -> dict:
-		return await self._post(f"/batch/cancel/{batch_id}")
-
-	async def batch_wait(self, batch_id: str, poll: float = 0.5) -> dict:
-		while True:
-			r = await self.batch_state(batch_id)
-			if r.get("status") in ("completed", "failed", "cancelled"):
-				return r
-			await asyncio.sleep(poll)
-
-	# ── Compose (Pipeline) ─────────────────────────────────────────
-
-	async def compose(self, pipeline: List[dict]) -> dict:
-		"""Run a sequential pipeline of workflows.
-		pipeline: list of {"workflow_name": "...", "input_map": {...}}
-		"""
-		return await self._post("/compose", {"pipeline": pipeline})
-
-	async def compose_state(self, compose_id: str) -> dict:
-		return await self._post(f"/compose/state/{compose_id}")
-
-	async def compose_cancel(self, compose_id: str) -> dict:
-		return await self._post(f"/compose/cancel/{compose_id}")
-
-	# ── Persistence ────────────────────────────────────────────────
-
-	async def save(self, name: str) -> dict:
-		return await self._post(f"/save/{name}")
-
-	async def save_all(self) -> dict:
-		return await self._post("/save_all")
-
-	async def load(self, filepath: str, name: Optional[str] = None) -> dict:
-		return await self._post("/load", {"filepath": filepath, "name": name})
-
-	async def load_all(self) -> dict:
-		return await self._post("/load_all")
-
-	# ── Workspaces ─────────────────────────────────────────────────
-
-	async def workspace_create(self, name: str, description: Optional[str] = None) -> dict:
-		return await self._post("/workspace/create", None)  # query params
-		# Actually needs query params, let's use params:
-
-	async def workspace_list(self) -> dict:
-		return await self._post("/workspace/list")
-
-	async def workspace_delete(self, workspace_id: str) -> dict:
-		return await self._post(f"/workspace/delete/{workspace_id}")
-
-	async def ws_add(self, workspace_id: str, workflow: dict, name: Optional[str] = None) -> dict:
-		return await self._post(f"/workspace/{workspace_id}/add", {"workflow": workflow, "name": name})
-
-	async def ws_start(self, workspace_id: str, name: str, **exec_opts) -> str:
-		body = {"name": name}
-		if exec_opts:
-			body["initial_data"] = exec_opts
-		r = await self._post(f"/workspace/{workspace_id}/start", body)
-		return r["execution_id"]
-
-	async def ws_results(self, workspace_id: str, execution_id: str) -> dict:
-		return await self._post(f"/workspace/{workspace_id}/exec_results/{execution_id}")
-
-	async def ws_state(self, workspace_id: str, execution_id: str) -> dict:
-		return await self._post(f"/workspace/{workspace_id}/exec_state/{execution_id}")
-
-	# ── Schema & Generation ────────────────────────────────────────
+	async def status(self) -> dict:
+		return await self._post("/status")
 
 	async def schema(self) -> dict:
 		return await self._post("/schema")
 
-	async def generation_prompt(self, tool_names: List[str] = None, toolkit_names: List[str] = None) -> dict:
-		body = {}
-		if tool_names:    body["tool_names"]    = tool_names
-		if toolkit_names: body["toolkit_names"] = toolkit_names
-		return await self._post("/generation-prompt", body)
+	async def current_space(self) -> dict:
+		return await self._post("/spaces/current")
 
-	async def generate_workflow(self, description: str, **kwargs) -> dict:
-		body = {"description": description, **kwargs}
-		return await self._post("/generate-workflow", body)
+	async def list_spaces(self) -> dict:
+		return await self._post("/spaces/list")
 
-	# ── Tool Call ──────────────────────────────────────────────────
+	async def create_space(self, title: str, slug: Optional[str] = None, description: str = "", visibility: str = "private") -> dict:
+		return await self._post(
+			"/spaces/create",
+			{
+				"title": title,
+				"slug": slug,
+				"description": description,
+				"visibility": visibility,
+			},
+		)
 
-	async def tool_call(self, node_index: int, args: dict = None) -> dict:
+	async def select_space(self, space_id: str) -> dict:
+		return await self._post("/spaces/select", {"space_id": space_id})
+
+	async def delete_space(self, space_id: str) -> dict:
+		return await self._post("/spaces/delete", {"space_id": space_id})
+
+	async def get_workflow(self) -> dict:
+		return await self._post("/workflow/get")
+
+	async def save_workflow(self, workflow: dict) -> dict:
+		return await self._post("/workflow/save", {"workflow": workflow})
+
+	async def delete_workflow(self) -> dict:
+		return await self._post("/workflow/delete")
+
+	async def start_workflow(self, initial_data: Optional[dict] = None) -> dict:
+		return await self._post("/workflow/start", {"initial_data": initial_data or {}})
+
+	async def execution_state(self, execution_id: str) -> dict:
+		return await self._post(f"/executions/{execution_id}")
+
+	async def execution_results(self, execution_id: str) -> dict:
+		return await self._post(f"/executions/{execution_id}/results")
+
+	async def execution_cancel(self, execution_id: str) -> dict:
+		return await self._post(f"/executions/{execution_id}/cancel")
+
+	async def list_executions(self) -> dict:
+		return await self._post("/executions/list")
+
+	async def wait(self, execution_id: str, poll: float = 0.5) -> dict:
+		"""Poll until execution completes or fails. Returns execution results."""
+		while True:
+			state = await self.execution_state(execution_id)
+			status = (state.get("state") or {}).get("status")
+			if status in ("completed", "failed", "cancelled"):
+				return await self.execution_results(execution_id)
+			await asyncio.sleep(poll)
+
+	# ── Helper shortcuts for examples ───────────────────────────
+
+	async def ensure_space(self, title: str, slug: Optional[str] = None, description: str = "") -> dict:
+		spaces = (await self.list_spaces()).get("spaces", [])
+		match = next(
+			(
+				item for item in spaces
+				if item.get("title") == title or (slug and item.get("slug") == slug)
+			),
+			None,
+		)
+		if match is None:
+			created = await self.create_space(title=title, slug=slug, description=description)
+			match = created.get("space", {})
+		await self.select_space(match["id"])
+		return match
+
+	async def replace_current_workflow(self, workflow: dict, *, name: Optional[str] = None) -> dict:
+		if name:
+			workflow = json.loads(json.dumps(workflow))
+			workflow.setdefault("options", {})
+			workflow["options"]["name"] = name
+		return await self.save_workflow(workflow)
+
+	# ── Generation ───────────────────────────────────────────────
+
+	async def generation_prompt(self, body: Optional[dict] = None) -> dict:
+		return await self._post("/generation-prompt", body or {})
+
+	# ── Tool Call ────────────────────────────────────────────────
+
+	async def tool_call(self, node_index: int, args: Optional[dict] = None) -> dict:
 		return await self._post("/tool_call", {"node_index": node_index, "args": args or {}})
 
-	# ── Templates ──────────────────────────────────────────────────
+	# ── Advanced Runtime / Platform Features ────────────────────
 
 	async def templates_list(self) -> List[dict]:
 		r = await self._post("/templates/list")
@@ -199,8 +220,6 @@ class NumelClient:
 
 	async def templates_rename(self, template_id: str, new_name: str) -> dict:
 		return await self._post(f"/templates/rename/{template_id}", {"name": new_name})
-
-	# ── Event Sources ──────────────────────────────────────────────
 
 	async def event_sources_list(self) -> dict:
 		return await self._post("/event-sources/list")
@@ -223,23 +242,26 @@ class NumelClient:
 	async def event_source_delete(self, source_id: str) -> dict:
 		return await self._post(f"/event-sources/delete/{source_id}")
 
-	# ── Console Agent ──────────────────────────────────────────────
+	# ── Console Agent ────────────────────────────────────────────
 
-	async def console_start(self, model_source: str = None, model_name: str = None,
-	                        toolkit_names: List[str] = None) -> dict:
+	async def console_start(self, model_source: str = None, model_name: str = None, toolkit_names: List[str] = None) -> dict:
 		body = {}
-		if model_source:  body["model_source"]  = model_source
-		if model_name:    body["model_name"]    = model_name
-		if toolkit_names: body["toolkit_names"] = toolkit_names
+		if model_source:
+			body["model_source"] = model_source
+		if model_name:
+			body["model_name"] = model_name
+		if toolkit_names:
+			body["toolkit_names"] = toolkit_names
 		return await self._post("/console/start", body)
 
 	async def console_stop(self) -> dict:
 		return await self._post("/console/stop")
 
 	async def console_chat(self, message: str, session_id: str = None, include_context: bool = True) -> dict:
-		return await self._post("/console/chat", {
-			"message": message, "session_id": session_id, "include_context": include_context,
-		})
+		return await self._post(
+			"/console/chat",
+			{"message": message, "session_id": session_id, "include_context": include_context},
+		)
 
 	async def console_context(self) -> dict:
 		return await self._post("/console/context")
@@ -250,7 +272,7 @@ class NumelClient:
 	async def console_toolkits(self) -> List[dict]:
 		return await self._post("/console/toolkits")
 
-	# ── File Contents ──────────────────────────────────────────────
+	# ── File Contents ────────────────────────────────────────────
 
 	async def contents_list(self, node_index: int) -> dict:
 		return await self._post(f"/contents/list/{node_index}")
@@ -260,16 +282,16 @@ class NumelClient:
 
 	async def upload(self, node_index: int, filepath: str, node_type: str = None) -> dict:
 		"""Upload a file to a node."""
-		import os
 		with open(filepath, "rb") as f:
 			files = {"files": (os.path.basename(filepath), f)}
-			data  = {}
-			if node_type: data["node_type"] = node_type
-			resp = await self._http.post(f"/upload/{node_index}", files=files, data=data)
+			data = {}
+			if node_type:
+				data["node_type"] = node_type
+			resp = await self._http.post(f"/upload/{node_index}", files=files, data=data, headers=self._headers(False))
 			resp.raise_for_status()
 			return resp.json()
 
-	# ── Documentation ──────────────────────────────────────────────
+	# ── Documentation ────────────────────────────────────────────
 
 	async def docs_list(self) -> dict:
 		return await self._post("/docs")
@@ -277,17 +299,16 @@ class NumelClient:
 	async def docs_file(self, filename: str) -> dict:
 		return await self._post("/docs/file", {"filename": filename})
 
-	# ── Memory ─────────────────────────────────────────────────────
+	# ── Memory ───────────────────────────────────────────────────
 
 	async def memory_search(self, query: str, n: int = 5, type: str = None) -> List[dict]:
 		return await self._post("/console/memory/search", {"query": query, "n_results": n, "type": type})
 
-	async def memory_add(self, content: str, type: str = "general",
-						 metadata: dict = None, importance: float = 0.5) -> dict:
-		return await self._post("/console/memory/add", {
-			"content": content, "type": type,
-			"metadata": metadata or {}, "importance": importance,
-		})
+	async def memory_add(self, content: str, type: str = "general", metadata: dict = None, importance: float = 0.5) -> dict:
+		return await self._post(
+			"/console/memory/add",
+			{"content": content, "type": type, "metadata": metadata or {}, "importance": importance},
+		)
 
 	async def memory_recent(self, n: int = 10, type: str = None) -> List[dict]:
 		return await self._post("/console/memory/recent", {"n": n, "type": type})
@@ -301,7 +322,21 @@ class NumelClient:
 	async def memory_stats(self) -> dict:
 		return await self._post("/console/memory/stats")
 
-	# ── Channels ───────────────────────────────────────────────────
+	# ── Toolkits / Skills ───────────────────────────────────────
+
+	async def toolkit_list(self) -> dict:
+		return await self._post("/toolkits/list")
+
+	async def toolkit_inspect(self, name: str) -> dict:
+		return await self._post("/toolkits/inspect", {"name": name})
+
+	async def skills_list(self, opts: Optional[dict] = None) -> dict:
+		return await self._post("/skills/list", opts or {})
+
+	async def skills_get(self, name: str) -> dict:
+		return await self._post("/skills/get", {"name": name})
+
+	# ── Channels ─────────────────────────────────────────────────
 
 	async def channel_types(self) -> List[dict]:
 		return await self._post("/channels/types")
@@ -309,12 +344,17 @@ class NumelClient:
 	async def channel_list(self) -> List[dict]:
 		return await self._post("/channels/list")
 
-	async def channel_add(self, name: str, channel_type: str, token: str = None,
-						  auto_start: bool = False, **extras) -> dict:
-		return await self._post("/channels/add", {
-			"name": name, "channel_type": channel_type,
-			"token": token, "auto_start": auto_start, "extras": extras,
-		})
+	async def channel_add(self, name: str, channel_type: str, token: str = None, auto_start: bool = False, **extras) -> dict:
+		return await self._post(
+			"/channels/add",
+			{
+				"name": name,
+				"channel_type": channel_type,
+				"token": token,
+				"auto_start": auto_start,
+				"extras": extras,
+			},
+		)
 
 	async def channel_remove(self, channel_id: str) -> dict:
 		return await self._post("/channels/remove", {"channel_id": channel_id})
@@ -325,38 +365,26 @@ class NumelClient:
 	async def channel_stop(self, channel_id: str) -> dict:
 		return await self._post("/channels/stop", {"channel_id": channel_id})
 
-	async def channel_send(self, channel_id: str, recipient_id: str, text: str,
-						  attachments: list = None) -> dict:
+	async def channel_send(self, channel_id: str, recipient_id: str, text: str, attachments: list = None) -> dict:
 		payload = {"channel_id": channel_id, "recipient_id": recipient_id, "text": text}
 		if attachments:
 			payload["attachments"] = attachments
 		return await self._post("/channels/send", payload)
 
-	# ── Gallery ────────────────────────────────────────────────────
+	# ── Gallery ──────────────────────────────────────────────────
 
-	async def gallery_list(self, category: str = None, tags: List[str] = None,
-						   search: str = None) -> List[dict]:
+	async def gallery_list(self, category: str = None, tags: List[str] = None, search: str = None) -> List[dict]:
 		body = {}
-		if category: body["category"] = category
-		if tags:     body["tags"]     = tags
-		if search:   body["search"]   = search
+		if category:
+			body["category"] = category
+		if tags:
+			body["tags"] = tags
+		if search:
+			body["search"] = search
 		return await self._post("/gallery/list", body)
 
 	async def gallery_get(self, id: str) -> dict:
 		return await self._post("/gallery/get", {"id": id})
-
-	async def gallery_publish(self, workflow_name: str, title: str = None,
-							  description: str = None, category: str = None,
-							  tags: List[str] = None) -> dict:
-		body = {"workflow_name": workflow_name}
-		if title:       body["title"]       = title
-		if description: body["description"] = description
-		if category:    body["category"]    = category
-		if tags:        body["tags"]        = tags
-		return await self._post("/gallery/publish", body)
-
-	async def gallery_remove(self, id: str) -> dict:
-		return await self._post("/gallery/remove", {"id": id})
 
 	async def gallery_categories(self) -> List[str]:
 		return await self._post("/gallery/categories")
@@ -364,7 +392,7 @@ class NumelClient:
 	async def gallery_tags(self) -> List[str]:
 		return await self._post("/gallery/tags")
 
-	# ── Agent Tasks ────────────────────────────────────────────────
+	# ── Agent Tasks ──────────────────────────────────────────────
 
 	async def task_list(self) -> List[dict]:
 		return await self._post("/agent-tasks/list")
@@ -372,14 +400,11 @@ class NumelClient:
 	async def task_get(self, id: str) -> dict:
 		return await self._post("/agent-tasks/get", {"id": id})
 
-	async def task_create(self, name: str, prompt: str, trigger: str = "interval",
-						  interval_seconds: int = 3600, **kwargs) -> dict:
-		body = {
-			"name": name, "prompt": prompt,
-			"trigger": trigger, "interval_seconds": interval_seconds,
-			**kwargs,
-		}
-		return await self._post("/agent-tasks/create", body)
+	async def task_create(self, name: str, prompt: str, trigger: str = "interval", interval_seconds: int = 3600, **kwargs) -> dict:
+		return await self._post(
+			"/agent-tasks/create",
+			{"name": name, "prompt": prompt, "trigger": trigger, "interval_seconds": interval_seconds, **kwargs},
+		)
 
 	async def task_remove(self, id: str) -> dict:
 		return await self._post("/agent-tasks/remove", {"id": id})
@@ -391,35 +416,32 @@ class NumelClient:
 		return await self._post("/agent-tasks/stop", {"id": id})
 
 	async def task_run(self, id: str) -> dict:
-		"""Run a task immediately (one-shot)."""
 		return await self._post("/agent-tasks/run", {"id": id})
 
-	# ── Published Apps ─────────────────────────────────────────────
+	# ── Published Apps ───────────────────────────────────────────
 
 	async def apps_list(self) -> List[dict]:
 		return await self._post("/apps/list")
 
-	async def apps_publish(self, workflow_name: str, slug: str = None,
-						   title: str = None, description: str = None) -> dict:
-		body = {"workflow_name": workflow_name}
-		if slug:        body["slug"]        = slug
-		if title:       body["title"]       = title
-		if description: body["description"] = description
+	async def apps_publish(self, workflow: Optional[dict] = None, workflow_name: Optional[str] = None, slug: str = None, title: str = None, description: str = None) -> dict:
+		body = {}
+		if workflow is not None:
+			body["workflow"] = workflow
+		if workflow_name:
+			body["workflow_name"] = workflow_name
+		if slug:
+			body["slug"] = slug
+		if title:
+			body["title"] = title
+		if description:
+			body["description"] = description
 		return await self._post("/apps/publish", body)
 
 	async def apps_unpublish(self, slug: str) -> dict:
 		return await self._post("/apps/unpublish", {"slug": slug})
 
-	# ── Utility ────────────────────────────────────────────────────
-
-	async def ping(self) -> dict:
-		return await self._post("/ping")
-
-	async def status(self) -> dict:
-		return await self._post("/status")
-
 
 def load_workflow(filepath: str) -> dict:
 	"""Load a workflow JSON file from disk."""
-	with open(filepath) as f:
+	with open(filepath, encoding="utf-8") as f:
 		return json.load(f)

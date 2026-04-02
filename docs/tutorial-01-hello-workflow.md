@@ -4,7 +4,7 @@ Your first workflow — the simplest possible pipeline: data flows from Start th
 
 ## What You Will Learn
 
-- How to import a workflow
+- How to load a workflow into the current space
 - The role of Start, Preview, and End nodes
 - How to run a workflow and observe results
 
@@ -20,7 +20,7 @@ Start ──> Preview ──> End
 
 ## Steps
 
-1. **Import** the workflow file `tutorial-01-hello-workflow.json` using the Import button or by dragging it onto the canvas.
+1. Select the space you want to use, then **Import** `tutorial-01-hello-workflow.json` into that current space.
 2. Three nodes appear connected in a line: Start, Preview, End.
 3. Click **Start** in the execution controls to run the workflow.
 4. Watch the event log — nodes light up as they execute: Start (completes) → Preview (shows `{}`) → End (completes).
@@ -31,6 +31,8 @@ Start ──> Preview ──> End
 - **Add execution variables**: In the Execution Options panel, you can pass initial data. These become the Start node's output. Try setting `{"greeting": "Hello!"}` and re-running — the Preview will show the greeting.
 - **Double-click the Preview node** to expand it into a larger text view.
 - **Alt+click on an edge** to insert a new Preview node on that connection.
+
+Canvas tags remain available inside the editor for organization, but saving and execution always target the one current workflow stored in the selected space.
 
 ## What's Next
 

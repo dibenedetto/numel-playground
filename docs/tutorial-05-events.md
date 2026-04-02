@@ -68,7 +68,7 @@ The `source_id` field on the Timer Source must match an entry in the `sources` l
 
 ## Steps
 
-1. **Import** `tutorial-05-events.json`.
+1. Choose a space, then **Import** `tutorial-05-events.json`.
 2. Click **Start**. The timer begins firing immediately.
 3. Watch the Preview update every 2 seconds: `"Event #1 at 0ms"`, `"Event #2 at 2000ms"`, etc.
 4. After 5 timer events, the listener times out and the loop exits.

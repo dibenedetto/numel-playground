@@ -102,7 +102,7 @@ All skill instructions are merged into the agent's system prompt under an `--- A
 
 ## Steps
 
-1. **Import** `tutorial-10-skills.json`.
+1. Choose a space, then **Import** `tutorial-10-skills.json`.
 2. Click **Start**. A prompt appears: "What would you like to research?"
 3. Type a search query, e.g.: `What is FastAPI?`
 4. The agent uses the web-search skill instructions to call the DuckDuckGo API via the HTTP toolkit.

@@ -27,9 +27,10 @@ class LocalProcessExecProvider(ExecutionProvider):
         api_url: Base URL for the Numel API (default http://localhost:11360).
     """
 
-    def __init__(self, manager=None, api_url: str = "http://localhost:11360"):
+    def __init__(self, manager=None, api_url: str = "http://localhost:11360", auth_token: str = ""):
         self._manager  = manager
         self._api_url  = api_url.rstrip("/")
+        self._auth_token = auth_token
         self._handles: Dict[str, ExecutionHandle] = {}
         self._results: Dict[str, ExecutionResult] = {}
         self._tasks:   Dict[str, asyncio.Task]    = {}
@@ -55,7 +56,7 @@ class LocalProcessExecProvider(ExecutionProvider):
         )
         self._handles[execution_id] = handle
 
-        # Use the existing engine via httpx (same as workspace_toolkit)
+        # Use the current HTTP workflow/execution routes.
         task = asyncio.create_task(self._run(execution_id, workflow_name, workflow, limits))
         self._tasks[execution_id] = task
         return handle
@@ -64,14 +65,19 @@ class LocalProcessExecProvider(ExecutionProvider):
         import httpx
         start_time = time.time()
         timeout = limits.max_duration_seconds if limits else 3600.0
+        headers = {}
+        if self._auth_token:
+            headers["Authorization"] = f"Bearer {self._auth_token}"
 
         try:
             async with httpx.AsyncClient(base_url=self._api_url, timeout=timeout + 10) as client:
-                # Save workflow
-                await client.post("/add", json={"workflow": workflow, "name": name})
+                # Save into the caller's current space/current workflow.
+                save_resp = await client.post("/workflow/save", json={"workflow": workflow}, headers=headers)
+                save_resp.raise_for_status()
 
                 # Start execution
-                resp = await client.post("/start", json={"name": name})
+                resp = await client.post("/workflow/start", json={}, headers=headers)
+                resp.raise_for_status()
                 data = resp.json()
                 if "error" in data:
                     raise RuntimeError(data["error"])
@@ -81,13 +87,15 @@ class LocalProcessExecProvider(ExecutionProvider):
                 # Poll until done
                 deadline = time.time() + timeout
                 while time.time() < deadline:
-                    state_resp = await client.post(f"/exec_state/{exec_id_engine}")
+                    state_resp = await client.post(f"/executions/{exec_id_engine}", headers=headers)
+                    state_resp.raise_for_status()
                     state = state_resp.json()
-                    status = state.get("status", "unknown")
+                    status = (state.get("state", {}) or {}).get("status", "unknown")
 
                     if status in ("completed", "failed", "cancelled"):
                         # Fetch results
-                        results_resp = await client.post(f"/exec_results/{exec_id_engine}")
+                        results_resp = await client.post(f"/executions/{exec_id_engine}/results", headers=headers)
+                        results_resp.raise_for_status()
                         results = results_resp.json()
 
                         self._results[execution_id] = ExecutionResult(

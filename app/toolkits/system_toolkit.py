@@ -76,13 +76,12 @@ class SystemToolkit:
 			return f"Error: {e}"
 
 	def get_user(self, user_id: str) -> str:
-		"""Get detailed info for a specific user including quota and permissions.
+		"""Get detailed info for a specific user including quota.
 		Args: user_id (the user's ID string)."""
 		try:
 			data = self._post(f"/admin/users/{user_id}")
 			u = data["user"]
 			q = data.get("quota", {})
-			perms = data.get("permissions", [])
 			lines = [
 				f"User: {u['username']}",
 				f"  ID: {u['id']}",
@@ -94,13 +93,9 @@ class SystemToolkit:
 				f"    Storage remaining: {round(q.get('storage_bytes_remaining', 0) / 1_048_576, 1)}MB",
 				f"    Max concurrent runs: {q.get('max_concurrent_runs', 0)}",
 				f"    GPU hours remaining: {q.get('gpu_hours_remaining', 0)}",
+				f"    Max spaces: {q.get('max_spaces', 0)}",
+				f"    Max assets per space: {q.get('max_assets_per_space', 0)}",
 			]
-			if perms:
-				lines.append("  Permissions:")
-				for p in perms:
-					lines.append(f"    {p['resource']} → {p['access']}")
-			else:
-				lines.append("  Permissions: none")
 			return "\n".join(lines)
 		except Exception as e:
 			return f"Error: {e}"
@@ -136,16 +131,19 @@ class SystemToolkit:
 
 	def update_quota(self, user_id: str, cpu_seconds_remaining: float = -1,
 					 max_concurrent_runs: int = -1, storage_bytes_remaining: int = -1,
-					 gpu_hours_remaining: float = -1, max_repos: int = -1) -> str:
+					 gpu_hours_remaining: float = -1, max_spaces: int = -1,
+					 max_assets_per_space: int = -1) -> str:
 		"""Update a user's resource quota. Only values >= 0 are applied.
 		Args: user_id, cpu_seconds_remaining, max_concurrent_runs,
-		      storage_bytes_remaining, gpu_hours_remaining, max_repos."""
+		      storage_bytes_remaining, gpu_hours_remaining, max_spaces,
+		      max_assets_per_space."""
 		fields = {}
 		if cpu_seconds_remaining >= 0:   fields["cpu_seconds_remaining"]   = cpu_seconds_remaining
 		if max_concurrent_runs >= 0:     fields["max_concurrent_runs"]     = max_concurrent_runs
 		if storage_bytes_remaining >= 0: fields["storage_bytes_remaining"] = storage_bytes_remaining
 		if gpu_hours_remaining >= 0:     fields["gpu_hours_remaining"]     = gpu_hours_remaining
-		if max_repos >= 0:               fields["max_repos"]              = max_repos
+		if max_spaces >= 0:              fields["max_spaces"]              = max_spaces
+		if max_assets_per_space >= 0:    fields["max_assets_per_space"]    = max_assets_per_space
 		if not fields:
 			return "No quota fields to update (all values are -1 / unchanged)."
 		try:
@@ -157,7 +155,8 @@ class SystemToolkit:
 				f"  Storage: {round(q['storage_bytes_remaining'] / 1_048_576, 1)}MB\n"
 				f"  Concurrent runs: {q['max_concurrent_runs']}\n"
 				f"  GPU hours: {q['gpu_hours_remaining']}\n"
-				f"  Max repos: {q['max_repos']}"
+				f"  Max spaces: {q['max_spaces']}\n"
+				f"  Max assets per space: {q['max_assets_per_space']}"
 			)
 		except Exception as e:
 			return f"Error: {e}"

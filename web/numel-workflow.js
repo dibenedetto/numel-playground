@@ -106,11 +106,15 @@ class WorkflowClient {
 
 	async ping()                                        { return this.api.ping(); }
 	async getSchema()                                   { return this.api.getSchema(); }
-	async listWorkflows()                               { return this.api.listWorkflows(); }
-	async getWorkflow(name)                             { return this.api.getWorkflow(name); }
-	async addWorkflow(workflow, name = null)             { return this.api.addWorkflow(workflow, name); }
-	async removeWorkflow(name)                          { return this.api.removeWorkflow(name); }
-	async startWorkflow(name, initialData = null)       { return this.api.startWorkflow(name, initialData); }
+	async getCurrentSpace()                             { return this.api.getCurrentSpace(); }
+	async listSpaces()                                  { return this.api.listSpaces(); }
+	async createSpace(title, slug = null, description = '') { return this.api.createSpace(title, slug, description); }
+	async selectSpace(spaceId)                          { return this.api.selectSpace(spaceId); }
+	async deleteSpace(spaceId)                          { return this.api.deleteSpace(spaceId); }
+	async getWorkflow()                                 { return this.api.getWorkflow(); }
+	async saveWorkflow(workflow)                        { return this.api.saveWorkflow(workflow); }
+	async deleteWorkflow()                              { return this.api.deleteWorkflow(); }
+	async startWorkflow(initialData = null)             { return this.api.startWorkflow(initialData); }
 	async getExecutionState(executionId)                { return this.api.getExecState(executionId); }
 	async cancelExecution(executionId)                  { return this.api.cancelExecution(executionId); }
 	async listExecutions()                              { return this.api.listExecutions(); }

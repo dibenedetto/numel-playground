@@ -12,9 +12,10 @@ let visualizer         = null;
 let agentChatManager   = null;
 let schemaGraph        = null;
 let currentExecutionId = null;
+let currentPlatformExecutionId = null;
+let currentSpaceId    = null;
+let currentSpaceInfo  = null;
 let _pendingExecEvents = [];   // buffer events arriving before currentExecutionId is set
-let pendingRemoveName  = null;
-let singleMode         = true;
 let workflowDirty      = true;
 let fileUploadManager  = null;
 let consoleManager     = null;
@@ -36,15 +37,19 @@ function _isAdminUser() {
 	return !!(window._numelUser && String(window._numelUser.role || '').toLowerCase() === 'admin');
 }
 
+function _isAuthenticatedUser() {
+	return !!window._numelUser;
+}
+
 function _credentialsAccessMessage() {
-	if (!window._numelUser) {
-		return 'Sign in as an admin to manage shared server credentials.';
+	if (!_isAuthenticatedUser()) {
+		return 'Sign in to manage your credentials.';
 	}
-	return 'Shared server credentials are managed by admins because they affect all users on this server.';
+	return 'Credentials are scoped to your account and are used only for your executions.';
 }
 
 function _renderCredentialAccessState() {
-	const canManageCredentials = _isAdminUser();
+	const canManageCredentials = _isAuthenticatedUser();
 	const addBtn   = $('addCredentialBtn');
 	const form     = $('credentialForm');
 	const list     = $('credentialsList');
@@ -492,7 +497,7 @@ async function _initAuth() {
 		localStorage.removeItem('numel_token');
 	}
 
-	// Show login modal and wait for auth or guest
+	// Show login modal and wait for auth
 	return new Promise((resolve) => {
 		const modal         = document.getElementById('authModal');
 		const loginForm     = document.getElementById('authLoginForm');
@@ -501,7 +506,6 @@ async function _initAuth() {
 		const showLogin     = document.getElementById('authShowLogin');
 		const loginBtn      = document.getElementById('authLoginBtn');
 		const registerBtn   = document.getElementById('authRegisterBtn');
-		const guestBtn      = document.getElementById('authGuestBtn');
 		const errorEl       = document.getElementById('authError');
 		const regErrorEl    = document.getElementById('authRegError');
 
@@ -531,9 +535,6 @@ async function _initAuth() {
 		};
 
 		const showError = (el, msg) => { el.textContent = msg; el.style.display = ''; };
-
-		// Guest sign-in — skip auth, no token
-		guestBtn.onclick = () => finish(null, null);
 
 		loginBtn.onclick = async () => {
 			errorEl.style.display = 'none';
@@ -622,33 +623,19 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 function setupEventListeners() {
+	// Space management
+	$('spaceSelect').addEventListener('change', selectCurrentSpace);
+	$('createSpaceBtn').addEventListener('click', createSpace);
+	$('removeSpaceBtn').addEventListener('click', removeCurrentSpace);
+
 	// Workflow management
-	$('refreshListBtn')?.addEventListener('click', refreshWorkflowList);
-	$('loadWorkflowBtn').addEventListener('click', loadSelectedWorkflow);
-	$('uploadWorkflowBtn').addEventListener('click', () => $('workflowFileInput').click());
-	$('downloadWorkflowBtn').addEventListener('click', downloadWorkflow);
-	$('removeWorkflowBtn').addEventListener('click', removeSelectedWorkflow);
-	$('workflowFileInput').addEventListener('change', handleFileUpload);
-
-	// Workflow remove modal
-	$('confirmRemoveBtn').addEventListener('click', confirmRemoveWorkflow);
-	$('cancelRemoveBtn').addEventListener('click', closeRemoveModal);
-	$('closeRemoveModalBtn').addEventListener('click', closeRemoveModal);
-
-	// Clear workflow (both modes)
-	$('clearWorkflowBtn').addEventListener('click', clearWorkflow);
 	$('clearWorkflowBtnSingle').addEventListener('click', clearWorkflow);
-
-	// Mode switch
-	$('singleModeSwitch').addEventListener('change', toggleWorkflowMode);
 
 	// Single mode buttons
 	$('singleImportBtn').addEventListener('click', () => $('singleWorkflowFileInput').click());
 	$('singlePasteBtn' ).addEventListener('click', pasteWorkflowFromClipboard);
 	$('singleDownloadBtn').addEventListener('click', downloadWorkflow);
 	$('singleCopyBtn'  ).addEventListener('click', copyWorkflowToClipboard);
-	$('pasteWorkflowBtn').addEventListener('click', pasteWorkflowFromClipboard);
-	$('copyWorkflowBtn' ).addEventListener('click', copyWorkflowToClipboard);
 	$('singleWorkflowFileInput').addEventListener('change', handleSingleImport);
 
 	// Execution
@@ -685,7 +672,9 @@ function setupEventListeners() {
 }
 
 function enableStart(enable) {
-	$('singleModeSwitch' ).disabled = !enable;
+	$('spaceSelect'       ).disabled = !enable || !client?.isConnected;
+	$('createSpaceBtn'    ).disabled = !enable;
+	$('removeSpaceBtn'    ).disabled = !enable || !currentSpaceId;
 	$('startBtn'         ).disabled = !enable;
 	$('cancelBtn'        ).disabled = enable;
 	$('singleImportBtn'  ).disabled = !enable;
@@ -699,7 +688,6 @@ function updateClearButtonState() {
 	const hasNodes = schemaGraph?.graph?.nodes?.length > 0;
 	const isConnected = client?.isConnected;
 	const disabled = !hasNodes || !isConnected;
-	$('clearWorkflowBtn').disabled = disabled;
 	$('clearWorkflowBtnSingle').disabled = disabled;
 }
 
@@ -794,6 +782,7 @@ async function connect() {
 		// Initialize published apps manager
 		appsManager = new AppsManager(serverUrl, api, () => ({
 			name: visualizer?.currentWorkflowName || '',
+			workflow: visualizer?.exportWorkflow?.() || null,
 		}));
 		$('appsToggleBtn').style.display = '';
 
@@ -805,26 +794,18 @@ async function connect() {
 		client.connectWebSocket();
 		setupClientEvents();
 
-		// Initialize empty workflow so download always works
+		// Initialize workflow surface and current space
 		visualizer.initEmptyWorkflow();
+		await refreshSpaceList(true);
 
-		// Refresh workflow list
-		await refreshWorkflowList();
-
-		$('workflowSelect').disabled = false;
-		$('uploadWorkflowBtn').disabled = false;
-		$('pasteWorkflowBtn').disabled = false;
-		$('downloadWorkflowBtn').disabled = false;
-		$('copyWorkflowBtn').disabled = false;
+		$('spaceSelect').disabled = false;
+		$('createSpaceBtn').disabled = false;
+		$('removeSpaceBtn').disabled = !currentSpaceId;
 		$('singleImportBtn').disabled = false;
 		$('singlePasteBtn').disabled = false;
 		$('singleDownloadBtn').disabled = false;
 		$('singleCopyBtn').disabled = false;
 		enableStart(true);
-
-		if (singleMode) {
-			_setWorkflowName(visualizer.currentWorkflowName);
-		}
 
 		addLog('success', `✅ Connected to ${serverUrl}`);
 
@@ -858,7 +839,6 @@ async function disconnect() {
 	$('consoleToggleBtn').style.display = 'none';
 
 	if (client) {
-		await client.removeWorkflow();
 		client.disconnectWebSocket();
 		client = null;
 	}
@@ -869,21 +849,20 @@ async function disconnect() {
 	// Clear graph
 	schemaGraph.api.graph.clear();
 	schemaGraph.api.view.reset();
-	
+
 	visualizer.currentWorkflow = null;
 	visualizer.currentWorkflowName = null;
 	visualizer.graphNodes = [];
 
 	currentExecutionId = null;
-	
-	$('workflowSelect').disabled = true;
-	$('workflowSelect').innerHTML = '<option value="">-- Select workflow --</option>';
-	$('loadWorkflowBtn').disabled = true;
-	$('uploadWorkflowBtn').disabled = true;
-	$('pasteWorkflowBtn').disabled = true;
-	$('downloadWorkflowBtn').disabled = true;
-	$('copyWorkflowBtn').disabled = true;
-	$('removeWorkflowBtn').disabled = true;
+	currentPlatformExecutionId = null;
+	currentSpaceId = null;
+	currentSpaceInfo = null;
+
+	$('spaceSelect').disabled = true;
+	$('spaceSelect').innerHTML = '<option value="">Loading spaces...</option>';
+	$('createSpaceBtn').disabled = true;
+	$('removeSpaceBtn').disabled = true;
 
 	enableStart(false);
 	$('cancelBtn').disabled = true;
@@ -910,7 +889,8 @@ function setupClientEvents() {
 	client.on('workflow.started', (event) => {
 		if (currentExecutionId !== event.execution_id) return;
 		setExecStatus('running', 'Running');
-		$('execId').textContent = event.execution_id.substring(0, 8) + '...';
+		const shownId = currentPlatformExecutionId || event.execution_id;
+		$('execId').textContent = shownId.substring(0, 8) + '...';
 		enableStart(false);
 		visualizer?.clearNodeStates();
 
@@ -924,6 +904,7 @@ function setupClientEvents() {
 	client.on('workflow.completed', (event) => {
 		if (event.execution_id !== currentExecutionId) return;
 		currentExecutionId = null;
+		currentPlatformExecutionId = null;
 		setExecStatus('completed', 'Completed');
 		enableStart(true);
 
@@ -937,6 +918,7 @@ function setupClientEvents() {
 	client.on('workflow.failed', (event) => {
 		if (event.execution_id !== currentExecutionId) return;
 		currentExecutionId = null;
+		currentPlatformExecutionId = null;
 		setExecStatus('failed', 'Failed');
 		enableStart(true);
 
@@ -950,6 +932,7 @@ function setupClientEvents() {
 	client.on('workflow.cancelled', (event) => {
 		if (event.execution_id !== currentExecutionId) return;
 		currentExecutionId = null;
+		currentPlatformExecutionId = null;
 		setExecStatus('idle', 'Cancelled');
 		enableStart(true);
 
@@ -967,17 +950,15 @@ function setupClientEvents() {
 	});
 
 	client.on('workspace.changed', async (event) => {
-		// Agent modified the workflow — reload it from the server
-		const name = event?.data?.name || visualizer?.currentWorkflowName;
-		if (!name) return;
+		// Agent modified the current workflow — reload it from the server
 		try {
-			const resp = await api.getWorkflow(name);
+			const resp = await api.getWorkflow();
 			if (resp?.workflow) {
-				await visualizer?.loadWorkflow(resp.workflow, name);
-				addLog('info', `🔄 Workspace updated by assistant`);
+				await visualizer?.loadWorkflow(resp.workflow, resp.name || visualizer?.currentWorkflowName || 'Workflow');
+				addLog('info', `🔄 Current workflow updated by assistant`);
 			}
 		} catch (e) {
-			addLog('warning', `⚠️ workspace.changed: could not reload workflow — ${e}`);
+			addLog('warning', `⚠️ workflow reload failed after workspace.changed — ${e}`);
 		}
 	});
 
@@ -1120,101 +1101,136 @@ function setupClientEvents() {
 // Workflow Management
 // ========================================================================
 
-async function refreshWorkflowList() {
+async function refreshSpaceList(loadWorkflow = false) {
 	if (!client) return;
 
 	try {
-		const response = await client.listWorkflows();
-		const names = response.names || [];
+		const currentResp = await client.getCurrentSpace();
+		const listResp = await client.listSpaces();
+		const spaces = listResp.spaces || [];
+		currentSpaceInfo = currentResp.space || spaces.find(space => space.id === listResp.current_space_id) || null;
+		currentSpaceId = currentSpaceInfo?.id || listResp.current_space_id || null;
 
-		const select = $('workflowSelect');
-		select.innerHTML = '<option value="">-- Select workflow --</option>';
-
-		names.forEach(name => {
+		const select = $('spaceSelect');
+		select.innerHTML = '';
+		for (const space of spaces) {
 			const option = document.createElement('option');
-			option.value = name;
-			option.textContent = name;
+			option.value = space.id;
+			option.textContent = space.title || space.slug || space.id;
 			select.appendChild(option);
-		});
+		}
+		if (currentSpaceId) select.value = currentSpaceId;
+		select.disabled = spaces.length === 0;
+		$('removeSpaceBtn').disabled = spaces.length <= 1 || !currentSpaceId;
 
-		const disabled = names.length === 0
-		$('loadWorkflowBtn').disabled = disabled;
-		$('removeWorkflowBtn').disabled = disabled;
-		addLog('info', `📋 Found ${names.length} workflow(s)`);
+		if (loadWorkflow) {
+			await loadCurrentWorkflow();
+		}
 	} catch (error) {
-		addLog('error', `❌ Failed to list workflows: ${error.message}`);
+		addLog('error', `❌ Failed to refresh spaces: ${error.message}`);
 	}
 }
 
-async function loadSelectedWorkflow() {
-	const name = $('workflowSelect').value;
-	if (!name || !client) return;
+async function loadCurrentWorkflow() {
+	if (!client) return;
 
 	try {
-		addLog('info', `📂 Loading "${name}"...`);
-		const response = await client.getWorkflow(name);
+		const response = await client.getWorkflow();
+		const workflow = response?.workflow || null;
+		const name = response?.name || 'Untitled';
 
-		if (!response.workflow) {
-			throw new Error('Workflow not found');
+		// Close transient overlays before replacing the graph.
+		schemaGraph.closeAllPreviewTextOverlays?.();
+		agentChatManager?.disconnectAll();
+
+		currentExecutionId = null;
+		currentPlatformExecutionId = null;
+		$('execId').textContent = '-';
+		setExecStatus('idle', 'Not running');
+
+		if (workflow) {
+			const loaded = visualizer.loadWorkflow(workflow, name);
+			if (!loaded) throw new Error('Failed to load workflow into graph');
+			addLog('success', `✅ Loaded "${name}"`);
+		} else {
+			schemaGraph.api.graph.clear();
+			schemaGraph.api.view.reset();
+			visualizer.initEmptyWorkflow();
+			visualizer.graphNodes = [];
+			_setWorkflowName(name);
+			addLog('info', currentSpaceInfo?.title
+				? `🧭 "${currentSpaceInfo.title}" is ready for a workflow`
+				: '🧭 Current space is ready for a workflow');
 		}
 
-		const loaded = visualizer.loadWorkflow(response.workflow, name);
-		if (!loaded) {
-			throw new Error('Failed to load workflow into graph');
-		}
-
-		$('downloadWorkflowBtn').disabled = false;
-		$('copyWorkflowBtn').disabled = false;
+		workflowDirty = false;
 		enableStart(true);
-		addLog('success', `✅ Loaded "${name}"`);
-
+		updateClearButtonState();
 	} catch (error) {
 		addLog('error', `❌ Failed to load workflow: ${error.message}`);
 	}
 }
 
-async function handleFileUpload(event) {
-	const file = event.target.files?.[0];
-	if (!file) return;
+async function createSpace() {
+	if (!client) return;
+	const title = prompt('New space name:', 'New Space');
+	if (!title || !title.trim()) return;
 
 	try {
-		const text = await file.text();
-		const workflow = JSON.parse(text);
-
-		// If connected, upload to server
-		if (client) {
-			const response = await client.addWorkflow(workflow);
-			if (response.status === 'added') {
-				addLog('success', `📤 Uploaded "${response.name}"`);
-				await refreshWorkflowList();
-				$('workflowSelect').value = response.name;
-				await loadSelectedWorkflow();
-			} else {
-				throw new Error('Upload failed');
-			}
-		} else {
-			// Load locally
-			const loaded = visualizer.loadWorkflow(workflow);
-			if (loaded) {
-				$('downloadWorkflowBtn').disabled = false;
-				$('copyWorkflowBtn').disabled = false;
-				addLog('success', `📂 Loaded workflow from file`);
-			}
+		if (workflowDirty && visualizer?.currentWorkflow) {
+			await syncWorkflow();
 		}
-
-		if (singleMode) {
-			_setWorkflowName(visualizer.currentWorkflowName || 'Untitled');
-			$('singleDownloadBtn').disabled = false;
-		}
-		updateClearButtonState();
+		const response = await client.createSpace(title.trim());
+		currentSpaceInfo = response.space || null;
+		currentSpaceId = currentSpaceInfo?.id || null;
+		await refreshSpaceList(true);
+		addLog('success', `✅ Created space "${currentSpaceInfo?.title || title.trim()}"`);
 	} catch (error) {
-		addLog('error', `❌ Failed to upload: ${error.message}`);
+		addLog('error', `❌ Failed to create space: ${error.message}`);
 	}
-
-	event.target.value = '';
 }
 
-async function syncWorkflow(workflow = null, name = null, force = false) {
+async function removeCurrentSpace() {
+	if (!client || !currentSpaceId || !currentSpaceInfo) return;
+	const ok = await NumelConfirm(
+		'Delete Space',
+		`Delete space "${currentSpaceInfo.title || currentSpaceInfo.slug || currentSpaceId}"? This will remove its saved workflow from the current UI surface.`,
+		'Delete',
+		true
+	);
+	if (!ok) return;
+
+	try {
+		await client.deleteSpace(currentSpaceId);
+		currentSpaceId = null;
+		currentSpaceInfo = null;
+		await refreshSpaceList(true);
+		addLog('success', '✅ Space deleted');
+	} catch (error) {
+		addLog('error', `❌ Failed to delete space: ${error.message}`);
+	}
+}
+
+async function selectCurrentSpace() {
+	const nextSpaceId = $('spaceSelect').value;
+	if (!client || !nextSpaceId || nextSpaceId === currentSpaceId) return;
+
+	try {
+		if (workflowDirty && visualizer?.currentWorkflow) {
+			await syncWorkflow();
+		}
+		const response = await client.selectSpace(nextSpaceId);
+		currentSpaceInfo = response.space || null;
+		currentSpaceId = currentSpaceInfo?.id || nextSpaceId;
+		await loadCurrentWorkflow();
+		addLog('info', `🧭 Switched to "${currentSpaceInfo?.title || currentSpaceId}"`);
+	} catch (error) {
+		addLog('error', `❌ Failed to switch space: ${error.message}`);
+		await refreshSpaceList(false);
+	}
+}
+
+async function syncWorkflow(workflow = null, _name = null, force = false) {
 	if (!force && !workflowDirty) return;
 
 	schemaGraph.api.lock.lock('Syncing workflow', true, { lockMovement: true, lockOverlays: true });
@@ -1226,26 +1242,19 @@ async function syncWorkflow(workflow = null, name = null, force = false) {
 		// Close all preview text overlays (node IDs will change)
 		schemaGraph.closeAllPreviewTextOverlays?.();
 
-		const workflowEmpty = workflow == null;
 		// Always re-export from graph to strip frontend-only nodes (e.g. preview_flow)
 		const exported = visualizer.exportWorkflow();
 		if (exported) workflow = exported;
-		
-		if (!name) {
-			name = workflow?.options?.name || visualizer.currentWorkflowName || 'custom_workflow';
-		}
 
-		await client.removeWorkflow();
-		const response = await client.addWorkflow(workflow, name);
-		
-		if (response.status === 'added' || response.status === 'updated') {
+		const response = await client.saveWorkflow(workflow);
+
+		if (response.status === 'saved') {
 			// Clear handlers (node IDs will change)
 			agentChatManager?.disconnectAll();
 
 			// Reload entire workflow from backend
 			if (response.workflow) {
-				const layout = workflowEmpty ? null : visualizer.defaultLayout;
-				visualizer.loadWorkflow(response.workflow, response.name, layout, true);
+				visualizer.loadWorkflow(response.workflow, response.name, visualizer.defaultLayout, true);
 			}
 
 			// Restore chat messages
@@ -1253,9 +1262,9 @@ async function syncWorkflow(workflow = null, name = null, force = false) {
 			
 			workflowDirty = false;
 			schemaGraph.eventBus.emit('workflow:synced');
-			addLog('success', `✅ Synced "${response.name}"`);
+			addLog('success', `✅ Saved "${response.name}"`);
 		} else {
-			throw new Error('Sync failed');
+			throw new Error('Save failed');
 		}
 	} finally {
 		schemaGraph.api.lock.unlock();
@@ -1270,7 +1279,7 @@ window.loadAndSyncWorkflow = async function(workflow, name) {
 	const n = name || workflow?.options?.name || 'Generated Workflow';
 	const loaded = visualizer.loadWorkflow(workflow, n);
 	if (loaded) {
-		await syncWorkflow(workflow, n, true);
+		await syncWorkflow(workflow, null, true);
 		enableStart(true);
 		addLog('success', `✅ Loaded "${visualizer.currentWorkflowName}"`);
 	}
@@ -1335,13 +1344,12 @@ async function handleSingleImport(event) {
 		schemaGraph.api.view.reset();
 
 		// Validate
-		// const validated = visualizer.validateWorkflow(workflow);
 		const name      = workflow?.options?.name || file.name.replace('.json', '');
 		const validated = visualizer.loadWorkflow(workflow, name);
 		if (validated) {
-			await syncWorkflow(workflow, name, true);
+			await syncWorkflow(workflow, null, true);
 			enableStart(true);
-			addLog('success', `📂 Imported "${visualizer.currentWorkflowName}" (local)`);
+			addLog('success', `📂 Imported "${visualizer.currentWorkflowName}"`);
 		}
 	} catch (error) {
 		addLog('error', `❌ Failed to import: ${error.message}`);
@@ -1405,17 +1413,9 @@ async function pasteWorkflowFromClipboard() {
 		const name = workflow?.options?.name || 'Pasted Workflow';
 		const loaded = visualizer.loadWorkflow(workflow, name);
 		if (loaded) {
-			await syncWorkflow(workflow, name, true);
+			await syncWorkflow(workflow, null, true);
 			enableStart(true);
-			$('downloadWorkflowBtn').disabled = false;
-			$('copyWorkflowBtn').disabled = false;
 			addLog('success', `📋 Pasted "${visualizer.currentWorkflowName}"`);
-		}
-
-		if (singleMode) {
-			_setWorkflowName(visualizer.currentWorkflowName || 'Untitled');
-			$('singleDownloadBtn').disabled = false;
-			$('singleCopyBtn').disabled = false;
 		}
 		updateClearButtonState();
 	} catch (err) {
@@ -1425,103 +1425,25 @@ async function pasteWorkflowFromClipboard() {
 	}
 }
 
-async function removeSelectedWorkflow() {
-	const name = $('workflowSelect').value;
-	if (!name || !client) return;
-
-	pendingRemoveName = name;
-	$('removeModalPrompt').textContent = `Are you sure you want to remove "${name}"?`;
-	$('removeModal').style.display = 'flex';
-}
-
-function closeRemoveModal() {
-	$('removeModal').style.display = 'none';
-	pendingRemoveName = null;
-}
-
-async function confirmRemoveWorkflow() {
-	if (!pendingRemoveName || !client) {
-		closeRemoveModal();
-		return;
-	}
-
-	const name = pendingRemoveName;
-	closeRemoveModal();
-
-	try {
-		$('removeWorkflowBtn').disabled = true;
-		addLog('info', `🗑️ Removing "${name}"...`);
-
-		await client.removeWorkflow(name);
-
-		// Clear graph if removed workflow was loaded
-		if (visualizer.currentWorkflowName === name) {
-			schemaGraph.api.graph.clear();
-			schemaGraph.api.view.reset();
-			visualizer.currentWorkflow = null;
-			visualizer.currentWorkflowName = null;
-			visualizer.graphNodes = [];
-		}
-
-		addLog('success', `✅ Removed "${name}"`);
-		await refreshWorkflowList();
-
-		$('downloadWorkflowBtn').disabled = true;
-		$('copyWorkflowBtn').disabled = true;
-		$('startBtn').disabled = true;
-		visualizer.currentWorkflow = null;
-		visualizer.currentWorkflowName = null;
-
-	} catch (error) {
-		addLog('error', `❌ Failed to remove: ${error.message}`);
-	} finally {
-		$('removeWorkflowBtn').disabled = false;
-	}
-}
-
 async function clearWorkflow() {
 	if (!visualizer.currentWorkflow) return;
 
-	// Close all preview text overlays before clearing
-	schemaGraph.closeAllPreviewTextOverlays?.();
-
-	schemaGraph.api.graph.clear();
-	schemaGraph.api.view.reset();
-	await client.removeWorkflow();
-
-	visualizer.initEmptyWorkflow();
-	visualizer.graphNodes = [];
-
-	$('startBtn').disabled = true;
-	updateClearButtonState();
-
-	if (singleMode) {
-		_setWorkflowName(visualizer.currentWorkflowName);
+	try {
+		schemaGraph.api.lock.lock('Clearing workflow');
+		schemaGraph.closeAllPreviewTextOverlays?.();
+		schemaGraph.api.graph.clear();
+		schemaGraph.api.view.reset();
+		visualizer.initEmptyWorkflow();
+		visualizer.graphNodes = [];
+		_setWorkflowName(visualizer.currentWorkflowName || 'Untitled');
+		workflowDirty = true;
+		await syncWorkflow(visualizer.exportWorkflow(), null, true);
+		enableStart(true);
+		updateClearButtonState();
+		addLog('info', '🧹 Workflow cleared');
+	} finally {
+		schemaGraph.api.lock.unlock();
 	}
-	
-	addLog('info', '🧹 Graph cleared');
-}
-
-function toggleWorkflowMode() {
-	singleMode = $('singleModeSwitch').checked;
-	workflowDirty = true;
-	
-	$('multiWorkflowControls').style.display = singleMode ? 'none' : 'block';
-	$('singleWorkflowControls').style.display = singleMode ? 'block' : 'none';
-	
-	if (client?.isConnected) {
-		$('singleImportBtn').disabled = false;
-		$('singlePasteBtn').disabled = false;
-		$('singleDownloadBtn').disabled = !visualizer.currentWorkflow;
-		$('singleCopyBtn').disabled = !visualizer.currentWorkflow;
-	} else {
-		$('singleImportBtn').disabled = true;
-		$('singlePasteBtn').disabled = true;
-		$('singleDownloadBtn').disabled = true;
-		$('singleCopyBtn').disabled = true;
-	}
-	
-	addLog('info', singleMode ? '📄 Single workflow mode' : '📚 Multi workflow mode');
 }
 
 // ========================================================================
@@ -1551,10 +1473,7 @@ async function startExecution() {
 	try {
 		enableStart(false);
 
-		// In single mode, sync to backend if dirty
-		if (singleMode) {
-			await syncWorkflow();
-		}
+		await syncWorkflow();
 
 		const workflowName = visualizer.currentWorkflowName;
 		addLog('info', `⏳ Starting "${workflowName}"...`);
@@ -1565,7 +1484,7 @@ async function startExecution() {
 		// Start buffering events before the POST so nothing is lost
 		_pendingExecEvents = [];
 
-		const response = await client.startWorkflow(workflowName, initialData);
+		const response = await client.startWorkflow(initialData);
 
 		if (response.status !== 'started') {
 			_pendingExecEvents = [];
@@ -1573,12 +1492,15 @@ async function startExecution() {
 		}
 
 		currentExecutionId = response.execution_id;
+		currentPlatformExecutionId = response.platform_execution_id || response.execution_id;
 
 		// Replay any events that arrived during the POST
 		_flushPendingExecEvents();
 
 	} catch (error) {
 		_pendingExecEvents = [];
+		currentExecutionId = null;
+		currentPlatformExecutionId = null;
 		enableStart(true);
 		addLog('error', `❌ Start failed: ${error.message}`);
 	}
@@ -1838,7 +1760,7 @@ async function cancelExecution() {
 
 	try {
 		$('cancelBtn').disabled = true;
-		await client.cancelExecution(currentExecutionId);
+		await client.cancelExecution(currentPlatformExecutionId || currentExecutionId);
 	} catch (error) {
 		addLog('error', `❌ Cancel failed: ${error.message}`);
 		$('cancelBtn').disabled = false;
@@ -3045,7 +2967,7 @@ class CredentialManager {
 	}
 
 	_canManage() {
-		return _isAdminUser();
+		return _isAuthenticatedUser();
 	}
 
 	_headers(includeJson = false) {
@@ -3186,6 +3108,3 @@ class CredentialManager {
 // ============================================================================
 // END: Frontend editor enhancements
 // ============================================================================
-
-$('uploadWorkflowBtn').disabled = true;
-	$('pasteWorkflowBtn').disabled = true;

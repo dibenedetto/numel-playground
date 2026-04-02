@@ -232,6 +232,26 @@ class PublishedAppManager:
 		except Exception as e:
 			return {"error": str(e)}
 
+	def _default_engine(self):
+		ws_obj = self._ws_mgr.get_default_workspace()
+		return ws_obj.engine
+
+	def get_execution_state(self, execution_id: str) -> Optional[Dict[str, Any]]:
+		return self._default_engine().get_execution_state(execution_id)
+
+	def get_execution_results(self, execution_id: str) -> Optional[Dict[str, Any]]:
+		return self._default_engine().get_execution_results(execution_id)
+
+	async def cancel_execution(self, execution_id: str):
+		return await self._default_engine().cancel_execution(execution_id)
+
+	async def provide_user_input(self, execution_id: str, node_id: str, user_input: Any):
+		return await self._default_engine().provide_user_input(
+			execution_id=execution_id,
+			node_id=node_id,
+			user_input=user_input,
+		)
+
 	# ── HTML Generation ───────────────────────────────────────────
 
 	@staticmethod
@@ -555,7 +575,7 @@ textarea {{ min-height: 80px; resize: vertical; }}
     setStatus('Resuming\u2026', 'running');
     addLog('user_input.received', value);
     try {{
-      await fetch(BASE + '/exec_input/' + execId, {{
+      await fetch(BASE + '/apps/' + SLUG + '/executions/' + execId + '/input', {{
         method:  'POST',
         headers: {{'Content-Type': 'application/json'}},
         body:    JSON.stringify({{node_id: pendingNodeId, input_data: value}}),
@@ -614,7 +634,7 @@ textarea {{ min-height: 80px; resize: vertical; }}
     done = true;
     cleanup();
     try {{
-      var resp  = await fetch(BASE + '/exec_state/' + execId, {{method: 'POST'}});
+      var resp  = await fetch(BASE + '/apps/' + SLUG + '/executions/' + execId, {{method: 'POST'}});
       var body  = await resp.json();
       var state = body.state || {{}};
       var st    = (state.status || '').toLowerCase();
@@ -635,7 +655,7 @@ textarea {{ min-height: 80px; resize: vertical; }}
   async function pollStatus() {{
     if (done) return;
     try {{
-      var resp  = await fetch(BASE + '/exec_state/' + execId, {{method: 'POST'}});
+      var resp  = await fetch(BASE + '/apps/' + SLUG + '/executions/' + execId, {{method: 'POST'}});
       var body  = await resp.json();
       var state = body.state || {{}};
       var st    = (state.status || '').toLowerCase();
@@ -693,7 +713,7 @@ textarea {{ min-height: 80px; resize: vertical; }}
     addLog('workflow.cancelled', 'user cancelled');
     setStatus('Cancelled', 'error');
     try {{
-      await fetch(BASE + '/exec_cancel/' + execId, {{method: 'POST'}});
+      await fetch(BASE + '/apps/' + SLUG + '/executions/' + execId + '/cancel', {{method: 'POST'}});
     }} catch (e) {{}}
   }});
 
@@ -1544,6 +1564,48 @@ def setup_published_apps_api(app: FastAPI, app_mgr: PublishedAppManager, gallery
 			body = {}
 		result = await app_mgr.start(slug, body)
 		return JSONResponse(result)
+
+	@app.post("/apps/{slug}/executions/{execution_id}")
+	async def apps_execution_state(slug: str, execution_id: str):
+		published_app = app_mgr.get(slug)
+		if not published_app or not published_app.enabled:
+			return JSONResponse(status_code=404, content={"error": "App not found or disabled"})
+		state = app_mgr.get_execution_state(execution_id)
+		if state is None:
+			return JSONResponse(status_code=404, content={"error": f"Execution '{execution_id}' not found"})
+		return {
+			"execution_id": execution_id,
+			"state": state,
+		}
+
+	@app.post("/apps/{slug}/executions/{execution_id}/cancel")
+	async def apps_execution_cancel(slug: str, execution_id: str):
+		published_app = app_mgr.get(slug)
+		if not published_app or not published_app.enabled:
+			return JSONResponse(status_code=404, content={"error": "App not found or disabled"})
+		state = await app_mgr.cancel_execution(execution_id)
+		return {
+			"execution_id": execution_id,
+			"status": "cancelled",
+			"state": state,
+		}
+
+	class _PublishedAppInputRequest(BaseModel):
+		node_id: str
+		input_data: Any
+
+	@app.post("/apps/{slug}/executions/{execution_id}/input")
+	async def apps_execution_input(slug: str, execution_id: str, request: _PublishedAppInputRequest):
+		published_app = app_mgr.get(slug)
+		if not published_app or not published_app.enabled:
+			return JSONResponse(status_code=404, content={"error": "App not found or disabled"})
+		await app_mgr.provide_user_input(execution_id, request.node_id, request.input_data)
+		return {
+			"execution_id": execution_id,
+			"status": "input_received",
+			"node_id": request.node_id,
+			"input_data": request.input_data,
+		}
 
 	@app.post("/apps/{slug}/run")
 	async def apps_run(slug: str, request: Request):

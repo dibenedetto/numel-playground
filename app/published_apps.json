@@ -1467,5 +1467,83 @@
     "error_count": 2,
     "last_run_at": "2026-03-30T10:27:07.449676",
     "last_error": "Cancelled by user"
+  },
+  "smoke-app": {
+    "id": "app_e48fcab4",
+    "name": "Smoke App",
+    "slug": "smoke-app",
+    "description": "",
+    "workflow": {
+      "type": "workflow",
+      "id": "b250becc-cc98-4ecc-8af2-ab605332d042",
+      "extra": null,
+      "options": {
+        "type": "workflow_options",
+        "id": "95572fa0-7e9f-4d1e-8795-e86383b77761",
+        "extra": null,
+        "name": "Planner Applied Workflow",
+        "description": null,
+        "seed": 777
+      },
+      "nodes": [
+        {
+          "type": "start_flow",
+          "id": "d2afc6c3-8b0d-49e9-b875-681ee5f5ef3d",
+          "extra": {
+            "name": "Start",
+            "pos": [
+              0,
+              0
+            ]
+          },
+          "flow_in": null,
+          "flow_out": null
+        },
+        {
+          "type": "end_flow",
+          "id": "47a70ec9-ce2f-4ad9-8f4f-a4c2f499c5e7",
+          "extra": {
+            "name": "End",
+            "pos": [
+              240,
+              0
+            ]
+          },
+          "flow_in": null,
+          "flow_out": null
+        }
+      ],
+      "edges": [
+        {
+          "type": "edge",
+          "id": "31f788c2-bc43-4e81-9060-723320fc23f0",
+          "extra": null,
+          "preview": false,
+          "preview_pos": null,
+          "loop": false,
+          "source": 0,
+          "target": 1,
+          "source_slot": "flow_out",
+          "target_slot": "flow_in"
+        }
+      ]
+    },
+    "inputs": [
+      {
+        "name": "id",
+        "label": "Id",
+        "type": "text",
+        "default": "d2afc6c3-8b0d-49e9-b875-681ee5f5ef3d",
+        "required": true
+      }
+    ],
+    "published": "2026-04-02T22:16:36.149352",
+    "enabled": true,
+    "runs": 1,
+    "author": "",
+    "run_count": 0,
+    "error_count": 0,
+    "last_run_at": null,
+    "last_error": null
   }
 }

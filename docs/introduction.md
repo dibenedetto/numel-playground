@@ -23,7 +23,7 @@ Numel Playground is a visual workflow editor for building and running agentic AI
 
 - **Backend**: FastAPI server (`app/`) with Pydantic models defining every node type. The schema source code is sent to the frontend, which parses it to build the node palette dynamically.
 - **Frontend**: Vanilla JavaScript canvas-based graph editor (`web/schemagraph/`). No build step required for the core UI.
-- **Communication**: REST API for commands (upload, start, cancel), WebSocket for real-time events (node status changes, execution progress, streaming output).
+- **Communication**: REST for schema, spaces, the current workflow, and execution control; WebSocket for real-time events and streaming output.
 
 ## Getting Started
 
@@ -47,13 +47,19 @@ The server starts on port 11360 by default.
 
 1. Open `web/index.html` in your browser (serve via any static file server, or open directly)
 2. Enter the server URL (default: `http://localhost:11360`) in the connection panel
-3. Click **Connect** — the status indicator turns green when connected
+3. Sign in or create an account
+4. Click **Connect** — the status indicator turns green when connected
 
-### Importing a Workflow
+### Current Space and Current Workflow
 
-1. Click the **Import** button in the left panel, or drag a `.json` file onto the canvas
-2. The workflow nodes appear on the canvas with their connections
-3. Click **Start** to execute the workflow
+Numel now saves **one current workflow per space**.
+
+1. Use the **Space** selector in the left panel to choose or create a space.
+2. Click **Import** in the Workflow section, or drag a `.json` file onto the canvas.
+3. The imported graph replaces the current canvas for the selected space.
+4. Click **Start** to execute that current workflow.
+
+Canvas tags inside the editor are still available for navigation and organization, but they are not separate saved backend workflows.
 
 ## The Canvas
 

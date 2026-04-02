@@ -875,7 +875,7 @@ class AgentConsoleManager {
 		try {
 			const ctx = await this.api.consoleContext();
 			if (ctx.context) {
-				augmented = `[Current workspace state]\n${ctx.context}\n\n[User message]\n${text}`;
+				augmented = `[Current space state]\n${ctx.context}\n\n[User message]\n${text}`;
 			}
 		} catch { /* proceed without context */ }
 
@@ -1064,7 +1064,7 @@ class AgentConsoleManager {
 		// Add styled action button below the message
 		const btn = document.createElement('button');
 		btn.className = 'nw-console-action-btn';
-		const btnLabel = '<svg viewBox="0 0 24 24"><path d="M3 15v4c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Load workflow';
+		const btnLabel = '<svg viewBox="0 0 24 24"><path d="M3 15v4c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Load into Current Space';
 		btn.innerHTML = btnLabel;
 		btn.addEventListener('click', async () => {
 			btn.disabled = true;
@@ -1087,7 +1087,7 @@ class AgentConsoleManager {
 			await window.loadAndSyncWorkflow(workflow, workflow.name || 'Generated Workflow');
 		} else {
 			// Fallback: post to backend
-			await this.api.addWorkflow(workflow);
+			await this.api.saveWorkflow(workflow);
 		}
 	}
 

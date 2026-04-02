@@ -8,7 +8,7 @@ Demonstrates the new Numel Playground features:
 
 Prerequisites:
   - Server running at http://localhost:11360
-  - Console agent started (POST /console/start)
+  - An authenticated user (defaults to demo / demo-pass)
 
 Usage:
   cd examples/api
@@ -21,6 +21,7 @@ from client import NumelClient
 
 async def main():
 	async with NumelClient() as c:
+		await c.ensure_auth()
 		print("=" * 60)
 		print("Example 09: Memory, Channels, Self-Improving Agent")
 		print("=" * 60)

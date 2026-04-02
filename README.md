@@ -23,7 +23,7 @@
 | Real-time browser ML | MediaPipe pose/face/hands | No | No |
 | Unified multi-channel | 9 platforms + web console | Limited | No |
 | Agent-first architecture | Native nodes | Integration only | N/A |
-| Per-user isolation | Workspaces, memory, agents — cross-channel | No | No |
+| Per-user isolation | Spaces, credentials, memory, executions — cross-channel | No | No |
 | Multi-tenant with quotas | Roles, quotas, admin panel | Enterprise only | No |
 | Autonomous agent tasks | Scheduled/event-driven background agents | Workflows only | No |
 | Swappable provider backends | Auth, Data, Execution | No | No |
@@ -53,7 +53,7 @@
               ChannelCommandHandler
               ChannelAgentPool (per-user)
               UserMemoryDB (per-user SQLite)
-              WorkspaceManager (per-user)
+              Platform HTTP layer (spaces, auth, executions)
 ```
 
 - **Backend**: FastAPI server (`app/`) with Pydantic models defining every node type. The raw Python schema source is sent to the frontend, which parses it to build the node palette dynamically — no build step.
@@ -87,7 +87,19 @@ Optional flags:
 
 1. Open `web/index.html` in your browser (serve via any static file server, or open directly)
 2. Enter the server URL (default: `http://localhost:11360`)
-3. Click **Connect** — the status indicator turns green
+3. Sign in or create an account
+4. Click **Connect** — the status indicator turns green
+
+### Current Space Workflow Model
+
+Numel now stores **one current workflow per space**.
+
+1. Create or select a **space** in the Workflow panel
+2. Import a tutorial, gallery item, or JSON file into that current space
+3. Edit the canvas as usual
+4. Start executions against the selected space's current workflow
+
+Canvas tags remain available inside the editor for organization and alternate views, but they do not create separate saved backend workflows.
 
 ---
 
@@ -100,7 +112,7 @@ Optional flags:
 - **Code editor modal** for Python/Jinja2 script fields
 - **Node search** (Ctrl+F) with instant filtering
 - **Mini-map** for large workflow navigation
-- **Multi-tab** support for parallel workflows
+- **One current workflow per space** with canvas tags for in-editor organization
 - **6 drawing styles**: Default, Minimal, Blueprint, Neon, Organic, Wireframe
 - **3 themes**: Dark, Light, Ocean
 - **Selection rectangle**, copy/paste, snap-to-grid
@@ -168,7 +180,7 @@ The web assistant console is treated as just another channel — the same code p
 - **Cross-channel messaging** — agents can send messages to users on any running channel via the `channel_toolkit` (list channels, send to specific user, broadcast) or the **Channel Send** workflow node
 - **Channel-to-channel workflows** — **Channel Receive** event source + **Channel Send** node enable workflows that bridge channels: e.g. translate Telegram messages and forward to Discord, or archive all channel messages to email
 - **Per-session auth tokens** — each agent session carries its own auth token, forwarded to toolkits like `workspace_toolkit` so that API calls respect the originating user's permissions
-- **Channel ownership** — only the channel creator (or admins) can start, stop, or edit a channel; guests cannot create channels
+- **Channel ownership** — only the channel creator (or admins) can start, stop, or edit a channel; unauthenticated callers cannot create channels
 
 #### Channel Commands
 
@@ -193,7 +205,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 ### Published Apps
 - Export any workflow as a **standalone web endpoint** with auto-generated UI
 - Access via `/apps/{slug}` — anyone with the URL can run it
-- **Publish from gallery** — gallery workflows can be published by name (not just workspace workflows)
+- **Publish current work** — publish the current workflow directly from the editor, or publish a gallery item by loading it into a space first
 - **User input modals** — workflows with `user_input_flow` nodes pause and prompt the user inline
 - **Live event log** — real-time WebSocket updates (node progress, errors) with REST polling fallback
 - **Event history replay** — events that fire before WebSocket connects are replayed on connection, so fast-completing nodes are never missed
@@ -218,13 +230,13 @@ Web console users authenticated via the login modal are auto-linked — no expli
 - **Extensions panel** — inspect shared toolkits, upload/remove contrib toolkits, and view/add/setup/remove skills from the GUI
 - **Voice features**: Text-to-speech (with voice/language selection), speech-to-text (microphone input)
 - **Per-user memory** — each user gets an isolated SQLite memory database, persistent across sessions and shared across channels
-- **Per-user workspaces** — each authenticated user gets an isolated workspace (own workflows + engine); guests get ephemeral workspaces (auto-evicted after 24 h)
+- **Per-user spaces** — each authenticated user gets isolated spaces with one persisted current workflow per space
 - **Multi-user support** — multiple users connecting to the same server each get their own agent instance via `ChannelAgentPool`
 - **Proactive suggestions** via WebSocket
 - **`/gen` command** — generate workflows from natural language
 
 ### User Management & Admin
-- **Multi-user auth** with registration, login, and guest access
+- **Multi-user auth** with registration, login, roles, and quotas
 - **Role-based access control** (Admin / User / Viewer)
 - **Per-user resource quotas** (CPU, storage, GPU, concurrent runs)
 - **User panel** — profile info, quota usage bars, and password change
@@ -336,8 +348,8 @@ Direct value nodes: **String**, **Integer**, **Real**, **Boolean**, **List**, **
 | **search_toolkit** | search, news | Web search (DuckDuckGo, Tavily) |
 | **slack_toolkit** | send_message, list_channels, get_messages | Slack API integration |
 | **code_toolkit** | create_toolkit, read_toolkit, list_toolkits | Dynamic Python toolkit creation |
-| **console_toolkit** | get_workflow_summary, validate_workflow | Workspace inspection (read-only) |
-| **workspace_toolkit** | add_node, connect, run, get_eval_scores | Workspace editing (planner mode) |
+| **console_toolkit** | get_workflow_summary, validate_workflow | Current-space inspection (read-only) |
+| **workspace_toolkit** | add_node, connect, run, get_eval_scores | Current-space editing (planner mode) |
 | **comfyui_toolkit** | generate, generate_simple, upload_image, list_models | ComfyUI server integration (19 tools) |
 | **diffusers_toolkit** | generate, img2img, list_models, change_model | Native HuggingFace image generation |
 | **image_eval_toolkit** | clip_score, aesthetic_score, evaluate, compare | Image quality evaluation (CLIP + LAION) |
@@ -522,11 +534,10 @@ Configure via `app/server_config.json`:
 
 ### Login Flow
 
-When auth is enabled (`"type": "local"`), the frontend shows a login modal at startup with three options:
+When auth is enabled (`"type": "local"`), the frontend shows a login modal at startup with two options:
 
 1. **Sign In** — username and password
 2. **Create Account** — register a new user (first user automatically becomes admin)
-3. **Continue as Guest** — skip authentication and use the app without an account
 
 After login, a Bearer token is stored in `localStorage` and injected into all API requests. The **User Panel** (click the user icon or username) shows your profile, quota usage with color-coded progress bars, and a password change form.
 
@@ -605,7 +616,7 @@ The `system_toolkit` exposes all admin operations as agent tools, so the AI assi
 
 ## Per-User Isolation
 
-Numel provides per-user isolation at the platform level for both memory and workspaces. Each authenticated user gets their own resources regardless of which entry point they use (web console, Telegram, Discord, etc.).
+Numel provides per-user isolation at the platform level for memory, spaces, executions, and credentials. Each authenticated user gets their own resources regardless of which entry point they use (web console, Telegram, Discord, etc.).
 
 ### Memory
 
@@ -615,29 +626,30 @@ The `UserMemoryDB` manager resolves user identities to separate SQLite database 
 |-----------|---------------|----------|
 | Authenticated user | `storage/user_memory/user_{user_id}.db` | Persistent |
 | Anonymous channel user | `storage/user_memory/anon_{channel}_{sender_id}.db` | Persistent |
-| Guest (web, no login) | `storage/user_memory/guest_{session_id}.db` | Ephemeral (24h) |
-
 **Cross-channel identity**: An authenticated user always resolves to the same database. If user "marco" chats via the web console and also via Telegram (after `/login`), both sessions share `user_{marco_id}.db`.
 
 **Framework-agnostic**: `UserMemoryDB` only manages file paths — it doesn't import any agent framework. The caller (agno, langchain, openai agents sdk, etc.) wraps the path in its own DB abstraction. Switching agent frameworks doesn't require changes to the memory layer.
 
-**Guest cleanup**: Ephemeral guest databases are automatically deleted after 24 hours by the `ChannelAgentPool` cleanup loop.
+### Spaces
 
-### Workspaces
+Each authenticated user gets isolated spaces. A space owns:
+- metadata such as title, slug, visibility, and history
+- one persisted **current workflow** stored at `workflow.json`
+- execution history scoped to that space
 
-Each authenticated user gets their own isolated workspace, created lazily on first request:
+The frontend now works like this:
+- select or create a **space**
+- import or edit the **current workflow** for that space
+- start executions against that one current workflow
 
-| User Type | Workspace | Lifetime |
-|-----------|-----------|----------|
-| Authenticated user | `user_{user_id}` workspace | Persistent |
-| Guest (web, no login) | `guest_{session_id}` workspace | Ephemeral (24h) |
-| No auth mode | Per-tab session workspace | Ephemeral (24h) |
+Canvas tags remain available inside the editor for organization and alternate views, but they are not separate saved backend workflows.
 
-A workspace owns its own workflow manager (add/get/list/remove/save workflows) and execution engine (start/cancel/status). Multiple workflows can run concurrently within a single user's engine. Guest workspaces are automatically evicted after 24 hours by the cleanup loop — same lifecycle as guest memory.
+**Cross-channel workflows**: when a user enables the planner from Telegram or the web console, it operates on that user's current space and workflow context.
 
-**Cross-channel workflows**: When user "marco" enables the planner from Telegram, the generated workflow is stored in marco's workspace — the same one visible when he opens the web canvas.
-
-**All API routes** (`/add`, `/start`, `/list`, `/exec_state`, etc.) automatically resolve the caller's workspace from the auth token and session ID. No client-side changes needed.
+**Core workflow routes** now operate on the selected space:
+- `/spaces/current`, `/spaces/list`, `/spaces/create`, `/spaces/select`, `/spaces/delete`
+- `/workflow/get`, `/workflow/save`, `/workflow/delete`, `/workflow/start`
+- `/executions/list`, `/executions/{id}`, `/executions/{id}/results`, `/executions/{id}/cancel`
 
 **Channel ownership**: Only the user who created a channel adapter can start, stop, edit, or remove it. Admins can manage all channels.
 
@@ -753,7 +765,9 @@ Pre-built workflow examples accessible from the Gallery panel:
 | **planner** | Self-refining agent, email summary, file monitor, research pipeline, webhook responder |
 | **webcam** | Pose detection (frontend + backend), audio gate |
 
-Import any gallery item directly into the canvas.
+Load any gallery item into the current space's canvas, or merge it with the current graph.
+
+Gallery items load into the current space and replace the current canvas/workflow unless you explicitly merge them.
 
 ---
 
@@ -780,12 +794,19 @@ All endpoints use **POST** method unless otherwise noted.
 | Endpoint | Description |
 |----------|-------------|
 | `/schema` | Get Python schema source |
-| `/add` | Add/update workflow |
-| `/list` | List workflows |
-| `/start` | Execute workflow |
-| `/exec_state/{id}` | Execution status |
-| `/exec_results/{id}` | Execution results |
-| `/exec_cancel/{id}` | Cancel execution |
+| `/spaces/current` | Get the selected space |
+| `/spaces/list` | List the current user's spaces |
+| `/spaces/create` | Create a new space |
+| `/spaces/select` | Switch the selected space |
+| `/spaces/delete` | Delete a space |
+| `/workflow/get` | Get the current workflow for the selected space |
+| `/workflow/save` | Save the current workflow for the selected space |
+| `/workflow/delete` | Delete the current workflow from the selected space |
+| `/workflow/start` | Execute the selected space's current workflow |
+| `/executions/list` | List executions for the selected space |
+| `/executions/{id}` | Execution status |
+| `/executions/{id}/results` | Execution results |
+| `/executions/{id}/cancel` | Cancel execution |
 
 ### Authentication
 | Endpoint | Description |
@@ -827,7 +848,7 @@ All endpoints use **POST** method unless otherwise noted.
 | `/console/stop` | Stop console agent |
 | `/console/chat` | Send message — routes `/commands` through `ChannelCommandHandler`, per-user agents via pool |
 | `/console/status` | Agent status (model, toolkits, sessions) |
-| `/console/context` | Current workspace context |
+| `/console/context` | Current space and workflow context |
 | `/console/toolkits` | List available toolkits with descriptions |
 | `/console/planner/enable` | Enable planner for session (accepts `session_id`) |
 | `/console/planner/disable` | Disable planner for session |
@@ -906,7 +927,7 @@ All endpoints use **POST** method unless otherwise noted.
 ### WebSocket Streams
 | Endpoint | Events |
 |----------|--------|
-| `/events` | workflow.started, .completed, .failed, node.*, workspace.changed, eval_scored |
+| `/events` | workflow.started, .completed, .failed, node.*, workspace.changed (used to reload the current workflow), eval_scored |
 | `/stream/{source_id}` | Real-time media frames and display overlays |
 | `/ws/console` | Proactive agent suggestions and planner messages |
 

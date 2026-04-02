@@ -524,7 +524,7 @@ class ChatOverlayManager {
 						.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 					const actionsHtml = `
 						<div class="sg-chat-workflow-actions">
-							<button class="sg-chat-workflow-import-btn" data-msg-id="${lastMsg.id}">Import to Canvas</button>
+							<button class="sg-chat-workflow-import-btn" data-msg-id="${lastMsg.id}">Load into Current Space</button>
 							<button class="sg-chat-workflow-merge-btn" data-msg-id="${lastMsg.id}">Merge into Canvas</button>
 							<button class="sg-chat-workflow-copy-btn" data-msg-id="${lastMsg.id}">Copy JSON</button>
 							<button class="sg-chat-workflow-open-btn" data-msg-id="${lastMsg.id}">Open in new Tab</button>
@@ -795,7 +795,7 @@ class ChatOverlayManager {
 				.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 			actions = `
 				<div class="sg-chat-workflow-actions">
-					<button class="sg-chat-workflow-import-btn" data-msg-id="${msg.id}">Import to Canvas</button>
+					<button class="sg-chat-workflow-import-btn" data-msg-id="${msg.id}">Load into Current Space</button>
 					<button class="sg-chat-workflow-merge-btn" data-msg-id="${msg.id}">Merge into Canvas</button>
 					<button class="sg-chat-workflow-copy-btn" data-msg-id="${msg.id}">Copy JSON</button>
 					<button class="sg-chat-workflow-open-btn" data-msg-id="${msg.id}">Open in new Tab</button>

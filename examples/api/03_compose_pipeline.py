@@ -1,12 +1,9 @@
 """
-Example 3: Workflow Composition (Pipeline)
-==========================================
-Chain two workflows sequentially: the output of step 1
-feeds into step 2 via input_map.
-
-Pipeline:
-	generate-data  →  process-data
-	(produces list)    (receives & transforms it)
+Example 3: Compose a Multi-Step Pipeline in One Current Workflow
+================================================================
+The old multi-workflow compose flow is no longer the primary interface.
+This example shows the same idea using one current workflow inside one
+space: multiple transform steps wired into a single pipeline.
 
 Run:
 	python examples/api/03_compose_pipeline.py
@@ -15,78 +12,61 @@ Run:
 import asyncio
 
 
-from   client  import NumelClient
+from client import NumelClient
 
 
-GENERATE_WF = {
-	"options": {"type": "workflow_options", "name": "generate-data"},
+PIPELINE_WORKFLOW = {
+	"options": {
+		"type": "workflow_options",
+		"name": "pipeline-demo",
+		"description": "Generate data, process it, and preview a summary.",
+	},
 	"nodes": [
-		{"type": "start_flow",     "extra": {"name": "Start"}},
-		{"type": "transform_flow", "extra": {"name": "Generate"},
-		"lang": "python",
-		"script": 'output = {"items": ["apple", "banana", "cherry", "date"]}'},
-		{"type": "end_flow",       "extra": {"name": "End"}},
+		{"type": "start_flow", "extra": {"name": "Start"}},
+		{
+			"type": "transform_flow",
+			"extra": {"name": "Generate"},
+			"lang": "python",
+			"script": 'output = {"items": ["apple", "banana", "cherry", "date"]}',
+		},
+		{
+			"type": "transform_flow",
+			"extra": {"name": "Process"},
+			"lang": "python",
+			"script": (
+				'items = input.get("items", [])\n'
+				'output = {"summary": f"Processed {len(items)} items", "upper": [item.upper() for item in items]}'
+			),
+		},
+		{"type": "preview_flow", "extra": {"name": "Preview"}},
+		{"type": "end_flow", "extra": {"name": "End"}},
 	],
 	"edges": [
 		{"source": 0, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in"},
-		{"source": 1, "target": 2, "source_slot": "output",   "target_slot": "flow_in"},
-	],
-}
-
-PROCESS_WF = {
-	"options": {"type": "workflow_options", "name": "process-data"},
-	"nodes": [
-		{"type": "start_flow",     "extra": {"name": "Start"}},
-		{"type": "transform_flow", "extra": {"name": "Process"},
-		"lang": "python",
-		"script": 'output = {"summary": f"Processed {len(context.get(\"items\", []))} items", "upper": [x.upper() for x in context.get("items", [])]}',
-		"context": {"items": []}},
-		{"type": "end_flow",       "extra": {"name": "End"}},
-	],
-	"edges": [
-		{"source": 0, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in"},
-		{"source": 1, "target": 2, "source_slot": "output",   "target_slot": "flow_in"},
+		{"source": 1, "target": 2, "source_slot": "output", "target_slot": "flow_in"},
+		{"source": 2, "target": 3, "source_slot": "output", "target_slot": "flow_in"},
+		{"source": 3, "target": 4, "source_slot": "output", "target_slot": "flow_in"},
 	],
 }
 
 
 async def main():
 	async with NumelClient() as c:
-		# Upload both workflows
-		await c.add(GENERATE_WF, "generate-data")
-		await c.add(PROCESS_WF,  "process-data")
-		print("Uploaded: generate-data, process-data")
+		await c.ensure_auth()
+		space = await c.ensure_space("API Example 03", slug="api-example-03", description="Single-workflow pipeline")
+		print(f"Using space: {space['id']} ({space['title']})")
 
-		# Compose: run generate-data first, then process-data
-		# input_map wires the "items" output from step 1 into step 2
-		r = await c.compose([
-			{"workflow_name": "generate-data"},
-			{"workflow_name": "process-data",
-			"input_map": {"items": "items"}},
-		])
-		compose_id = r["compose_id"]
-		print(f"Compose started: {compose_id}")
+		await c.replace_current_workflow(PIPELINE_WORKFLOW, name="pipeline-demo")
+		started = await c.start_workflow()
+		results = await c.wait(started["execution_id"])
 
-		# Poll until done
-		while True:
-			state = await c.compose_state(compose_id)
-			if state["status"] in ("completed", "failed", "cancelled"):
-				break
-			await asyncio.sleep(0.5)
+		print(f"Execution status: {results['status']}")
+		for node_idx, outputs in results["node_outputs"].items():
+			if outputs:
+				print(f"Node {node_idx}: {outputs}")
 
-		print(f"Pipeline status: {state['status']}")
-		for step in state.get("steps", []):
-			print(f"  Step {step['index']} ({step['workflow_name']}): {step['status']}")
-			if step.get("execution_id"):
-				results = await c.results(step["execution_id"])
-				for idx, outputs in results["node_outputs"].items():
-					if outputs:
-						print(f"    outputs: {outputs}")
-
-		# Clean up
-		await c.remove("generate-data")
-		await c.remove("process-data")
-		print("\nCleaned up.")
+		await c.delete_workflow()
+		print("Done.")
 
 
 if __name__ == "__main__":

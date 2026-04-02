@@ -2,6 +2,7 @@
 # Self-contained module: agent lifecycle, API routes, chat, proactive behavior.
 
 import asyncio
+import httpx
 import json
 import os
 import time
@@ -198,14 +199,19 @@ class ConsoleAgentManager:
 	def __init__(self, workspace_mgr, event_bus: EventBus, port: int,
 				 config_path: str = _CONFIG_PATH,
 				 memory_store: Optional['MemoryStore'] = None,
-				 user_memory_db=None):
+				 user_memory_db=None,
+				 base_url: str = "http://localhost:11360",
+				 internal_token: str = ""):
 		self._ws_mgr       = workspace_mgr
 		self._event_bus     = event_bus
 		self._port          = port
+		self._base_url      = base_url.rstrip("/")
+		self._internal_token = internal_token
 		self._config_path   = config_path
 		self._memory        = memory_store
 		self._user_memory_db = user_memory_db       # UserMemoryDB for per-user isolation
 		self._current_user_id: Optional[str] = None # set on start / chat
+		self._agent_user_id: Optional[str] = None
 		self._agent         = None
 		self._app           = None
 		self._server        = None
@@ -229,6 +235,8 @@ class ConsoleAgentManager:
 		self._planner_lock  = asyncio.Lock()          # serializes planner turns across sessions
 		self._workflow_lock = asyncio.Lock()           # exclusive workflow access during planner modifications
 		self._channel_pool: Optional['ChannelAgentPool'] = None  # set later via set_channel_pool()
+		self._fastapi_app   = None
+		self._auth_token    = ""
 
 	def set_channel_pool(self, pool: 'ChannelAgentPool'):
 		"""Inject the channel pool so planner turns use per-user agents."""
@@ -310,6 +318,33 @@ class ConsoleAgentManager:
 		p = self._planners.get(self._planner_key(user_id, session_id))
 		return p is not None and p.enabled
 
+	def _request_headers(self, user_id: Optional[str] = None) -> Dict[str, str]:
+		headers: Dict[str, str] = {}
+		acting_user_id = user_id or self._current_user_id
+		if self._auth_token and (acting_user_id is None or acting_user_id == self._current_user_id):
+			headers["Authorization"] = f"Bearer {self._auth_token}"
+		elif self._internal_token and acting_user_id:
+			headers["x-numel-platform-internal"] = self._internal_token
+			headers["x-numel-acting-user"] = acting_user_id
+		return headers
+
+	async def _post_json(self, path: str, body: Optional[Dict[str, Any]] = None,
+						 user_id: Optional[str] = None) -> Dict[str, Any]:
+		headers = self._request_headers(user_id=user_id)
+		if self._fastapi_app is not None:
+			async with httpx.AsyncClient(
+				transport=httpx.ASGITransport(app=self._fastapi_app),
+				base_url=self._base_url,
+				timeout=30.0,
+			) as client:
+				resp = await client.post(path, json=body or {}, headers=headers)
+		else:
+			async with httpx.AsyncClient(base_url=self._base_url, timeout=30.0) as client:
+				resp = await client.post(path, json=body or {}, headers=headers)
+		resp.raise_for_status()
+		data = resp.json()
+		return data if isinstance(data, dict) else {}
+
 	# ── Lifecycle ──────────────────────────────────────────────────
 
 	async def start(self, model_source: Optional[str] = None,
@@ -356,7 +391,8 @@ class ConsoleAgentManager:
 			and source == self._model_source
 			and name == self._model_name
 			and toolkits == self._toolkit_names
-			and skill_names == self._skill_names):
+			and skill_names == self._skill_names
+			and user_id == self._agent_user_id):
 			return self._port
 
 		# Restart if already running
@@ -368,12 +404,19 @@ class ConsoleAgentManager:
 		self._model_name    = name
 		self._toolkit_names = toolkits
 		self._skill_names   = skill_names
+		self._agent_user_id = user_id
 
 		# Build tools from all configured toolkits
 		tools = []
 		for tk_name in toolkits:
 			if tk_name == "console_toolkit":
-				toolkit = ConsoleToolkit(self._ws_mgr, user_id=user_id)
+				toolkit = ConsoleToolkit(
+					base_url=self._base_url,
+					auth_token=self._auth_token,
+					internal_token=self._internal_token,
+					user_id=user_id,
+					local_app=self._fastapi_app,
+				)
 				tools.extend(_extract_tools(toolkit))
 			elif tk_name == "channel_toolkit":
 				from toolkits.channel_toolkit import ChannelToolkit
@@ -381,9 +424,13 @@ class ConsoleAgentManager:
 				tools.extend(_extract_tools(toolkit))
 			else:
 				tk_args = dict(_toolkit_args.get(tk_name) or {})
-				# Inject auth token into workspace_toolkit for per-user workspace
-				if tk_name == "workspace_toolkit" and getattr(self, '_auth_token', ''):
-					tk_args.setdefault("auth_token", self._auth_token)
+				if tk_name == "workspace_toolkit":
+					tk_args.setdefault("base_url", self._base_url)
+					tk_args.setdefault("internal_token", self._internal_token)
+					tk_args.setdefault("user_id", user_id)
+					tk_args.setdefault("local_app", self._fastapi_app)
+					if getattr(self, '_auth_token', ''):
+						tk_args.setdefault("auth_token", self._auth_token)
 				tools.extend(_load_toolkit(tk_name, tk_args or None))
 
 		log_print(f"Console agent tools: {[getattr(t, '__name__', str(t)) for t in tools]}")
@@ -718,10 +765,10 @@ class ConsoleAgentManager:
 						# Augment message with planner context (pool agent has no built-in injection)
 						augmented = message
 						try:
-							ctx = self.get_context(user_id=ps.user_id)
+							ctx = await self.get_context(user_id=ps.user_id)
 							parts = []
 							if ctx.get("context"):
-								parts.append(f"[Current workspace state]\n{ctx['context']}")
+								parts.append(f"[Current space state]\n{ctx['context']}")
 							if parts:
 								augmented = "\n\n".join(parts) + f"\n\n{message}"
 						except Exception:
@@ -804,12 +851,12 @@ class ConsoleAgentManager:
 
 		if include_context:
 			try:
-				ctx = self.get_context()
+				ctx = await self.get_context()
 				parts = []
 				if self._planner_enabled and self._planner_instructions:
 					parts.append(f"[Planner Instructions]\n{self._planner_instructions}")
 				if ctx.get("context"):
-					parts.append(f"[Current workspace state]\n{ctx['context']}")
+					parts.append(f"[Current space state]\n{ctx['context']}")
 				# Manual memory retrieval (only when not using backend)
 				if self._memory and not self._use_backend_memory:
 					mem_ctx = self._memory.get_context_for_query(message)
@@ -930,11 +977,8 @@ class ConsoleAgentManager:
 		return None
 
 	async def _apply_workflow_json(self, wf_json: dict, user_id: Optional[str] = None) -> str:
-		"""Apply a workflow JSON dict directly via the workspace manager (in-process, no HTTP)."""
-		ws = self._ws_mgr.resolve_workspace_sync(user_id or self._current_user_id)
-		mgr = ws.manager
-		names = list(mgr._workflows.keys())
-		name = names[0] if names else "workspace"
+		"""Apply a workflow JSON dict through the current-workflow HTTP routes."""
+		acting_user_id = user_id or self._current_user_id
 		# Normalize alternate node formats the model may produce
 		for n in wf_json.get("nodes", []):
 			if "extra" not in n:
@@ -946,64 +990,65 @@ class ConsoleAgentManager:
 			fields = n.pop("fields", None)
 			if fields and isinstance(fields, dict):
 				n.update(fields)
-		# Build a minimal Workflow pydantic model from the JSON
-		from schema import Workflow
 		wf_json.setdefault("type", "workflow")
 		wf_json.setdefault("edges", [])
-		wf = Workflow.model_validate(wf_json)
-		await mgr.add(wf, name)
-		# Notify frontend
-		from event_bus import EventType as _ET, WorkflowEvent
-		import uuid as _uuid
-		from datetime import datetime as _dt, timezone as _tz
-		ev = WorkflowEvent(
-			event_id   = str(_uuid.uuid4()),
-			event_type = _ET.WORKSPACE_CHANGED,
-			timestamp  = _dt.now(_tz.utc).isoformat(),
-			data       = {"name": name},
-		)
-		await self._event_bus.publish(ev)
+		resp = await self._post_json("/workflow/save", {"workflow": wf_json}, user_id=acting_user_id)
+		name = resp.get("name") or "Current Workflow"
 		return f"ok: saved '{name}' ({len(wf_json.get('nodes', []))} nodes)"
 
 	# ── Context ────────────────────────────────────────────────────
 
-	def get_context(self, user_id: Optional[str] = None) -> dict:
-		"""Gather current workspace context for the console agent."""
-		ws = self._ws_mgr.resolve_workspace_sync(user_id or self._current_user_id)
-		mgr = ws.manager
-
+	async def get_context(self, user_id: Optional[str] = None) -> dict:
+		"""Gather current space context for the console agent through HTTP routes."""
+		acting_user_id = user_id or self._current_user_id
 		context_parts = []
 		has_workflow = False
+		execution_active = False
 
-		if mgr._workflows:
+		workflow_data = await self._post_json("/workflow/get", user_id=acting_user_id)
+		space = workflow_data.get("space") or {}
+		workflow = workflow_data.get("workflow")
+		if space:
+			space_title = str(space.get("title", "") or space.get("slug", "") or "Current Space")
+			context_parts.append(f"Space: {space_title}")
+
+		if isinstance(workflow, dict):
 			has_workflow = True
-			for wf_name, wf_data in mgr._workflows.items():
-				wf = wf_data.get("workflow") if isinstance(wf_data, dict) else wf_data
-				if wf is None:
+			nodes = workflow.get("nodes") or []
+			edges = workflow.get("edges") or []
+			wf_name = workflow_data.get("name") or "Current Workflow"
+			node_types = []
+			for i, node in enumerate(nodes):
+				if not isinstance(node, dict):
 					continue
-				nodes = getattr(wf, 'nodes', None) or []
-				edges = getattr(wf, 'edges', None) or []
-				node_types = []
-				for i, n in enumerate(nodes):
-					if n is None:
-						continue
-					ntype = getattr(n, 'type', '?')
-					nname = getattr(n, 'name', '') or ''
-					node_types.append(f"[{i}] {ntype}" + (f" ({nname})" if nname else ""))
+				ntype = str(node.get("type", "?"))
+				extra = node.get("extra") if isinstance(node.get("extra"), dict) else {}
+				nname = str(extra.get("name", "") or "")
+				node_types.append(f"[{i}] {ntype}" + (f" ({nname})" if nname else ""))
 
-				context_parts.append(f"Workflow '{wf_name}': {len(nodes)} nodes, {len(edges)} edges")
-				context_parts.append("Nodes: " + ", ".join(node_types[:20]))
-				if len(node_types) > 20:
-					context_parts.append(f"  ... and {len(node_types) - 20} more")
+			context_parts.append(f"Workflow '{wf_name}': {len(nodes)} nodes, {len(edges)} edges")
+			context_parts.append("Nodes: " + ", ".join(node_types[:20]))
+			if len(node_types) > 20:
+				context_parts.append(f"  ... and {len(node_types) - 20} more")
 		else:
-			context_parts.append("No workflow is currently loaded.")
+			context_parts.append("No workflow is currently loaded in the current space.")
 
-		engine = ws.engine
-		active = getattr(engine, '_active_executions', {}) if engine else {}
+		execution_data = await self._post_json("/executions/list", user_id=acting_user_id)
+		executions = execution_data.get("executions", []) or []
+		active = [row for row in executions if str(row.get("status", "")).lower() in ("queued", "running")]
+		execution_active = len(active) > 0
 		if active:
 			context_parts.append(f"Active executions: {len(active)}")
 		else:
 			context_parts.append("No active executions.")
+		if executions:
+			recent = executions[:3]
+			recent_summary = ", ".join(
+				f"{str(row.get('execution_id', '') or '')[:8]} ({row.get('status', '?')})"
+				for row in recent
+			)
+			if recent_summary:
+				context_parts.append(f"Recent executions: {recent_summary}")
 
 		# Prepend planner instructions if active
 		planner_ctx = ""
@@ -1027,7 +1072,7 @@ class ConsoleAgentManager:
 		return {
 			"context":          planner_ctx + "\n".join(context_parts),
 			"has_workflow":     has_workflow,
-			"execution_active": len(active) > 0,
+			"execution_active": execution_active,
 		}
 
 	# ── Proactive ──────────────────────────────────────────────────
@@ -1046,7 +1091,7 @@ class ConsoleAgentManager:
 	def setup_proactive_listeners(self):
 		"""Subscribe to EventBus events that trigger proactive suggestions."""
 		async def on_workflow_added(event):
-			ctx = self.get_context()
+			ctx = await self.get_context()
 			if ctx["has_workflow"]:
 				await self.push_proactive(
 					f"Workflow loaded. {ctx['context']}\n\nWould you like me to review it for issues?",
@@ -1068,13 +1113,19 @@ class ChannelAgentPool:
 	def __init__(self, config_path: str = _CONFIG_PATH,
 				 workspace_mgr=None, memory_store=None,
 				 user_memory_db=None, channel_registry=None,
-				 idle_timeout: float = 1800):
+				 idle_timeout: float = 1800,
+				 base_url: str = "http://localhost:11360",
+				 internal_token: str = "",
+				 fastapi_app=None):
 		self._config_path    = config_path
 		self._ws_mgr         = workspace_mgr
 		self._memory_store   = memory_store
 		self._user_memory_db = user_memory_db       # UserMemoryDB for per-user isolation
 		self._channel_reg    = channel_registry      # ChannelRegistry for cross-channel messaging
 		self._idle_timeout   = idle_timeout          # seconds before evicting idle agent
+		self._base_url       = base_url.rstrip("/")
+		self._internal_token = internal_token
+		self._fastapi_app    = fastapi_app
 		self._skill_mgr      = None                  # set via set_skill_mgr()
 		self._agents: Dict[str, Agent]      = {}    # session_id → Agent
 		self._agent_tks: Dict[str, List[str]] = {}  # session_id → toolkit names used at build
@@ -1165,7 +1216,13 @@ class ChannelAgentPool:
 		_INJECTED = {"console_toolkit", "channel_toolkit"}
 		for tk_name in tk_names:
 			if tk_name == "console_toolkit" and self._ws_mgr:
-				toolkit = ConsoleToolkit(self._ws_mgr, user_id=user_id)
+				toolkit = ConsoleToolkit(
+					base_url=self._base_url,
+					auth_token=auth_token,
+					internal_token=self._internal_token,
+					user_id=user_id,
+					local_app=self._fastapi_app,
+				)
 				tools.extend(_extract_tools(toolkit))
 			elif tk_name == "channel_toolkit" and self._channel_reg:
 				from toolkits.channel_toolkit import ChannelToolkit
@@ -1173,9 +1230,13 @@ class ChannelAgentPool:
 				tools.extend(_extract_tools(toolkit))
 			elif tk_name not in _INJECTED:
 				tk_args = {}
-				# Inject per-session auth token into workspace_toolkit
 				if tk_name == "workspace_toolkit" and auth_token:
 					tk_args["auth_token"] = auth_token
+				if tk_name == "workspace_toolkit":
+					tk_args.setdefault("base_url", self._base_url)
+					tk_args.setdefault("internal_token", self._internal_token)
+					tk_args.setdefault("user_id", user_id)
+					tk_args.setdefault("local_app", self._fastapi_app)
 				tools.extend(_load_toolkit(tk_name, tk_args or None))
 
 		# Memory — per-user isolation via UserMemoryDB
@@ -1334,13 +1395,13 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 	class ConsoleChatRequest(BaseModel):
 		message:         str
 		session_id:      Optional[str]  = None   # omit to create a new session
-		include_context: bool           = True   # prepend workspace state to the message
+		include_context: bool           = True   # prepend current space state to the message
 
 	@app.post("/console/start")
 	async def console_start(req: Request, request: ConsoleStartRequest = ConsoleStartRequest()):
 		user = getattr(req.state, 'user', None)
 		user_id = user.id if user else None
-		# Store auth token so workspace_toolkit HTTP calls hit the user's workspace
+		# Store auth token so assistant toolkits can operate on the caller's current space
 		token = req.headers.get("authorization", "").removeprefix("Bearer ").strip()
 		console_mgr._auth_token = token
 		port = await console_mgr.start(request.model_source, request.model_name, request.toolkit_names, request.use_backend_memory, request.toolkit_args, skill_names=request.skill_names, user_id=user_id)
@@ -1402,10 +1463,10 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 					# Augment message with planner context (pool agent has no built-in injection)
 					augmented = request.message
 					try:
-						ctx = console_mgr.get_context(user_id=user_id)
+						ctx = await console_mgr.get_context(user_id=user_id)
 						parts = []
 						if ctx.get("context"):
-							parts.append(f"[Current workspace state]\n{ctx['context']}")
+							parts.append(f"[Current space state]\n{ctx['context']}")
 						if parts:
 							augmented = "\n\n".join(parts) + f"\n\n[User message]\n{request.message}"
 					except Exception as e:
@@ -1621,7 +1682,7 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 	@app.post("/console/context")
 	async def console_context(req: Request):
 		user = getattr(req.state, 'user', None)
-		return console_mgr.get_context(user_id=user.id if user else None)
+		return await console_mgr.get_context(user_id=user.id if user else None)
 
 	@app.post("/console/status")
 	async def console_status():

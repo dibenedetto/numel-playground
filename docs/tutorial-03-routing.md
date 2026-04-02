@@ -50,7 +50,7 @@ The script sets both `target` (for routing) and `output` (the data to pass along
 
 ## Steps
 
-1. **Import** `tutorial-03-routing.json`.
+1. Choose a space, then **Import** `tutorial-03-routing.json` into the current canvas for that space.
 2. Click **Start**. A dialog appears asking for input.
 3. Type `my printer is broken` and press Enter.
 4. Watch the Route node send data to the `support` branch.

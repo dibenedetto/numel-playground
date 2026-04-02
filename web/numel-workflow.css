@@ -1270,39 +1270,6 @@ body.nw-auth-pending {
 .nw-auth-switch a:hover {
 	text-decoration: underline;
 }
-.nw-auth-divider {
-	display: flex;
-	align-items: center;
-	margin: 14px 0 10px;
-	color: var(--sg-text-tertiary, #666);
-	font-size: 12px;
-}
-.nw-auth-divider::before,
-.nw-auth-divider::after {
-	content: "";
-	flex: 1;
-	height: 1px;
-	background: var(--sg-border, #444);
-}
-.nw-auth-divider span {
-	padding: 0 10px;
-}
-.nw-auth-guest {
-	width: 100%;
-	padding: 8px;
-	background: transparent;
-	border: 1px solid var(--sg-border, #555);
-	color: var(--sg-text-secondary, #aaa);
-	border-radius: 4px;
-	cursor: pointer;
-	font-size: 13px;
-	transition: background 0.15s, color 0.15s;
-}
-.nw-auth-guest:hover {
-	background: var(--sg-bg-secondary, #2a2a2a);
-	color: var(--sg-text-primary, #ddd);
-}
-
 /* ── User section (logged-in indicator + actions) ────────────── */
 .nw-user-actions {
 	display: flex;

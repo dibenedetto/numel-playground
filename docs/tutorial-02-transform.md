@@ -58,7 +58,7 @@ The `context` field is set to `{"tags": ["alpha", "beta", "gamma"]}`. When execu
 
 ## Steps
 
-1. **Import** `tutorial-02-transform.json`.
+1. Choose a space, then **Import** `tutorial-02-transform.json` so it becomes that space's current workflow.
 2. Click the Transform node to inspect its fields — you'll see `lang`, `script`, `context`, and `input`.
 3. Click the code icon next to `script` to open the code editor. The script reads data from `context` and builds the output dictionary.
 4. The `context` field is pre-filled with `{"tags": ["alpha", "beta", "gamma"]}`.

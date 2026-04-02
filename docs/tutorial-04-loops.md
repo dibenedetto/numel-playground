@@ -51,7 +51,7 @@ The Transform formats each item: `"Item 0: ALPHA"`, `"Item 1: BETA"`, etc.
 
 ## Steps
 
-1. **Import** `tutorial-04-loops.json`.
+1. Choose a space, then **Import** `tutorial-04-loops.json`.
 2. Click **Start**. Watch the while loop section execute 5 times with 500ms delays.
 3. After the while loop completes, the for-each section iterates over three items.
 4. Check the Preview nodes — they update on each iteration.

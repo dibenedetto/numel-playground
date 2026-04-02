@@ -11,6 +11,8 @@ import json
 import time
 from typing import Any, Dict, List, Optional
 
+from toolkits.http_helpers import ToolkitHttpSession
+
 
 # ── Compact node-type catalogue (agent reference) ────────────────────────────
 
@@ -64,47 +66,51 @@ class WorkspaceToolkit:
 	Supports adding/removing nodes, connecting them, editing field values, and
 	running the workflow to collect output scores for optimization loops.
 	Args: base_url (server URL, default http://localhost:11360),
-	      workflow_name (name of workflow to edit; auto-detected if not set)."""
+	      workflow_name (legacy label; Numel now edits the current workflow in the current space)."""
 
 	__toolkit__ = True
 
 	def __init__(self, base_url: str = "http://localhost:11360", workflow_name: str = "",
-				 auth_token: str = ""):
-		self._base  = base_url.rstrip("/")
+				 auth_token: str = "", internal_token: str = "",
+				 user_id: Optional[str] = None, local_app = None):
 		self._name: Optional[str] = workflow_name or None
 		self._wf:   Optional[Dict] = None   # cached dict: {type, nodes, edges}
-		self._token: str = auth_token
+		self._http = ToolkitHttpSession(
+			base_url=base_url,
+			auth_token=auth_token,
+			internal_token=internal_token,
+			user_id=user_id,
+			local_app=local_app,
+		)
 
 	# ── Internal helpers ──────────────────────────────────────────────────
 
 	def _post(self, path: str, data: Any = None) -> dict:
-		import httpx
-		headers = {}
-		if self._token:
-			headers["Authorization"] = f"Bearer {self._token}"
-		r = httpx.post(f"{self._base}{path}", json=data or {}, headers=headers, timeout=60)
-		r.raise_for_status()
-		return r.json()
+		return self._http.post_json(path, data)
+
+	@staticmethod
+	def _workflow_title(workflow: Optional[Dict[str, Any]]) -> str:
+		if not isinstance(workflow, dict):
+			return "Current Workflow"
+		options = workflow.get("options")
+		if isinstance(options, dict):
+			name = str(options.get("name", "") or "").strip()
+			if name:
+				return name
+		return "Current Workflow"
 
 	def _ensure(self):
 		"""Load the workflow into self._wf if not already cached."""
 		if self._wf is not None:
 			return
-		if self._name is None:
-			names = self._post("/list").get("names", [])
-			if names:
-				self._name = names[0]
-			else:
-				# No workflow exists yet — create an empty one
-				self._name = "workspace"
-				self._wf = {"type": "workflow", "nodes": [], "edges": []}
-				self._save_and_notify()
-				return
-		resp    = self._post(f"/get/{self._name}")
+		resp = self._post("/workflow/get")
 		self._wf = resp.get("workflow") or {"type": "workflow", "nodes": [], "edges": []}
+		self._name = resp.get("name") or self._workflow_title(self._wf)
+		if resp.get("workflow") is None:
+			self._save_and_notify()
 
 	def _save_and_notify(self) -> str:
-		"""Upload self._wf to the server and broadcast workspace.changed to the UI."""
+		"""Upload self._wf to the server through the current workflow route."""
 		self._ensure()
 		if self._wf is None:
 			return "error: no workflow loaded"
@@ -125,16 +131,13 @@ class WorkspaceToolkit:
 		else:
 			return f"error: unexpected workflow type: {type(wf)}"
 		try:
-			resp = self._post("/add", {"workflow": wf, "name": self._name})
-			if resp.get("status") not in ("added", "updated", "ok"):
+			resp = self._post("/workflow/save", {"workflow": wf})
+			if resp.get("status") != "saved":
 				return f"error saving workflow: {resp}"
+			self._name = resp.get("name") or self._workflow_title(wf)
 		except Exception as e:
 			return f"error saving workflow: {e}"
-		try:
-			self._post("/workspace/changed", {"name": self._name})
-		except Exception:
-			pass   # notify is best-effort; main save already succeeded
-		return f"ok: saved '{self._name}'"
+		return f"ok: saved '{self._name or self._workflow_title(wf)}'"
 
 	def _fmt_workflow(self) -> str:
 		"""Return a compact, human-readable summary of the current workflow."""
@@ -178,9 +181,12 @@ class WorkspaceToolkit:
 		return self._fmt_workflow()
 
 	def list_workflows(self) -> str:
-		"""List all workflow names available on the server."""
-		names = self._post("/list").get("names", [])
-		return "Workflows: " + (", ".join(names) if names else "(none)")
+		"""Describe the current space and its single editable workflow."""
+		space = self._post("/spaces/current").get("space", {}) or {}
+		self._ensure()
+		title = str(space.get("title", "") or space.get("slug", "") or "Current Space")
+		name = self._name or self._workflow_title(self._wf)
+		return f"Current space: {title}. Editable workflow: {name}."
 
 	def list_node_types(self) -> str:
 		"""List all available node type strings, grouped by category, with their purpose
@@ -188,12 +194,11 @@ class WorkspaceToolkit:
 		return _NODE_CATALOGUE.strip()
 
 	def load(self, name: str) -> str:
-		"""Load a different workflow by name.
-		name: workflow name from list_workflows(). Returns 'ok: loaded <name>'."""
-		self._name = name
+		"""Reload the current workflow after changing spaces in the UI."""
+		self._name = name or self._name
 		self._wf   = None
 		self._ensure()
-		return f"ok: loaded '{name}'"
+		return f"ok: loaded '{self._name or self._workflow_title(self._wf)}'"
 
 	# ── Edit methods ──────────────────────────────────────────────────────
 
@@ -317,11 +322,11 @@ class WorkspaceToolkit:
 		if save_result.startswith("error"):
 			pass  # try to start anyway
 		# Start execution
-		payload: Dict[str, Any] = {"name": self._name}
+		payload: Dict[str, Any] = {}
 		if initial_data:
-			payload["initial_data"] = {"inputs": initial_data}
+			payload["initial_data"] = initial_data
 		try:
-			resp = self._post("/start", payload)
+			resp = self._post("/workflow/start", payload)
 		except Exception as e:
 			err_str = str(e)
 			if "10048" in err_str or "bind" in err_str or "address already in use" in err_str.lower():
@@ -335,7 +340,7 @@ class WorkspaceToolkit:
 		while time.time() < deadline:
 			time.sleep(1.5)
 			try:
-				state = self._post(f"/exec_state/{exec_id}")
+				state = self._post(f"/executions/{exec_id}")
 				st    = state.get("state", {})
 				if isinstance(st, dict):
 					status = st.get("status", "")
@@ -349,7 +354,7 @@ class WorkspaceToolkit:
 			return f"error: workflow timed out after {timeout}s (exec_id={exec_id})"
 		# Collect results
 		try:
-			results = self._post(f"/exec_results/{exec_id}")
+			results = self._post(f"/executions/{exec_id}/results")
 			return json.dumps(results, default=str, indent=2)
 		except Exception as e:
 			return f"error fetching results: {e}"
@@ -363,13 +368,26 @@ class WorkspaceToolkit:
 			return "error: invalid JSON"
 		lines = []
 		nodes = self._wf.get("nodes", []) if self._wf else []
-		for node_result in (results if isinstance(results, list) else [results]):
-			if not isinstance(node_result, dict):
-				continue
-			idx    = node_result.get("node_index", "?")
-			outs   = node_result.get("outputs", {})
-			if "score" in outs:
+
+		if isinstance(results, dict) and isinstance(results.get("node_outputs"), dict):
+			for raw_idx, outs in results.get("node_outputs", {}).items():
+				try:
+					idx = int(raw_idx)
+				except Exception:
+					idx = raw_idx
+				if not isinstance(outs, dict) or "score" not in outs:
+					continue
 				ntype = nodes[idx].get("type", "?") if isinstance(idx, int) and idx < len(nodes) else "?"
 				name  = nodes[idx].get("extra", {}).get("name", "") if isinstance(idx, int) and idx < len(nodes) else ""
 				lines.append(f"[{idx}] {ntype} {name!r}: score={outs['score']}, feedback={outs.get('feedback','')!r}")
+		else:
+			for node_result in (results if isinstance(results, list) else [results]):
+				if not isinstance(node_result, dict):
+					continue
+				idx  = node_result.get("node_index", "?")
+				outs = node_result.get("outputs", {})
+				if "score" in outs:
+					ntype = nodes[idx].get("type", "?") if isinstance(idx, int) and idx < len(nodes) else "?"
+					name  = nodes[idx].get("extra", {}).get("name", "") if isinstance(idx, int) and idx < len(nodes) else ""
+					lines.append(f"[{idx}] {ntype} {name!r}: score={outs['score']}, feedback={outs.get('feedback','')!r}")
 		return "\n".join(lines) if lines else "No eval_flow nodes found in results."

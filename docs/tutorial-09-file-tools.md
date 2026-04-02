@@ -128,7 +128,7 @@ The Preview node displays the agent's reply text in a formatted panel, useful fo
 ## Steps
 
 1. Create `prompt.txt` in the server's working directory with the prompt above.
-2. **Import** `tutorial-09-file-tools.json`.
+2. Choose a space, then **Import** `tutorial-09-file-tools.json`.
 3. Click **Start**. The Tool Flow reads the file and sends the content as a request to the Agent Chat.
 4. The agent responds to the file content automatically.
 5. Check the **Response Preview** node — it shows the agent's reply.
