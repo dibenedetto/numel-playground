@@ -17,7 +17,6 @@ from .interfaces import (
     SpaceProvider,
 )
 from .concrete import ConcretePlatformComponent, DbGitPlatformSpec, build_db_git_platform_spec
-from .mock import MockPlatformLayer, MockPlatformStack, build_mock_platform_stack
 from .models import (
     AclEntry,
     Capability,
@@ -58,8 +57,6 @@ __all__ = [
     "Friendship",
     "FriendshipStatus",
     "IdentityProvider",
-    "MockPlatformLayer",
-    "MockPlatformStack",
     "PermissionPolicy",
     "RefKind",
     "RuntimeProfile",
@@ -77,6 +74,5 @@ __all__ = [
     "UserProfile",
     "UserRole",
     "Visibility",
-    "build_mock_platform_stack",
     "build_db_git_platform_spec",
 ]

@@ -37,7 +37,7 @@ if _app_dir not in sys.path:
 
 from   dotenv    import load_dotenv
 from   fastapi   import FastAPI, HTTPException, Request
-from   inspect   import getsource
+from   inspect   import getsource, isawaitable
 from   typing    import Any, Optional
 
 import schema
@@ -72,7 +72,11 @@ from   published_apps import PublishedAppManager, setup_published_apps_api
 from   domain.concrete import build_db_git_platform_spec
 from   platform_client import PlatformHttpClient, PlatformRequestError
 from   platform_http import setup_platform_api
-from   platform_impl import build_local_platform_stack
+from   platform_loader import (
+	resolve_platform_backend_config_path,
+	load_platform_backend_config,
+	build_platform_stack_from_config,
+)
 from   utils     import add_middleware, log_print, seed_everything
 from   workspace import WorkspaceManager as WSManager
 
@@ -158,27 +162,46 @@ async def run_server(args: Any):
 	schema_code = getsource(schema)
 
 	_platform = None
+	_platform_stack = None
+
+	async def _maybe_aclose(obj: Any) -> None:
+		if obj is None:
+			return
+		close = getattr(obj, "aclose", None)
+		if close is None:
+			return
+		result = close()
+		if isawaitable(result):
+			await result
 
 	@asynccontextmanager
 	async def _lifespan(_app: FastAPI):
 		try:
 			yield
 		finally:
-			if _platform is not None:
-				await _platform.aclose()
+			await _maybe_aclose(_platform)
+			await _maybe_aclose(_platform_stack)
 
 	app: FastAPI = FastAPI(title="App", lifespan=_lifespan)
 	add_middleware(app)
 
-	# ── Platform Stack ────────────────────────────────────────
-	_platform_stack = build_local_platform_stack(
-		workspace_manager = workspace_mgr,
+	# ── Platform Backend ──────────────────────────────────────
+	_platform_config_path = resolve_platform_backend_config_path()
+	_platform_config = load_platform_backend_config(_platform_config_path)
+	_platform_stack = build_platform_stack_from_config(
+		_platform_config,
+		workspace_manager=workspace_mgr,
 	)
+	_platform_backend_name = str(_platform_config.get("backend", "local") or "local").strip().lower()
+	log_print(f"Platform backend: {_platform_backend_name} ({_platform_config_path})")
+
 	_platform_internal_token = secrets.token_urlsafe(32)
 	setup_platform_api(app, _platform_stack, _platform_internal_token)
 	_platform = PlatformHttpClient(app, _platform_internal_token)
 	app.state.platform = _platform
-	app.state.platform_backend = _platform_stack
+	app.state.platform_backend = _platform_backend_name
+	app.state.platform_backend_config = _platform_config
+	app.state.platform_backend_config_path = _platform_config_path
 	app.state.platform_client = _platform
 	app.state.platform_stack = _platform_stack
 	app.state.platform_target = build_db_git_platform_spec()

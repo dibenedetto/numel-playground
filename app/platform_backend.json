@@ -1,0 +1,75 @@
+{
+  "backend": "local",
+  "local": {
+    "database": {
+      "url": "sqlite:///storage/platform.db",
+      "echo_sql": false,
+      "app_name": "numel",
+      "pool_size": 10
+    },
+    "identity": {
+      "token_ttl_seconds": 604800.0,
+      "password_iterations": 390000,
+      "bootstrap_first_user_as_admin": true
+    },
+    "git": {
+      "repos_root": "storage/spaces",
+      "default_branch": "main",
+      "bare_repositories": false
+    },
+    "artifacts": {
+      "backend": "filesystem",
+      "root_path": "storage/artifacts",
+      "bucket_name": ""
+    },
+    "secrets": {
+      "backend": "database",
+      "vault_url": "",
+      "key_prefix": "numel"
+    },
+    "runtime": {
+      "base_url": "unix:///var/run/docker.sock",
+      "default_image": "numel-runtime:latest",
+      "network_name": "",
+      "workspace_mount_root": "/workspace",
+      "artifacts_mount_root": "/artifacts"
+    }
+  },
+  "prod": {
+    "database": {
+      "url": "sqlite:///storage/platform.db",
+      "echo_sql": false,
+      "app_name": "numel",
+      "pool_size": 10
+    },
+    "identity": {
+      "base_url": "http://localhost:8000",
+      "identity_prefix": "/api/platform",
+      "timeout_seconds": 10.0,
+      "verify_tls": true,
+      "token_header": "Authorization"
+    },
+    "git": {
+      "repos_root": "storage/spaces",
+      "default_branch": "main",
+      "bare_repositories": false
+    },
+    "artifacts": {
+      "backend": "filesystem",
+      "root_path": "storage/artifacts",
+      "bucket_name": ""
+    },
+    "secrets": {
+      "backend": "database",
+      "vault_url": "",
+      "key_prefix": "numel"
+    },
+    "runtime": {
+      "base_url": "unix:///var/run/docker.sock",
+      "default_image": "numel-runtime:latest",
+      "network_name": "",
+      "workspace_mount_root": "/workspace",
+      "artifacts_mount_root": "/artifacts"
+    }
+  }
+}

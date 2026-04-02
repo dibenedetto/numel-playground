@@ -1,9 +1,8 @@
-"""Concrete platform implementations and reference backends for Numel."""
+"""Local reference backend for Numel's platform abstractions."""
 
 from .config import (
     ArtifactStorageConfig,
     DatabaseConfig,
-    DjangoIdentityConfig,
     DockerRuntimeConfig,
     GitStorageConfig,
     LocalIdentityConfig,
@@ -14,12 +13,10 @@ from .db_execution_registry import DbExecutionRegistry
 from .db_friend_graph import DbFriendGraphProvider
 from .db_git_spaces import DbGitSpaceProvider
 from .db_secrets import DbSecretsProvider, VaultSecretsProvider
-from .django_identity import DjangoIdentityProvider
 from .docker_runtime import DockerRuntimeProvider
 from .git_space_store import GitSpaceStore
 from .local_identity import LocalIdentityProvider
 from .local_stack import LocalPlatformStack, build_local_platform_stack
-from .stack import DbGitPlatformStack, build_db_git_platform_stack
 
 __all__ = [
     "ArtifactStorageConfig",
@@ -27,11 +24,8 @@ __all__ = [
     "DbAuditLog",
     "DbExecutionRegistry",
     "DbFriendGraphProvider",
-    "DbGitPlatformStack",
     "DbGitSpaceProvider",
     "DbSecretsProvider",
-    "DjangoIdentityConfig",
-    "DjangoIdentityProvider",
     "DockerRuntimeConfig",
     "DockerRuntimeProvider",
     "GitSpaceStore",
@@ -41,6 +35,5 @@ __all__ = [
     "LocalPlatformStack",
     "SecretsConfig",
     "VaultSecretsProvider",
-    "build_db_git_platform_stack",
     "build_local_platform_stack",
 ]

@@ -1,10 +1,10 @@
 # Numel Platform Domain
 
 This document defines Numel's product-level platform model independently from
-the current local implementation. The goal is to keep the architecture honest:
-today's JSON/filesystem/workspace setup is a working mockup, while future
-implementations can swap in Django, PostgreSQL, Git-like storage, Docker, or
-other concrete backends without changing the rest of the product model.
+the current implementation. The goal is to keep the architecture honest:
+today's SQLite + Git + in-process runtime stack is the local reference backend,
+while future implementations can swap in Django, PostgreSQL, Docker, or other
+concrete services without changing the rest of the product model.
 
 ## Core Domain
 
@@ -62,37 +62,42 @@ Executions should be scoped to:
 
 This is the clean bridge to future container-based isolation.
 
-## Current Mockup Mapping
+## Current Reference Backend
 
-The codebase already contains useful lower-level abstractions, but they do not
-yet line up one-to-one with the desired product model:
+The current codebase now centers on one coherent local backend under
+`app/platform_local/`:
 
-- `AuthProvider` in `app/providers/auth.py`
-  Handles auth, users, quotas, and coarse permissions.
-- `DataProvider` in `app/providers/data.py`
-  Models repo-like versioned storage, but not full spaces/assets/ACL semantics.
-- `ExecutionProvider` in `app/providers/execution.py`
-  Models how a run executes, but not yet fully as `space + ref + runtime`.
+- `LocalIdentityProvider`
+  Users, profiles, quotas, login sessions.
+- `DbFriendGraphProvider`
+  Friend requests and accepted friendships.
+- `DbGitSpaceProvider`
+  Space metadata, visibility, ACLs, and typed assets.
+- `GitSpaceStore`
+  Versioned space contents and history.
+- `DbSecretsProvider`
+  Per-user or per-space credentials.
+- `DbExecutionRegistry` and `DbAuditLog`
+  Execution metadata and audit events.
+- `DockerRuntimeProvider`
+  Current local execution bridge, to be replaced later by real container isolation.
+
+The remaining historical split is mostly in runtime behavior:
+
 - `WorkspaceManager` in `app/workspace.py`
-  Models the live in-memory/runtime side of user isolation today.
-- `credentials.py`
-  Still acts as a shared server credential store and must later be replaced by a
-  true per-user/per-space secrets backend.
+  Still provides the live in-process execution surface used by the local runtime bridge.
 
-Because of this, the current implementation is best understood as a working
-mockup of the future platform:
-
-- identity: mostly implemented
-- spaces: partially implemented
-- resources: partially implemented
-- runtime isolation: partially implemented
-- secrets: still mock/shared
-- friends/social graph: planned
+Backend selection itself now happens through `app/platform_backend.json`.
+That file chooses the active backend (`local` or `prod`) and provides the
+constructor settings for the selected implementation. The app reads it at
+startup through `app/platform_loader.py`.
 
 ## Migration Direction
 
 The intended long-term split is:
 
+- `app/platform_local/`: the full local/reference backend used by the app today
+- `app/platform_prod/`: future production-oriented adapters and composition
 - Django (or another auth service): users, profiles, friendships, roles, quotas
 - PostgreSQL: spaces, assets, refs, commits, ACLs, execution metadata
 - object storage / filesystem: blobs and large assets

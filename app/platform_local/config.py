@@ -1,4 +1,4 @@
-"""Configuration models for the future db+git platform implementation."""
+"""Configuration models for Numel's local reference backend."""
 
 from __future__ import annotations
 
@@ -11,14 +11,6 @@ class DatabaseConfig:
     echo_sql: bool = False
     app_name: str = "numel"
     pool_size: int = 10
-
-
-@dataclass
-class DjangoIdentityConfig:
-    base_url: str = "http://localhost:8000"
-    timeout_seconds: float = 10.0
-    verify_tls: bool = True
-    token_header: str = "Authorization"
 
 
 @dataclass

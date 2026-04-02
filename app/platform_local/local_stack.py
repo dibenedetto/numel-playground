@@ -1,4 +1,4 @@
-"""Assembly helpers for the future database+git platform stack."""
+"""Assembly helpers for the fully working local platform reference backend."""
 
 from __future__ import annotations
 
@@ -8,9 +8,9 @@ from typing import Any, Dict
 from .config import (
     ArtifactStorageConfig,
     DatabaseConfig,
-    DjangoIdentityConfig,
     DockerRuntimeConfig,
     GitStorageConfig,
+    LocalIdentityConfig,
     SecretsConfig,
 )
 from .db_audit import DbAuditLog
@@ -18,15 +18,15 @@ from .db_execution_registry import DbExecutionRegistry
 from .db_friend_graph import DbFriendGraphProvider
 from .db_git_spaces import DbGitSpaceProvider
 from .db_secrets import DbSecretsProvider
-from .django_identity import DjangoIdentityProvider
 from .docker_runtime import DockerRuntimeProvider
 from .git_space_store import GitSpaceStore
+from .local_identity import LocalIdentityProvider
 
 
 @dataclass
-class DbGitPlatformStack:
+class LocalPlatformStack:
     db_config: DatabaseConfig
-    identity_config: DjangoIdentityConfig
+    identity_config: LocalIdentityConfig
     git_config: GitStorageConfig
     artifact_config: ArtifactStorageConfig
     secrets_config: SecretsConfig
@@ -34,7 +34,7 @@ class DbGitPlatformStack:
     audit_log: DbAuditLog
     execution_registry: DbExecutionRegistry
     git_store: GitSpaceStore
-    identity: DjangoIdentityProvider
+    identity: LocalIdentityProvider
     friend_graph: DbFriendGraphProvider
     spaces: DbGitSpaceProvider
     secrets: DbSecretsProvider
@@ -42,7 +42,6 @@ class DbGitPlatformStack:
     workspace_manager: Any = None
 
     def describe(self) -> Dict[str, str]:
-        """Human-readable component map for the selected concrete stack."""
         return {
             "identity": self.identity.__class__.__name__,
             "friend_graph": self.friend_graph.__class__.__name__,
@@ -54,19 +53,35 @@ class DbGitPlatformStack:
             "audit_log": self.audit_log.__class__.__name__,
         }
 
+    async def aclose(self) -> None:
+        """Close any async resources owned by the local stack."""
+        for component in (
+            self.runtime,
+            self.secrets,
+            self.spaces,
+            self.friend_graph,
+            self.identity,
+            self.execution_registry,
+            self.audit_log,
+        ):
+            close = getattr(component, "aclose", None)
+            if close is None:
+                continue
+            await close()
 
-def build_db_git_platform_stack(
+
+def build_local_platform_stack(
     db_config: DatabaseConfig | None = None,
-    identity_config: DjangoIdentityConfig | None = None,
+    identity_config: LocalIdentityConfig | None = None,
     git_config: GitStorageConfig | None = None,
     artifact_config: ArtifactStorageConfig | None = None,
     secrets_config: SecretsConfig | None = None,
     docker_config: DockerRuntimeConfig | None = None,
     workspace_manager: Any = None,
-) -> DbGitPlatformStack:
-    """Create the local db+git platform component graph."""
+) -> LocalPlatformStack:
+    """Create the fully working local reference backend."""
     db_config = db_config or DatabaseConfig()
-    identity_config = identity_config or DjangoIdentityConfig()
+    identity_config = identity_config or LocalIdentityConfig()
     git_config = git_config or GitStorageConfig()
     artifact_config = artifact_config or ArtifactStorageConfig()
     secrets_config = secrets_config or SecretsConfig()
@@ -75,7 +90,7 @@ def build_db_git_platform_stack(
     audit_log = DbAuditLog(db_config)
     execution_registry = DbExecutionRegistry(db_config)
     git_store = GitSpaceStore(git_config)
-    identity = DjangoIdentityProvider(identity_config, db_config=db_config, audit_log=audit_log)
+    identity = LocalIdentityProvider(identity_config, db_config=db_config, audit_log=audit_log)
     friend_graph = DbFriendGraphProvider(db_config, audit_log=audit_log)
     spaces = DbGitSpaceProvider(
         db_config=db_config,
@@ -95,7 +110,7 @@ def build_db_git_platform_stack(
         workspace_manager=workspace_manager,
     )
 
-    return DbGitPlatformStack(
+    return LocalPlatformStack(
         db_config=db_config,
         identity_config=identity_config,
         git_config=git_config,

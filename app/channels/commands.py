@@ -9,10 +9,16 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Protocol
 
-if TYPE_CHECKING:
-    from providers.auth import AuthProvider
+
+class ChannelAuthBackend(Protocol):
+    async def create_user(self, username: str, email: str, password: str): ...
+    async def login(self, username: str, password: str): ...
+    async def logout(self, token: str): ...
+    async def get_user(self, user_id: str): ...
+    async def get_user_by_username(self, username: str): ...
+    async def change_password(self, user_id: str, current_password: str, new_password: str): ...
 
 _STORE_FILE = "channel_users.json"
 
@@ -24,7 +30,7 @@ class ChannelCommandHandler:
     accounts, plus per-user toolkit overrides.
     """
 
-    def __init__(self, auth_provider: Optional[AuthProvider] = None,
+    def __init__(self, auth_provider: Optional[ChannelAuthBackend] = None,
                  store_path: Optional[str] = None,
                  available_toolkits: Optional[List[str]] = None,
                  default_toolkits: Optional[List[str]] = None,

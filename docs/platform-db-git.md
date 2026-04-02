@@ -63,8 +63,15 @@ The intended concrete stack is:
 - `DbAuditLog`
   Persists security and change events.
 
-Reference scaffold modules now live under `app/platform_impl/` so the future
-implementation boundaries are reflected directly in the codebase.
+The codebase now separates the working local backend and the future production
+backend explicitly:
+
+- `app/platform_local/` for the reference local implementation
+- `app/platform_prod/` for production-oriented adapters like Django
+
+Backend selection is now config-driven through `app/platform_backend.json`.
+That file selects `local` or `prod`, and `app/platform_loader.py` builds the
+matching stack at startup.
 
 ## Implementation Status Matrix
 
@@ -72,21 +79,17 @@ implementation boundaries are reflected directly in the codebase.
 | --- | --- | --- | --- | --- |
 | Platform domain model | abstract | `app/domain/models.py`, `app/domain/interfaces.py` | keep refining actor and permission boundaries | stable app-level contract |
 | Concrete target architecture | abstract | `app/domain/concrete.py` | use it to drive adapter work | db + git + docker |
-| Current platform mockup | working mock | `app/domain/mock.py`, `app.state.platform` | replace mock layers incrementally | transitional only |
-| Current identity/auth | working mock | current provider stack loaded by `app/providers_impl/loader.py` | keep app behavior stable until Django adapter is real | Django auth/users |
-| Current spaces/resources | partial mock | current data provider plus workspace model | migrate app features toward `Space` and `SpaceAsset` | PostgreSQL + Git |
-| Current secrets | mock/shared | `credentials.py` shared server store | replace with per-user or per-space secrets | DB or Vault |
-| Local identity adapter | concrete local implementation | `app/platform_impl/local_identity.py` | migrate auth-facing app code toward the domain identity layer | SQLite in dev, Django in prod |
-| Git space content store | concrete local implementation | `app/platform_impl/git_space_store.py` | add more content/history tooling as needed | Git repos per space |
-| Space catalog + ACLs | concrete local implementation | `app/platform_impl/db_git_spaces.py` | add actor-aware mutations and richer ACLs | PostgreSQL in prod, SQLite in dev |
-| Friend graph | concrete local implementation | `app/platform_impl/db_friend_graph.py` | wire into real identity records | PostgreSQL in prod, SQLite in dev |
-| Secrets adapter | concrete local implementation | `app/platform_impl/db_secrets.py` | add secret scoping policies and runtime injection rules | PostgreSQL or Vault |
-| Audit log | concrete local implementation | `app/platform_impl/db_audit.py` | enrich event categories and API exposure | PostgreSQL |
-| Execution registry | concrete local implementation | `app/platform_impl/db_execution_registry.py` | extend events and log indexing | PostgreSQL in prod, SQLite in dev |
-| Runtime | concrete local mock-runtime | `app/platform_impl/docker_runtime.py` running through `WorkspaceManager + WorkflowEngine` | replace local runner with real container execution | Docker |
-| Local platform assembly | concrete local implementation | `app/platform_impl/local_stack.py`, `app.state.platform_stack` | start consuming this stack from APIs incrementally | main platform composition root |
-| Future db+git assembly | partial mock | `app/platform_impl/stack.py` | swap in Django identity and production runtime pieces | db + git + docker |
-| Django identity adapter | scaffold only | `app/platform_impl/django_identity.py` | implement against real Django service/models | Django |
+| Local identity adapter | concrete local implementation | `app/platform_local/local_identity.py` | migrate auth-facing app code toward the domain identity layer | SQLite in dev, Django in prod |
+| Git space content store | concrete local implementation | `app/platform_local/git_space_store.py` | add more content/history tooling as needed | Git repos per space |
+| Space catalog + ACLs | concrete local implementation | `app/platform_local/db_git_spaces.py` | add actor-aware mutations and richer ACLs | PostgreSQL in prod, SQLite in dev |
+| Friend graph | concrete local implementation | `app/platform_local/db_friend_graph.py` | wire into real identity records | PostgreSQL in prod, SQLite in dev |
+| Secrets adapter | concrete local implementation | `app/platform_local/db_secrets.py` | add secret scoping policies and runtime injection rules | PostgreSQL or Vault |
+| Audit log | concrete local implementation | `app/platform_local/db_audit.py` | enrich event categories and API exposure | PostgreSQL |
+| Execution registry | concrete local implementation | `app/platform_local/db_execution_registry.py` | extend events and log indexing | PostgreSQL in prod, SQLite in dev |
+| Runtime | concrete local mock-runtime | `app/platform_local/docker_runtime.py` running through `WorkspaceManager + WorkflowEngine` | replace local runner with real container execution | Docker |
+| Local platform assembly | concrete local implementation | `app/platform_local/local_stack.py`, `app.state.platform_stack` | start consuming this stack from APIs incrementally | main platform composition root |
+| Future db+git assembly | partial mock | `app/platform_prod/stack.py` | swap in Django identity and production runtime pieces | db + git + docker |
+| Django identity adapter | concrete external adapter | `app/platform_prod/django_identity.py` | validate against the real Django service contract and wire lifecycle closing | Django |
 | Role-based ACL subjects | not implementable correctly yet | modeled in the domain, not enforced in the local space provider | wire role resolution from the identity layer | Django + DB |
 | Owner/admin mutation enforcement inside `SpaceProvider` | structurally incomplete | limitation of the current interface shape | pass acting user through the interface | domain and API refactor |
 | Real per-user env and secret injection | not implementable correctly yet | runtime tracks metadata only | implement once secrets plus container runtime exist | Docker + secrets backend |
@@ -244,9 +247,6 @@ That keeps the same architecture while swapping only the concrete backend.
 
 - `concrete local mock-runtime`
   A special case of concrete local implementation where the runtime boundary is still simulated locally. The system really executes, but it does so through a stand-in for the future isolation layer.
-
-- `scaffold only`
-  Code structure exists, but methods intentionally stop at `NotImplementedError`. This marks the component boundary without pretending the backend is ready.
 
 - `not implementable correctly yet`
   You could hack something in, but it would be misleading or architecturally wrong because a required dependency or upstream model does not exist yet.
