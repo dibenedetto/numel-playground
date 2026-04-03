@@ -532,6 +532,79 @@ Available backends:
 
 The app reads this file at startup through `app/platform_loader.py`, and the same HTTP platform contract is used in both modes.
 
+- Override the config file path with `NUMEL_PLATFORM_CONFIG=/path/to/platform_backend.json`
+- Relative `database.url`, `git.repos_root`, and `artifacts.root_path` values are normalized at startup
+- Paths starting with `storage/...` follow Numel's runtime data root, so they move with `NUMEL_DATA_ROOT`
+
+### Deployable Runtime Layout
+
+Mutable runtime state now lives under `storage/` by default instead of under `app/`.
+
+You can move that whole writable tree with:
+
+```bash
+NUMEL_DATA_ROOT=/srv/numel-data
+```
+
+Default writable layout:
+
+| Path | Purpose |
+|------|---------|
+| `storage/platform.db` | Local platform metadata (users, spaces, secrets, executions, friendships, audit) |
+| `storage/spaces/` | Git-backed space repositories |
+| `storage/artifacts/` | Execution snapshots and artifacts |
+| `storage/workspaces/` | Local workflow-engine workspaces |
+| `storage/memory/` | Shared agent memory store |
+| `storage/user_memory/` | Per-user / per-channel SQLite memory files |
+| `storage/gallery/` | Writable gallery items (seeded from built-ins/examples on first run) |
+| `storage/skills/` | User-added skills plus skills state |
+| `storage/channel_users.json` | Channel identity links and toolkit preferences |
+| `storage/channels.json` | Saved channel adapter configs |
+| `storage/agent_tasks.json` | Scheduled background agent tasks |
+| `storage/published_apps.json` | Published app definitions |
+| `storage/credentials.json` | Legacy process-level `${VAR_NAME}` substitution store |
+
+Read-mostly bundled files remain in the source tree by default:
+
+| Path | Purpose |
+|------|---------|
+| `app/console_agent.json` | Console defaults (override with `NUMEL_CONSOLE_AGENT_CONFIG`) |
+| `app/platform_backend.json` | Backend selection/config |
+| `app/gallery/` | Built-in gallery seeds |
+| `app/skills/` | Built-in packaged skills |
+
+### Health Probes
+
+Numel now exposes public liveness/readiness endpoints for deployment probes:
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/health/live` | `GET` or `POST` | Process is up |
+| `/health/ready` | `GET` or `POST` | Runtime directories and active platform backend are ready |
+
+### Schema Migrations & Contract Tests
+
+The database-backed platform stacks now apply versioned schema migrations before constructing their components. You can inspect or apply the active backend schema manually:
+
+```bash
+python app/platform_migrate.py --check
+python app/platform_migrate.py
+```
+
+If you do not care about old local users or state, you can wipe the selected backend's local sqlite DB, git repos, and artifact roots first:
+
+```bash
+python app/platform_migrate.py --reset-local-state
+```
+
+`platform_migrate.py` reads the active backend from `app/platform_backend.json` (or `NUMEL_PLATFORM_CONFIG`) and operates on that backend's configured database.
+
+Automated contract coverage for the local platform HTTP layer lives under `tests/` and runs with the standard library test runner:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
 ### Login Flow
 
 At startup, the frontend shows a login modal with two options:
@@ -612,8 +685,8 @@ The `UserMemoryDB` manager resolves user identities to separate SQLite database 
 
 | User Type | Database Path | Lifetime |
 |-----------|---------------|----------|
-| Authenticated user | `storage/user_memory/user_{user_id}.db` | Persistent |
-| Anonymous channel user | `storage/user_memory/anon_{channel}_{sender_id}.db` | Persistent |
+| Authenticated user | `${NUMEL_DATA_ROOT:-storage}/user_memory/user_{user_id}.db` | Persistent |
+| Anonymous channel user | `${NUMEL_DATA_ROOT:-storage}/user_memory/anon_{channel}_{sender_id}.db` | Persistent |
 **Cross-channel identity**: An authenticated user always resolves to the same database. If user "marco" chats via the web console and also via Telegram (after `/login`), both sessions share `user_{marco_id}.db`.
 
 **Framework-agnostic**: `UserMemoryDB` only manages file paths — it doesn't import any agent framework. The caller (agno, langchain, openai agents sdk, etc.) wraps the path in its own DB abstraction. Switching agent frameworks doesn't require changes to the memory layer.
@@ -670,7 +743,7 @@ Run autonomous background agents on a schedule — without manual invocation.
 {"name": "Post-Run Report", "prompt": "Summarize the latest execution results", "trigger": "event", "event_type": "workflow.completed"}
 ```
 
-Tasks execute via the console agent with full toolkit access. Results (response, tool calls, errors) are persisted in `agent_tasks.json`.
+Tasks execute via the console agent with full toolkit access. Results (response, tool calls, errors) are persisted in `${NUMEL_DATA_ROOT:-storage}/agent_tasks.json`.
 
 Manage tasks via the UI or the `/agent-tasks/*` API endpoints.
 
@@ -681,7 +754,7 @@ Manage tasks via the UI or the `/agent-tasks/*` API endpoints.
 Numel currently has two credential paths:
 
 1. **Platform credentials** for authenticated users, managed through the UI and `/credentials` API.
-2. **Process-level `${VAR_NAME}` substitution** for local JSON config files, backed by `app/credentials.json` plus environment variables.
+2. **Process-level `${VAR_NAME}` substitution** for local config/runtime values, backed by `${NUMEL_DATA_ROOT:-storage}/credentials.json` plus environment variables.
 
 ### Platform Credentials
 
@@ -693,20 +766,28 @@ Authenticated users can store their own credentials, optionally scoped to a spac
 
 Pass `space_id` in the request body to scope a credential to a specific space; omit it for a user-wide credential.
 
-### `${VAR_NAME}` Substitution For Local Config Files
+### `${VAR_NAME}` Substitution For Local Config Files And Node Inputs
 
-Local JSON config files and toolkit args still support `${VAR_NAME}` substitution:
+Local JSON config files, toolkit args, and workflow runtime input fields support `${VAR_NAME}` substitution:
 
 ```json
 {"name": "email_toolkit", "args": {"password": "${GMAIL_APP_PASSWORD}"}}
 ```
 
+At workflow execution time, `${VAR_NAME}` placeholders are resolved before Pydantic validation, so native-type node inputs can be driven this way too:
+- `str`
+- `int`
+- `float`
+- `bool`
+- `list`
+- `dict`
+
 **Lookup order** for `${VAR_NAME}`:
-1. `app/credentials.json`
+1. `${NUMEL_DATA_ROOT:-storage}/credentials.json`
 2. Environment variables (`os.environ`, includes `.env` via `load_dotenv`)
 3. Unchanged (no match — kept as `${VAR_NAME}`)
 
-This substitution path is used for process-level local config files such as `console_agent.json` and `channels.json`. It is separate from the per-user/platform credential store described above.
+Workflow JSON is stored with placeholders unchanged; substitution happens when the workflow runs. This process-level substitution path is separate from the per-user/platform credential store described above.
 
 ---
 
@@ -811,6 +892,8 @@ All endpoints use **POST** method unless otherwise noted.
 ### Authentication
 | Endpoint | Description |
 |----------|-------------|
+| `GET /health/live` | Liveness probe (public) |
+| `GET /health/ready` | Readiness probe (public) |
 | `/auth/status` | Auth/bootstrap status for the active backend (public) |
 | `/auth/register` | Register new user (public) |
 | `/auth/login` | Login, returns Bearer token (public) |
@@ -933,3 +1016,5 @@ All endpoints use **POST** method unless otherwise noted.
 ## License
 
 See [LICENSE](LICENSE) for details.
+
+

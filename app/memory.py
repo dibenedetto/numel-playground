@@ -13,10 +13,12 @@ from   datetime  import datetime
 from   pydantic  import BaseModel, Field
 from   typing    import Any, Dict, List, Optional
 
+from   runtime_settings import get_runtime_settings
 from   utils     import log_print
 
 
-_STORAGE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "storage", "memory")
+_SETTINGS    = get_runtime_settings()
+_STORAGE_DIR = str(_SETTINGS.memory_storage_dir)
 
 
 # =============================================================================
@@ -329,7 +331,7 @@ class MemoryStore:
 # PER-USER MEMORY DATABASE MANAGER
 # =============================================================================
 
-_USER_MEMORY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "storage", "user_memory")
+_USER_MEMORY_DIR = str(_SETTINGS.user_memory_dir)
 
 
 class UserMemoryDB:

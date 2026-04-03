@@ -17,6 +17,7 @@ from .docker_runtime import DockerRuntimeProvider
 from .git_space_store import GitSpaceStore
 from .local_identity import LocalIdentityProvider
 from .local_stack import LocalPlatformStack, build_local_platform_stack
+from .migrations import MigrationStatus, ensure_platform_schema, get_platform_schema_status
 
 __all__ = [
     "ArtifactStorageConfig",
@@ -33,7 +34,10 @@ __all__ = [
     "LocalIdentityConfig",
     "LocalIdentityProvider",
     "LocalPlatformStack",
+    "MigrationStatus",
     "SecretsConfig",
     "VaultSecretsProvider",
     "build_local_platform_stack",
+    "ensure_platform_schema",
+    "get_platform_schema_status",
 ]

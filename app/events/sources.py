@@ -12,7 +12,7 @@ from   abc                import ABC, abstractmethod
 from   datetime           import datetime
 from   enum               import Enum
 from   pathlib            import Path
-from   pydantic           import BaseModel, Field
+from   pydantic           import BaseModel, ConfigDict, Field
 from   typing             import Any, Callable, Dict, List, Literal, Optional, Set, Union
 from   watchdog.observers import Observer
 from   watchdog.events    import FileSystemEventHandler, FileSystemEvent
@@ -53,6 +53,8 @@ class EventSourceEvent(BaseModel):
 
 class EventSourceConfig(BaseModel):
 	"""Base configuration for event sources"""
+	model_config = ConfigDict(extra="allow")
+
 	id          : str                   = Field(default_factory=lambda: f"src_{uuid.uuid4().hex[:8]}")
 	name        : Optional[str]         = None
 	source_type : EventSourceType
@@ -60,9 +62,6 @@ class EventSourceConfig(BaseModel):
 
 	# Filtering/routing
 	tags        : List[str]             = Field(default_factory=list)
-
-	class Config:
-		extra = "allow"  # Allow subclass-specific fields
 
 
 class TimerSourceConfig(EventSourceConfig):

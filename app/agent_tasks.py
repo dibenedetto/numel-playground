@@ -15,10 +15,11 @@ from   fastapi  import FastAPI
 from   pydantic import BaseModel, Field
 from   typing   import Any, Dict, List, Optional
 
+from   runtime_settings import get_runtime_settings
 from   utils    import log_print
 
 
-_TASKS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent_tasks.json")
+_TASKS_PATH = str(get_runtime_settings().agent_tasks_path)
 
 
 # =============================================================================
@@ -316,6 +317,9 @@ class AgentTaskManager:
 
 	def _save(self):
 		configs = {tid: c.model_dump() for tid, c in self._tasks.items()}
+		directory = os.path.dirname(self._config_path)
+		if directory:
+			os.makedirs(directory, exist_ok=True)
 		with open(self._config_path, "w") as f:
 			json.dump(configs, f, indent=2)
 

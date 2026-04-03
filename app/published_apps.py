@@ -14,11 +14,12 @@ from   fastapi.responses import HTMLResponse, JSONResponse
 from   pydantic import BaseModel, Field
 from   typing   import Any, Dict, List, Optional
 
+from   runtime_settings import get_runtime_settings
 from   schema   import Workflow
 from   utils    import log_print
 
 
-_APPS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "published_apps.json")
+_APPS_PATH = str(get_runtime_settings().published_apps_path)
 
 
 # =============================================================================
@@ -1459,6 +1460,9 @@ textarea {{ min-height: 80px; resize: vertical; }}
 
 	def _save(self):
 		data = {slug: app.model_dump() for slug, app in self._apps.items()}
+		directory = os.path.dirname(self._config_path)
+		if directory:
+			os.makedirs(directory, exist_ok=True)
 		with open(self._config_path, "w") as f:
 			json.dump(data, f, indent=2)
 

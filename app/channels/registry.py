@@ -7,13 +7,13 @@ import json
 import os
 
 from   typing   import Dict, List, Optional, Type
+from   runtime_settings import get_runtime_settings
 from   utils    import log_print
 
 from   channels.base import ChannelAdapter, ChannelConfig, ChannelMessage, ChannelStatus, MessageHandler
 
 
-_CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-							"channels.json")
+_CONFIG_PATH = str(get_runtime_settings().channels_config_path)
 
 
 # =============================================================================

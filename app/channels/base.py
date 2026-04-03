@@ -9,7 +9,7 @@ import uuid
 from   abc      import ABC, abstractmethod
 from   datetime import datetime
 from   enum     import Enum
-from   pydantic import BaseModel, Field
+from   pydantic import BaseModel, ConfigDict, Field
 from   typing   import Any, Callable, Coroutine, Dict, List, Optional
 
 
@@ -52,6 +52,8 @@ class ChannelMessage(BaseModel):
 
 class ChannelConfig(BaseModel):
 	"""Base configuration for a channel adapter."""
+	model_config = ConfigDict(extra="allow")
+
 	id           : str            = Field(default_factory=lambda: f"ch_{uuid.uuid4().hex[:8]}")
 	name         : str            = ""
 	channel_type : str            = ""           # "telegram", "whatsapp", "discord", "webhook"
@@ -72,9 +74,6 @@ class ChannelConfig(BaseModel):
 
 	# Platform-specific extras
 	extras       : Dict[str, Any] = Field(default_factory=dict)
-
-	class Config:
-		extra = "allow"
 
 
 # =============================================================================

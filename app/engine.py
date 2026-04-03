@@ -8,7 +8,7 @@ from   collections import defaultdict
 from   datetime    import datetime
 from   enum        import Enum
 from   functools   import partial
-from   pydantic    import BaseModel, Field
+from   pydantic    import BaseModel, ConfigDict, Field
 from   typing      import Any, Dict, List, Optional, Set, Tuple, Union, get_origin, get_args
 
 
@@ -47,6 +47,8 @@ class WaitType(str, Enum):
 
 class WaitSignal(BaseModel):
 	"""Signal from a node requesting to pause execution"""
+	model_config = ConfigDict(arbitrary_types_allowed=True)
+
 	wait_type     : WaitType
 	duration_ms   : Optional[int] = None      # For TIMER: milliseconds to wait
 	event_name    : Optional[str] = None      # For EVENT: event to wait for
@@ -57,12 +59,11 @@ class WaitSignal(BaseModel):
 	max_count     : Optional[int] = None      # Max triggers before stopping
 	resume_data   : Dict[str, Any] = Field(default_factory=dict)  # Data to pass on resume
 
-	class Config:
-		arbitrary_types_allowed = True
-
 
 class LoopContext(BaseModel):
 	"""Context for a single loop (supports nesting via stack)"""
+	model_config = ConfigDict(arbitrary_types_allowed=True)
+
 	loop_start_idx  : int                          # Index of LoopStart/ForEach node
 	loop_end_idx    : Optional[int] = None         # Index of LoopEnd/ForEachEnd node
 	loop_type       : str = "loop"                 # "loop" or "for_each"
@@ -72,12 +73,11 @@ class LoopContext(BaseModel):
 	body_nodes      : Set[int] = Field(default_factory=set)  # Nodes inside this loop body
 	is_active       : bool = True                  # False when loop is done/broken
 
-	class Config:
-		arbitrary_types_allowed = True
-
 
 class WorkflowExecutionState(BaseModel):
 	"""State of a workflow execution"""
+	model_config = ConfigDict(arbitrary_types_allowed=True)
+
 	workflow_id     : str
 	execution_id    : str
 	status          : WorkflowNodeStatus
@@ -97,9 +97,6 @@ class WorkflowExecutionState(BaseModel):
 	# Wait/Event tracking
 	wait_signals    : Dict[int, Dict[str, Any]] = {}    # node_idx -> WaitSignal dict
 	scheduled_tasks : Dict[int, str] = {}               # node_idx -> task_id for timers
-
-	class Config:
-		arbitrary_types_allowed = True
 
 
 class WorkflowEngine:
@@ -1288,7 +1285,7 @@ class WorkflowEngine:
 		# Seed with native field values from the node config
 		inputs = {}
 		if node_config is not None:
-			for key, val in node_config.dict().items():
+			for key, val in node_config.model_dump().items():
 				if key in self._BASE_FIELDS:
 					continue
 				if val is not None:
@@ -1296,8 +1293,10 @@ class WorkflowEngine:
 
 		# Precompute field annotations for coercion (Pydantic v2)
 		field_annotations: Dict[str, Any] = {}
-		if node_config is not None and hasattr(node_config, 'model_fields'):
-			field_annotations = {name: fi.annotation for name, fi in node_config.model_fields.items()}
+		if node_config is not None:
+			model_fields = getattr(type(node_config), 'model_fields', None)
+			if model_fields:
+				field_annotations = {name: fi.annotation for name, fi in model_fields.items()}
 
 		# Override with edge-connected values
 		for edge in edges:

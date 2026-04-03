@@ -1680,7 +1680,7 @@ class Workflow(ComponentType):
 	def link(self):
 		roles = (FieldRole.MULTI_INPUT, FieldRole.MULTI_OUTPUT)
 		for node in self.nodes or []:
-			for name, info in node.model_fields.items():
+			for name, info in type(node).model_fields.items():
 				for meta in info.metadata:
 					if meta in roles:
 						value = getattr(node, name)

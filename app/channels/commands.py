@@ -11,6 +11,8 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Protocol
 
+from runtime_settings import get_runtime_settings
+
 
 class ChannelAuthBackend(Protocol):
     async def create_user(self, username: str, email: str, password: str): ...
@@ -36,8 +38,7 @@ class ChannelCommandHandler:
                  default_toolkits: Optional[List[str]] = None,
                  planner_callback=None):
         self._auth = auth_provider
-        self._store_path = store_path or os.path.join(
-            os.path.dirname(os.path.dirname(__file__)), _STORE_FILE)
+        self._store_path = store_path or str(get_runtime_settings().channel_users_path)
         self._available = available_toolkits or []
         self._defaults = default_toolkits or []
         self._planner_cb = planner_callback  # async fn(action, user_id, session_id, config)
@@ -52,6 +53,9 @@ class ChannelCommandHandler:
         return {}
 
     def _save(self):
+        directory = os.path.dirname(self._store_path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
         with open(self._store_path, "w") as f:
             json.dump(self._data, f, indent=2)
 

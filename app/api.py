@@ -20,6 +20,7 @@ from   typing    import Any, Dict, List, Optional
 
 from   event_bus import EventType, EventBus
 from   platform_client import PlatformRequestError
+from   runtime_settings import get_runtime_settings
 from   schema    import Workflow, WorkflowExecutionOptions
 from   utils     import get_now_str, get_timestamp_str, log_print, serialize_result
 from   events    import (
@@ -113,7 +114,7 @@ class GenerateWorkflowRequest(BaseModel):
 	history     : Optional[List[dict]] = None
 
 
-def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr, skill_mgr=None):
+def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr, skill_mgr=None):
 
 	# Default workspace provides manager/engine for non-workspace-prefixed endpoints
 	_default_ws = workspace_mgr.get_default_workspace()
@@ -126,6 +127,22 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 		return getattr(req.state, 'workspace', _default_ws)
 
 	_project_root = Path(__file__).resolve().parent.parent
+	_runtime_settings = get_runtime_settings()
+	_platform_backend_name = str(getattr(app.state, "platform_backend", "local") or "local").strip().lower()
+	_platform_backend_config = getattr(app.state, "platform_backend_config", {}) or {}
+	_platform_section = _platform_backend_config.get(_platform_backend_name, {}) if isinstance(_platform_backend_config, dict) else {}
+	_admin_platform_roots: List[Path] = []
+	for section_name, field_name in (("git", "repos_root"), ("artifacts", "root_path")):
+		section = _platform_section.get(section_name, {})
+		if not isinstance(section, dict):
+			continue
+		raw_path = str(section.get(field_name, "") or "").strip()
+		if not raw_path:
+			continue
+		try:
+			_admin_platform_roots.append(Path(raw_path).resolve())
+		except Exception:
+			continue
 
 	def _current_user(req: Request):
 		return getattr(req.state, "user", None)
@@ -171,7 +188,9 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 			shared_storage = getattr(workspace_mgr, "_storage_root", None)
 			if shared_storage:
 				roots.append(Path(shared_storage).resolve())
-			for extra_dir in ("storage", "tmp", "models", "docs"):
+			roots.extend(_admin_platform_roots)
+			roots.append(_runtime_settings.data_root.resolve())
+			for extra_dir in ("tmp", "models", "docs"):
 				path = (_project_root / extra_dir)
 				if path.exists():
 					roots.append(path.resolve())
@@ -675,12 +694,12 @@ def setup_api(server: Any, app: FastAPI, event_bus: EventBus, schema_code: str, 
 	@app.post("/shutdown")
 	async def shutdown_server(req: Request):
 		_require_admin(req)
-		nonlocal server
 		ws = _ws(req)
 		await ws.engine.cancel_execution()
+		server = getattr(req.app.state, "uvicorn_server", None)
 		if server and server.should_exit is False:
 			server.should_exit = True
-		server = None
+		req.app.state.uvicorn_server = None
 		return {"status": "none", "message": "Server shut down"}
 
 
@@ -2831,4 +2850,4 @@ Example (mesh processing with toolkit):
 		"{node_catalog}", _build_node_catalog(schema_code)
 	).replace("{tools_catalog}", _build_tools_catalog())
 
-	log_print("✅ Workflow API endpoints registered")
+	log_print("Workflow API endpoints registered")

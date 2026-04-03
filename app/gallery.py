@@ -11,12 +11,13 @@ from   typing import Any, Dict, List, Optional
 
 from   fastapi import FastAPI
 from   pydantic import BaseModel
+from   runtime_settings import get_runtime_settings
 
 
-_APP_DIR      = os.path.dirname(os.path.abspath(__file__))
-_PROJECT_ROOT = os.path.dirname(_APP_DIR)
-_GALLERY_DIR  = os.path.join(_APP_DIR, "gallery")
-_EXAMPLES_DIR = os.path.join(_PROJECT_ROOT, "examples")
+_SETTINGS            = get_runtime_settings()
+_GALLERY_DIR         = str(_SETTINGS.gallery_dir)
+_BUILTIN_GALLERY_DIR = str(_SETTINGS.builtin_gallery_dir)
+_EXAMPLES_DIR        = str(_SETTINGS.examples_dir)
 
 
 class GalleryItem(BaseModel):
@@ -33,16 +34,16 @@ class GalleryItem(BaseModel):
 class GalleryManager:
 	"""Manages a local gallery of shareable workflow templates."""
 
-	def __init__(self, gallery_dir: str = _GALLERY_DIR, examples_dir: str = _EXAMPLES_DIR):
-		self._dir      = gallery_dir
-		self._examples = examples_dir
+	def __init__(self, gallery_dir: str = _GALLERY_DIR, seed_dirs: Optional[List[str]] = None):
+		self._dir       = gallery_dir
+		self._seed_dirs = [d for d in (seed_dirs or [_BUILTIN_GALLERY_DIR, _EXAMPLES_DIR]) if d]
 		self._items: Dict[str, GalleryItem] = {}
 
 	def initialize(self):
 		os.makedirs(self._dir, exist_ok=True)
 		self._load()
 		if not self._items:
-			self._seed_from_examples()
+			self._seed_from_sources()
 
 	# ── Persistence ───────────────────────────────────────────
 
@@ -63,30 +64,34 @@ class GalleryManager:
 		with open(path, "w") as f:
 			json.dump(item.model_dump(), f, indent=2)
 
-	def _seed_from_examples(self):
-		if not os.path.isdir(self._examples):
-			return
-		for fname in sorted(os.listdir(self._examples)):
-			if not fname.endswith(".json"):
+	def _seed_from_sources(self):
+		for source_dir in self._seed_dirs:
+			if not os.path.isdir(source_dir):
 				continue
-			try:
-				with open(os.path.join(self._examples, fname)) as f:
-					wf = json.load(f)
-				name  = fname.replace(".json", "").replace("-", " ").replace("_", " ").title()
-				item  = GalleryItem(
-					id          = str(uuid.uuid4())[:8],
-					title       = name,
-					description = f"Example workflow: {name}",
-					category    = "examples",
-					tags        = ["example"],
-					workflow    = wf,
-					author      = "system",
-					created_at  = time.time(),
-				)
-				self._items[item.id] = item
-				self._save_item(item)
-			except Exception:
-				pass
+			for fname in sorted(os.listdir(source_dir)):
+				if not fname.endswith(".json"):
+					continue
+				try:
+					with open(os.path.join(source_dir, fname), encoding="utf-8") as f:
+						data = json.load(f)
+					if isinstance(data, dict) and "workflow" in data and "id" in data:
+						item = GalleryItem(**data)
+					else:
+						name  = fname.replace(".json", "").replace("-", " ").replace("_", " ").title()
+						item  = GalleryItem(
+							id          = str(uuid.uuid4())[:8],
+							title       = name,
+							description = f"Example workflow: {name}",
+							category    = "examples",
+							tags        = ["example"],
+							workflow    = data if isinstance(data, dict) else {},
+							author      = "system",
+							created_at  = time.time(),
+						)
+					self._items[item.id] = item
+					self._save_item(item)
+				except Exception:
+					pass
 
 	# ── Public API ────────────────────────────────────────────
 

@@ -22,11 +22,14 @@ from   typing  import Any, Dict, List, Optional
 from   fastapi import FastAPI
 from   pydantic import BaseModel
 
+from   runtime_settings import get_runtime_settings
 from   utils import log_print
 
 
-_APP_DIR    = os.path.dirname(os.path.abspath(__file__))
-_SKILLS_DIR = os.path.join(_APP_DIR, "skills")
+_SETTINGS           = get_runtime_settings()
+_SKILLS_DIR         = str(_SETTINGS.user_skills_dir)
+_BUILTIN_SKILLS_DIR = str(_SETTINGS.builtin_skills_dir)
+_SKILLS_STATE_PATH  = str(_SETTINGS.skills_state_path)
 
 
 # =============================================================================
@@ -176,12 +179,14 @@ def _extract_examples(body: str) -> List[str]:
 # =============================================================================
 
 class SkillManager:
-	"""Manages skills loaded from app/skills/ directory."""
+	"""Manages writable user skills plus built-in packaged skills."""
 
-	def __init__(self, skills_dir: str = _SKILLS_DIR):
+	def __init__(self, skills_dir: str = _SKILLS_DIR, builtin_dirs: Optional[List[str]] = None,
+	             state_path: Optional[str] = None):
 		self._dir = skills_dir
+		self._builtin_dirs = [d for d in (builtin_dirs or [_BUILTIN_SKILLS_DIR]) if d]
 		self._skills: Dict[str, Skill] = {}
-		self._state_path = os.path.join(skills_dir, "_state.json")
+		self._state_path = state_path or _SKILLS_STATE_PATH
 
 	def initialize(self):
 		"""Load all skills from disk."""
@@ -215,17 +220,22 @@ class SkillManager:
 		state = {}
 		for s in self._skills.values():
 			state[s.name] = {"enabled": s.enabled, "setup_done": s.setup_done}
+		os.makedirs(os.path.dirname(self._state_path), exist_ok=True)
 		with open(self._state_path, "w") as f:
 			json.dump(state, f, indent=2)
 
 	def _scan(self):
-		"""Scan skills directory for SKILL.md files."""
-		if not os.path.isdir(self._dir):
+		"""Scan built-in and writable skill directories for SKILL.md files."""
+		for directory in [*self._builtin_dirs, self._dir]:
+			self._scan_dir(directory)
+
+	def _scan_dir(self, directory: str):
+		if not os.path.isdir(directory):
 			return
-		for entry in sorted(os.listdir(self._dir)):
+		for entry in sorted(os.listdir(directory)):
 			if entry.startswith("_"):
 				continue
-			skill_dir = os.path.join(self._dir, entry)
+			skill_dir = os.path.join(directory, entry)
 			if not os.path.isdir(skill_dir):
 				continue
 			# Accept both SKILL.md (Numel) and skill.md (OpenClaw)
@@ -390,9 +400,16 @@ class SkillManager:
 
 	def remove(self, name: str) -> bool:
 		"""Remove a skill by name."""
-		skill = self._skills.pop(name, None)
+		skill = self._skills.get(name)
 		if not skill:
 			return False
+		try:
+			rel = os.path.relpath(skill.path, self._dir)
+			if rel.startswith(".."):
+				return False
+		except Exception:
+			return False
+		self._skills.pop(name, None)
 		# Remove directory
 		import shutil
 		if os.path.isdir(skill.path):

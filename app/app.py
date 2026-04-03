@@ -21,6 +21,7 @@ import time
 import uvicorn
 import webbrowser
 from   contextlib import asynccontextmanager
+from   pathlib import Path
 from   fastapi.staticfiles  import StaticFiles
 
 
@@ -37,6 +38,7 @@ if _app_dir not in sys.path:
 
 from   dotenv    import load_dotenv
 from   fastapi   import FastAPI, HTTPException, Request
+from   fastapi.responses import JSONResponse
 from   inspect   import getsource, isawaitable
 from   typing    import Any, Optional
 
@@ -77,6 +79,7 @@ from   platform_loader import (
 	load_platform_backend_config,
 	build_platform_stack_from_config,
 )
+from   runtime_settings import get_runtime_settings
 from   utils     import add_middleware, log_print, seed_everything
 from   workspace import WorkspaceManager as WSManager
 
@@ -143,10 +146,23 @@ def _asyncio_exception_handler(loop, context):
 	loop.default_exception_handler(context)
 
 
-async def run_server(args: Any):
-	log_print("Server starting...")
+async def run_server(
+	args: Any,
+	*,
+	serve: bool = True,
+	open_browser: bool = True,
+	start_channels: bool = True,
+	start_tunnel: Optional[bool] = None,
+):
+	if serve:
+		log_print("Server starting...")
 
 	asyncio.get_event_loop().set_exception_handler(_asyncio_exception_handler)
+	_runtime_settings = get_runtime_settings()
+	_runtime_settings.ensure_directories()
+	_server_started_at = time.time()
+	if start_tunnel is None:
+		start_tunnel = bool(getattr(args, "tunnel", False))
 
 	if args.seed != 0:
 		seed_everything(args.seed)
@@ -155,7 +171,7 @@ async def run_server(args: Any):
 	workspace_mgr : WSManager = WSManager(
 		base_port    = args.port,
 		event_bus    = event_bus,
-		storage_root = os.path.join(_app_dir, "workspaces"),
+		storage_root = _runtime_settings.workspace_storage_dir,
 	)
 	await workspace_mgr.initialize()
 
@@ -163,6 +179,13 @@ async def run_server(args: Any):
 
 	_platform = None
 	_platform_stack = None
+	console_mgr = None
+	channel_registry = None
+	task_mgr = None
+	_shutdown_started = False
+	_channels_started = False
+	_browser_opened = False
+	_tunnel_started = False
 
 	async def _maybe_aclose(obj: Any) -> None:
 		if obj is None:
@@ -174,13 +197,27 @@ async def run_server(args: Any):
 		if isawaitable(result):
 			await result
 
+	async def _shutdown_runtime() -> None:
+		nonlocal _shutdown_started
+		if _shutdown_started:
+			return
+		_shutdown_started = True
+		if task_mgr is not None:
+			await task_mgr.stop_all()
+		if channel_registry is not None:
+			await channel_registry.stop_all()
+		if console_mgr is not None:
+			await console_mgr.stop()
+		await workspace_mgr.shutdown()
+		await _maybe_aclose(_platform)
+		await _maybe_aclose(_platform_stack)
+
 	@asynccontextmanager
 	async def _lifespan(_app: FastAPI):
 		try:
 			yield
 		finally:
-			await _maybe_aclose(_platform)
-			await _maybe_aclose(_platform_stack)
+			await _shutdown_runtime()
 
 	app: FastAPI = FastAPI(title="App", lifespan=_lifespan)
 	add_middleware(app)
@@ -206,11 +243,13 @@ async def run_server(args: Any):
 	app.state.platform_stack = _platform_stack
 	app.state.platform_target = build_db_git_platform_spec()
 	app.state.platform_internal_token = _platform_internal_token
+	app.state.runtime_settings = _runtime_settings
 
 	# Public routes that don't require authentication
 	_PUBLIC_ROUTES = frozenset({
 		"/auth/login", "/auth/register", "/auth/status",
 		"/", "/status", "/ping",
+		"/health/live", "/health/ready",
 	})
 
 	def _platform_http_error(exc: PlatformRequestError):
@@ -383,6 +422,65 @@ async def run_server(args: Any):
 			raise HTTPException(403, "Admin access required")
 		return user
 
+	async def _build_health_payload() -> dict[str, Any]:
+		payload = {
+			"status": "ready",
+			"backend": _platform_backend_name,
+			"platform_config": os.path.basename(_platform_config_path),
+			"components": _platform_stack.describe() if hasattr(_platform_stack, "describe") else {},
+		}
+		try:
+			auth_status = await _platform.auth_status()
+		except Exception as exc:
+			auth_status = {
+				"enabled": False,
+				"provider": "unavailable",
+				"has_users": False,
+				"detail": str(exc),
+			}
+			payload["status"] = "degraded"
+		payload["auth"] = auth_status
+		return payload
+
+	@app.get("/health/live")
+	@app.post("/health/live")
+	async def health_live():
+		return {
+			"status": "alive",
+			"backend": _platform_backend_name,
+			"uptime_seconds": round(max(0.0, time.time() - _server_started_at), 3),
+		}
+
+	@app.get("/health/ready")
+	@app.post("/health/ready")
+	async def health_ready():
+		try:
+			payload = await _build_health_payload()
+			required_paths = [
+				_runtime_settings.workspace_storage_dir,
+				_runtime_settings.memory_storage_dir,
+				_runtime_settings.user_memory_dir,
+				_runtime_settings.gallery_dir,
+				_runtime_settings.user_skills_dir,
+			]
+			missing = [str(path) for path in required_paths if not Path(path).exists()]
+			if missing:
+				payload["status"] = "degraded"
+				payload["missing_paths"] = missing
+				return JSONResponse(status_code=503, content=payload)
+			if payload.get("status") != "ready":
+				return JSONResponse(status_code=503, content=payload)
+			return payload
+		except Exception as exc:
+			return JSONResponse(
+				status_code=503,
+				content={
+					"status": "degraded",
+					"backend": _platform_backend_name,
+					"detail": str(exc),
+				},
+			)
+
 	# ── Admin API Routes ─────────────────────────────────────
 
 	@app.post("/admin/users")
@@ -524,17 +622,18 @@ async def run_server(args: Any):
 			raise HTTPException(500, str(e))
 
 	# Serve the frontend from /web — must be mounted AFTER api routes are registered
-	_web_dir = os.path.join(_project_root, "web")
+	_web_dir = str(_runtime_settings.web_dir)
 
 	host   = "0.0.0.0"
 	port   = args.port
 	config = uvicorn.Config(app, host=host, port=port)
 	server = uvicorn.Server(config)
+	app.state.uvicorn_server = server
 
 	# ── Persistent Memory ─────────────────────────────────────
-	memory_store = MemoryStore()
+	memory_store = MemoryStore(storage_dir=str(_runtime_settings.memory_storage_dir))
 	memory_store.initialize()
-	user_memory_db = UserMemoryDB()
+	user_memory_db = UserMemoryDB(storage_dir=str(_runtime_settings.user_memory_dir))
 
 	# ── Console Agent ─────────────────────────────────────────
 	_main_base_url = f"http://localhost:{args.port}"
@@ -559,7 +658,7 @@ async def run_server(args: Any):
 	})
 
 	# Read default toolkits from console_agent.json
-	_cfg_path = os.path.join(_app_dir, "console_agent.json")
+	_cfg_path = str(_runtime_settings.console_agent_config_path)
 	_default_toolkits = _creds.load_json(_cfg_path).get("toolkits", [])
 
 	async def _planner_callback(action, user_id, session_id, config):
@@ -591,7 +690,7 @@ async def run_server(args: Any):
 
 	channel_cmd = ChannelCommandHandler(
 		auth_provider=_platform,
-		store_path=os.path.join(_app_dir, "channel_users.json"),
+		store_path=str(_runtime_settings.channel_users_path),
 		available_toolkits=_available_toolkits,
 		default_toolkits=_default_toolkits,
 		planner_callback=_planner_callback,
@@ -662,7 +761,7 @@ async def run_server(args: Any):
 			return f"⚠ Something went wrong: {e}"
 
 	channel_registry = ChannelRegistry(message_handler=channel_message_handler,
-									   config_path=os.path.join(_app_dir, "channels.json"))
+									   config_path=str(_runtime_settings.channels_config_path))
 	# Register adapter types
 	ChannelRegistry.register_type("telegram", TelegramAdapter)
 	ChannelRegistry.register_type("whatsapp", WhatsAppAdapter)
@@ -681,19 +780,26 @@ async def run_server(args: Any):
 	channel_pool._channel_reg = channel_registry
 
 	# ── Skills ────────────────────────────────────────────────
-	skill_mgr = SkillManager()
+	skill_mgr = SkillManager(
+		skills_dir=str(_runtime_settings.user_skills_dir),
+		builtin_dirs=[str(_runtime_settings.builtin_skills_dir)],
+		state_path=str(_runtime_settings.skills_state_path),
+	)
 	skill_mgr.initialize()
 
 	# ── Workflow Gallery ──────────────────────────────────────
-	gallery_mgr = GalleryManager()
+	gallery_mgr = GalleryManager(
+		gallery_dir=str(_runtime_settings.gallery_dir),
+		seed_dirs=[str(_runtime_settings.builtin_gallery_dir), str(_runtime_settings.examples_dir)],
+	)
 	gallery_mgr.initialize()
 
 	# ── Autonomous Agent Tasks ────────────────────────────────
-	task_mgr = AgentTaskManager(console_mgr)
+	task_mgr = AgentTaskManager(console_mgr, config_path=str(_runtime_settings.agent_tasks_path))
 	task_mgr.initialize(event_bus)
 
 	# ── Published Apps ────────────────────────────────────────
-	pub_app_mgr = PublishedAppManager(workspace_mgr)
+	pub_app_mgr = PublishedAppManager(workspace_mgr, config_path=str(_runtime_settings.published_apps_path))
 	pub_app_mgr.initialize()
 
 	# ── Execution History ─────────────────────────────────────
@@ -710,7 +816,7 @@ async def run_server(args: Any):
 		ws.manager._skill_mgr = skill_mgr
 
 	# ── API Routes (order matters: specific routes before static mount) ──
-	setup_api(server, app, event_bus, schema_code, workspace_mgr, skill_mgr=skill_mgr)
+	setup_api(app, event_bus, schema_code, workspace_mgr, skill_mgr=skill_mgr)
 	setup_console_api(app, console_mgr, channel_pool=channel_pool, channel_cmd=channel_cmd)
 	setup_channel_api(app, channel_registry, pool=channel_pool)
 	setup_gallery_api(app, gallery_mgr)
@@ -820,25 +926,58 @@ async def run_server(args: Any):
 
 	url = f"http://localhost:{port}/"
 	log_print(f"Frontend: {url}")
-	webbrowser.open(url)
 
-	# Start auto-start channels
-	await channel_registry.start_all()
+	async def _start_runtime_services(
+		*,
+		open_browser_now: bool = open_browser,
+		start_channels_now: bool = start_channels,
+		start_tunnel_now: bool = bool(start_tunnel),
+	):
+		nonlocal _browser_opened, _channels_started, _tunnel_started
+		if open_browser_now and not _browser_opened:
+			webbrowser.open(url)
+			_browser_opened = True
+		if start_channels_now and not _channels_started:
+			await channel_registry.start_all()
+			_channels_started = True
+		if start_tunnel_now and not _tunnel_started:
+			t = threading.Thread(target=_start_tunnel, args=(port,), daemon=True)
+			t.start()
+			_tunnel_started = True
 
-	# Start tunnel if requested
-	if getattr(args, "tunnel", False):
-		t = threading.Thread(target=_start_tunnel, args=(port,), daemon=True)
-		t.start()
+	app.state.shutdown_runtime = _shutdown_runtime
+	app.state.start_runtime_services = _start_runtime_services
+	app.state.frontend_url = url
+	app.state.workspace_mgr = workspace_mgr
+	app.state.console_mgr = console_mgr
+	app.state.channel_registry = channel_registry
+	app.state.task_mgr = task_mgr
+	app.state.gallery_mgr = gallery_mgr
+	app.state.skill_mgr = skill_mgr
+	app.state.published_app_mgr = pub_app_mgr
+	app.state.exec_history = exec_history
+	app.state.event_bus = event_bus
 
-	await server.serve()
+	if not serve:
+		return app
 
-	# Shutdown
-	await task_mgr.stop_all()
-	await channel_registry.stop_all()
-	await console_mgr.stop()
-	await workspace_mgr.shutdown()
+	try:
+		await _start_runtime_services()
+		await server.serve()
+	finally:
+		await _shutdown_runtime()
 
-	log_print("Server shut down.")
+	return app
+
+
+async def build_app(args: Any) -> FastAPI:
+	return await run_server(
+		args,
+		serve=False,
+		open_browser=False,
+		start_channels=False,
+		start_tunnel=False,
+	)
 
 
 def main():

@@ -40,11 +40,12 @@ _agno_log.logger.warning = _logger_warning_filtered
 
 from   event_bus                       import EventBus
 from   memory                          import MemoryStore
+from   runtime_settings                import get_runtime_settings
 from   toolkits.console_toolkit        import ConsoleToolkit
 from   utils                           import add_middleware, log_print
 
 
-_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "console_agent.json")
+_CONFIG_PATH = str(get_runtime_settings().console_agent_config_path)
 
 
 # ── Helpers ────────────────────────────────────────────────────

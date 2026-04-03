@@ -17,6 +17,7 @@ from platform_local import (
     build_local_platform_stack,
 )
 from platform_prod import DjangoIdentityConfig, build_db_git_platform_stack
+from runtime_settings import get_runtime_settings
 
 
 DEFAULT_PLATFORM_CONFIG_FILENAME = "platform_backend.json"
@@ -48,7 +49,50 @@ def load_platform_backend_config(path: str | None = None) -> dict[str, Any]:
     if backend not in {"local", "prod"}:
         raise ValueError(f"Unsupported platform backend '{backend}'")
     raw["backend"] = backend
-    return raw
+    return _normalize_platform_backend_config(raw)
+
+
+def _resolve_platform_path(raw_path: str) -> str:
+    settings = get_runtime_settings()
+    candidate = Path(str(raw_path))
+    if candidate.is_absolute():
+        return str(candidate.resolve())
+
+    parts = candidate.parts
+    if parts and str(parts[0]).lower() == "storage":
+        relative_parts = parts[1:]
+        target = settings.data_root.joinpath(*relative_parts) if relative_parts else settings.data_root
+        return str(target.resolve())
+    return str((settings.project_root / candidate).resolve())
+
+
+def _normalize_sqlite_url(url: str) -> str:
+    prefix = "sqlite:///"
+    if not isinstance(url, str) or not url.startswith(prefix):
+        return url
+    path_part = url[len(prefix):]
+    if not path_part:
+        return url
+    normalized = _resolve_platform_path(path_part)
+    return f"{prefix}{normalized.replace(os.sep, '/')}"
+
+
+def _normalize_platform_backend_config(config: Mapping[str, Any]) -> dict[str, Any]:
+    normalized = json.loads(json.dumps(config))
+    for backend_name in ("local", "prod"):
+        section = normalized.get(backend_name)
+        if not isinstance(section, dict):
+            continue
+        database = section.get("database")
+        if isinstance(database, dict) and "url" in database:
+            database["url"] = _normalize_sqlite_url(str(database["url"]))
+        git = section.get("git")
+        if isinstance(git, dict) and git.get("repos_root"):
+            git["repos_root"] = _resolve_platform_path(str(git["repos_root"]))
+        artifacts = section.get("artifacts")
+        if isinstance(artifacts, dict) and artifacts.get("root_path"):
+            artifacts["root_path"] = _resolve_platform_path(str(artifacts["root_path"]))
+    return normalized
 
 
 def _section(config: Mapping[str, Any], name: str) -> Mapping[str, Any]:

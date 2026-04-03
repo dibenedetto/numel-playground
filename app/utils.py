@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 
 
 from   datetime                import datetime, timezone
@@ -33,7 +34,18 @@ def get_timestamp_str() -> float:
 
 def log_print(*args, **kwargs) -> None:
 	ts = get_now_str()
-	print(f"[log {ts}]", *args, **kwargs)
+	stream = kwargs.pop("file", sys.stdout)
+	sep    = kwargs.pop("sep", " ")
+	end    = kwargs.pop("end", "\n")
+	flush  = kwargs.pop("flush", False)
+	parts  = [f"[log {ts}]", *(str(arg) for arg in args)]
+	text   = sep.join(parts)
+	try:
+		print(text, file=stream, end=end, flush=flush, **kwargs)
+	except UnicodeEncodeError:
+		encoding = getattr(stream, "encoding", None) or "utf-8"
+		safe_text = text.encode(encoding, errors="replace").decode(encoding, errors="replace")
+		print(safe_text, file=stream, end=end, flush=flush, **kwargs)
 
 
 def seed_everything(seed: Optional[int] = None) -> None:

@@ -21,10 +21,12 @@ from .db_secrets import DbSecretsProvider
 from .docker_runtime import DockerRuntimeProvider
 from .git_space_store import GitSpaceStore
 from .local_identity import LocalIdentityProvider
+from .migrations import ensure_platform_schema
 
 
 @dataclass
 class LocalPlatformStack:
+    schema_version: int
     db_config: DatabaseConfig
     identity_config: LocalIdentityConfig
     git_config: GitStorageConfig
@@ -43,6 +45,7 @@ class LocalPlatformStack:
 
     def describe(self) -> Dict[str, str]:
         return {
+            "schema_version": str(self.schema_version),
             "identity": self.identity.__class__.__name__,
             "friend_graph": self.friend_graph.__class__.__name__,
             "spaces": self.spaces.__class__.__name__,
@@ -86,6 +89,7 @@ def build_local_platform_stack(
     artifact_config = artifact_config or ArtifactStorageConfig()
     secrets_config = secrets_config or SecretsConfig()
     docker_config = docker_config or DockerRuntimeConfig()
+    migration_status = ensure_platform_schema(db_config.url)
 
     audit_log = DbAuditLog(db_config)
     execution_registry = DbExecutionRegistry(db_config)
@@ -111,6 +115,7 @@ def build_local_platform_stack(
     )
 
     return LocalPlatformStack(
+        schema_version=migration_status.current_version,
         db_config=db_config,
         identity_config=identity_config,
         git_config=git_config,
