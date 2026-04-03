@@ -12,10 +12,11 @@ import json
 import os
 import re
 import threading
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 _CREDS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "credentials.json")
 _lock       = threading.Lock()
+_VAR_PATTERN = re.compile(r'\$\{([^}]+)\}')
 
 
 def _load() -> Dict[str, str]:
@@ -60,6 +61,32 @@ def delete(name: str) -> bool:
 		return True
 
 
+def resolve_with_overrides(value: str, overrides: Optional[Dict[str, Any]] = None) -> str:
+	"""Resolve ${VAR_NAME} with optional high-priority override values.
+
+	Lookup order:
+	  1. overrides
+	  2. Credential store (credentials.json)
+	  3. Environment variables (os.environ)
+	  4. Keep the original ${VAR_NAME} unchanged (no match)
+	"""
+	if not isinstance(value, str) or "${" not in value:
+		return value
+	data = _load()
+	override_data = {
+		str(key): "" if val is None else str(val)
+		for key, val in (overrides or {}).items()
+	}
+	def _sub(m):
+		name = m.group(1)
+		if name in override_data:
+			return override_data[name]
+		if name in data:
+			return data[name]
+		return os.environ.get(name, m.group(0))
+	return _VAR_PATTERN.sub(_sub, value)
+
+
 def resolve(value: str) -> str:
 	"""Replace ${VAR_NAME} references with credential or environment variable values.
 
@@ -68,15 +95,7 @@ def resolve(value: str) -> str:
 	  2. Environment variables (os.environ)
 	  3. Keep the original ${VAR_NAME} unchanged (no match)
 	"""
-	if not isinstance(value, str) or "${" not in value:
-		return value
-	data = _load()
-	def _sub(m):
-		name = m.group(1)
-		if name in data:
-			return data[name]
-		return os.environ.get(name, m.group(0))
-	return re.sub(r'\$\{([^}]+)\}', _sub, value)
+	return resolve_with_overrides(value)
 
 
 def resolve_dict(d: dict) -> dict:

@@ -14,7 +14,10 @@ import json
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union, get_args, get_origin
+
+import credentials as _creds
+from pydantic import BaseModel
 
 from domain.interfaces import RuntimeProvider
 from domain.models import (
@@ -25,12 +28,132 @@ from domain.models import (
     ExecutionState,
     RuntimeProfile,
 )
-from schema import Workflow, WorkflowOptions
+from schema import FieldRole, Workflow, WorkflowNodeUnion, WorkflowOptions
 
 from .config import ArtifactStorageConfig, DockerRuntimeConfig
 from .db_execution_registry import DbExecutionRegistry
 from .db_git_spaces import DbGitSpaceProvider
 from .git_space_store import GitSpaceStore
+
+
+_WORKFLOW_NODE_MODELS = {
+    str(node_cls.model_fields["type"].default): node_cls
+    for node_cls in get_args(WorkflowNodeUnion)
+}
+
+
+def _unwrap_annotation(annotation: Any) -> Any:
+    origin = get_origin(annotation)
+    if origin is Union:
+        args = [arg for arg in get_args(annotation) if arg is not type(None)]
+        if len(args) == 1:
+            return _unwrap_annotation(args[0])
+    return annotation
+
+
+def _field_is_runtime_input(field_info: Any) -> bool:
+    return any(meta in {FieldRole.INPUT, FieldRole.MULTI_INPUT} for meta in field_info.metadata)
+
+
+def _coerce_resolved_string(value: str, annotation: Any) -> Any:
+    target = _unwrap_annotation(annotation)
+    origin = get_origin(target)
+
+    if target is bool:
+        lowered = value.strip().lower()
+        if lowered in {"true", "1", "yes", "on"}:
+            return True
+        if lowered in {"false", "0", "no", "off"}:
+            return False
+        return value
+    if target is int:
+        try:
+            return int(value)
+        except ValueError:
+            return value
+    if target is float:
+        try:
+            return float(value)
+        except ValueError:
+            return value
+    if origin in {list, List, dict, Dict}:
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return value
+        if origin in {list, List} and isinstance(parsed, list):
+            return parsed
+        if origin in {dict, Dict} and isinstance(parsed, dict):
+            return parsed
+    return value
+
+
+def _resolve_payload_value(value: Any, annotation: Any, runtime_vars: Optional[Dict[str, str]]) -> Any:
+    target = _unwrap_annotation(annotation)
+    origin = get_origin(target)
+
+    if isinstance(value, str):
+        resolved = _creds.resolve_with_overrides(value, overrides=runtime_vars)
+        return _coerce_resolved_string(resolved, target)
+
+    if isinstance(value, list):
+        item_annotation = Any
+        if origin in {list, List}:
+            args = get_args(target)
+            item_annotation = args[0] if args else Any
+        return [
+            _resolve_payload_value(item, item_annotation, runtime_vars)
+            for item in value
+        ]
+
+    if isinstance(value, dict):
+        if isinstance(target, type) and issubclass(target, BaseModel):
+            return _resolve_model_inputs(value, target, runtime_vars)
+        if "type" in value and str(value.get("type", "")) in _WORKFLOW_NODE_MODELS:
+            return _resolve_model_inputs(
+                value,
+                _WORKFLOW_NODE_MODELS[str(value["type"])],
+                runtime_vars,
+            )
+        if origin in {dict, Dict}:
+            args = get_args(target)
+            value_annotation = args[1] if len(args) > 1 else Any
+            return {
+                key: _resolve_payload_value(item, value_annotation, runtime_vars)
+                for key, item in value.items()
+            }
+        return {
+            key: _resolve_payload_value(item, Any, runtime_vars)
+            for key, item in value.items()
+        }
+
+    return value
+
+
+def _resolve_model_inputs(
+    payload: Dict[str, Any],
+    model_cls: type[BaseModel],
+    runtime_vars: Optional[Dict[str, str]],
+) -> Dict[str, Any]:
+    resolved = dict(payload)
+    for field_name, field_info in model_cls.model_fields.items():
+        if field_name not in payload:
+            continue
+        if not _field_is_runtime_input(field_info):
+            continue
+        resolved[field_name] = _resolve_payload_value(
+            payload[field_name],
+            field_info.annotation,
+            runtime_vars,
+        )
+    return resolved
+
+
+def _resolve_workflow_payload_inputs(
+    payload: Dict[str, Any],
+    runtime_vars: Optional[Dict[str, str]],
+) -> Dict[str, Any]:
+    return _resolve_model_inputs(payload, Workflow, runtime_vars)
 
 
 class DockerRuntimeProvider(RuntimeProvider):
@@ -330,6 +453,7 @@ class DockerRuntimeProvider(RuntimeProvider):
                 raise ValueError(
                     f"Asset '{request.asset_path}' is not a workflow document"
                 )
+            payload = _resolve_workflow_payload_inputs(payload, env)
             workflow = self._workflow_from_payload(payload)
             if workflow.options is None:
                 workflow.options = WorkflowOptions(name=workflow_name)
