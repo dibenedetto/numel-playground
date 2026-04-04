@@ -12,6 +12,8 @@ Recommended rule:
 
 - keep the docs in `docs/` in both repos
 - keep backend/config files in `app/` and `deploy/` in both repos
+- if `app/platform_prod` is a private git submodule, keep the submodule mounted
+  at that same path in both repos
 - do not move these files to arbitrary folders if you want the bootstrap prompt
   to keep working unchanged
 
@@ -43,6 +45,8 @@ The important practical point is:
 
 - the files must exist in both repos
 - they should live at the same paths in both repos
+- if `app/platform_prod` is a private submodule, it should stay at
+  `app/platform_prod` in both repos
 - when you start a new chat in either repo, tell the chat to read those files
 
 That means the shared context is not automatic. The new chat still needs an
@@ -60,14 +64,14 @@ be reused unchanged and both chats will start from the same written context.
 This is the most useful short opening instruction to reuse in either repo:
 
 ```text
-Please read docs/chat-bootstrap.md and docs/fork-handoff.md first, then inspect the current repo state and continue from there.
+Please read docs/chat-bootstrap.md and docs/fork-handoff.md first, then inspect the current repo state, including the app/platform_prod submodule if present, and continue from there.
 ```
 
 If you want a slightly stronger version that also pulls in the deeper
 architecture docs, use:
 
 ```text
-Please read docs/chat-bootstrap.md, docs/fork-handoff.md, docs/platform-domain.md, docs/platform-db-git.md, and docs/runtime-container-contract.md first, then inspect the current repo state and continue from there.
+Please read docs/chat-bootstrap.md, docs/fork-handoff.md, docs/platform-domain.md, docs/platform-db-git.md, and docs/runtime-container-contract.md first, then inspect the current repo state, including the app/platform_prod submodule if present, and continue from there.
 ```
 
 ## Minimum Shared Set
@@ -115,6 +119,7 @@ Recommended shared set:
 - keeps the architecture docs aligned
 - keeps the backend-selection model aligned
 - keeps the current production deployment story aligned
+- keeps the submodule-based prod/backend split easier to explain in future chats
 - is better if both repos will continue evolving in parallel
 
 ## Practical Sync Strategy

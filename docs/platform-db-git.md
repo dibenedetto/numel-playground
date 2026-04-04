@@ -69,7 +69,7 @@ The codebase now separates the working local backend and the future production
 backend explicitly:
 
 - `app/platform_local/` for the reference local implementation
-- `app/platform_prod/` for production-oriented adapters like Django
+- `app/platform_prod/` for production-oriented adapters like Django, optionally mounted as a private git submodule
 
 Backend selection is now config-driven through `app/platform_backend.json`.
 That file selects `local` or `prod`, and `app/platform_loader.py` builds the

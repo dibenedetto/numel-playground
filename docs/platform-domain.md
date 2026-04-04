@@ -97,7 +97,7 @@ startup through `app/platform_loader.py`.
 The intended long-term split is:
 
 - `app/platform_local/`: the full local/reference backend used by the app today
-- `app/platform_prod/`: future production-oriented adapters and composition
+- `app/platform_prod/`: production-oriented adapters and composition, optionally mounted as a private git submodule
 - Django (or another auth service): users, profiles, friendships, roles, quotas
 - PostgreSQL: spaces, assets, refs, commits, ACLs, execution metadata
 - object storage / filesystem: blobs and large assets

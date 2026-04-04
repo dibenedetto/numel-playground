@@ -26,7 +26,7 @@
 | Per-user isolation | Spaces, credentials, memory, executions — cross-channel | No | No |
 | Multi-tenant with quotas | Roles, quotas, admin panel | Enterprise only | No |
 | Autonomous agent tasks | Scheduled/event-driven background agents | Workflows only | No |
-| Config-selected platform backends | `platform_local` now, `platform_prod` later | No | No |
+| Config-selected platform backends | `platform_local` plus `platform_prod` | No | No |
 
 ---
 
@@ -578,6 +578,7 @@ Notes:
 - `deploy/runtime-builder.sh` hashes the runtime-relevant source tree and only rebuilds the inner runtime images when that hash changes or the image is missing
 - The compose stack also builds the Django identity service locally from `deploy/Dockerfile.identity` and `services/identity_django/`
 - Use `docker compose --env-file deploy/.env.prod -f deploy/docker-compose.prod.yml --profile gpu up --build` to also build the CUDA runtime image
+- `app/platform_prod` may be provided as a private git submodule; when present, keep it mounted at that same path
 - The app still talks to identity through the same adapter contract in `app/platform_prod/django_identity.py`
 - The Django service uses the same logical user/profile/quota/token model as `platform_local`, so switching between `local` and `prod` remains seamless at the Numel interface level
 - From an interface point of view, switching between `local` and `prod` remains config-only: the frontend, `/platform`, `/spaces`, `/workflow`, and `/executions` surfaces do not change

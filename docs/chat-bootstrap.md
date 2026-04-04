@@ -12,6 +12,8 @@ What *does* work well is:
 
 - keep this file in both repos
 - keep [fork-handoff.md](/c:/devel/numel-playground/docs/fork-handoff.md) in both repos
+- if `app/platform_prod` is private, keep it mounted at the same
+  `app/platform_prod` submodule path
 - paste the prompt below into a new chat when you switch repos
 
 ## Resume Prompt
@@ -30,6 +32,7 @@ Before making changes, read:
 
 Important project context:
 - Numel has a config-selected platform split: platform_local for the fully working local/reference backend, platform_prod for the production-oriented backend.
+- app/platform_prod may be provided as a private git submodule and should be inspected when present.
 - The app/interface should stay seamless across local and prod: same frontend and same public /platform, /spaces, /workflow, and /executions surface.
 - The product model is space-centric with one current workflow per current space.
 - Production currently uses PostgreSQL + Django identity + Docker runtime containers.

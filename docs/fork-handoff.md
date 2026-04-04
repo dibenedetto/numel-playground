@@ -56,6 +56,12 @@ Data model direction:
 - docker for isolated prod execution
 - django for identity/auth and related user-management concerns
 
+Submodule note:
+
+- `app/platform_prod` may be mounted as a private git submodule
+- if so, keep that submodule at the same path in every repo where you want the
+  shared chat/bootstrap docs to remain accurate
+
 ## What Works Now
 
 Local/reference path:
@@ -129,6 +135,10 @@ Recommended files to copy or keep in sync across both repos:
 - [docs/platform-domain.md](/c:/devel/numel-playground/docs/platform-domain.md)
 - [docs/platform-db-git.md](/c:/devel/numel-playground/docs/platform-db-git.md)
 - [docs/runtime-container-contract.md](/c:/devel/numel-playground/docs/runtime-container-contract.md)
+
+If `app/platform_prod` is private, keep the submodule path itself aligned too:
+
+- `app/platform_prod`
 
 This does not make one live chat session automatically span two repos, but it
 does give both repos the same durable working context.
