@@ -1,0 +1,56 @@
+#
+# Build from the repository root:
+#   docker build -f runtime/numel_runtime/Dockerfile.cuda -t numel-runtime:cuda .
+#
+# This image is the GPU-capable sibling of runtime/numel_runtime/Dockerfile.
+# Numel will prefer it automatically when a runtime profile sets gpu_enabled=true
+# and no explicit runtime.image override is provided.
+
+FROM nvidia/cuda:12.8.1-cudnn-runtime-ubuntu24.04
+
+ARG TORCH_VERSION=2.10.0
+ARG TORCHVISION_VERSION=0.25.0
+ARG TORCHAUDIO_VERSION=2.10.0
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.12 python3-pip python3.12-venv python3.12-dev \
+    build-essential git curl libc-bin && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN ln -sf /usr/bin/python3.12 /usr/local/bin/python && \
+    ln -sf /usr/bin/pip3 /usr/local/bin/pip
+
+RUN python -m venv /opt/venv
+
+WORKDIR /opt/numel
+
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONPATH=/opt/numel/app:/opt/numel
+ENV PATH=/opt/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ENV NUMEL_WORKSPACE_DIR=/workspace
+ENV NUMEL_ARTIFACTS_DIR=/artifacts
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
+COPY pyproject.toml README.md /opt/numel/
+COPY app/ /opt/numel/app/
+COPY runtime/ /opt/numel/runtime/
+COPY contrib/ /opt/numel/contrib/
+
+RUN python -c "import pathlib, tomllib; data = tomllib.loads(pathlib.Path('/opt/numel/pyproject.toml').read_text(encoding='utf-8')); deps = [d for d in data['project']['dependencies'] if not d.startswith('torch==') and not d.startswith('torchvision==') and not d.startswith('torchaudio==')]; pathlib.Path('/tmp/numel-deps.txt').write_text('\n'.join(deps) + '\n', encoding='utf-8')"
+
+RUN pip install --no-cache-dir \
+    --index-url https://download.pytorch.org/whl/cu128 \
+    torch==${TORCH_VERSION} \
+    torchvision==${TORCHVISION_VERSION} \
+    torchaudio==${TORCHAUDIO_VERSION}
+
+RUN pip install --no-cache-dir -r /tmp/numel-deps.txt
+
+RUN mkdir -p /workspace /artifacts
+
+CMD ["python", "-m", "runtime.numel_runtime.entrypoint"]
+
+

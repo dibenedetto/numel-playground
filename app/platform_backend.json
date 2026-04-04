@@ -30,9 +30,20 @@
     "runtime": {
       "base_url": "unix:///var/run/docker.sock",
       "default_image": "numel-runtime:latest",
+      "default_gpu_image": "numel-runtime:cuda",
       "network_name": "",
       "workspace_mount_root": "/workspace",
-      "artifacts_mount_root": "/artifacts"
+      "artifacts_mount_root": "/artifacts",
+      "api_version": "v1.41",
+      "healthcheck_path": "/_ping",
+      "timeout_seconds": 30.0,
+      "verify_tls": true,
+      "require_available_on_startup": true,
+      "container_name_prefix": "numel-exec",
+      "default_command": "",
+      "auto_remove": false,
+      "gpu_driver": "nvidia",
+      "gpu_device_count": -1
     }
   },
   "prod": {
@@ -45,9 +56,12 @@
     "identity": {
       "base_url": "http://localhost:8000",
       "identity_prefix": "/api/platform",
+      "healthcheck_path": "/auth/status",
       "timeout_seconds": 10.0,
       "verify_tls": true,
-      "token_header": "Authorization"
+      "token_header": "Authorization",
+      "token_scheme": "Bearer",
+      "require_available_on_startup": true
     },
     "git": {
       "repos_root": "storage/spaces",
@@ -67,9 +81,20 @@
     "runtime": {
       "base_url": "unix:///var/run/docker.sock",
       "default_image": "numel-runtime:latest",
+      "default_gpu_image": "numel-runtime:cuda",
       "network_name": "",
       "workspace_mount_root": "/workspace",
-      "artifacts_mount_root": "/artifacts"
+      "artifacts_mount_root": "/artifacts",
+      "api_version": "v1.41",
+      "healthcheck_path": "/_ping",
+      "timeout_seconds": 30.0,
+      "verify_tls": true,
+      "require_available_on_startup": true,
+      "container_name_prefix": "numel-exec",
+      "default_command": "",
+      "auto_remove": false,
+      "gpu_driver": "nvidia",
+      "gpu_device_count": -1
     }
   }
 }

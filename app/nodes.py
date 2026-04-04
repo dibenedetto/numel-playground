@@ -115,6 +115,10 @@ class WFIndexDBConfig(WFConfigType):
 	pass
 
 
+class WFHistoryManagerConfig(WFConfigType):
+	pass
+
+
 class WFMemoryManagerConfig(WFConfigType):
 	pass
 
@@ -1610,6 +1614,7 @@ _NODE_TYPES = {
 	"content_db_config"        : WFContentDBConfig,
 	"vector_db_config"         : WFIndexDBConfig,   # legacy alias
 	"index_db_config"          : WFIndexDBConfig,
+	"history_manager_config"   : WFHistoryManagerConfig,
 	"memory_manager_config"    : WFMemoryManagerConfig,
 	"session_manager_config"   : WFSessionManagerConfig,
 	"knowledge_manager_config" : WFKnowledgeManagerConfig,

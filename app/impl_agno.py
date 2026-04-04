@@ -176,6 +176,13 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 		impl[index] = item
 
 
+	def _build_history_manager(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
+		item_config = workflow.nodes[index]
+		assert item_config is not None and item_config.type == "history_manager_config", "Invalid Agno history manager"
+		item = copy.deepcopy(item_config)
+		impl[index] = item
+
+
 	def _build_memory_manager(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "memory_manager_config", "Invalid Agno memory manager"
@@ -391,6 +398,15 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 					tools.extend(tk["tools"])
 
 		if True:
+			add_history_to_context = False
+			num_history_runs       = 0
+			if "history_mgr" in node_links:
+				history_mgr_index        = node_links["history_mgr"]
+				history_mgr_config       = workflow.nodes[history_mgr_index]
+				add_history_to_context   = history_mgr_config.query
+				num_history_runs         = history_mgr_config.size
+
+		if True:
 			enable_agentic_memory   = False
 			enable_user_memories    = False
 			add_memories_to_context = False
@@ -458,6 +474,9 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 				markdown                = options.markdown,
 				db                      = content_db,
 				tools                   = tools,
+
+				add_history_to_context  = add_history_to_context,
+				num_history_runs        = num_history_runs,
 
 				enable_agentic_memory   = enable_agentic_memory,
 				enable_user_memories    = enable_user_memories,
@@ -542,6 +561,7 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 	for i in indices["embedding_config"        ]: _build_embedding         (workflow, links, impl, i)
 	for i in indices["content_db_config"       ]: _build_content_db        (workflow, links, impl, i)
 	for i in indices["index_db_config"         ]: _build_index_db          (workflow, links, impl, i)
+	for i in indices["history_manager_config"  ]: _build_history_manager   (workflow, links, impl, i)
 	for i in indices["memory_manager_config"   ]: _build_memory_manager    (workflow, links, impl, i)
 	for i in indices["session_manager_config"  ]: _build_session_manager   (workflow, links, impl, i)
 	for i in indices["knowledge_manager_config"]: _build_knowledge_manager (workflow, links, impl, i)

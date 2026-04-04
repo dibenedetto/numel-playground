@@ -130,7 +130,7 @@ class NativeType(BaseType):
 	visible     = True
 )
 class NativeBoolean(NativeType):
-	"""Constant boolean value. Set value=true|false. Wire get→any bool input."""
+	"""Constant boolean value. Set value=true|false. Wire value→any bool input."""
 	type : Annotated[Literal["native_boolean"], FieldRole.CONSTANT] = "native_boolean"
 	raw  : Annotated[bool                     , FieldRole.INPUT   ] = Field(default=False, description="The constant boolean value (true or false)")
 
@@ -148,7 +148,7 @@ class NativeBoolean(NativeType):
 	visible     = True
 )
 class NativeInteger(NativeType):
-	"""Constant integer value. Set value to any integer. Wire get→any int input."""
+	"""Constant integer value. Set value to any integer. Wire value→any int input."""
 	type : Annotated[Literal["native_integer"], FieldRole.CONSTANT] = "native_integer"
 	raw  : Annotated[int                      , FieldRole.INPUT   ] = Field(default=0, description="The constant integer value")
 
@@ -166,7 +166,7 @@ class NativeInteger(NativeType):
 	visible     = True
 )
 class NativeReal(NativeType):
-	"""Constant floating-point value. Set value to any number. Wire get→any float input."""
+	"""Constant floating-point value. Set value to any number. Wire value→any float input."""
 	type : Annotated[Literal["native_real"], FieldRole.CONSTANT] = "native_real"
 	raw  : Annotated[float                 , FieldRole.INPUT   ] = Field(default=0.0, description="The constant floating-point value")
 
@@ -184,7 +184,7 @@ class NativeReal(NativeType):
 	visible     = True
 )
 class NativeString(NativeType):
-	"""Constant string value. Set value to any text. Wire get→any string input."""
+	"""Constant string value. Set value to any text. Wire value→any string input."""
 	type : Annotated[Literal["native_string"], FieldRole.CONSTANT] = "native_string"
 	raw  : Annotated[str                     , FieldRole.INPUT   ] = Field(default="", description="The constant string value")
 
@@ -202,7 +202,7 @@ class NativeString(NativeType):
 	visible     = True
 )
 class NativeList(NativeType):
-	"""Constant list value. Set value to a JSON array. Wire get→any list input."""
+	"""Constant list value. Set value to a JSON array. Wire value→any list input."""
 	type : Annotated[Literal["native_list"], FieldRole.CONSTANT] = "native_list"
 	raw  : Annotated[List[Any]             , FieldRole.INPUT   ] = Field(default=[], description="The constant list value (JSON array)")
 
@@ -220,7 +220,7 @@ class NativeList(NativeType):
 	visible     = True
 )
 class NativeDictionary(NativeType):
-	"""Constant dict value. Set value to a JSON object. Wire get→any dict input."""
+	"""Constant dict value. Set value to a JSON object. Wire value→any dict input."""
 	type : Annotated[Literal["native_dictionary"], FieldRole.CONSTANT] = "native_dictionary"
 	raw  : Annotated[Dict[str, Any]              , FieldRole.INPUT   ] = Field(default={}, description="The constant dictionary value (JSON object)")
 
@@ -254,7 +254,7 @@ class TensorType(BaseType):
 	visible     = True
 )
 class DataTensor(TensorType):
-	"""Generic data tensor value. Set dtype (e.g., 'float32'), shape (list of ints), and data (nested list matching shape). Wire get→any tensor input."""
+	"""Generic data tensor value. Set dtype (e.g., 'float32'), shape (list of ints), and data (nested list matching shape). Wire tensor→any tensor input."""
 	type : Annotated[Literal["data_tensor"], FieldRole.CONSTANT] = "data_tensor"
 
 
@@ -296,7 +296,7 @@ DEFAULT_BACKEND_FALLBACK : bool = False
 	visible     = True
 )
 class BackendConfig(ConfigType):
-	"""AI backend engine config. Set name='agno' (default and only supported engine). Wire get→agent_config.backend."""
+	"""AI backend engine config. Set name='agno' (default and only supported engine). Wire config→agent_config.backend."""
 	type     : Annotated[Literal["backend_config"], FieldRole.CONSTANT] = "backend_config"
 	name     : Annotated[str                      , FieldRole.INPUT   ] = Field(default=DEFAULT_BACKEND_NAME,     description="Backend engine name; currently only 'agno' is supported")
 	version  : Annotated[Optional[str]            , FieldRole.INPUT   ] = Field(default=DEFAULT_BACKEND_VERSION,  description="Optional engine version string; leave empty for latest")
@@ -322,7 +322,7 @@ DEFAULT_MODEL_FALLBACK : bool = False
 	visible     = True
 )
 class ModelConfig(ConfigType):
-	"""Language model reference. Set source (ollama/openai/anthropic/groq/google) and name. Wire get→agent_config.model or memory_manager_config.model."""
+	"""Language model reference. Set source (ollama/openai/anthropic/groq/google) and name. Wire config→agent_config.model or memory_manager_config.model."""
 	type     : Annotated[Literal["model_config"], FieldRole.CONSTANT] = "model_config"
 	source   : Annotated[str                    , FieldRole.INPUT   ] = Field(default=DEFAULT_MODEL_SOURCE,   json_schema_extra={"options_source": "model_sources"}, description="LLM provider (e.g. 'ollama', 'openai', 'anthropic', 'groq', 'google')")
 	name     : Annotated[str                    , FieldRole.INPUT   ] = Field(default=DEFAULT_MODEL_NAME,    json_schema_extra={"options_source": "model_names"},   description="Model identifier as recognized by the provider (e.g. 'mistral', 'gpt-4o', 'claude-sonnet-4-6')")
@@ -349,7 +349,7 @@ DEFAULT_EMBEDDING_FALLBACK : bool = False
 	visible     = True
 )
 class EmbeddingConfig(ConfigType):
-	"""Embedding model reference for vector search. Set source+name matching your model provider. Wire get→index_db_config.embedding."""
+	"""Embedding model reference for vector search. Set source+name matching your model provider. Wire config→index_db_config.embedding."""
 	type     : Annotated[Literal["embedding_config"], FieldRole.CONSTANT] = "embedding_config"
 	source   : Annotated[str                        , FieldRole.INPUT   ] = Field(default=DEFAULT_EMBEDDING_SOURCE,   json_schema_extra={"options_source": "model_sources"}, description="Embedding provider (e.g. 'ollama', 'openai', 'anthropic', 'groq', 'google')")
 	name     : Annotated[str                        , FieldRole.INPUT   ] = Field(default=DEFAULT_EMBEDDING_NAME,    json_schema_extra={"options_source": "model_names"},   description="Embedding model identifier (e.g. 'nomic-embed-text', 'text-embedding-3-small')")
@@ -379,7 +379,7 @@ DEFAULT_CONTENT_DB_FALLBACK             : bool = False
 	visible     = True
 )
 class ContentDBConfig(ConfigType):
-	"""Raw document content database (SQLite by default). Set engine and url (storage path). Wire get→knowledge_manager_config.content_db."""
+	"""Raw document content database (SQLite by default). Set engine and url (storage path). Wire config→knowledge_manager_config.content_db."""
 	type                 : Annotated[Literal["content_db_config"], FieldRole.CONSTANT  ] = "content_db_config"
 	engine               : Annotated[str                         , FieldRole.INPUT     ] = Field(default=DEFAULT_CONTENT_DB_ENGINE,               description="Storage engine type; currently 'sqlite' is supported")
 	url                  : Annotated[str                         , FieldRole.INPUT     ] = Field(default=DEFAULT_CONTENT_DB_URL,                  description="File path or connection URL for the database (e.g. 'storage/content')")
@@ -409,7 +409,7 @@ DEFAULT_INDEX_DB_FALLBACK    : bool = False
 	visible     = True
 )
 class IndexDBConfig(ConfigType):
-	"""Vector index database for semantic search (lancedb by default). Requires embedding_config. Wire get→knowledge_manager_config.index_db."""
+	"""Vector index database for semantic search (lancedb by default). Requires embedding_config. Wire config→knowledge_manager_config.index_db."""
 	type        : Annotated[Literal["index_db_config"], FieldRole.CONSTANT] = "index_db_config"
 	engine      : Annotated[str                       , FieldRole.INPUT   ] = Field(default=DEFAULT_INDEX_DB_ENGINE,      description="Vector database engine; currently 'lancedb' is supported")
 	url         : Annotated[str                       , FieldRole.INPUT   ] = Field(default=DEFAULT_INDEX_DB_URL,         description="File path or connection URL for the vector database (e.g. 'storage/index')")
@@ -420,6 +420,29 @@ class IndexDBConfig(ConfigType):
 
 	@property
 	def config(self) -> Annotated[IndexDBConfig, FieldRole.OUTPUT]:
+		return self
+
+
+DEFAULT_HISTORY_MANAGER_QUERY : bool = False
+DEFAULT_HISTORY_MANAGER_SIZE  : int  = 5
+
+
+@node_info(
+	title       = "History Manager",
+	description = "Manages history information",
+	icon        = "📜",
+	section     = "Configurations",
+	layer       = 2,
+	visible     = True
+)
+class HistoryManagerConfig(ConfigType):
+	"""Agent chat history across conversations. Set query=true to retrieve, size=<count> to retrieve last <count> messages. Wire config→agent_config.history_mgr."""
+	type  : Annotated[Literal["history_manager_config"], FieldRole.CONSTANT] = "history_manager_config"
+	query : Annotated[bool                             , FieldRole.INPUT   ] = Field(default=DEFAULT_HISTORY_MANAGER_QUERY, description="If true, retrieve relevant chat history before each agent response")
+	size  : Annotated[int                              , FieldRole.INPUT   ] = Field(default=DEFAULT_HISTORY_MANAGER_SIZE , description="Amopunt of history messages to retrieve.")
+
+	@property
+	def config(self) -> Annotated[HistoryManagerConfig, FieldRole.OUTPUT]:
 		return self
 
 
@@ -438,7 +461,7 @@ DEFAULT_MEMORY_MANAGER_PROMPT  : str  = None
 	visible     = True
 )
 class MemoryManagerConfig(ConfigType):
-	"""Agent long-term memory across conversations. Set query=true to retrieve, update=true to store. Wire get→agent_config.memory_mgr."""
+	"""Agent long-term memory across conversations. Set query=true to retrieve, update=true to store. Wire config→agent_config.memory_mgr."""
 	type    : Annotated[Literal["memory_manager_config"], FieldRole.CONSTANT] = "memory_manager_config"
 	query   : Annotated[bool                            , FieldRole.INPUT   ] = Field(default=DEFAULT_MEMORY_MANAGER_QUERY,   description="If true, retrieve relevant memories before each agent response")
 	update  : Annotated[bool                            , FieldRole.INPUT   ] = Field(default=DEFAULT_MEMORY_MANAGER_UPDATE,  description="If true, store new information as memories after each agent exchange")
@@ -467,7 +490,7 @@ DEFAULT_SESSION_MANAGER_PROMPT       : str  = None
 	visible     = True
 )
 class SessionManagerConfig(ConfigType):
-	"""Chat history manager for multi-turn conversations. Set history_size for context window. Wire get→agent_config.session_mgr."""
+	"""Chat history manager for multi-turn conversations. Set history_size for context window. Wire config→agent_config.session_mgr."""
 	type         : Annotated[Literal["session_manager_config"], FieldRole.CONSTANT] = "session_manager_config"
 	query        : Annotated[bool                             , FieldRole.INPUT   ] = Field(default=DEFAULT_SESSION_MANAGER_QUERY,        description="If true, include conversation history in each agent request")
 	update       : Annotated[bool                             , FieldRole.INPUT   ] = Field(default=DEFAULT_SESSION_MANAGER_UPDATE,       description="If true, append each exchange to the persisted session history")
@@ -517,7 +540,7 @@ DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS : int  = 10
 	visible     = True
 )
 class KnowledgeManagerConfig(ConfigType):
-	"""RAG knowledge store combining content_db and index_db. Requires both DBs wired. Set query=true to enable retrieval. Wire get→agent_config.knowledge_mgr."""
+	"""RAG knowledge store combining content_db and index_db. Requires both DBs wired. Set query=true to enable retrieval. Wire config→agent_config.knowledge_mgr."""
 	type        : Annotated[Literal["knowledge_manager_config"], FieldRole.CONSTANT] = "knowledge_manager_config"
 	query       : Annotated[bool                               , FieldRole.INPUT   ] = Field(default=DEFAULT_KNOWLEDGE_MANAGER_QUERY,       description="If true, perform RAG retrieval to augment the agent's context on each request")
 	description : Annotated[Optional[str]                      , FieldRole.INPUT   ] = Field(default=None,                                  description="Short description of this knowledge base, used to guide the agent's retrieval")
@@ -557,7 +580,7 @@ class ToolBaseConfig(ConfigType):
 	visible     = True
 )
 class ToolConfig(ToolBaseConfig):
-	"""External tool/function for agents. Set name to Python import path (e.g. 'tools.list_directory'). Wire get→agent_config.tools.<key> via MULTI_INPUT edge (target_slot='tools.<key>')."""
+	"""External tool/function for agents. Set name to Python import path (e.g. 'tools.list_directory'). Wire config→agent_config.tools.<key> via MULTI_INPUT edge (target_slot='tools.<key>')."""
 	type     : Annotated[Literal["tool_config"]  , FieldRole.CONSTANT] = "tool_config"
 	lang     : Annotated[Optional[str]           , FieldRole.INPUT   ] = Field(default=None, description="Scripting language for inline script tools (e.g. 'python'); leave None when using name")
 	script   : Annotated[Optional[str]           , FieldRole.INPUT   ] = Field(default=None, description="Inline script body when lang is set; the return value or last expression becomes the result")
@@ -617,7 +640,7 @@ class SkillConfig(ConfigType):
 	visible     = True
 )
 class AgentOptionsConfig(OptionsType):
-	"""Agent personality and prompt configuration. Set name, description, instructions (list of strings), or prompt_override (full system prompt). Wire get→agent_config.options."""
+	"""Agent personality and prompt configuration. Set name, description, instructions (list of strings), or prompt_override (full system prompt). Wire options→agent_config.options."""
 	type            : Annotated[Literal["agent_options_config"], FieldRole.CONSTANT] = "agent_options_config"
 	instructions    : Annotated[Optional[List[str]]            , FieldRole.INPUT   ] = Field(default=DEFAULT_AGENT_OPTIONS_INSTRUCTIONS,    description="List of instruction strings appended to the agent system prompt (one per line)")
 	prompt_override : Annotated[Optional[str]                  , FieldRole.INPUT   ] = Field(default=DEFAULT_AGENT_OPTIONS_PROMPT_OVERRIDE, description="Full system prompt text; when set, replaces all default instructions entirely")
@@ -637,13 +660,14 @@ class AgentOptionsConfig(OptionsType):
 	visible     = True
 )
 class AgentConfig(ConfigType):
-	"""Complete agent definition combining backend, model, options, and optional tools/memory/knowledge. Wire get→agent_flow.config or agent_chat.config."""
+	"""Complete agent definition combining backend, model, options, and optional tools/memory/knowledge. Wire config→agent_flow.config or agent_chat.config."""
 	type          : Annotated[Literal["agent_config"]           , FieldRole.CONSTANT   ] = "agent_config"
 	port          : Annotated[Optional[int]                     , FieldRole.ANNOTATION ] = None
 	options       : Annotated[Optional[AgentOptionsConfig]      , FieldRole.INPUT      ] = Field(default=None, description="AgentOptionsConfig defining the agent persona, instructions, and system prompt")
 	backend       : Annotated[BackendConfig                     , FieldRole.INPUT      ] = Field(default=None, description="BackendConfig specifying which AI engine to use (e.g. 'agno')")
 	model         : Annotated[ModelConfig                       , FieldRole.INPUT      ] = Field(default=None, description="ModelConfig specifying the language model provider and name")
 	content_db    : Annotated[Optional[ContentDBConfig]         , FieldRole.INPUT      ] = Field(default=None, description="Optional ContentDBConfig for direct database access (bypasses the knowledge manager)")
+	history_mgr   : Annotated[Optional[HistoryManagerConfig]    , FieldRole.INPUT      ] = Field(default=None, description="Optional HistoryManagerConfig for managing chat history")
 	memory_mgr    : Annotated[Optional[MemoryManagerConfig]     , FieldRole.INPUT      ] = Field(default=None, description="Optional MemoryManagerConfig for long-term memory persistence across sessions")
 	session_mgr   : Annotated[Optional[SessionManagerConfig]    , FieldRole.INPUT      ] = Field(default=None, description="Optional SessionManagerConfig for per-conversation history management")
 	knowledge_mgr : Annotated[Optional[KnowledgeManagerConfig]  , FieldRole.INPUT      ] = Field(default=None, description="Optional KnowledgeManagerConfig enabling RAG retrieval from a document store")
@@ -1562,6 +1586,7 @@ WorkflowNodeUnion = Union[
 	EmbeddingConfig,
 	ContentDBConfig,
 	IndexDBConfig,
+	HistoryManagerConfig,
 	MemoryManagerConfig,
 	SessionManagerConfig,
 	KnowledgeManagerConfig,

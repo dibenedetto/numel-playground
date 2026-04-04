@@ -42,6 +42,10 @@ class IdentityProvider(ABC):
         """Invalidate a token and return whether it existed."""
 
     @abstractmethod
+    async def change_password(self, user_id: str, current_password: str, new_password: str) -> bool:
+        """Update a user's password and invalidate existing sessions when appropriate."""
+
+    @abstractmethod
     async def create_user(self, username: str, email: str, password: str) -> UserAccount:
         """Create a new platform user."""
 

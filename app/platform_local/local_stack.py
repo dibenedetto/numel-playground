@@ -56,6 +56,20 @@ class LocalPlatformStack:
             "audit_log": self.audit_log.__class__.__name__,
         }
 
+    async def startup_validate(self) -> Dict[str, Any]:
+        return {
+            "identity": {
+                "checked": True,
+                "provider": "local",
+                "service_status": {"enabled": True},
+            },
+            "runtime": {
+                "checked": True,
+                "provider": "workspace_engine",
+                "service_status": {"enabled": True},
+            },
+        }
+
     async def aclose(self) -> None:
         """Close any async resources owned by the local stack."""
         for component in (

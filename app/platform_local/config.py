@@ -45,6 +45,17 @@ class SecretsConfig:
 class DockerRuntimeConfig:
     base_url: str = "unix:///var/run/docker.sock"
     default_image: str = "numel-runtime:latest"
+    default_gpu_image: str = "numel-runtime:cuda"
     network_name: str = ""
     workspace_mount_root: str = "/workspace"
     artifacts_mount_root: str = "/artifacts"
+    api_version: str = "v1.41"
+    healthcheck_path: str = "/_ping"
+    timeout_seconds: float = 30.0
+    verify_tls: bool = True
+    require_available_on_startup: bool = True
+    container_name_prefix: str = "numel-exec"
+    default_command: str = ""
+    auto_remove: bool = False
+    gpu_driver: str = "nvidia"
+    gpu_device_count: int = -1

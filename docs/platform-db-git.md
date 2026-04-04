@@ -86,10 +86,11 @@ matching stack at startup.
 | Secrets adapter | concrete local implementation | `app/platform_local/db_secrets.py` | add secret scoping policies and runtime injection rules | PostgreSQL or Vault |
 | Audit log | concrete local implementation | `app/platform_local/db_audit.py` | enrich event categories and API exposure | PostgreSQL |
 | Execution registry | concrete local implementation | `app/platform_local/db_execution_registry.py` | extend events and log indexing | PostgreSQL in prod, SQLite in dev |
-| Runtime | concrete local mock-runtime | `app/platform_local/docker_runtime.py` running through `WorkspaceManager + WorkflowEngine` | replace local runner with real container execution | Docker |
+| Runtime | concrete local mock-runtime | `app/platform_local/docker_runtime.py` running through `WorkspaceManager + WorkflowEngine` | keep as the local reference path | local workspace engine |
 | Local platform assembly | concrete local implementation | `app/platform_local/local_stack.py`, `app.state.platform_stack` | start consuming this stack from APIs incrementally | main platform composition root |
-| Future db+git assembly | partial mock | `app/platform_prod/stack.py` | swap in Django identity and production runtime pieces | db + git + docker |
-| Django identity adapter | concrete external adapter | `app/platform_prod/django_identity.py` | validate against the real Django service contract and wire lifecycle closing | Django |
+| Future db+git assembly | partial mock | `app/platform_prod/stack.py` | replace remaining secrets and finalize deployment integration | db + git + docker |
+| Django identity adapter | concrete external adapter | `app/platform_prod/django_identity.py` | connect to the real Django deployment and finalize contract details | Django |
+| Docker runtime adapter | concrete external adapter | `app/platform_prod/docker_runtime.py`, `app/platform_prod/runtime_contract.py`, `runtime/numel_runtime/` | connect to the real Docker deployment and evolve the first runtime image into the full in-container engine | Docker Engine API |
 | Role-based ACL subjects | not implementable correctly yet | modeled in the domain, not enforced in the local space provider | wire role resolution from the identity layer | Django + DB |
 | Owner/admin mutation enforcement inside `SpaceProvider` | structurally incomplete | limitation of the current interface shape | pass acting user through the interface | domain and API refactor |
 | Real per-user env and secret injection | not implementable correctly yet | runtime tracks metadata only | implement once secrets plus container runtime exist | Docker + secrets backend |
@@ -204,10 +205,11 @@ The intended execution flow is:
 8. Write artifacts to artifact storage and link them back to the execution.
 
 In the current local-development mockup, step 6 is approximated by the existing
-`WorkspaceManager + WorkflowEngine` pair. The runtime still records the
-execution against `space + ref + asset_path`, materializes the snapshot, and
-stores execution metadata in the registry so the later Docker implementation can
-replace only the runtime boundary.
+`WorkspaceManager + WorkflowEngine` pair. The production adapter now also has a
+first shared container contract in `app/platform_prod/runtime_contract.py` and a
+scaffold runtime image under `runtime/numel_runtime/`. That image currently
+validates the mount/env contract and writes contract-shaped artifacts; it does
+not yet run the full Numel engine inside the container.
 
 ## Important Rules
 

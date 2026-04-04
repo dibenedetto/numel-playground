@@ -1308,7 +1308,7 @@ class ChannelAgentPool:
 			message = _describe_attachments(message, attachments)
 
 		try:
-			response = await agent.arun(message, session_id=session_id)
+			response = await agent.arun(message, user_id=user_id, session_id=session_id)
 		except Exception as e:
 			log_print(f"ChannelAgentPool: agent run failed for {session_id[:16]}: {e}")
 			return {"session_id": session_id, "error": str(e), "tool_calls": []}

@@ -35,10 +35,10 @@ dependencies = [
     "ddgs",
     "duckduckgo-search",
     "python-telegram-bot",
-    # PyTorch (wheel selected automatically for CUDA / ROCm / CPU / MPS)
-    "torch",
-    "torchvision",
-    "torchaudio",
+    # PyTorch (runtime images install the official CPU or cu128 wheels explicitly)
+    "torch==2.10.0",
+    "torchvision==0.25.0",
+    "torchaudio==2.10.0",
     # AI / ML
     "agno",
     "ag-ui-protocol",

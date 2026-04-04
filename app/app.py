@@ -229,6 +229,15 @@ async def run_server(
 		_platform_config,
 		workspace_manager=workspace_mgr,
 	)
+	_platform_startup_status = {}
+	_startup_validate = getattr(_platform_stack, "startup_validate", None)
+	if callable(_startup_validate):
+		try:
+			result = _startup_validate()
+			_platform_startup_status = await result if isawaitable(result) else (result or {})
+		except Exception:
+			await _shutdown_runtime()
+			raise
 	_platform_backend_name = str(_platform_config.get("backend", "local") or "local").strip().lower()
 	log_print(f"Platform backend: {_platform_backend_name} ({_platform_config_path})")
 
@@ -241,6 +250,7 @@ async def run_server(
 	app.state.platform_backend_config_path = _platform_config_path
 	app.state.platform_client = _platform
 	app.state.platform_stack = _platform_stack
+	app.state.platform_startup_status = _platform_startup_status
 	app.state.platform_target = build_db_git_platform_spec()
 	app.state.platform_internal_token = _platform_internal_token
 	app.state.runtime_settings = _runtime_settings
@@ -428,6 +438,7 @@ async def run_server(
 			"backend": _platform_backend_name,
 			"platform_config": os.path.basename(_platform_config_path),
 			"components": _platform_stack.describe() if hasattr(_platform_stack, "describe") else {},
+			"startup_checks": getattr(app.state, "platform_startup_status", {}) or {},
 		}
 		try:
 			auth_status = await _platform.auth_status()

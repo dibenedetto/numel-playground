@@ -528,13 +528,22 @@ Available backends:
 | Backend | Description |
 |---------|-------------|
 | **`local`** | Full working local/reference backend: local identity, SQLite metadata, Git-backed spaces, local secrets, local runtime bridge |
-| **`prod`** | Production-oriented stack shape: Django identity adapter plus db+git+docker-oriented composition (future integration target) |
+| **`prod`** | Production-oriented stack: Django identity adapter, Docker Engine API runtime adapter, and db+git composition |
 
 The app reads this file at startup through `app/platform_loader.py`, and the same HTTP platform contract is used in both modes.
 
 - Override the config file path with `NUMEL_PLATFORM_CONFIG=/path/to/platform_backend.json`
 - Relative `database.url`, `git.repos_root`, and `artifacts.root_path` values are normalized at startup
 - Paths starting with `storage/...` follow Numel's runtime data root, so they move with `NUMEL_DATA_ROOT`
+- The `prod.identity` section now supports `healthcheck_path`, `token_scheme`, and `require_available_on_startup`
+- The `runtime` section now supports Docker API settings such as `api_version`, `healthcheck_path`, `container_name_prefix`, `default_command`, `default_gpu_image`, `gpu_driver`, `gpu_device_count`, and `auto_remove`
+- When `backend` is `prod` and `require_available_on_startup` is true, Numel fails fast during boot if the Django identity service is unavailable
+- When `backend` is `prod` and `runtime.require_available_on_startup` is true, Numel also fails fast if the Docker runtime API is unavailable
+- When `prod.runtime.default_command` is blank, Numel defaults to the shared runtime contract entrypoint `python -m runtime.numel_runtime.entrypoint`
+- The production runtime images live under `runtime/numel_runtime/`; build the CPU image with `docker build -f runtime/numel_runtime/Dockerfile -t numel-runtime:latest .` and the CUDA image with `docker build -f runtime/numel_runtime/Dockerfile.cuda -t numel-runtime:cuda .`
+- When a runtime profile sets `gpu_enabled=true`, Numel prefers `runtime.default_gpu_image` and emits a Docker GPU `DeviceRequests` block unless `runtime.image` explicitly overrides the image
+- Numel now pins PyTorch to `torch==2.10.0`, `torchvision==0.25.0`, and `torchaudio==2.10.0`; the CUDA runtime image targets the official PyTorch `cu128` wheels on top of a CUDA `12.8.1` base image
+- The runtime container contract is documented in `docs/runtime-container-contract.md`
 
 ### Deployable Runtime Layout
 
