@@ -3,6 +3,73 @@
 Use this document when you want to keep the original repo and a private fork
 aligned from a project-memory point of view.
 
+## Where To Put The Shared Files
+
+To make chats in the two repos talk about the same project context, put the
+shared files **inside both repos**, using the **same relative paths**.
+
+Recommended rule:
+
+- keep the docs in `docs/` in both repos
+- keep backend/config files in `app/` and `deploy/` in both repos
+- do not move these files to arbitrary folders if you want the bootstrap prompt
+  to keep working unchanged
+
+At minimum, these two files should exist in both repos at these exact paths:
+
+- `docs/fork-handoff.md`
+- `docs/chat-bootstrap.md`
+
+For the broader shared context, keep these files at the same repo-relative
+paths in both repos:
+
+- `docs/fork-handoff.md`
+- `docs/chat-bootstrap.md`
+- `docs/platform-domain.md`
+- `docs/platform-db-git.md`
+- `docs/runtime-container-contract.md`
+- `docs/shared-context-files.md`
+- `app/platform_backend.json`
+- `deploy/platform_backend.prod.json`
+- `deploy/docker-compose.prod.yml`
+- `deploy/runtime-builder.sh`
+- `deploy/Dockerfile.app`
+- `deploy/Dockerfile.identity`
+- `README.md`
+
+## How This Helps Chats Stay Aligned
+
+The important practical point is:
+
+- the files must exist in both repos
+- they should live at the same paths in both repos
+- when you start a new chat in either repo, tell the chat to read those files
+
+That means the shared context is not automatic. The new chat still needs an
+opening instruction such as:
+
+```text
+Please read docs/chat-bootstrap.md and docs/fork-handoff.md first, then continue from the current repo state.
+```
+
+If both repos contain the same files at the same paths, that opening prompt can
+be reused unchanged and both chats will start from the same written context.
+
+## Recommended Opening Instruction
+
+This is the most useful short opening instruction to reuse in either repo:
+
+```text
+Please read docs/chat-bootstrap.md and docs/fork-handoff.md first, then inspect the current repo state and continue from there.
+```
+
+If you want a slightly stronger version that also pulls in the deeper
+architecture docs, use:
+
+```text
+Please read docs/chat-bootstrap.md, docs/fork-handoff.md, docs/platform-domain.md, docs/platform-db-git.md, and docs/runtime-container-contract.md first, then inspect the current repo state and continue from there.
+```
+
 ## Minimum Shared Set
 
 These are the two most important files to share between repos.
