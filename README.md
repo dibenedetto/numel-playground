@@ -574,7 +574,8 @@ docker compose --env-file deploy/.env.prod -f deploy/docker-compose.prod.yml up 
 Notes:
 
 - The default prod backend config is `deploy/platform_backend.prod.json`, selected through `NUMEL_PLATFORM_CONFIG`
-- The compose stack builds `numel-runtime:latest` inside the internal Docker daemon before the app starts`r`n- `deploy/runtime-builder.sh` hashes the runtime-relevant source tree and only rebuilds the inner runtime images when that hash changes or the image is missing
+- The compose stack builds `numel-runtime:latest` inside the internal Docker daemon before the app starts
+- `deploy/runtime-builder.sh` hashes the runtime-relevant source tree and only rebuilds the inner runtime images when that hash changes or the image is missing
 - The compose stack also builds the Django identity service locally from `deploy/Dockerfile.identity` and `services/identity_django/`
 - Use `docker compose --env-file deploy/.env.prod -f deploy/docker-compose.prod.yml --profile gpu up --build` to also build the CUDA runtime image
 - The app still talks to identity through the same adapter contract in `app/platform_prod/django_identity.py`

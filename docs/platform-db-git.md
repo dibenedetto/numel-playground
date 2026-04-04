@@ -81,7 +81,8 @@ For deployment, the repo now also includes a dedicated production bundle under
 - `deploy/platform_backend.prod.json` using PostgreSQL + the prod adapters
 - `deploy/docker-compose.prod.yml` for PostgreSQL + Docker runtime wiring
 - `deploy/.env.prod.example` for environment-driven config values
-- `deploy/Dockerfile.identity` plus `services/identity_django/` for the in-repo Django identity service`r`n- `deploy/runtime-builder.sh` for content-aware inner runtime image rebuilds inside the production Docker daemon
+- `deploy/Dockerfile.identity` plus `services/identity_django/` for the in-repo Django identity service
+- `deploy/runtime-builder.sh` for content-aware inner runtime image rebuilds inside the production Docker daemon
 
 The app-facing interface is intentionally unchanged across `local` and `prod`;
 the backend swap happens beneath the shared platform HTTP contract.
