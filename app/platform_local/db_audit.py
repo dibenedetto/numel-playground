@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 import time
 from typing import Any, Dict, List, Optional
 
 from .config import DatabaseConfig
-from .support import connect_sqlite, resolve_sqlite_path
+from .support import connect_database, is_sqlite_url, resolve_database_path
 
 
 class DbAuditLog:
@@ -16,12 +15,14 @@ class DbAuditLog:
 
     def __init__(self, db_config: DatabaseConfig):
         self.db_config = db_config
-        self._db_path = resolve_sqlite_path(db_config.url)
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._initialize_db()
+        self._db_path = resolve_database_path(db_config.url)
+        if self._db_path is not None:
+            self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        if is_sqlite_url(db_config.url):
+            self._initialize_db()
 
-    def _connect(self) -> sqlite3.Connection:
-        return connect_sqlite(self.db_config.url)
+    def _connect(self):
+        return connect_database(self.db_config.url)
 
     def _initialize_db(self) -> None:
         with self._connect() as conn:

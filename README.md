@@ -533,10 +533,12 @@ Available backends:
 The app reads this file at startup through `app/platform_loader.py`, and the same HTTP platform contract is used in both modes.
 
 - Override the config file path with `NUMEL_PLATFORM_CONFIG=/path/to/platform_backend.json`
+- String values in the backend config support `${ENV_VAR}` expansion, so the same config shape can target local SQLite or a deployed PostgreSQL/Django/Docker stack without changing the app-facing interface
 - Relative `database.url`, `git.repos_root`, and `artifacts.root_path` values are normalized at startup
 - Paths starting with `storage/...` follow Numel's runtime data root, so they move with `NUMEL_DATA_ROOT`
 - The `prod.identity` section now supports `healthcheck_path`, `token_scheme`, and `require_available_on_startup`
-- The `runtime` section now supports Docker API settings such as `api_version`, `healthcheck_path`, `container_name_prefix`, `default_command`, `default_gpu_image`, `gpu_driver`, `gpu_device_count`, and `auto_remove`
+- The `secrets` section defaults to `backend: "database"` for both `local` and `prod`; Vault remains optional if you later want a dedicated external secrets service, using settings such as `vault_url`, `healthcheck_path`, `token`/`token_env_var`, `kv_mount`, `kv_api_prefix`, and `require_available_on_startup`
+- The `runtime` section now supports Docker API settings such as `api_version`, `healthcheck_path`, `container_name_prefix`, `default_command`, `default_gpu_image`, `gpu_driver`, `gpu_device_count`, `auto_remove`, `max_execution_duration_seconds`, `stop_grace_seconds`, `remove_containers_on_completion`, `cleanup_snapshots_on_completion`, `artifact_retention_seconds`, `retention_scan_interval_seconds`, `read_only_root_filesystem`, `drop_capabilities`, `security_opts`, `pids_limit`, `shm_size_bytes`, `tmpfs_mounts`, and `run_as_user`
 - When `backend` is `prod` and `require_available_on_startup` is true, Numel fails fast during boot if the Django identity service is unavailable
 - When `backend` is `prod` and `runtime.require_available_on_startup` is true, Numel also fails fast if the Docker runtime API is unavailable
 - When `prod.runtime.default_command` is blank, Numel defaults to the shared runtime contract entrypoint `python -m runtime.numel_runtime.entrypoint`
@@ -544,6 +546,40 @@ The app reads this file at startup through `app/platform_loader.py`, and the sam
 - When a runtime profile sets `gpu_enabled=true`, Numel prefers `runtime.default_gpu_image` and emits a Docker GPU `DeviceRequests` block unless `runtime.image` explicitly overrides the image
 - Numel now pins PyTorch to `torch==2.10.0`, `torchvision==0.25.0`, and `torchaudio==2.10.0`; the CUDA runtime image targets the official PyTorch `cu128` wheels on top of a CUDA `12.8.1` base image
 - The runtime container contract is documented in `docs/runtime-container-contract.md`
+- In `prod`, runtime startup now resolves user and space-scoped credentials for the execution environment, enforces quota-aware concurrent-run and timeout limits, redacts injected env vars in host-side `job_spec.json`, removes terminal containers, prunes materialized snapshots on completion, expires old artifact directories by retention policy, and defaults to a stricter container posture with a read-only root filesystem, dropped Linux capabilities, `no-new-privileges`, `tmpfs` scratch mounts, and a PID limit
+
+### Production Compose Stack
+
+Numel now ships a dedicated production-oriented compose bundle under `deploy/`:
+
+- `deploy/docker-compose.prod.yml`
+- `deploy/platform_backend.prod.json`
+- `deploy/.env.prod.example`
+- `deploy/Dockerfile.app`
+
+This stack keeps the same Numel HTTP/product surface as `local`, but swaps the backing services underneath:
+
+- PostgreSQL for platform metadata
+- an in-repo Django identity service under `services/identity_django/`
+- Docker Engine API via an internal `docker:dind` service
+- the same shared runtime container contract for executions
+
+Quick start:
+
+```bash
+cp deploy/.env.prod.example deploy/.env.prod
+docker compose --env-file deploy/.env.prod -f deploy/docker-compose.prod.yml up --build
+```
+
+Notes:
+
+- The default prod backend config is `deploy/platform_backend.prod.json`, selected through `NUMEL_PLATFORM_CONFIG`
+- The compose stack builds `numel-runtime:latest` inside the internal Docker daemon before the app starts`r`n- `deploy/runtime-builder.sh` hashes the runtime-relevant source tree and only rebuilds the inner runtime images when that hash changes or the image is missing
+- The compose stack also builds the Django identity service locally from `deploy/Dockerfile.identity` and `services/identity_django/`
+- Use `docker compose --env-file deploy/.env.prod -f deploy/docker-compose.prod.yml --profile gpu up --build` to also build the CUDA runtime image
+- The app still talks to identity through the same adapter contract in `app/platform_prod/django_identity.py`
+- The Django service uses the same logical user/profile/quota/token model as `platform_local`, so switching between `local` and `prod` remains seamless at the Numel interface level
+- From an interface point of view, switching between `local` and `prod` remains config-only: the frontend, `/platform`, `/spaces`, `/workflow`, and `/executions` surfaces do not change
 
 ### Deployable Runtime Layout
 
@@ -762,7 +798,7 @@ Manage tasks via the UI or the `/agent-tasks/*` API endpoints.
 
 Numel currently has two credential paths:
 
-1. **Platform credentials** for authenticated users, managed through the UI and `/credentials` API.
+1. **Platform credentials** for authenticated users, managed through the UI and `/credentials` API. In `platform_prod`, those credentials can come from the configured database-backed secrets adapter or a Vault KV backend.
 2. **Process-level `${VAR_NAME}` substitution** for local config/runtime values, backed by `${NUMEL_DATA_ROOT:-storage}/credentials.json` plus environment variables.
 
 ### Platform Credentials
@@ -1025,5 +1061,7 @@ All endpoints use **POST** method unless otherwise noted.
 ## License
 
 See [LICENSE](LICENSE) for details.
+
+
 
 

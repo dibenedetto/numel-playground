@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import sqlite3
 import time
 import uuid
 from pathlib import Path
@@ -34,7 +33,12 @@ from domain.models import (
 from .config import ArtifactStorageConfig, DatabaseConfig
 from .db_friend_graph import DbFriendGraphProvider
 from .git_space_store import GitSpaceStore
-from .support import ScaffoldComponent, connect_sqlite, resolve_sqlite_path
+from .support import (
+    ScaffoldComponent,
+    connect_database,
+    is_sqlite_url,
+    resolve_database_path,
+)
 
 
 class DbGitSpaceProvider(SpaceProvider, ScaffoldComponent):
@@ -53,15 +57,17 @@ class DbGitSpaceProvider(SpaceProvider, ScaffoldComponent):
         self.artifact_config = artifact_config
         self.friend_graph = friend_graph
         self.audit_log = audit_log
-        self._db_path = self._resolve_sqlite_path(db_config.url)
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._initialize_db()
+        self._db_path = self._resolve_database_path(db_config.url)
+        if self._db_path is not None:
+            self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        if is_sqlite_url(db_config.url):
+            self._initialize_db()
 
-    def _resolve_sqlite_path(self, url: str) -> Path:
-        return resolve_sqlite_path(url)
+    def _resolve_database_path(self, url: str) -> Optional[Path]:
+        return resolve_database_path(url)
 
-    def _connect(self) -> sqlite3.Connection:
-        return connect_sqlite(self.db_config.url)
+    def _connect(self):
+        return connect_database(self.db_config.url)
 
     def _initialize_db(self) -> None:
         with self._connect() as conn:
@@ -165,7 +171,7 @@ class DbGitSpaceProvider(SpaceProvider, ScaffoldComponent):
             metadata=data.get("metadata", {}),
         )
 
-    def _space_from_row(self, row: sqlite3.Row) -> Space:
+    def _space_from_row(self, row) -> Space:
         visibility = Visibility(row["visibility"])
         return Space(
             id=row["id"],
@@ -182,7 +188,7 @@ class DbGitSpaceProvider(SpaceProvider, ScaffoldComponent):
             metadata=json.loads(row["metadata_json"]) if row["metadata_json"] else {},
         )
 
-    def _asset_from_row(self, row: sqlite3.Row) -> SpaceAsset:
+    def _asset_from_row(self, row) -> SpaceAsset:
         visibility = Visibility(row["visibility"])
         return SpaceAsset(
             id=row["id"],
@@ -216,16 +222,16 @@ class DbGitSpaceProvider(SpaceProvider, ScaffoldComponent):
             return AssetKind.WORKFLOW
         return AssetKind.DATA
 
-    def _get_space_row(self, conn: sqlite3.Connection, space_id: str) -> Optional[sqlite3.Row]:
+    def _get_space_row(self, conn, space_id: str):
         return conn.execute("SELECT * FROM spaces WHERE id = ?", (space_id,)).fetchone()
 
-    def _get_asset_row(self, conn: sqlite3.Connection, space_id: str, path: str) -> Optional[sqlite3.Row]:
+    def _get_asset_row(self, conn, space_id: str, path: str):
         return conn.execute(
             "SELECT * FROM space_assets WHERE space_id = ? AND path = ?",
             (space_id, path),
         ).fetchone()
 
-    def _require_space(self, conn: sqlite3.Connection, space_id: str) -> sqlite3.Row:
+    def _require_space(self, conn, space_id: str):
         row = self._get_space_row(conn, space_id)
         if row is None:
             raise ValueError(f"Unknown space '{space_id}'")
@@ -282,7 +288,7 @@ class DbGitSpaceProvider(SpaceProvider, ScaffoldComponent):
     async def _space_has_capability(
         self,
         user_id: str,
-        row: sqlite3.Row,
+        row,
         capability: Capability,
     ) -> bool:
         policy = self._policy_from_json(
@@ -296,7 +302,7 @@ class DbGitSpaceProvider(SpaceProvider, ScaffoldComponent):
         self,
         user_id: str,
         asset: SpaceAsset,
-        space_row: sqlite3.Row,
+        space_row,
         capability: Capability,
     ) -> bool:
         policy = asset.policy or PermissionPolicy(
@@ -311,7 +317,7 @@ class DbGitSpaceProvider(SpaceProvider, ScaffoldComponent):
     async def _ensure_space_access(
         self,
         user_id: str,
-        row: sqlite3.Row,
+        row,
         capability: Capability,
     ) -> None:
         if not await self._space_has_capability(user_id, row, capability):
@@ -355,7 +361,7 @@ class DbGitSpaceProvider(SpaceProvider, ScaffoldComponent):
             capability,
         )
 
-    def _upsert_asset(self, conn: sqlite3.Connection, asset: SpaceAsset) -> SpaceAsset:
+    def _upsert_asset(self, conn, asset: SpaceAsset) -> SpaceAsset:
         now = time.time()
         existing = conn.execute(
             "SELECT * FROM space_assets WHERE space_id = ? AND path = ?",
@@ -410,7 +416,7 @@ class DbGitSpaceProvider(SpaceProvider, ScaffoldComponent):
             raise RuntimeError(f"Failed to upsert asset {asset.space_id}:{asset.path}")
         return self._asset_from_row(row)
 
-    def _update_space_head(self, conn: sqlite3.Connection, space_id: str, commit_id: str = "") -> None:
+    def _update_space_head(self, conn, space_id: str, commit_id: str = "") -> None:
         conn.execute(
             "UPDATE spaces SET head_commit_id = ?, updated_at = ? WHERE id = ?",
             (commit_id, time.time(), space_id),

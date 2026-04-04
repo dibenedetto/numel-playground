@@ -462,12 +462,13 @@ DEFAULT_MEMORY_MANAGER_PROMPT  : str  = None
 )
 class MemoryManagerConfig(ConfigType):
 	"""Agent long-term memory across conversations. Set query=true to retrieve, update=true to store. Wire config→agent_config.memory_mgr."""
-	type    : Annotated[Literal["memory_manager_config"], FieldRole.CONSTANT] = "memory_manager_config"
-	query   : Annotated[bool                            , FieldRole.INPUT   ] = Field(default=DEFAULT_MEMORY_MANAGER_QUERY,   description="If true, retrieve relevant memories before each agent response")
-	update  : Annotated[bool                            , FieldRole.INPUT   ] = Field(default=DEFAULT_MEMORY_MANAGER_UPDATE,  description="If true, store new information as memories after each agent exchange")
-	managed : Annotated[bool                            , FieldRole.INPUT   ] = Field(default=DEFAULT_MEMORY_MANAGER_MANAGED, description="If true, the backend manages memory consolidation automatically")
-	model   : Annotated[Optional[ModelConfig]           , FieldRole.INPUT   ] = Field(default=None,                          description="Optional language model used for memory summarization and extraction")
-	prompt  : Annotated[Optional[str]                   , FieldRole.INPUT   ] = Field(default=DEFAULT_MEMORY_MANAGER_PROMPT,  description="Optional custom system prompt override for the memory manager")
+	type         : Annotated[Literal["memory_manager_config"], FieldRole.CONSTANT] = "memory_manager_config"
+	query        : Annotated[bool                            , FieldRole.INPUT   ] = Field(default=DEFAULT_MEMORY_MANAGER_QUERY,   description="If true, retrieve relevant memories before each agent response")
+	update       : Annotated[bool                            , FieldRole.INPUT   ] = Field(default=DEFAULT_MEMORY_MANAGER_UPDATE,  description="If true, store new information as memories after each agent exchange")
+	managed      : Annotated[bool                            , FieldRole.INPUT   ] = Field(default=DEFAULT_MEMORY_MANAGER_MANAGED, description="If true, the backend manages memory consolidation automatically")
+	model        : Annotated[Optional[ModelConfig]           , FieldRole.INPUT   ] = Field(default=None,                          description="Optional language model used for memory summarization and extraction")
+	prompt       : Annotated[Optional[str]                   , FieldRole.INPUT   ] = Field(default=DEFAULT_MEMORY_MANAGER_PROMPT,  description="Optional custom system prompt override for the memory manager")
+	instructions : Annotated[Optional[str]                   , FieldRole.INPUT   ] = Field(default=DEFAULT_MEMORY_MANAGER_PROMPT,  description="Optional additional instructions or guidelines for memory management, such as what types of information to prioritize or discard")
 
 	@property
 	def config(self) -> Annotated[MemoryManagerConfig, FieldRole.OUTPUT]:

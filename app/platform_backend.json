@@ -25,7 +25,15 @@
     "secrets": {
       "backend": "database",
       "vault_url": "",
-      "key_prefix": "numel"
+      "key_prefix": "numel",
+      "healthcheck_path": "/v1/sys/health",
+      "timeout_seconds": 10.0,
+      "verify_tls": true,
+      "token": "",
+      "token_env_var": "NUMEL_VAULT_TOKEN",
+      "kv_mount": "secret",
+      "kv_api_prefix": "/v1",
+      "require_available_on_startup": false
     },
     "runtime": {
       "base_url": "unix:///var/run/docker.sock",
@@ -43,7 +51,23 @@
       "default_command": "",
       "auto_remove": false,
       "gpu_driver": "nvidia",
-      "gpu_device_count": -1
+      "gpu_device_count": -1,
+      "max_execution_duration_seconds": 3600.0,
+      "stop_grace_seconds": 5,
+      "remove_containers_on_completion": true,
+      "cleanup_snapshots_on_completion": true,
+      "artifact_retention_seconds": 604800.0,
+      "retention_scan_interval_seconds": 60.0,
+      "read_only_root_filesystem": true,
+      "drop_capabilities": ["ALL"],
+      "security_opts": ["no-new-privileges"],
+      "pids_limit": 256,
+      "shm_size_bytes": 67108864,
+      "tmpfs_mounts": {
+        "/tmp": "rw,noexec,nosuid,nodev,size=64m",
+        "/run": "rw,noexec,nosuid,nodev,size=16m"
+      },
+      "run_as_user": ""
     }
   },
   "prod": {
@@ -76,7 +100,15 @@
     "secrets": {
       "backend": "database",
       "vault_url": "",
-      "key_prefix": "numel"
+      "key_prefix": "numel",
+      "healthcheck_path": "/v1/sys/health",
+      "timeout_seconds": 10.0,
+      "verify_tls": true,
+      "token": "",
+      "token_env_var": "NUMEL_VAULT_TOKEN",
+      "kv_mount": "secret",
+      "kv_api_prefix": "/v1",
+      "require_available_on_startup": false
     },
     "runtime": {
       "base_url": "unix:///var/run/docker.sock",
@@ -94,7 +126,25 @@
       "default_command": "",
       "auto_remove": false,
       "gpu_driver": "nvidia",
-      "gpu_device_count": -1
+      "gpu_device_count": -1,
+      "max_execution_duration_seconds": 3600.0,
+      "stop_grace_seconds": 5,
+      "remove_containers_on_completion": true,
+      "cleanup_snapshots_on_completion": true,
+      "artifact_retention_seconds": 604800.0,
+      "retention_scan_interval_seconds": 60.0,
+      "read_only_root_filesystem": true,
+      "drop_capabilities": ["ALL"],
+      "security_opts": ["no-new-privileges"],
+      "pids_limit": 256,
+      "shm_size_bytes": 67108864,
+      "tmpfs_mounts": {
+        "/tmp": "rw,noexec,nosuid,nodev,size=64m",
+        "/run": "rw,noexec,nosuid,nodev,size=16m"
+      },
+      "run_as_user": ""
     }
   }
 }
+
+

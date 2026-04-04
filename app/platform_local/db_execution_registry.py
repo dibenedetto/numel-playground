@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-import sqlite3
 from typing import List, Optional
 
 from domain.models import ExecutionRecord, ExecutionState
 
 from .config import DatabaseConfig
-from .support import connect_sqlite, resolve_sqlite_path
+from .support import connect_database, is_sqlite_url, resolve_database_path
 
 
 class DbExecutionRegistry:
@@ -17,12 +16,14 @@ class DbExecutionRegistry:
 
     def __init__(self, db_config: DatabaseConfig):
         self.db_config = db_config
-        self._db_path = resolve_sqlite_path(db_config.url)
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._initialize_db()
+        self._db_path = resolve_database_path(db_config.url)
+        if self._db_path is not None:
+            self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        if is_sqlite_url(db_config.url):
+            self._initialize_db()
 
-    def _connect(self) -> sqlite3.Connection:
-        return connect_sqlite(self.db_config.url)
+    def _connect(self):
+        return connect_database(self.db_config.url)
 
     def _initialize_db(self) -> None:
         with self._connect() as conn:
@@ -48,7 +49,7 @@ class DbExecutionRegistry:
                 """
             )
 
-    def _row_to_record(self, row: sqlite3.Row) -> ExecutionRecord:
+    def _row_to_record(self, row) -> ExecutionRecord:
         return ExecutionRecord(
             execution_id=row["execution_id"],
             user_id=row["user_id"],

@@ -54,8 +54,10 @@ The intended concrete stack is:
   Coordinates database metadata with Git-backed space content.
 - `GitSpaceStore`
   One repository per space for versioned contents.
-- `DbSecretsProvider` or `VaultSecretsProvider`
-  Stores per-user or per-space secret metadata and runtime resolution.
+- `ProdDbSecretsProvider`
+  The current production default for per-user or per-space secret metadata and runtime resolution.
+- `VaultKvSecretsProvider`
+  Optional alternative when deploying against a dedicated external secrets service.
 - `DockerRuntimeProvider`
   Executes a space snapshot in isolation.
 - `DbExecutionRegistry`
@@ -73,6 +75,17 @@ Backend selection is now config-driven through `app/platform_backend.json`.
 That file selects `local` or `prod`, and `app/platform_loader.py` builds the
 matching stack at startup.
 
+For deployment, the repo now also includes a dedicated production bundle under
+`deploy/`, with:
+
+- `deploy/platform_backend.prod.json` using PostgreSQL + the prod adapters
+- `deploy/docker-compose.prod.yml` for PostgreSQL + Docker runtime wiring
+- `deploy/.env.prod.example` for environment-driven config values
+- `deploy/Dockerfile.identity` plus `services/identity_django/` for the in-repo Django identity service`r`n- `deploy/runtime-builder.sh` for content-aware inner runtime image rebuilds inside the production Docker daemon
+
+The app-facing interface is intentionally unchanged across `local` and `prod`;
+the backend swap happens beneath the shared platform HTTP contract.
+
 ## Implementation Status Matrix
 
 | Component | Current state | What exists now | Next step | Eventual backend |
@@ -83,17 +96,17 @@ matching stack at startup.
 | Git space content store | concrete local implementation | `app/platform_local/git_space_store.py` | add more content/history tooling as needed | Git repos per space |
 | Space catalog + ACLs | concrete local implementation | `app/platform_local/db_git_spaces.py` | add actor-aware mutations and richer ACLs | PostgreSQL in prod, SQLite in dev |
 | Friend graph | concrete local implementation | `app/platform_local/db_friend_graph.py` | wire into real identity records | PostgreSQL in prod, SQLite in dev |
-| Secrets adapter | concrete local implementation | `app/platform_local/db_secrets.py` | add secret scoping policies and runtime injection rules | PostgreSQL or Vault |
+| Secrets adapter | concrete external adapter | `app/platform_prod/secrets.py` plus `app/platform_local/db_secrets.py` for the local/reference path | finalize the production deployment choice between database-backed and Vault-backed secrets | PostgreSQL or Vault |
 | Audit log | concrete local implementation | `app/platform_local/db_audit.py` | enrich event categories and API exposure | PostgreSQL |
 | Execution registry | concrete local implementation | `app/platform_local/db_execution_registry.py` | extend events and log indexing | PostgreSQL in prod, SQLite in dev |
 | Runtime | concrete local mock-runtime | `app/platform_local/docker_runtime.py` running through `WorkspaceManager + WorkflowEngine` | keep as the local reference path | local workspace engine |
 | Local platform assembly | concrete local implementation | `app/platform_local/local_stack.py`, `app.state.platform_stack` | start consuming this stack from APIs incrementally | main platform composition root |
 | Future db+git assembly | partial mock | `app/platform_prod/stack.py` | replace remaining secrets and finalize deployment integration | db + git + docker |
-| Django identity adapter | concrete external adapter | `app/platform_prod/django_identity.py` | connect to the real Django deployment and finalize contract details | Django |
-| Docker runtime adapter | concrete external adapter | `app/platform_prod/docker_runtime.py`, `app/platform_prod/runtime_contract.py`, `runtime/numel_runtime/` | connect to the real Docker deployment and evolve the first runtime image into the full in-container engine | Docker Engine API |
+| Django identity adapter | concrete prod implementation | `app/platform_prod/django_identity.py` plus `services/identity_django/` | keep the Django contract aligned with the local identity semantics | Django |
+| Docker runtime adapter | concrete external adapter | `app/platform_prod/docker_runtime.py`, `app/platform_prod/runtime_contract.py`, `runtime/numel_runtime/` | connect to the real Docker deployment and keep hardening the final image policy | Docker Engine API |
 | Role-based ACL subjects | not implementable correctly yet | modeled in the domain, not enforced in the local space provider | wire role resolution from the identity layer | Django + DB |
 | Owner/admin mutation enforcement inside `SpaceProvider` | structurally incomplete | limitation of the current interface shape | pass acting user through the interface | domain and API refactor |
-| Real per-user env and secret injection | not implementable correctly yet | runtime tracks metadata only | implement once secrets plus container runtime exist | Docker + secrets backend |
+| Real per-user env and secret injection | partial mock | prod runtime now injects merged user/space execution env vars and redacts saved job specs; the local runtime still only tracks metadata | finish the final production secret backend and isolation policy | Docker + secrets backend |
 
 ## First Implemented Slice
 
@@ -206,10 +219,13 @@ The intended execution flow is:
 
 In the current local-development mockup, step 6 is approximated by the existing
 `WorkspaceManager + WorkflowEngine` pair. The production adapter now also has a
-first shared container contract in `app/platform_prod/runtime_contract.py` and a
-scaffold runtime image under `runtime/numel_runtime/`. That image currently
-validates the mount/env contract and writes contract-shaped artifacts; it does
-not yet run the full Numel engine inside the container.
+shared container contract in `app/platform_prod/runtime_contract.py`, a
+production secrets layer in `app/platform_prod/secrets.py`, and a runtime image
+under `runtime/numel_runtime/`. The current production path runs the Numel
+engine inside the container, injects merged user/space execution secrets,
+redacts host-side job specs, enforces timeout/concurrency limits, and applies a
+stricter Docker isolation profile by default. The main remaining production work
+is the final external deployment policy for secrets and image contents.
 
 ## Important Rules
 
@@ -255,3 +271,5 @@ That keeps the same architecture while swapping only the concrete backend.
 
 - `structurally incomplete`
   The blocker is not just a missing backend. The current abstraction or interface shape is missing information needed to enforce the rule correctly, so the design itself must change first.
+
+

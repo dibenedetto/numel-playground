@@ -8,6 +8,7 @@ dependencies = [
     # Core server
     "aiofiles",
     "debugpy",
+    "django",
     "fastapi",
     "httpx",
     "psutil",

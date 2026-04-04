@@ -11,6 +11,8 @@ The Docker runtime adapter mounts:
 - the selected space/ref snapshot read-only at `/workspace`
 - the execution artifact directory read-write at `/artifacts`
 
+By default, the production Docker spec also hardens the container with a read-only root filesystem, dropped Linux capabilities, `no-new-privileges`, `tmpfs` scratch mounts for `/tmp` and `/run`, and a PID limit. These defaults are configurable through the `runtime` section in `app/platform_backend.json`.
+
 ## Environment Variables
 
 The runtime always receives these `NUMEL_*` variables:
@@ -33,7 +35,7 @@ The runtime always receives these `NUMEL_*` variables:
 | `NUMEL_ERROR_PATH` | Expected error file path |
 | `NUMEL_STATUS_PATH` | Expected status file path |
 
-Resolved credential values and runtime-profile env vars are injected alongside these.
+Resolved credential values and runtime-profile env vars are injected alongside these. In the production adapter, user-scope and matching space-scope credentials are merged for each execution, and the host-side diagnostic `job_spec.json` redacts those injected values.
 
 ## Files
 
@@ -46,7 +48,7 @@ The current runtime image contract writes:
 - `error.txt`
   Purpose: a human-readable failure reason when the container exits unsuccessfully
 
-Numel stores a host-side diagnostic `job_spec.json` beside the execution artifact directory, but that file is not part of the container input contract.
+Numel stores a host-side diagnostic `job_spec.json` beside the execution artifact directory, but that file is not part of the container input contract. Injected credential/env values are redacted there.
 
 ## Default Command
 
@@ -67,4 +69,6 @@ The current pinned runtime targets are:
 
 ## Current Scope
 
-This runtime image now executes the selected workflow through Numel's in-process `WorkflowManager + WorkflowEngine` path inside the container and writes contract-shaped artifacts back to `/artifacts`. It is still not the final production runtime architecture, because secrets hardening, quota enforcement, and the fully isolated dependency/image policy are still evolving.
+This runtime image now executes the selected workflow through Numel's in-process `WorkflowManager + WorkflowEngine` path inside the container and writes contract-shaped artifacts back to `/artifacts`. The production adapter now also applies quota-aware concurrent-run checks, wall-clock timeout enforcement, merged user/space secret injection, host-side env redaction, container removal on terminal completion, snapshot cleanup, and artifact-retention pruning. The remaining work is mainly the final production image/dependency policy and the external secrets deployment choice, rather than the absence of a real runtime lifecycle.
+
+

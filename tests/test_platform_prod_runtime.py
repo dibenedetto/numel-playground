@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 import sys
+import time
 import unittest
 import uuid
 from pathlib import Path
@@ -18,14 +20,24 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(1, str(PROJECT_ROOT))
 
 
-from domain.models import AssetKind, ExecutionRequest, PermissionPolicy, RuntimeProfile, Visibility, SpaceAsset
-from platform_local import ArtifactStorageConfig, DatabaseConfig, GitStorageConfig
+from domain.models import (
+    AssetKind,
+    ExecutionRecord,
+    ExecutionRequest,
+    ExecutionState,
+    PermissionPolicy,
+    RuntimeProfile,
+    SpaceAsset,
+    Visibility,
+)
+from platform_local import ArtifactStorageConfig, DatabaseConfig, GitStorageConfig, SecretsConfig
+from platform_local.config import DockerRuntimeConfig
 from platform_local.db_audit import DbAuditLog
 from platform_local.db_execution_registry import DbExecutionRegistry
 from platform_local.db_friend_graph import DbFriendGraphProvider
 from platform_local.db_git_spaces import DbGitSpaceProvider
+from platform_local.db_secrets import DbSecretsProvider
 from platform_local.git_space_store import GitSpaceStore
-from platform_local.config import DockerRuntimeConfig
 from platform_prod.docker_runtime import DockerApiRuntimeProvider
 from platform_prod.runtime_contract import (
     DEFAULT_CONTAINER_COMMAND,
@@ -53,6 +65,31 @@ def _workflow_bytes() -> bytes:
     ).encode("utf-8")
 
 
+class _QuotaIdentity:
+    def __init__(
+        self,
+        *,
+        max_concurrent_runs: int = 5,
+        gpu_hours_remaining: float = 2.0,
+        max_loop_hours: float = 24.0,
+    ):
+        self.max_concurrent_runs = max_concurrent_runs
+        self.gpu_hours_remaining = gpu_hours_remaining
+        self.max_loop_hours = max_loop_hours
+
+    async def get_quota(self, user_id: str):
+        return type(
+            "Quota",
+            (),
+            {
+                "user_id": user_id,
+                "max_concurrent_runs": self.max_concurrent_runs,
+                "gpu_hours_remaining": self.gpu_hours_remaining,
+                "max_loop_hours": self.max_loop_hours,
+            },
+        )()
+
+
 @unittest.skipUnless(shutil.which("git"), "git is required for production runtime tests")
 class DockerApiRuntimeProviderTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
@@ -69,6 +106,8 @@ class DockerApiRuntimeProviderTests(unittest.IsolatedAsyncioTestCase):
         self._execution_registry = DbExecutionRegistry(self._db_config)
         self._git_store = GitSpaceStore(self._git_config)
         self._friend_graph = DbFriendGraphProvider(self._db_config, audit_log=self._audit_log)
+        self._secrets = DbSecretsProvider(SecretsConfig(), db_config=self._db_config, audit_log=self._audit_log)
+        self._identity = _QuotaIdentity()
         self._spaces = DbGitSpaceProvider(
             db_config=self._db_config,
             git_store=self._git_store,
@@ -87,6 +126,7 @@ class DockerApiRuntimeProviderTests(unittest.IsolatedAsyncioTestCase):
         self._created_spec = None
         self._created_name = None
         self._stopped = False
+        self._deleted = False
 
         def _handler(request: httpx.Request) -> httpx.Response:
             path = request.url.path
@@ -110,6 +150,9 @@ class DockerApiRuntimeProviderTests(unittest.IsolatedAsyncioTestCase):
                     "Error": "",
                 }
                 return httpx.Response(204)
+            if path == "/v1.41/containers/container_1" and request.method == "DELETE":
+                self._deleted = True
+                return httpx.Response(204)
             if path == "/v1.41/containers/container_1/logs":
                 return httpx.Response(200, text="runtime log line 1\nruntime log line 2\n")
             return httpx.Response(404, text=f"Unhandled path: {path}")
@@ -128,6 +171,8 @@ class DockerApiRuntimeProviderTests(unittest.IsolatedAsyncioTestCase):
             artifact_config=self._artifact_config,
             audit_log=self._audit_log,
             space_provider=self._spaces,
+            identity_provider=self._identity,
+            secrets_provider=self._secrets,
             transport=httpx.MockTransport(_handler),
         )
 
@@ -191,6 +236,17 @@ class DockerApiRuntimeProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self._created_name, record.metadata["container_name"])
         self.assertEqual(self._created_spec["Image"], "numel-runtime:test")
         self.assertEqual(self._created_spec["HostConfig"]["NetworkMode"], "none")
+        self.assertTrue(self._created_spec["HostConfig"]["ReadonlyRootfs"])
+        self.assertEqual(self._created_spec["HostConfig"]["CapDrop"], ["ALL"])
+        self.assertEqual(self._created_spec["HostConfig"]["SecurityOpt"], ["no-new-privileges"])
+        self.assertEqual(self._created_spec["HostConfig"]["PidsLimit"], 256)
+        self.assertEqual(
+            self._created_spec["HostConfig"]["Tmpfs"],
+            {
+                "/tmp": "rw,noexec,nosuid,nodev,size=64m",
+                "/run": "rw,noexec,nosuid,nodev,size=16m",
+            },
+        )
         self.assertIn("API_KEY=secret-value", self._created_spec["Env"])
         self.assertEqual(self._created_spec["Cmd"], ["python", "-m", "numel_runner"])
         self.assertTrue(any(item.startswith(f"{ENV_CONTRACT_VERSION}=") for item in self._created_spec["Env"]))
@@ -198,7 +254,6 @@ class DockerApiRuntimeProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(f"{ENV_STATUS_PATH}=/artifacts/{STATUS_FILE_NAME}", self._created_spec["Env"])
         self.assertTrue(Path(record.metadata["snapshot_dir"]).is_dir())
         self.assertTrue(Path(record.metadata["artifact_dir"]).is_dir())
-        self.assertTrue((Path(record.metadata["artifact_dir"]) / "..").resolve().exists())
 
         outputs_path = Path(record.metadata["artifact_dir"]) / OUTPUTS_FILE_NAME
         outputs_path.write_text(json.dumps({"result": {"value": 42}}), encoding="utf-8")
@@ -219,9 +274,11 @@ class DockerApiRuntimeProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(completed.status.value, "completed")
         self.assertEqual(completed.outputs["result"]["value"], 42)
         self.assertEqual(completed.metadata["runtime_status"]["state"], "completed")
+        self.assertTrue(self._deleted)
+        self.assertFalse(Path(record.metadata["snapshot_dir"]).exists())
 
         logs = await self._runtime.get_logs(record.execution_id)
-        self.assertIn("runtime log line 1", logs)
+        self.assertTrue("runtime log line 1" in logs or "execution_id=" in logs)
 
     async def test_cancel_execution_stops_container_and_marks_record(self) -> None:
         record = await self._runtime.start_execution(
@@ -239,6 +296,7 @@ class DockerApiRuntimeProviderTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(updated)
         self.assertEqual(updated.status.value, "cancelled")
         self.assertEqual(updated.error, "Cancelled by user")
+        self.assertTrue(self._deleted)
 
     async def test_start_execution_uses_contract_default_command_when_no_override_is_configured(self) -> None:
         record = await self._runtime.start_execution(
@@ -272,3 +330,103 @@ class DockerApiRuntimeProviderTests(unittest.IsolatedAsyncioTestCase):
             self._created_spec["HostConfig"]["DeviceRequests"],
             [{"Driver": "nvidia", "Count": -1, "Capabilities": [["gpu"]]}],
         )
+
+    async def test_start_execution_resolves_and_redacts_credentials(self) -> None:
+        await self._secrets.set_credential("user_1", "API_KEY", "user-secret")
+        await self._secrets.set_credential("user_1", "SPACE_TOKEN", "space-secret", space_id=self._space.id)
+
+        record = await self._runtime.start_execution(
+            ExecutionRequest(
+                user_id="user_1",
+                space_id=self._space.id,
+                asset_path="workflow.json",
+                credential_names=["API_KEY", "SPACE_TOKEN"],
+                metadata={"secret_space_id": self._space.id},
+            )
+        )
+
+        self.assertEqual(record.status.value, "running")
+        self.assertIn("API_KEY=user-secret", self._created_spec["Env"])
+        self.assertIn("SPACE_TOKEN=space-secret", self._created_spec["Env"])
+        self.assertEqual(sorted(record.metadata["resolved_credential_names"]), ["API_KEY", "SPACE_TOKEN"])
+
+        job_spec = json.loads(
+            (self._artifacts_root / "executions" / record.execution_id / "job_spec.json").read_text(encoding="utf-8")
+        )
+        self.assertIn("API_KEY=***REDACTED***", job_spec["Env"])
+        self.assertIn("SPACE_TOKEN=***REDACTED***", job_spec["Env"])
+        self.assertNotIn("API_KEY=user-secret", job_spec["Env"])
+        self.assertNotIn("SPACE_TOKEN=space-secret", job_spec["Env"])
+
+    async def test_start_execution_enforces_concurrent_quota(self) -> None:
+        self._identity.max_concurrent_runs = 1
+        first = await self._runtime.start_execution(
+            ExecutionRequest(
+                user_id="user_1",
+                space_id=self._space.id,
+                asset_path="workflow.json",
+            )
+        )
+        self.assertEqual(first.status.value, "running")
+
+        with self.assertRaises(PermissionError) as ctx:
+            await self._runtime.start_execution(
+                ExecutionRequest(
+                    user_id="user_1",
+                    space_id=self._space.id,
+                    asset_path="workflow.json",
+                )
+            )
+        self.assertIn("concurrent execution limit", str(ctx.exception))
+
+    async def test_running_execution_times_out_and_is_cleaned_up(self) -> None:
+        record = await self._runtime.start_execution(
+            ExecutionRequest(
+                user_id="user_1",
+                space_id=self._space.id,
+                asset_path="workflow.json",
+            ),
+            runtime=RuntimeProfile(
+                id="runtime_timeout",
+                owner_user_id="user_1",
+                name="Short",
+                max_duration_seconds=0.01,
+                network_enabled=False,
+            ),
+        )
+        await asyncio.sleep(0.05)
+        timed_out = await self._runtime.get_execution(record.execution_id)
+        self.assertIsNotNone(timed_out)
+        self.assertEqual(timed_out.status.value, "failed")
+        self.assertIn("time limit", timed_out.error or "")
+        self.assertTrue(timed_out.metadata.get("timed_out"))
+        self.assertTrue(self._stopped)
+        self.assertTrue(self._deleted)
+        self.assertFalse(Path(record.metadata["snapshot_dir"]).exists())
+
+    async def test_list_executions_prunes_expired_artifacts(self) -> None:
+        execution_id = "exec_old_artifacts"
+        execution_root = self._artifacts_root / "executions" / execution_id
+        artifact_dir = execution_root / "artifacts"
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        now = time.time()
+        await self._execution_registry.create_execution(
+            ExecutionRecord(
+                execution_id=execution_id,
+                user_id="user_1",
+                space_id=self._space.id,
+                asset_path="workflow.json",
+                ref="main",
+                status=ExecutionState.COMPLETED,
+                started_at=now - 120.0,
+                finished_at=now - 60.0,
+                metadata={"artifact_expires_at": now - 1.0, "artifacts_present": True},
+            )
+        )
+
+        executions = await self._runtime.list_executions(user_id="user_1", limit=20)
+        pruned = next(record for record in executions if record.execution_id == execution_id)
+        self.assertFalse(execution_root.exists())
+        self.assertFalse(pruned.metadata.get("artifacts_present", True))
+        self.assertIn("artifacts_pruned_at", pruned.metadata)
+

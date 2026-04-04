@@ -771,11 +771,25 @@ def setup_platform_api(app: FastAPI, stack, internal_token: str) -> None:
         )
         env = None
         if body.get("resolve_credentials", False):
-            env = await stack.secrets.resolve_credentials(
+            secret_space_id = str(body.get("secret_space_id", "") or request.space_id).strip() or None
+            names = request.credential_names or None
+            user_values = await stack.secrets.resolve_credentials(
                 actor.id,
-                names=request.credential_names,
-                space_id=body.get("secret_space_id") or None,
+                names=names,
+                space_id=None,
             )
+            space_values = (
+                await stack.secrets.resolve_credentials(
+                    actor.id,
+                    names=names,
+                    space_id=secret_space_id,
+                )
+                if secret_space_id
+                else {}
+            )
+            env = {**user_values, **space_values}
+            request.metadata.setdefault("resolve_all_credentials", not bool(request.credential_names))
+            request.metadata.setdefault("secret_space_id", secret_space_id or "")
         try:
             record = await stack.runtime.start_execution(request, env=env)
         except PermissionError as exc:

@@ -30,6 +30,12 @@ The runtime entrypoint now executes the target workflow through Numel's in-proce
 - `/artifacts/status.json`
 - `/artifacts/error.txt` on failure
 
+Compose deployment note:
+
+- the production compose stack uses deploy/runtime-builder.sh to rebuild 
+umel-runtime:latest and 
+umel-runtime:cuda only when runtime-relevant sources change or the target image is missing
+
 Docker API behavior:
 
 - when `runtime.image` is set, Numel uses it directly

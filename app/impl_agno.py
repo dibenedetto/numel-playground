@@ -188,8 +188,9 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 		assert item_config is not None and item_config.type == "memory_manager_config", "Invalid Agno memory manager"
 		model = impl[links[index]["model"]] if item_config.model is not None else None
 		item = MemoryManager(
-			model          = model,
-			system_message = item_config.prompt,
+			model                   = model,
+			system_message          = item_config.prompt,
+			additional_instructions = item_config.instructions,
 		)
 		impl[index] = item
 
@@ -410,13 +411,15 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 			enable_agentic_memory   = False
 			enable_user_memories    = False
 			add_memories_to_context = False
+			update_memory_on_run    = False
 			memory_mgr              = None
 			if "memory_mgr" in node_links:
 				memory_mgr_index        = node_links["memory_mgr"]
 				memory_mgr_config       = workflow.nodes[memory_mgr_index]
 				enable_agentic_memory   = memory_mgr_config.managed
-				add_memories_to_context = memory_mgr_config.query
 				enable_user_memories    = memory_mgr_config.update
+				add_memories_to_context = memory_mgr_config.query
+				update_memory_on_run    = True
 				memory_mgr              = impl[memory_mgr_index]
 
 		if True:
@@ -481,6 +484,7 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 				enable_agentic_memory   = enable_agentic_memory,
 				enable_user_memories    = enable_user_memories,
 				add_memories_to_context = add_memories_to_context,
+				update_memory_on_run    = update_memory_on_run,
 				memory_manager          = memory_mgr,
 
 				search_session_history  = search_session_history,
@@ -513,6 +517,7 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 		"toolkit_config"           : [],
 		"skill_config"             : [],
 		"agent_options_config"     : [],
+		"history_manager_config"   : [],
 		"memory_manager_config"    : [],
 		"session_manager_config"   : [],
 		"knowledge_manager_config" : [],

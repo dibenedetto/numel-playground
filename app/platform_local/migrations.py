@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import time
+from dataclasses import dataclass
 from typing import List
 
-from .support import connect_sqlite, resolve_sqlite_path
+from .support import connect_database, database_dialect, is_sqlite_url, resolve_sqlite_path
 
 
 @dataclass(frozen=True)
@@ -186,22 +186,29 @@ def _ensure_migrations_table(conn) -> None:
         CREATE TABLE IF NOT EXISTS platform_migrations (
             version INTEGER PRIMARY KEY,
             name TEXT NOT NULL,
-            applied_at REAL NOT NULL
+            applied_at DOUBLE PRECISION NOT NULL
         )
         """
     )
 
 
+def _migration_sql_for_dialect(sql: str, dialect: str) -> str:
+    if dialect != "postgresql":
+        return sql
+    return sql.replace("INTEGER PRIMARY KEY AUTOINCREMENT", "BIGSERIAL PRIMARY KEY")
+
+
 def get_platform_schema_status(db_url: str) -> MigrationStatus:
-    db_path = resolve_sqlite_path(db_url)
-    if not db_path.exists():
-        return MigrationStatus(
-            current_version=0,
-            target_version=_MIGRATIONS[-1].version if _MIGRATIONS else 0,
-            applied_versions=[],
-            applied_now=[],
-        )
-    with connect_sqlite(db_url) as conn:
+    if is_sqlite_url(db_url):
+        db_path = resolve_sqlite_path(db_url)
+        if not db_path.exists():
+            return MigrationStatus(
+                current_version=0,
+                target_version=_MIGRATIONS[-1].version if _MIGRATIONS else 0,
+                applied_versions=[],
+                applied_now=[],
+            )
+    with connect_database(db_url) as conn:
         _ensure_migrations_table(conn)
         rows = conn.execute(
             "SELECT version FROM platform_migrations ORDER BY version ASC"
@@ -218,7 +225,8 @@ def get_platform_schema_status(db_url: str) -> MigrationStatus:
 
 def ensure_platform_schema(db_url: str) -> MigrationStatus:
     applied_now: List[int] = []
-    with connect_sqlite(db_url) as conn:
+    dialect = database_dialect(db_url)
+    with connect_database(db_url) as conn:
         _ensure_migrations_table(conn)
         existing_rows = conn.execute(
             "SELECT version FROM platform_migrations ORDER BY version ASC"
@@ -227,7 +235,7 @@ def ensure_platform_schema(db_url: str) -> MigrationStatus:
         for migration in _MIGRATIONS:
             if migration.version in applied_versions:
                 continue
-            conn.executescript(migration.sql)
+            conn.executescript(_migration_sql_for_dialect(migration.sql, dialect))
             conn.execute(
                 """
                 INSERT INTO platform_migrations (version, name, applied_at)

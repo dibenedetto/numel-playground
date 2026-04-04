@@ -1,0 +1,25 @@
+FROM python:3.12-slim AS base
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY deploy/identity-requirements.txt ./requirements.txt
+RUN python -m pip install --no-cache-dir -r requirements.txt
+
+COPY services/identity_django/ ./services/identity_django/
+
+ENV PYTHONUNBUFFERED=1
+ENV DJANGO_SETTINGS_MODULE=identity_service.settings
+
+WORKDIR /app/services/identity_django
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s \
+    CMD curl -fsS http://localhost:8000/api/platform/auth/status || exit 1
+
+CMD ["sh", "-lc", "python manage.py migrate && uvicorn identity_service.asgi:application --host 0.0.0.0 --port 8000"]

@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import sqlite3
 import time
-from pathlib import Path
 from typing import List, Optional
 
 from domain.interfaces import FriendGraphProvider
 from domain.models import Friendship, FriendshipStatus
 
 from .config import DatabaseConfig
-from .support import connect_sqlite, resolve_sqlite_path
+from .support import connect_database, is_sqlite_url, resolve_database_path
 
 
 class DbFriendGraphProvider(FriendGraphProvider):
@@ -20,12 +18,14 @@ class DbFriendGraphProvider(FriendGraphProvider):
     def __init__(self, db_config: DatabaseConfig, audit_log=None):
         self.db_config = db_config
         self.audit_log = audit_log
-        self._db_path = resolve_sqlite_path(db_config.url)
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._initialize_db()
+        self._db_path = resolve_database_path(db_config.url)
+        if self._db_path is not None:
+            self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        if is_sqlite_url(db_config.url):
+            self._initialize_db()
 
-    def _connect(self) -> sqlite3.Connection:
-        return connect_sqlite(self.db_config.url)
+    def _connect(self):
+        return connect_database(self.db_config.url)
 
     def _initialize_db(self) -> None:
         with self._connect() as conn:
@@ -45,7 +45,7 @@ class DbFriendGraphProvider(FriendGraphProvider):
                 """
             )
 
-    def _row_to_friendship(self, row: sqlite3.Row) -> Friendship:
+    def _row_to_friendship(self, row) -> Friendship:
         return Friendship(
             requester_user_id=row["requester_user_id"],
             target_user_id=row["target_user_id"],
@@ -55,7 +55,7 @@ class DbFriendGraphProvider(FriendGraphProvider):
             metadata={},
         )
 
-    def _get_direct(self, conn: sqlite3.Connection, requester_user_id: str, target_user_id: str):
+    def _get_direct(self, conn, requester_user_id: str, target_user_id: str):
         return conn.execute(
             """
             SELECT requester_user_id, target_user_id, status, created_at, updated_at, metadata_json
@@ -65,7 +65,7 @@ class DbFriendGraphProvider(FriendGraphProvider):
             (requester_user_id, target_user_id),
         ).fetchone()
 
-    def _get_either_direction(self, conn: sqlite3.Connection, user_a: str, user_b: str):
+    def _get_either_direction(self, conn, user_a: str, user_b: str):
         return conn.execute(
             """
             SELECT requester_user_id, target_user_id, status, created_at, updated_at, metadata_json

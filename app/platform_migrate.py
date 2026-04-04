@@ -13,7 +13,7 @@ from platform_loader import (
     resolve_platform_backend_config_path,
 )
 from platform_local.migrations import ensure_platform_schema, get_platform_schema_status
-from platform_local.support import resolve_sqlite_path
+from platform_local.support import resolve_database_path
 
 
 def _selected_backend_section(config: Mapping[str, Any]) -> tuple[str, Mapping[str, Any]]:
@@ -40,8 +40,9 @@ def _resettable_paths(config: Mapping[str, Any]) -> list[Path]:
     paths: list[Path] = []
 
     db_url = _database_url(config)
-    if db_url.startswith("sqlite:///"):
-        paths.append(resolve_sqlite_path(db_url))
+    db_path = resolve_database_path(db_url)
+    if db_path is not None:
+        paths.append(db_path)
 
     git_section = section.get("git", {})
     if isinstance(git_section, Mapping):

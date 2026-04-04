@@ -3,6 +3,7 @@
 # general dependencies
 aiofiles
 debugpy
+django
 fastapi
 httpx
 psutil

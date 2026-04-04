@@ -1,0 +1,77 @@
+{
+  "backend": "prod",
+  "prod": {
+    "database": {
+      "url": "postgresql+psycopg://${NUMEL_POSTGRES_USER}:${NUMEL_POSTGRES_PASSWORD}@postgres:5432/${NUMEL_POSTGRES_DB}",
+      "echo_sql": false,
+      "app_name": "numel",
+      "pool_size": 20
+    },
+    "identity": {
+      "base_url": "${NUMEL_IDENTITY_BASE_URL}",
+      "identity_prefix": "/api/platform",
+      "healthcheck_path": "/auth/status",
+      "timeout_seconds": 10.0,
+      "verify_tls": true,
+      "token_header": "Authorization",
+      "token_scheme": "Bearer",
+      "require_available_on_startup": true
+    },
+    "git": {
+      "repos_root": "${NUMEL_DATA_ROOT}/spaces",
+      "default_branch": "main",
+      "bare_repositories": false
+    },
+    "artifacts": {
+      "backend": "filesystem",
+      "root_path": "${NUMEL_DATA_ROOT}/artifacts",
+      "bucket_name": ""
+    },
+    "secrets": {
+      "backend": "database",
+      "key_prefix": "numel",
+      "healthcheck_path": "/v1/sys/health",
+      "timeout_seconds": 10.0,
+      "verify_tls": true,
+      "token": "",
+      "token_env_var": "NUMEL_VAULT_TOKEN",
+      "kv_mount": "secret",
+      "kv_api_prefix": "/v1",
+      "require_available_on_startup": false
+    },
+    "runtime": {
+      "base_url": "http://docker:2375",
+      "default_image": "numel-runtime:latest",
+      "default_gpu_image": "numel-runtime:cuda",
+      "network_name": "",
+      "workspace_mount_root": "/workspace",
+      "artifacts_mount_root": "/artifacts",
+      "api_version": "v1.41",
+      "healthcheck_path": "/_ping",
+      "timeout_seconds": 30.0,
+      "verify_tls": true,
+      "require_available_on_startup": true,
+      "container_name_prefix": "numel-exec",
+      "default_command": "",
+      "auto_remove": false,
+      "gpu_driver": "nvidia",
+      "gpu_device_count": -1,
+      "max_execution_duration_seconds": 3600.0,
+      "stop_grace_seconds": 5,
+      "remove_containers_on_completion": true,
+      "cleanup_snapshots_on_completion": true,
+      "artifact_retention_seconds": 604800.0,
+      "retention_scan_interval_seconds": 60.0,
+      "read_only_root_filesystem": true,
+      "drop_capabilities": ["ALL"],
+      "security_opts": ["no-new-privileges"],
+      "pids_limit": 256,
+      "shm_size_bytes": 67108864,
+      "tmpfs_mounts": {
+        "/tmp": "rw,noexec,nosuid,nodev,size=64m",
+        "/run": "rw,noexec,nosuid,nodev,size=16m"
+      },
+      "run_as_user": ""
+    }
+  }
+}

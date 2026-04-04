@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -22,6 +23,7 @@ from runtime_settings import get_runtime_settings
 
 DEFAULT_PLATFORM_CONFIG_FILENAME = "platform_backend.json"
 DEFAULT_PLATFORM_BACKEND = "local"
+_ENV_PATTERN = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 def resolve_platform_backend_config_path(path: str | None = None) -> str:
@@ -45,11 +47,30 @@ def load_platform_backend_config(path: str | None = None) -> dict[str, Any]:
     raw = json.loads(config_path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise ValueError("Platform backend config must be a JSON object")
+    raw = _expand_platform_env_values(raw)
     backend = str(raw.get("backend", DEFAULT_PLATFORM_BACKEND) or DEFAULT_PLATFORM_BACKEND).strip().lower()
     if backend not in {"local", "prod"}:
         raise ValueError(f"Unsupported platform backend '{backend}'")
     raw["backend"] = backend
     return _normalize_platform_backend_config(raw)
+
+
+def _expand_platform_env_string(value: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1)
+        return os.getenv(name, "")
+
+    return _ENV_PATTERN.sub(replace, value)
+
+
+def _expand_platform_env_values(value: Any) -> Any:
+    if isinstance(value, str):
+        return _expand_platform_env_string(value)
+    if isinstance(value, list):
+        return [_expand_platform_env_values(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _expand_platform_env_values(item) for key, item in value.items()}
+    return value
 
 
 def _resolve_platform_path(raw_path: str) -> str:
