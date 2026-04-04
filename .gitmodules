@@ -1,0 +1,3 @@
+[submodule "app/platform_prod"]
+	path = app/platform_prod
+	url = https://github.com/dibenedetto/numel-playground-platform.git
