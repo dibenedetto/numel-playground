@@ -179,3 +179,4 @@ storage/
 tmp/
 app/workspaces/
 console_memory.db
+app/platform_prod/*
