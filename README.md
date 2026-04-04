@@ -582,6 +582,7 @@ Notes:
 - The app still talks to identity through the same adapter contract in `app/platform_prod/django_identity.py`
 - The Django service uses the same logical user/profile/quota/token model as `platform_local`, so switching between `local` and `prod` remains seamless at the Numel interface level
 - From an interface point of view, switching between `local` and `prod` remains config-only: the frontend, `/platform`, `/spaces`, `/workflow`, and `/executions` surfaces do not change
+- See `docs/public-private-boundary.md` for the recommended commercial split: keep the working local/reference product public, and keep production guarantees in the private prod slice
 
 ### Deployable Runtime Layout
 

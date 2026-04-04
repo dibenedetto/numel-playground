@@ -28,12 +28,14 @@ Before making changes, read:
 - docs/chat-bootstrap.md
 - docs/platform-domain.md
 - docs/platform-db-git.md
+- docs/public-private-boundary.md
 - docs/runtime-container-contract.md
 
 Important project context:
 - Numel has a config-selected platform split: platform_local for the fully working local/reference backend, platform_prod for the production-oriented backend.
 - app/platform_prod may be provided as a private git submodule and should be inspected when present.
 - The app/interface should stay seamless across local and prod: same frontend and same public /platform, /spaces, /workflow, and /executions surface.
+- Keep product concepts public and production guarantees private; see docs/public-private-boundary.md.
 - The product model is space-centric with one current workflow per current space.
 - Production currently uses PostgreSQL + Django identity + Docker runtime containers.
 - Runtime images live under runtime/numel_runtime.

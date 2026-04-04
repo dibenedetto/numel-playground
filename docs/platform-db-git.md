@@ -87,6 +87,9 @@ For deployment, the repo now also includes a dedicated production bundle under
 The app-facing interface is intentionally unchanged across `local` and `prod`;
 the backend swap happens beneath the shared platform HTTP contract.
 
+For the recommended public-repo vs private-submodule ownership of that split,
+see [public-private-boundary.md](/c:/devel/numel-playground/docs/public-private-boundary.md).
+
 ## Implementation Status Matrix
 
 | Component | Current state | What exists now | Next step | Eventual backend |

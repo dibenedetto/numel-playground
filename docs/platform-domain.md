@@ -105,3 +105,6 @@ The intended long-term split is:
 
 The important rule is that these are implementations of the domain, not the
 domain itself.
+
+For the recommended commercial/public-private split around that architecture,
+see [public-private-boundary.md](/c:/devel/numel-playground/docs/public-private-boundary.md).

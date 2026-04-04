@@ -48,6 +48,8 @@ Core split:
   Shared HTTP contract for platform operations.
 - [app/platform_client.py](/c:/devel/numel-playground/app/platform_client.py)
   App-facing client for the platform HTTP layer.
+- [docs/public-private-boundary.md](/c:/devel/numel-playground/docs/public-private-boundary.md)
+  Recommended commercial boundary between the public repo and the private prod slice.
 
 Data model direction:
 
