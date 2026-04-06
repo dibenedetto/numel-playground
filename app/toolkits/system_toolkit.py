@@ -49,6 +49,43 @@ class SystemToolkit:
 		except Exception as e:
 			return f"Error: {e}"
 
+	def get_system_diagnostics(self) -> str:
+		"""Get an operational snapshot of the active backend, runtime paths,
+		startup checks, auth provider status, and sanitized backend config."""
+		try:
+			data = self._post("/admin/diagnostics")
+			process = data.get("process", {})
+			platform = data.get("platform", {})
+			runtime = data.get("runtime", {})
+			auth = platform.get("auth", {})
+			disk = runtime.get("disk_usage", {})
+			paths = runtime.get("paths", []) or []
+			lines = [
+				"System Diagnostics:",
+				f"  Backend: {data.get('backend', '?')} ({data.get('status', 'unknown')})",
+				f"  Auth provider: {auth.get('provider', 'unknown')} · has users: {auth.get('has_users', False)}",
+				f"  Python: {process.get('python', '?')} · PID: {process.get('pid', '?')}",
+				f"  Uptime: {round(float(process.get('uptime_seconds', 0.0) or 0.0), 1)}s",
+			]
+			if disk.get("ok"):
+				lines.append(
+					f"  Disk: used {disk.get('used_bytes', 0)} / total {disk.get('total_bytes', 0)} bytes"
+				)
+			elif disk.get("detail"):
+				lines.append(f"  Disk: unavailable ({disk['detail']})")
+			if paths:
+				lines.append("  Runtime paths:")
+				for entry in paths:
+					kind = "dir" if entry.get("is_dir") else ("file" if entry.get("is_file") else "path")
+					status = "ok" if entry.get("exists") else "missing"
+					lines.append(f"    - {entry.get('name', '?')}: {entry.get('path', '?')} [{status}, {kind}]")
+			startup = platform.get("startup_checks", {}) or {}
+			if startup:
+				lines.append(f"  Startup checks: {startup}")
+			return "\n".join(lines)
+		except Exception as e:
+			return f"Error: {e}"
+
 	# ── User Management ───────────────────────────────────────────────
 
 	def list_users(self, active_only: bool = True, limit: int = 50, offset: int = 0) -> str:

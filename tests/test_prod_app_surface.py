@@ -597,3 +597,31 @@ class ProdAppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("SPACE_TOKEN=***REDACTED***", job_spec["Env"])
         self.assertNotIn("API_KEY=user-secret", job_spec["Env"])
         self.assertNotIn("SPACE_TOKEN=space-secret", job_spec["Env"])
+
+    async def test_admin_diagnostics_surface_prod(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "opsadmin", "email": "opsadmin@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        payload = register.json()
+        self.assertEqual(payload["user"]["role"], "admin")
+        headers = self._auth_headers(payload["token"])
+
+        user_secret = await self._client.post(
+            "/credentials/API_KEY",
+            json={"value": "user-secret"},
+            headers=headers,
+        )
+        self.assertEqual(user_secret.status_code, 200, user_secret.text)
+
+        diagnostics = await self._client.post("/admin/diagnostics", json={}, headers=headers)
+        self.assertEqual(diagnostics.status_code, 200, diagnostics.text)
+        data = diagnostics.json()
+
+        self.assertEqual(data["backend"], "prod")
+        self.assertEqual(data["status"], "ready")
+        self.assertEqual(data["platform"]["auth"]["provider"], "DjangoIdentityProvider")
+        self.assertEqual(data["backend_config"]["runtime"]["default_image"], "numel-runtime:prod-test")
+        self.assertTrue(data["runtime"]["paths"])
+        self.assertNotIn("user-secret", json.dumps(data))

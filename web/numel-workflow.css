@@ -2237,6 +2237,69 @@ body.nw-layout-project-workbench .nw-auth-title {
 	gap: 8px;
 }
 .nw-admin-stat-row .nw-admin-stat-card { flex: 1; }
+.nw-admin-diagnostics {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+.nw-admin-diag-kv {
+	display: grid;
+	grid-template-columns: minmax(88px, auto) 1fr;
+	gap: 6px 10px;
+	margin-top: 8px;
+	font-size: 11px;
+}
+.nw-admin-diag-key {
+	color: var(--sg-text-secondary);
+	font-weight: 600;
+}
+.nw-admin-diag-value {
+	color: var(--sg-text-primary);
+	word-break: break-word;
+}
+.nw-admin-path-list {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	margin-top: 8px;
+}
+.nw-admin-path-row {
+	display: grid;
+	grid-template-columns: minmax(110px, auto) 1fr auto;
+	gap: 8px;
+	align-items: start;
+	padding: 8px 10px;
+	background: color-mix(in srgb, var(--sg-bg-primary) 82%, transparent);
+	border: 1px solid var(--nw-border-soft);
+	border-radius: var(--nw-radius-control);
+}
+.nw-admin-path-name {
+	color: var(--sg-text-primary);
+	font-size: 11px;
+	font-weight: 600;
+}
+.nw-admin-path-path {
+	color: var(--sg-text-secondary);
+	font-size: 11px;
+	line-height: 1.45;
+	word-break: break-word;
+}
+.nw-admin-path-status {
+	font-size: 10px;
+	padding: 2px 6px;
+	border-radius: 999px;
+	border: 1px solid var(--nw-border-soft);
+	color: var(--sg-text-secondary);
+	white-space: nowrap;
+}
+.nw-admin-path-status.is-ok {
+	color: var(--sg-accent-green, #5cb85c);
+	border-color: color-mix(in srgb, var(--sg-accent-green, #5cb85c) 35%, var(--nw-border-soft));
+}
+.nw-admin-path-status.is-missing {
+	color: var(--sg-accent-red, #d9534f);
+	border-color: color-mix(in srgb, var(--sg-accent-red, #d9534f) 35%, var(--nw-border-soft));
+}
 .nw-admin-active-list {
 	margin-bottom: 10px;
 }

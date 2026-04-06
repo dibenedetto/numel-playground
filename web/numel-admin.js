@@ -66,6 +66,7 @@ const NumelAdmin = (() => {
 		if (tabId === 'adminTabUsers')  _loadUsers();
 		if (tabId === 'adminTabExec')   _loadExecutions();
 		if (tabId === 'adminTabStats')  _loadStats();
+		if (tabId === 'adminTabDiagnostics') _loadDiagnostics();
 	}
 
 	// ── Users ────────────────────────────────────────────────────
@@ -278,6 +279,84 @@ const NumelAdmin = (() => {
 		}
 	}
 
+	// ── Diagnostics ──────────────────────────────────────────────
+
+	async function _loadDiagnostics() {
+		const el = document.getElementById('adminDiagnosticsContent');
+		if (!el) return;
+		el.innerHTML = '<div style="color:var(--sg-text-tertiary);font-size:12px;">Loading...</div>';
+		try {
+			const data = await _post('/admin/diagnostics');
+			const process = data.process || {};
+			const platform = data.platform || {};
+			const runtime = data.runtime || {};
+			const disk = runtime.disk_usage || {};
+			const auth = platform.auth || {};
+			const paths = Array.isArray(runtime.paths) ? runtime.paths : [];
+
+			const diskLabel = disk.ok
+				? `${_formatBytes(disk.used_bytes)} used / ${_formatBytes(disk.total_bytes)} total`
+				: (disk.detail || 'Unavailable');
+
+			const pathRows = paths.length
+				? paths.map((entry) => {
+					const flags = [];
+					if (entry.exists) flags.push(entry.is_dir ? 'dir' : (entry.is_file ? 'file' : 'path'));
+					else flags.push('missing');
+					return `
+						<div class="nw-admin-path-row">
+							<div class="nw-admin-path-name">${_esc(entry.name || 'path')}</div>
+							<div class="nw-admin-path-path">${_esc(entry.path || '')}</div>
+							<div class="nw-admin-path-status ${entry.exists ? 'is-ok' : 'is-missing'}">${_esc(flags.join(' · '))}</div>
+						</div>
+					`;
+				}).join('')
+				: '<div class="nw-admin-card-detail">No runtime paths reported.</div>';
+
+			el.innerHTML = `
+				<div class="nw-admin-stat-row">
+					<div class="nw-admin-stat-card">
+						<div class="nw-admin-stat-value">${_esc(data.backend || '—')}</div>
+						<div class="nw-admin-stat-label">Active Backend</div>
+					</div>
+					<div class="nw-admin-stat-card">
+						<div class="nw-admin-stat-value">${_esc(_formatSeconds(process.uptime_seconds))}</div>
+						<div class="nw-admin-stat-label">Process Uptime</div>
+					</div>
+				</div>
+				<div class="nw-admin-card">
+					<div class="nw-admin-card-header">
+						<span class="nw-admin-card-title">Runtime Snapshot</span>
+						<span class="nw-admin-exec-status nw-admin-exec-${_statusTone(data.status)}">${_esc(data.status || 'unknown')}</span>
+					</div>
+					<div class="nw-admin-diag-kv">
+						<div class="nw-admin-diag-key">Python</div>
+						<div class="nw-admin-diag-value">${_esc(process.python || '—')}</div>
+						<div class="nw-admin-diag-key">PID</div>
+						<div class="nw-admin-diag-value">${_esc(process.pid || '—')}</div>
+						<div class="nw-admin-diag-key">CWD</div>
+						<div class="nw-admin-diag-value">${_esc(process.cwd || '—')}</div>
+						<div class="nw-admin-diag-key">Config</div>
+						<div class="nw-admin-diag-value">${_esc(data.platform_config_path || '—')}</div>
+						<div class="nw-admin-diag-key">Auth</div>
+						<div class="nw-admin-diag-value">${_esc(auth.provider || 'unknown')} · has users: ${auth.has_users ? 'yes' : 'no'}</div>
+						<div class="nw-admin-diag-key">Disk</div>
+						<div class="nw-admin-diag-value">${_esc(diskLabel)}</div>
+					</div>
+				</div>
+				<div class="nw-admin-card">
+					<div class="nw-admin-card-title">Runtime Paths</div>
+					<div class="nw-admin-path-list">${pathRows}</div>
+				</div>
+				${_renderJsonCard('Platform Components', platform.components || {})}
+				${_renderJsonCard('Startup Checks', platform.startup_checks || {})}
+				${_renderJsonCard('Backend Configuration', data.backend_config || {})}
+			`;
+		} catch (e) {
+			el.innerHTML = `<div style="color:var(--sg-accent-red);font-size:12px;">Error: ${_esc(e.message)}</div>`;
+		}
+	}
+
 	// ── Dialog helper ────────────────────────────────────────────
 
 	function _dialog(title, bodyHtml, onSave) {
@@ -315,6 +394,55 @@ const NumelAdmin = (() => {
 		return d.innerHTML;
 	}
 
+	function _renderJsonCard(title, value) {
+		return `
+			<div class="nw-admin-card">
+				<div class="nw-admin-card-title">${_esc(title)}</div>
+				<pre class="nw-ext-pre">${_esc(JSON.stringify(value, null, 2))}</pre>
+			</div>
+		`;
+	}
+
+	function _formatBytes(value) {
+		const num = Number(value);
+		if (!Number.isFinite(num) || num < 0) return '—';
+		if (num < 1024) return `${num} B`;
+		const units = ['KB', 'MB', 'GB', 'TB'];
+		let size = num;
+		let unit = 'B';
+		for (const nextUnit of units) {
+			size /= 1024;
+			unit = nextUnit;
+			if (size < 1024) break;
+		}
+		return `${size >= 100 ? size.toFixed(0) : size.toFixed(1)} ${unit}`;
+	}
+
+	function _formatSeconds(value) {
+		const num = Number(value);
+		if (!Number.isFinite(num) || num < 0) return '—';
+		if (num < 60) return `${num.toFixed(num >= 10 ? 0 : 1)}s`;
+		if (num < 3600) return `${(num / 60).toFixed(1)}m`;
+		return `${(num / 3600).toFixed(1)}h`;
+	}
+
+	function _statusTone(status) {
+		switch ((status || '').toLowerCase()) {
+			case 'ready':
+			case 'completed':
+				return 'completed';
+			case 'degraded':
+			case 'failed':
+				return 'failed';
+			case 'running':
+				return 'running';
+			case 'cancelled':
+				return 'cancelled';
+			default:
+				return 'running';
+		}
+	}
+
 	// ── Init ─────────────────────────────────────────────────────
 
 	function init() {
@@ -334,9 +462,11 @@ const NumelAdmin = (() => {
 		const ru = document.getElementById('adminRefreshUsers');
 		const re = document.getElementById('adminRefreshExec');
 		const rs = document.getElementById('adminRefreshStats');
+		const rd = document.getElementById('adminRefreshDiagnostics');
 		if (ru) ru.onclick = _loadUsers;
 		if (re) re.onclick = _loadExecutions;
 		if (rs) rs.onclick = _loadStats;
+		if (rd) rd.onclick = _loadDiagnostics;
 
 		// Active-only toggle
 		const ao = document.getElementById('adminActiveOnly');

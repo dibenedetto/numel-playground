@@ -16,6 +16,7 @@ import argparse
 import asyncio
 import os
 import secrets
+import shutil
 import sys
 import time
 import uvicorn
@@ -41,6 +42,7 @@ from   fastapi   import FastAPI, HTTPException, Request
 from   fastapi.responses import JSONResponse
 from   inspect   import getsource, isawaitable
 from   typing    import Any, Optional
+from   urllib.parse import urlsplit, urlunsplit
 
 import schema
 
@@ -453,6 +455,102 @@ async def run_server(
 		payload["auth"] = auth_status
 		return payload
 
+	def _sanitize_url_value(value: Any) -> Any:
+		if not isinstance(value, str) or "://" not in value:
+			return value
+		try:
+			parts = urlsplit(value)
+		except Exception:
+			return value
+		if not parts.netloc or "@" not in parts.netloc:
+			return value
+		userinfo, hostinfo = parts.netloc.rsplit("@", 1)
+		if ":" in userinfo:
+			username, _password = userinfo.split(":", 1)
+			safe_userinfo = f"{username}:***REDACTED***"
+		else:
+			safe_userinfo = userinfo
+		return urlunsplit((parts.scheme, f"{safe_userinfo}@{hostinfo}", parts.path, parts.query, parts.fragment))
+
+	def _sanitize_config_value(value: Any, key_hint: str = "") -> Any:
+		lower_key = key_hint.lower()
+		if isinstance(value, dict):
+			return {key: _sanitize_config_value(item, str(key)) for key, item in value.items()}
+		if isinstance(value, list):
+			return [_sanitize_config_value(item, key_hint) for item in value]
+		if isinstance(value, str):
+			if any(token in lower_key for token in ("password", "token", "secret", "api_key", "apikey")):
+				return "***REDACTED***" if value else value
+			if lower_key == "url":
+				return _sanitize_url_value(value)
+		return value
+
+	def _runtime_path_entries() -> list[dict[str, Any]]:
+		path_map = {
+			"data_root": _runtime_settings.data_root,
+			"workspace_storage_dir": _runtime_settings.workspace_storage_dir,
+			"memory_storage_dir": _runtime_settings.memory_storage_dir,
+			"user_memory_dir": _runtime_settings.user_memory_dir,
+			"gallery_dir": _runtime_settings.gallery_dir,
+			"user_skills_dir": _runtime_settings.user_skills_dir,
+			"process_credentials_path": _runtime_settings.process_credentials_path,
+			"channel_users_path": _runtime_settings.channel_users_path,
+			"channels_config_path": _runtime_settings.channels_config_path,
+			"agent_tasks_path": _runtime_settings.agent_tasks_path,
+			"published_apps_path": _runtime_settings.published_apps_path,
+			"skills_state_path": _runtime_settings.skills_state_path,
+		}
+		entries = []
+		for name, path in path_map.items():
+			path_obj = Path(path)
+			entries.append({
+				"name": name,
+				"path": str(path_obj),
+				"exists": path_obj.exists(),
+				"is_dir": path_obj.is_dir(),
+				"is_file": path_obj.is_file(),
+			})
+		return entries
+
+	def _runtime_disk_usage() -> dict[str, Any]:
+		try:
+			usage = shutil.disk_usage(_runtime_settings.data_root)
+		except Exception as exc:
+			return {"ok": False, "detail": str(exc)}
+		return {
+			"ok": True,
+			"total_bytes": usage.total,
+			"used_bytes": usage.used,
+			"free_bytes": usage.free,
+		}
+
+	async def _build_admin_diagnostics_payload() -> dict[str, Any]:
+		health = await _build_health_payload()
+		backend_section = {}
+		if isinstance(_platform_config, dict):
+			backend_section = _platform_config.get(_platform_backend_name, {}) or {}
+		return {
+			"status": health.get("status", "unknown"),
+			"backend": _platform_backend_name,
+			"platform_config_path": str(_platform_config_path),
+			"process": {
+				"pid": os.getpid(),
+				"cwd": os.getcwd(),
+				"python": sys.version.split()[0],
+				"uptime_seconds": round(max(0.0, time.time() - _server_started_at), 3),
+			},
+			"platform": {
+				"components": health.get("components", {}),
+				"startup_checks": health.get("startup_checks", {}),
+				"auth": health.get("auth", {}),
+			},
+			"runtime": {
+				"paths": _runtime_path_entries(),
+				"disk_usage": _runtime_disk_usage(),
+			},
+			"backend_config": _sanitize_config_value(backend_section),
+		}
+
 	@app.get("/health/live")
 	@app.post("/health/live")
 	async def health_live():
@@ -601,6 +699,12 @@ async def run_server(
 			"active_executions": len(active_exec_ids),
 			"execution_status_breakdown": status_counts,
 		}
+
+	@app.post("/admin/diagnostics")
+	async def admin_diagnostics(request: Request):
+		"""Operational diagnostics for the active app/runtime/platform stack."""
+		_require_admin(request)
+		return await _build_admin_diagnostics_payload()
 
 	@app.post("/admin/executions")
 	async def admin_executions(request: Request):

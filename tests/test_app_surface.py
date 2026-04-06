@@ -229,6 +229,31 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listing.status_code, 200, listing.text)
         execution_ids = listing.json()["execution_ids"]
         self.assertIn(execution_id, execution_ids)
+
+    async def test_admin_diagnostics_surface_local(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "admin", "email": "admin@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        payload = register.json()
+        self.assertEqual(payload["user"]["role"], "admin")
+        headers = self._auth_headers(payload["token"])
+
+        diagnostics = await self._client.post("/admin/diagnostics", json={}, headers=headers)
+        self.assertEqual(diagnostics.status_code, 200, diagnostics.text)
+        data = diagnostics.json()
+
+        self.assertEqual(data["backend"], "local")
+        self.assertEqual(data["status"], "ready")
+        self.assertEqual(data["platform_config_path"], str(self._platform_config))
+        self.assertIn("process", data)
+        self.assertIn("platform", data)
+        self.assertIn("runtime", data)
+        self.assertTrue(data["runtime"]["paths"])
+        self.assertEqual(data["platform"]["auth"]["has_users"], True)
+        self.assertEqual(data["backend_config"]["database"]["url"], f"sqlite:///{self._db_path.as_posix()}")
+
     async def test_first_run_space_accepts_hello_starter_and_completes(self) -> None:
         register = await self._client.post(
             "/auth/register",
@@ -278,4 +303,5 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.2)
 
         self.assertEqual(final_status, "completed")
+
 
