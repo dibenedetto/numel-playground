@@ -15,6 +15,7 @@ let currentExecutionId = null;
 let currentPlatformExecutionId = null;
 let currentSpaceId    = null;
 let currentSpaceInfo  = null;
+let availableSpaces   = [];
 let _pendingExecEvents = [];   // buffer events arriving before currentExecutionId is set
 let workflowDirty      = true;
 let fileUploadManager  = null;
@@ -205,19 +206,65 @@ function _updateStarterPanel() {
 	}
 }
 
+function _renderWorkbenchSpaces() {
+	const list = $('workbenchSpacesList');
+	if (!list) return;
+	if (!availableSpaces.length) {
+		list.innerHTML = '<div class="nw-space-pill"><div class="nw-space-pill-bullet"></div><div class="nw-space-pill-meta"><div class="nw-space-pill-title">No spaces yet</div><div class="nw-space-pill-copy">Create a workbench to start shaping a workflow project.</div></div></div>';
+		return;
+	}
+	list.innerHTML = availableSpaces.map((space) => {
+		const title = space.title || space.slug || space.id;
+		const isActive = space.id === currentSpaceId;
+		let copy = 'Project workbench';
+		if (isActive && _isCurrentWorkflowEmptyState()) {
+			copy = 'Current workbench · waiting for its first workflow';
+		} else if (isActive) {
+			copy = 'Current workbench · ready to edit and run';
+		} else if (space.visibility) {
+			copy = `${String(space.visibility).charAt(0).toUpperCase()}${String(space.visibility).slice(1)} space`;
+		}
+		const safeTitle = String(title)
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;');
+		const safeCopy = String(copy)
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;');
+		return `
+			<button class="nw-space-pill${isActive ? ' is-active' : ''}" type="button" data-space-id="${space.id}">
+				<div class="nw-space-pill-bullet"></div>
+				<div class="nw-space-pill-meta">
+					<div class="nw-space-pill-title">${safeTitle}</div>
+					<div class="nw-space-pill-copy">${safeCopy}</div>
+				</div>
+			</button>
+		`;
+	}).join('');
+}
+
 function _updateWorkbenchOverview() {
 	const spaceEl = $('workbenchSpaceName');
 	const workflowEl = $('workbenchWorkflowName');
 	const summaryEl = $('workbenchSummary');
 	const statusEl = $('workbenchStatusPill');
+	const nextTitleEl = $('workbenchNextTitle');
+	const nextCopyEl = $('workbenchNextCopy');
 	const askBtn = $('workbenchAskAssistantBtn');
 	const galleryBtn = $('workbenchBrowseGalleryBtn');
+	const runBtn = $('workbenchRunBtn');
+	const heroKickerEl = $('canvasHeroKicker');
+	const heroTitleEl = $('canvasHeroTitle');
+	const heroSummaryEl = $('canvasHeroSummary');
 	const canvasSpaceEl = $('canvasWorkbenchSpaceName');
 	const canvasWorkflowEl = $('canvasWorkbenchWorkflowName');
 	const canvasSummaryEl = $('canvasWorkbenchSummary');
 	const canvasAskBtn = $('canvasAskAssistantBtn');
 	const canvasGalleryBtn = $('canvasBrowseGalleryBtn');
 	const canvasRunBtn = $('canvasStartRunBtn');
+	const canvasSaveBtn = $('canvasSaveWorkflowBtn');
 	const spaceName = currentSpaceInfo?.title || currentSpaceInfo?.slug || 'Choose a space';
 	const workflowName = visualizer?.currentWorkflowName || $('singleWorkflowName')?.textContent || 'None';
 	const isReady = !!client?.isConnected && _isAuthenticatedUser();
@@ -225,6 +272,11 @@ function _updateWorkbenchOverview() {
 	const startDisabled = $('startBtn')?.disabled ?? true;
 	let overviewSummary = '';
 	let canvasSummary = '';
+	let nextTitle = '';
+	let nextCopy = '';
+	let heroKicker = 'Start here';
+	let heroTitle = 'Build a workflow, then run it like a real project.';
+	let heroSummary = 'This work area should feel like a focused project surface: the current space, the next useful move, and the graph itself before the advanced controls.';
 
 	if (spaceEl) spaceEl.textContent = spaceName;
 	if (workflowEl) workflowEl.textContent = `Workflow: ${workflowName || 'None'}`;
@@ -233,23 +285,44 @@ function _updateWorkbenchOverview() {
 	if (!currentSpaceInfo) {
 		overviewSummary = 'Create or select a space to start a focused workflow project.';
 		canvasSummary = 'Choose a space to start shaping a tagged workflow on the canvas.';
+		nextTitle = 'Start by creating a workbench.';
+		nextCopy = 'A space is the project container for one current workflow, its runs, assets, and scoped credentials.';
+		heroTitle = 'Choose a workbench, then start from something concrete.';
+		heroSummary = 'Numel works best when each space feels like a project. Pick a space, use a starter, and move quickly to a first useful run.';
 	} else if (isEmpty) {
 		overviewSummary = `"${spaceName}" is ready for its first useful run. Start from a template, open the gallery, or let the assistant draft the workflow.`;
 		canvasSummary = `"${spaceName}" is empty. Drop in a starter, sketch nodes, and use workflow tags to keep the canvas organized as it grows.`;
+		nextTitle = 'Pick a starter and get to the first run fast.';
+		nextCopy = 'Use a ready-made flow, ask the assistant for a draft, or browse the gallery before opening the advanced controls.';
+		heroTitle = `"${spaceName}" is ready for its first useful workflow.`;
+		heroSummary = 'Start with a ready-made flow, ask the assistant to draft one, or browse the gallery. The goal is a fast path from blank workbench to first successful run.';
 	} else {
 		overviewSummary = `You are working in "${spaceName}". "${workflowName || 'Current Workflow'}" is ready to edit, save, and run.`;
 		canvasSummary = `"${workflowName || 'Current Workflow'}" is open in "${spaceName}". Edit nodes here, keep related areas tagged, and launch a run when you are ready.`;
+		nextTitle = 'Refine the workflow or launch the next run.';
+		nextCopy = 'Use the canvas as the main surface, keep related areas tagged, and open the assistant when you want help expanding the graph.';
+		heroKicker = 'Current workflow';
+		heroTitle = `Keep building "${workflowName || 'Current Workflow'}".`;
+		heroSummary = `"${spaceName}" is now a live workbench. Edit the graph here, save the changes, then run and inspect the result like a real project.`;
 	}
 
 	if (summaryEl) summaryEl.textContent = overviewSummary;
-	if (canvasSpaceEl) canvasSpaceEl.textContent = spaceName;
-	if (canvasWorkflowEl) canvasWorkflowEl.textContent = `Workflow: ${workflowName || 'None'}`;
+	if (nextTitleEl) nextTitleEl.textContent = nextTitle;
+	if (nextCopyEl) nextCopyEl.textContent = nextCopy;
+	if (heroKickerEl) heroKickerEl.textContent = heroKicker;
+	if (heroTitleEl) heroTitleEl.textContent = heroTitle;
+	if (heroSummaryEl) heroSummaryEl.textContent = heroSummary;
+	if (canvasSpaceEl) canvasSpaceEl.textContent = `Space: ${spaceName}`;
+	if (canvasWorkflowEl) canvasWorkflowEl.textContent = workflowName || 'Current Workflow';
 	if (canvasSummaryEl) canvasSummaryEl.textContent = canvasSummary;
 	if (askBtn) askBtn.disabled = !isReady;
 	if (galleryBtn) galleryBtn.disabled = !isReady;
+	if (runBtn) runBtn.disabled = !isReady || startDisabled;
 	if (canvasAskBtn) canvasAskBtn.disabled = !isReady;
 	if (canvasGalleryBtn) canvasGalleryBtn.disabled = !isReady;
 	if (canvasRunBtn) canvasRunBtn.disabled = !isReady || startDisabled;
+	if (canvasSaveBtn) canvasSaveBtn.disabled = !isReady;
+	_renderWorkbenchSpaces();
 }
 
 function _syncSpaceControls() {
@@ -965,12 +1038,29 @@ window.addEventListener('beforeunload', (e) => {
 function setupEventListeners() {
 	// Space management
 	$('spaceSelect').addEventListener('change', selectCurrentSpace);
+	$('workbenchSpacesList')?.addEventListener('click', (event) => {
+		const button = event.target.closest('.nw-space-pill[data-space-id]');
+		if (!button) return;
+		const nextSpaceId = button.getAttribute('data-space-id');
+		const select = $('spaceSelect');
+		if (select && nextSpaceId) {
+			select.value = nextSpaceId;
+			selectCurrentSpace();
+		}
+	});
 	$('createSpaceBtn').addEventListener('click', createSpace);
 	$('removeSpaceBtn').addEventListener('click', removeCurrentSpace);
+	$('workbenchRunBtn')?.addEventListener('click', () => {
+		if (!$('workbenchRunBtn')?.disabled) $('startBtn')?.click();
+	});
 	$('workbenchAskAssistantBtn')?.addEventListener('click', () => _runStarterAction('assistant'));
 	$('workbenchBrowseGalleryBtn')?.addEventListener('click', () => _runStarterAction('gallery'));
 	$('canvasAskAssistantBtn')?.addEventListener('click', () => _runStarterAction('assistant'));
 	$('canvasBrowseGalleryBtn')?.addEventListener('click', () => _runStarterAction('gallery'));
+	$('canvasSaveWorkflowBtn')?.addEventListener('click', async () => {
+		if ($('canvasSaveWorkflowBtn')?.disabled) return;
+		await syncWorkflow();
+	});
 	$('canvasStartRunBtn')?.addEventListener('click', () => {
 		if (!$('canvasStartRunBtn')?.disabled) $('startBtn')?.click();
 	});
@@ -1212,6 +1302,7 @@ async function disconnect() {
 	currentPlatformExecutionId = null;
 	currentSpaceId = null;
 	currentSpaceInfo = null;
+	availableSpaces = [];
 	currentWorkflowHasContent = false;
 
 	$('spaceSelect').disabled = true;
@@ -1465,6 +1556,7 @@ async function refreshSpaceList(loadWorkflow = false) {
 		const currentResp = await api.getCurrentSpace();
 		const listResp = await api.listSpaces();
 		const spaces = listResp.spaces || [];
+		availableSpaces = spaces;
 		currentSpaceInfo = currentResp.space || spaces.find(space => space.id === listResp.current_space_id) || null;
 		currentSpaceId = currentSpaceInfo?.id || listResp.current_space_id || null;
 
@@ -1484,6 +1576,7 @@ async function refreshSpaceList(loadWorkflow = false) {
 		}
 		_updateWorkbenchOverview();
 	} catch (error) {
+		availableSpaces = [];
 		addLog('error', `❌ Failed to refresh spaces: ${error.message}`);
 		_updateWorkbenchOverview();
 	}
