@@ -246,7 +246,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 - **Per-user resource quotas** (CPU, storage, GPU, concurrent runs)
 - **User panel** — profile info, quota usage bars, and password change
 - **Admin panel** — slide-out UI with user management, execution monitoring, and system stats
-- **Admin diagnostics** — active backend, runtime paths, startup checks, auth provider state, and sanitized backend config in one place
+- **Admin diagnostics** — active backend, runtime paths, startup checks, auth provider state, recent execution log tails, and sanitized backend config in one place
 - **Shared server resources are protected** — contrib toolkit upload/removal is admin-only, while credentials are user-scoped
 - **System toolkit** — AI assistant can manage users, quotas, and executions via natural language
 - **User-scoped data** — execution history filtered by user (admins see all)

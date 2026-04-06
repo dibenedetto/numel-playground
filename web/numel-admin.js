@@ -8,6 +8,7 @@ const NumelAdmin = (() => {
 
 	let _panel, _closeBtn, _openBtn;
 	let _tabs;
+	let _selectedExecutionId = '';
 
 	// ── Helpers ──────────────────────────────────────────────────
 
@@ -47,6 +48,7 @@ const NumelAdmin = (() => {
 
 	function close() {
 		if (_panel) _panel.classList.remove('open');
+		_closeExecutionDrawer();
 	}
 
 	function isOpen() {
@@ -56,6 +58,7 @@ const NumelAdmin = (() => {
 	function _switchTab(tabId) {
 		document.querySelectorAll('.nw-admin-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tabId));
 		document.querySelectorAll('.nw-admin-tab-content').forEach(c => c.classList.toggle('active', c.id === tabId));
+		if (tabId !== 'adminTabExec') _closeExecutionDrawer();
 		_refreshCurrentTab();
 	}
 
@@ -190,6 +193,122 @@ const NumelAdmin = (() => {
 
 	// ── Executions ───────────────────────────────────────────────
 
+	function _executionCanCancel(execution) {
+		const status = String(execution?.status || '').toLowerCase();
+		return status === 'running' || status === 'pending';
+	}
+
+	function _closeExecutionDrawer() {
+		_selectedExecutionId = '';
+		const drawer = document.getElementById('adminExecDrawer');
+		const content = document.getElementById('adminExecDrawerContent');
+		const title = document.getElementById('adminExecDrawerTitle');
+		const subtitle = document.getElementById('adminExecDrawerSubtitle');
+		const cancelBtn = document.getElementById('adminExecDrawerCancel');
+		if (drawer) {
+			drawer.classList.remove('open');
+			drawer.setAttribute('aria-hidden', 'true');
+		}
+		if (content) content.innerHTML = '';
+		if (title) title.textContent = 'Execution Details';
+		if (subtitle) subtitle.textContent = '';
+		if (cancelBtn) cancelBtn.style.display = 'none';
+	}
+
+	async function _openExecutionDrawer(executionId) {
+		if (!executionId) return;
+		_selectedExecutionId = executionId;
+		const drawer = document.getElementById('adminExecDrawer');
+		const content = document.getElementById('adminExecDrawerContent');
+		if (drawer) {
+			drawer.classList.add('open');
+			drawer.setAttribute('aria-hidden', 'false');
+		}
+		if (content) {
+			content.innerHTML = '<div style="color:var(--sg-text-tertiary);font-size:12px;">Loading execution details...</div>';
+		}
+		await _loadExecutionDetail(executionId);
+	}
+
+	async function _cancelExecutionFromAdmin(executionId) {
+		if (!executionId) return;
+		const ok = await NumelConfirm('Cancel Execution', `Cancel execution "${_esc(executionId)}"?`, 'Cancel Run', true);
+		if (!ok) return;
+		try {
+			await _post(`/admin/executions/${executionId}/cancel`, {});
+			await _loadExecutions();
+			if (_selectedExecutionId === executionId) {
+				await _loadExecutionDetail(executionId);
+			}
+		} catch (e) {
+			await NumelAlert('Admin Error', `Error: ${_esc(e.message)}`);
+		}
+	}
+
+	function _renderExecutionKvRows(execution) {
+		const rows = [
+			['Execution ID', execution.execution_id || '—'],
+			['Status', execution.status || '—'],
+			['User', execution.user_id || '—'],
+			['Space', execution.space_id || '—'],
+			['Asset', execution.asset_path || '—'],
+			['Ref', execution.ref || '—'],
+			['Started', _formatTimestamp(execution.started_at || execution.timestamp)],
+			['Finished', _formatTimestamp(execution.finished_at)],
+			['Duration', execution.duration_ms != null ? `${execution.duration_ms}ms` : '—'],
+			['Runtime Profile', execution.runtime_profile_id || '—'],
+			['Source', execution.source || '—'],
+		];
+		return rows.map(([key, value]) => `
+			<div class="nw-admin-diag-key">${_esc(key)}</div>
+			<div class="nw-admin-diag-value">${_esc(value)}</div>
+		`).join('');
+	}
+
+	async function _loadExecutionDetail(executionId = _selectedExecutionId) {
+		if (!executionId) return;
+		const title = document.getElementById('adminExecDrawerTitle');
+		const subtitle = document.getElementById('adminExecDrawerSubtitle');
+		const content = document.getElementById('adminExecDrawerContent');
+		const cancelBtn = document.getElementById('adminExecDrawerCancel');
+		if (!content) return;
+		try {
+			const data = await _post(`/admin/executions/${executionId}`, { tail: 200 });
+			const execution = data.execution || {};
+			if (title) title.textContent = execution.display_name || execution.workflow_name || 'Execution Details';
+			if (subtitle) {
+				subtitle.textContent = `${execution.execution_id || executionId}${execution.status ? ` • ${execution.status}` : ''}`;
+			}
+			if (cancelBtn) {
+				cancelBtn.style.display = _executionCanCancel(execution) ? '' : 'none';
+			}
+			const outputKeys = Array.isArray(execution.output_keys) && execution.output_keys.length
+				? execution.output_keys.map((key) => `<span class="nw-admin-active-tag">${_esc(key)}</span>`).join(' ')
+				: '<span style="color:var(--sg-text-tertiary);font-size:11px;">No output keys recorded.</span>';
+			const logs = String(execution.logs || '').trim();
+			content.innerHTML = `
+				<div class="nw-admin-card">
+					<div class="nw-admin-card-title">Execution Summary</div>
+					<div class="nw-admin-diag-kv">${_renderExecutionKvRows(execution)}</div>
+					${execution.error ? `<div class="nw-admin-exec-error">${_esc(execution.error)}</div>` : ''}
+				</div>
+				<div class="nw-admin-card">
+					<div class="nw-admin-card-title">Output Keys</div>
+					<div class="nw-admin-active-list">${outputKeys}</div>
+				</div>
+				${_renderJsonCard('Execution Metadata', execution.metadata || {})}
+				${_renderJsonCard('Execution Outputs', execution.outputs || {})}
+				<div class="nw-admin-card">
+					<div class="nw-admin-card-title">Execution Logs</div>
+					<pre class="nw-ext-pre">${_esc(logs || 'No logs recorded for this execution yet.')}</pre>
+				</div>
+			`;
+		} catch (e) {
+			content.innerHTML = `<div style="color:var(--sg-accent-red);font-size:12px;">Error: ${_esc(e.message)}</div>`;
+			if (cancelBtn) cancelBtn.style.display = 'none';
+		}
+	}
+
 	async function _loadExecutions() {
 		const activeList = document.getElementById('adminExecActive');
 		const list       = document.getElementById('adminExecList');
@@ -221,18 +340,42 @@ const NumelAdmin = (() => {
 				const status = ex.status || 'unknown';
 				const statusCls = `nw-admin-exec-${status}`;
 				const card = document.createElement('div');
-				card.className = 'nw-admin-card';
+				card.className = 'nw-admin-card nw-admin-card-clickable';
+				card.dataset.executionId = ex.execution_id || '';
 				card.innerHTML = `
 					<div class="nw-admin-card-header">
-						<span class="nw-admin-card-title">${_esc(ex.workflow_name || '?')}</span>
+						<span class="nw-admin-card-title">${_esc(ex.display_name || ex.workflow_name || ex.asset_path || '?')}</span>
 						<span class="nw-admin-exec-status ${statusCls}">${status}</span>
 					</div>
 					<div class="nw-admin-card-detail">
 						ID: ${_esc((ex.execution_id || '').slice(0, 12))}... &middot; Duration: ${dur}<br>
-						${_esc(ex.timestamp || '')}
+						${_esc(ex.asset_path || '')}${ex.space_id ? ` &middot; ${_esc(ex.space_id)}` : ''}<br>
+						${_esc(_formatTimestamp(ex.started_at || ex.timestamp))}
 						${ex.error ? `<br><span style="color:var(--sg-accent-red)">${_esc(ex.error)}</span>` : ''}
+					</div>
+					<div class="nw-admin-card-actions">
+						<button class="nw-btn nw-btn-sm nw-btn-secondary" data-exec-action="details" data-exec-id="${_esc(ex.execution_id || '')}">Details</button>
+						${_executionCanCancel(ex) ? `<button class="nw-btn nw-btn-sm nw-btn-danger" data-exec-action="cancel" data-exec-id="${_esc(ex.execution_id || '')}">Cancel</button>` : ''}
 					</div>`;
+				card.addEventListener('click', async (event) => {
+					const actionBtn = event.target.closest('[data-exec-action]');
+					if (actionBtn) {
+						const execId = actionBtn.dataset.execId || ex.execution_id || '';
+						if (actionBtn.dataset.execAction === 'cancel') {
+							await _cancelExecutionFromAdmin(execId);
+							return;
+						}
+						await _openExecutionDrawer(execId);
+						return;
+					}
+					await _openExecutionDrawer(ex.execution_id || '');
+				});
 				list.appendChild(card);
+			}
+			if (_selectedExecutionId) {
+				const stillExists = items.some((item) => item.execution_id === _selectedExecutionId);
+				if (stillExists) await _loadExecutionDetail(_selectedExecutionId);
+				else _closeExecutionDrawer();
 			}
 		} catch (e) {
 			list.innerHTML = `<div style="color:var(--sg-accent-red);font-size:12px;">Error: ${_esc(e.message)}</div>`;
@@ -293,6 +436,10 @@ const NumelAdmin = (() => {
 			const disk = runtime.disk_usage || {};
 			const auth = platform.auth || {};
 			const paths = Array.isArray(runtime.paths) ? runtime.paths : [];
+			const executionDiagnostics = data.executions || {};
+			const recentExecutions = Array.isArray(executionDiagnostics.recent) ? executionDiagnostics.recent : [];
+			const appLogs = data.app_logs || {};
+			const recentAppLogs = Array.isArray(appLogs.recent) ? appLogs.recent : [];
 
 			const diskLabel = disk.ok
 				? `${_formatBytes(disk.used_bytes)} used / ${_formatBytes(disk.total_bytes)} total`
@@ -313,6 +460,48 @@ const NumelAdmin = (() => {
 				}).join('')
 				: '<div class="nw-admin-card-detail">No runtime paths reported.</div>';
 
+			const executionCards = recentExecutions.length
+				? recentExecutions.map((item) => `
+					<div class="nw-admin-card">
+						<div class="nw-admin-card-header">
+							<span class="nw-admin-card-title">${_esc(item.execution_id || 'execution')}</span>
+							<span class="nw-admin-exec-status nw-admin-exec-${_statusTone(item.status)}">${_esc(item.status || 'unknown')}</span>
+						</div>
+						<div class="nw-admin-diag-kv">
+							<div class="nw-admin-diag-key">Space</div>
+							<div class="nw-admin-diag-value">${_esc(item.space_id || '—')}</div>
+							<div class="nw-admin-diag-key">Asset</div>
+							<div class="nw-admin-diag-value">${_esc(item.asset_path || '—')} @ ${_esc(item.ref || 'main')}</div>
+							<div class="nw-admin-diag-key">User</div>
+							<div class="nw-admin-diag-value">${_esc(item.user_id || '—')}</div>
+							<div class="nw-admin-diag-key">Runtime</div>
+							<div class="nw-admin-diag-value">${_esc(item.runtime_profile_id || 'default')}</div>
+							<div class="nw-admin-diag-key">Started</div>
+							<div class="nw-admin-diag-value">${_esc(_formatTimestamp(item.started_at))}</div>
+							<div class="nw-admin-diag-key">Finished</div>
+							<div class="nw-admin-diag-value">${_esc(_formatTimestamp(item.finished_at))}</div>
+							<div class="nw-admin-diag-key">Outputs</div>
+							<div class="nw-admin-diag-value">${_esc((item.output_keys || []).join(', ') || '—')}</div>
+							<div class="nw-admin-diag-key">Error</div>
+							<div class="nw-admin-diag-value">${_esc(item.error || '—')}</div>
+						</div>
+						${_renderJsonCard('Execution Metadata', item.metadata || {}, true)}
+						<div class="nw-admin-log-block">
+							<div class="nw-admin-card-title">Recent Logs</div>
+							<pre class="nw-ext-pre">${_esc(item.log_tail || 'No log output available.')}</pre>
+						</div>
+					</div>
+				`).join('')
+				: '<div class="nw-admin-card"><div class="nw-admin-card-detail">No platform executions recorded yet.</div></div>';
+
+			const appLogText = recentAppLogs.length
+				? recentAppLogs.map((entry) => {
+					const stream = entry.stream ? ` ${String(entry.stream).toUpperCase()}` : '';
+					const timestamp = entry.timestamp ? `[${entry.timestamp}]` : '';
+					return `${timestamp}${stream} ${entry.text || ''}`.trim();
+				}).join('\n')
+				: 'No app log entries captured yet.';
+
 			el.innerHTML = `
 				<div class="nw-admin-stat-row">
 					<div class="nw-admin-stat-card">
@@ -322,6 +511,10 @@ const NumelAdmin = (() => {
 					<div class="nw-admin-stat-card">
 						<div class="nw-admin-stat-value">${_esc(_formatSeconds(process.uptime_seconds))}</div>
 						<div class="nw-admin-stat-label">Process Uptime</div>
+					</div>
+					<div class="nw-admin-stat-card">
+						<div class="nw-admin-stat-value">${_esc(String(executionDiagnostics.active_count ?? 0))}</div>
+						<div class="nw-admin-stat-label">Active Platform Executions</div>
 					</div>
 				</div>
 				<div class="nw-admin-card">
@@ -347,6 +540,16 @@ const NumelAdmin = (() => {
 				<div class="nw-admin-card">
 					<div class="nw-admin-card-title">Runtime Paths</div>
 					<div class="nw-admin-path-list">${pathRows}</div>
+				</div>
+				<div class="nw-admin-card">
+					<div class="nw-admin-card-title">Recent Platform Executions</div>
+					<div class="nw-section-lede">Recent runs from the active platform runtime, with short log tails for fast troubleshooting.</div>
+				</div>
+				${executionCards}
+				<div class="nw-admin-card">
+					<div class="nw-admin-card-title">Recent App Logs</div>
+					<div class="nw-section-lede">A rolling server-side log buffer for platform startup, runtime activity, and operational warnings.</div>
+					<pre class="nw-ext-pre">${_esc(appLogText)}</pre>
 				</div>
 				${_renderJsonCard('Platform Components', platform.components || {})}
 				${_renderJsonCard('Startup Checks', platform.startup_checks || {})}
@@ -394,9 +597,9 @@ const NumelAdmin = (() => {
 		return d.innerHTML;
 	}
 
-	function _renderJsonCard(title, value) {
+	function _renderJsonCard(title, value, compact = false) {
 		return `
-			<div class="nw-admin-card">
+			<div class="${compact ? 'nw-admin-json-inline' : 'nw-admin-card'}">
 				<div class="nw-admin-card-title">${_esc(title)}</div>
 				<pre class="nw-ext-pre">${_esc(JSON.stringify(value, null, 2))}</pre>
 			</div>
@@ -424,6 +627,16 @@ const NumelAdmin = (() => {
 		if (num < 60) return `${num.toFixed(num >= 10 ? 0 : 1)}s`;
 		if (num < 3600) return `${(num / 60).toFixed(1)}m`;
 		return `${(num / 3600).toFixed(1)}h`;
+	}
+
+	function _formatTimestamp(value) {
+		const num = Number(value);
+		if (!Number.isFinite(num) || num <= 0) return '—';
+		try {
+			return new Date(num * 1000).toLocaleString();
+		} catch {
+			return String(value);
+		}
 	}
 
 	function _statusTone(status) {
@@ -463,10 +676,16 @@ const NumelAdmin = (() => {
 		const re = document.getElementById('adminRefreshExec');
 		const rs = document.getElementById('adminRefreshStats');
 		const rd = document.getElementById('adminRefreshDiagnostics');
+		const rexClose = document.getElementById('adminExecDrawerClose');
+		const rexRefresh = document.getElementById('adminExecDrawerRefresh');
+		const rexCancel = document.getElementById('adminExecDrawerCancel');
 		if (ru) ru.onclick = _loadUsers;
 		if (re) re.onclick = _loadExecutions;
 		if (rs) rs.onclick = _loadStats;
 		if (rd) rd.onclick = _loadDiagnostics;
+		if (rexClose) rexClose.onclick = _closeExecutionDrawer;
+		if (rexRefresh) rexRefresh.onclick = () => _loadExecutionDetail();
+		if (rexCancel) rexCancel.onclick = () => _cancelExecutionFromAdmin(_selectedExecutionId);
 
 		// Active-only toggle
 		const ao = document.getElementById('adminActiveOnly');

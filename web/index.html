@@ -597,6 +597,20 @@
 					</div>
 					<div id="adminExecActive" class="nw-admin-active-list"></div>
 					<div id="adminExecList" class="nw-admin-list"></div>
+					<div id="adminExecDrawer" class="nw-admin-exec-drawer" aria-hidden="true">
+						<div class="nw-admin-exec-drawer-header">
+							<div>
+								<div id="adminExecDrawerTitle" class="nw-admin-card-title">Execution Details</div>
+								<div id="adminExecDrawerSubtitle" class="nw-admin-exec-subtitle"></div>
+							</div>
+							<button id="adminExecDrawerClose" class="nw-console-close" type="button" aria-label="Close execution details">&times;</button>
+						</div>
+						<div class="nw-admin-exec-drawer-toolbar">
+							<button id="adminExecDrawerRefresh" class="nw-btn nw-btn-sm">Refresh</button>
+							<button id="adminExecDrawerCancel" class="nw-btn nw-btn-sm nw-btn-danger">Cancel</button>
+						</div>
+						<div id="adminExecDrawerContent" class="nw-admin-exec-drawer-content"></div>
+					</div>
 				</div>
 				<!-- Stats Tab -->
 				<div id="adminTabStats" class="nw-admin-tab-content">

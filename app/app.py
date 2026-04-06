@@ -74,6 +74,7 @@ from   skills    import SkillManager, setup_skills_api
 from   memory    import MemoryStore, UserMemoryDB
 from   published_apps import PublishedAppManager, setup_published_apps_api
 from   domain.concrete import build_db_git_platform_spec
+from   domain.models import ExecutionState
 from   platform_client import PlatformHttpClient, PlatformRequestError
 from   platform_http import setup_platform_api
 from   platform_loader import (
@@ -82,7 +83,7 @@ from   platform_loader import (
 	build_platform_stack_from_config,
 )
 from   runtime_settings import get_runtime_settings
-from   utils     import add_middleware, log_print, seed_everything
+from   utils     import add_middleware, clear_recent_logs, get_recent_logs, log_print, seed_everything
 from   workspace import WorkspaceManager as WSManager
 
 
@@ -156,10 +157,9 @@ async def run_server(
 	start_channels: bool = True,
 	start_tunnel: Optional[bool] = None,
 ):
-	if serve:
-		log_print("Server starting...")
-
 	asyncio.get_event_loop().set_exception_handler(_asyncio_exception_handler)
+	clear_recent_logs()
+	log_print("Server starting...")
 	_runtime_settings = get_runtime_settings()
 	_runtime_settings.ensure_directories()
 	_server_started_at = time.time()
@@ -524,11 +524,249 @@ async def run_server(
 			"free_bytes": usage.free,
 		}
 
+	def _summarize_execution_outputs(outputs: Any) -> list[str]:
+		if isinstance(outputs, dict):
+			return sorted(str(key) for key in outputs.keys())
+		if isinstance(outputs, list):
+			return [f"[{idx}]" for idx, _ in enumerate(outputs[:20])]
+		return []
+
+	def _execution_record_value(record: Any, key: str, default: Any = None) -> Any:
+		if isinstance(record, dict):
+			return record.get(key, default)
+		return getattr(record, key, default)
+
+	def _execution_display_name(record: Any) -> str:
+		metadata = _execution_record_value(record, "metadata", {}) or {}
+		if isinstance(metadata, dict):
+			for candidate in (
+				metadata.get("workflow_name"),
+				metadata.get("display_name"),
+			):
+				value = str(candidate or "").strip()
+				if value:
+					return value
+		outputs = _execution_record_value(record, "outputs", {}) or {}
+		if isinstance(outputs, dict):
+			execution_block = outputs.get("execution")
+			if isinstance(execution_block, dict):
+				value = str(execution_block.get("workflow_name", "") or "").strip()
+				if value:
+					return value
+			workflow_block = outputs.get("workflow")
+			if isinstance(workflow_block, dict):
+				value = str(workflow_block.get("name", "") or "").strip()
+				if value:
+					return value
+		asset_path = str(_execution_record_value(record, "asset_path", "") or "").strip()
+		return asset_path or str(_execution_record_value(record, "execution_id", "") or "").strip() or "Execution"
+
+	def _execution_duration_ms(record: Any) -> Optional[int]:
+		started_at = _execution_record_value(record, "started_at")
+		finished_at = _execution_record_value(record, "finished_at")
+		try:
+			start = float(started_at)
+		except Exception:
+			return None
+		if start <= 0:
+			return None
+		try:
+			end = float(finished_at if finished_at is not None else time.time())
+		except Exception:
+			end = time.time()
+		return max(0, int(round((end - start) * 1000)))
+
+	def _serialize_admin_execution_summary(record: Any, *, source: str = "platform") -> dict[str, Any]:
+		status_obj = _execution_record_value(record, "status", "unknown")
+		status_value = getattr(status_obj, "value", str(status_obj))
+		outputs = _execution_record_value(record, "outputs", {}) or {}
+		return {
+			"source": source,
+			"execution_id": str(_execution_record_value(record, "execution_id", "") or ""),
+			"display_name": _execution_display_name(record),
+			"workflow_name": _execution_display_name(record),
+			"user_id": str(_execution_record_value(record, "user_id", "") or ""),
+			"space_id": str(_execution_record_value(record, "space_id", "") or ""),
+			"asset_path": str(_execution_record_value(record, "asset_path", "") or ""),
+			"ref": str(_execution_record_value(record, "ref", "") or ""),
+			"status": status_value,
+			"runtime_profile_id": str(_execution_record_value(record, "runtime_profile_id", "") or ""),
+			"timestamp": _execution_record_value(record, "started_at") or _execution_record_value(record, "timestamp") or "",
+			"started_at": _execution_record_value(record, "started_at") or 0,
+			"finished_at": _execution_record_value(record, "finished_at"),
+			"duration_ms": _execution_duration_ms(record),
+			"error": _execution_record_value(record, "error"),
+			"output_keys": _summarize_execution_outputs(outputs),
+		}
+
+	def _serialize_admin_execution_detail(record: Any, *, logs: str = "", source: str = "platform") -> dict[str, Any]:
+		summary = _serialize_admin_execution_summary(record, source=source)
+		metadata = _execution_record_value(record, "metadata", {}) or {}
+		outputs = _execution_record_value(record, "outputs", {}) or {}
+		summary.update(
+			{
+				"logs": logs,
+				"metadata": _sanitize_config_value(metadata),
+				"outputs": outputs,
+			}
+		)
+		return summary
+
+	async def _list_active_platform_execution_ids(limit: int = 1000) -> list[str]:
+		runtime = getattr(_platform_stack, "runtime", None)
+		if runtime is None:
+			return []
+		active_records = []
+		for status in (ExecutionState.RUNNING, ExecutionState.PENDING):
+			try:
+				active_records.extend(await runtime.list_executions(status=status, limit=limit))
+			except Exception:
+				return []
+		seen = set()
+		ids = []
+		for record in active_records:
+			execution_id = str(getattr(record, "execution_id", "") or "").strip()
+			if not execution_id or execution_id in seen:
+				continue
+			seen.add(execution_id)
+			ids.append(execution_id)
+		return ids
+
+	async def _list_admin_execution_summaries(
+		*,
+		workflow_name: Optional[str] = None,
+		limit: int = 100,
+		offset: int = 0,
+	) -> dict[str, Any]:
+		runtime = getattr(_platform_stack, "runtime", None)
+		filter_text = str(workflow_name or "").strip().casefold()
+		if runtime is not None:
+			try:
+				fetch_limit = max(50, int(limit or 100) + int(offset or 0))
+				if filter_text:
+					fetch_limit = max(fetch_limit, 300)
+				records = await runtime.list_executions(limit=fetch_limit)
+				items = [_serialize_admin_execution_summary(record) for record in records]
+				if filter_text:
+					items = [
+						item
+						for item in items
+						if filter_text in json.dumps(
+							{
+								"display_name": item.get("display_name"),
+								"asset_path": item.get("asset_path"),
+								"user_id": item.get("user_id"),
+								"space_id": item.get("space_id"),
+								"execution_id": item.get("execution_id"),
+							},
+							ensure_ascii=False,
+						).casefold()
+					]
+				active_exec_ids = await _list_active_platform_execution_ids()
+				return {
+					"executions": items[offset : offset + limit],
+					"active_execution_ids": active_exec_ids,
+					"source": "platform",
+				}
+			except Exception:
+				pass
+
+		items = exec_history.list(workflow_name=workflow_name, limit=limit, offset=offset)
+		return {
+			"executions": [
+				_serialize_admin_execution_summary(item, source="history")
+				for item in items
+			],
+			"active_execution_ids": [],
+			"source": "history",
+		}
+
+	async def _get_admin_execution_detail(execution_id: str, *, log_tail: int = 200) -> Optional[dict[str, Any]]:
+		runtime = getattr(_platform_stack, "runtime", None)
+		if runtime is not None:
+			try:
+				record = await runtime.get_execution(execution_id)
+				if record is not None:
+					logs = await runtime.get_logs(execution_id, tail=max(1, int(log_tail or 200)))
+					return _serialize_admin_execution_detail(record, logs=logs, source="platform")
+			except Exception:
+				pass
+		legacy = exec_history.get(execution_id)
+		if legacy is None:
+			return None
+		return _serialize_admin_execution_detail(legacy, logs="", source="history")
+
+	async def _recent_execution_diagnostics(
+		*,
+		limit: int = 5,
+		log_tail: int = 40,
+	) -> dict[str, Any]:
+		runtime = getattr(_platform_stack, "runtime", None)
+		if runtime is None:
+			return {
+				"available": False,
+				"detail": "Platform runtime is not exposed on the active stack.",
+				"recent": [],
+				"active_count": 0,
+			}
+		try:
+			records = await runtime.list_executions(limit=max(1, int(limit or 5)))
+		except Exception as exc:
+			return {
+				"available": False,
+				"detail": str(exc),
+				"recent": [],
+				"active_count": 0,
+			}
+
+		try:
+			running_records = await runtime.list_executions(
+				status=ExecutionState.RUNNING,
+				limit=1000,
+			)
+			pending_records = await runtime.list_executions(
+				status=ExecutionState.PENDING,
+				limit=1000,
+			)
+			active_count = len(running_records) + len(pending_records)
+		except Exception:
+			active_count = 0
+
+		recent = []
+		for record in records:
+			status_value = getattr(getattr(record, "status", None), "value", getattr(record, "status", "unknown"))
+			log_tail_text = ""
+			try:
+				log_tail_text = await runtime.get_logs(record.execution_id, tail=max(1, int(log_tail or 40)))
+			except Exception as exc:
+				log_tail_text = f"Log fetch failed: {exc}"
+			recent.append({
+				"execution_id": record.execution_id,
+				"user_id": record.user_id,
+				"space_id": record.space_id,
+				"asset_path": record.asset_path,
+				"ref": record.ref,
+				"status": status_value,
+				"runtime_profile_id": record.runtime_profile_id,
+				"started_at": record.started_at,
+				"finished_at": record.finished_at,
+				"error": record.error,
+				"output_keys": _summarize_execution_outputs(record.outputs),
+				"metadata": _sanitize_config_value(record.metadata or {}),
+				"log_tail": log_tail_text,
+			})
+		return {
+			"available": True,
+			"active_count": active_count,
+			"recent": recent,
+		}
+
 	async def _build_admin_diagnostics_payload() -> dict[str, Any]:
 		health = await _build_health_payload()
 		backend_section = {}
 		if isinstance(_platform_config, dict):
 			backend_section = _platform_config.get(_platform_backend_name, {}) or {}
+		execution_diagnostics = await _recent_execution_diagnostics()
 		return {
 			"status": health.get("status", "unknown"),
 			"backend": _platform_backend_name,
@@ -547,6 +785,10 @@ async def run_server(
 			"runtime": {
 				"paths": _runtime_path_entries(),
 				"disk_usage": _runtime_disk_usage(),
+			},
+			"executions": execution_diagnostics,
+			"app_logs": {
+				"recent": get_recent_logs(limit=120),
 			},
 			"backend_config": _sanitize_config_value(backend_section),
 		}
@@ -714,25 +956,41 @@ async def run_server(
 		try: body = await request.json()
 		except Exception: pass
 		wf_name = body.get("workflow_name")
-		limit   = body.get("limit", 100)
-		offset  = body.get("offset", 0)
-		items   = exec_history.list(workflow_name=wf_name, limit=limit, offset=offset)
-		# Active executions
-		active_exec_ids = []
-		try:
-			ws_obj = workspace_mgr.get_default_workspace()
-			active_exec_ids = ws_obj.engine.list_executions()
-		except Exception:
-			pass
-		return {"executions": items, "active_execution_ids": active_exec_ids}
+		limit   = int(body.get("limit", 100) or 100)
+		offset  = int(body.get("offset", 0) or 0)
+		return await _list_admin_execution_summaries(
+			workflow_name=wf_name,
+			limit=limit,
+			offset=offset,
+		)
+
+	@app.post("/admin/executions/{execution_id}")
+	async def admin_execution_detail(execution_id: str, request: Request):
+		_require_admin(request)
+		body = {}
+		try: body = await request.json()
+		except Exception: pass
+		tail = int(body.get("tail", 200) or 200)
+		detail = await _get_admin_execution_detail(execution_id, log_tail=tail)
+		if detail is None:
+			raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' was not found")
+		return {"execution": detail}
 
 	@app.post("/admin/executions/{execution_id}/cancel")
 	async def admin_cancel_execution(execution_id: str, request: Request):
 		_require_admin(request)
+		runtime = getattr(_platform_stack, "runtime", None)
+		if runtime is not None:
+			record = await runtime.get_execution(execution_id)
+			if record is not None:
+				ok = await runtime.cancel_execution(execution_id)
+				return {"ok": bool(ok)}
 		try:
 			ws_obj = workspace_mgr.get_default_workspace()
 			state  = await ws_obj.engine.cancel_execution(execution_id)
 			return {"ok": True, "state": state}
+		except KeyError:
+			raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' was not found")
 		except Exception as e:
 			raise HTTPException(500, str(e))
 

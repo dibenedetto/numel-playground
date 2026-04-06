@@ -598,6 +598,11 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			raise HTTPException(status_code=404, detail="No workflow is saved in the current space")
 		options = request.initial_data or WorkflowExecutionOptions()
 		inputs = options.model_dump() if options else {}
+		workflow_name = ""
+		if isinstance(doc, dict):
+			raw_options = doc.get("options")
+			if isinstance(raw_options, dict):
+				workflow_name = str(raw_options.get("name", "") or "").strip()
 		try:
 			data = await _platform(req).post_json(
 				"/platform/executions/start",
@@ -607,6 +612,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 					"asset_path": _CURRENT_WORKFLOW_PATH,
 					"inputs": inputs,
 					"resolve_credentials": True,
+					"metadata": {"workflow_name": workflow_name} if workflow_name else {},
 				},
 			)
 		except PlatformRequestError as exc:

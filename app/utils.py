@@ -1,14 +1,21 @@
 # utils
 
+from collections import deque
 import json
 import os
 import sys
+from threading import Lock
 
 
 from   datetime                import datetime, timezone
 from   typing                  import Optional
 from   fastapi                 import FastAPI
 from   fastapi.middleware.cors import CORSMiddleware
+
+
+_RECENT_LOG_MAX_ENTRIES = 400
+_RECENT_LOGS = deque(maxlen=_RECENT_LOG_MAX_ENTRIES)
+_RECENT_LOGS_LOCK = Lock()
 
 
 def get_now() -> datetime:
@@ -32,6 +39,18 @@ def get_timestamp_str() -> float:
 	return ts
 
 
+def clear_recent_logs() -> None:
+	with _RECENT_LOGS_LOCK:
+		_RECENT_LOGS.clear()
+
+
+def get_recent_logs(limit: int = 100) -> list[dict]:
+	max_items = max(1, int(limit or 100))
+	with _RECENT_LOGS_LOCK:
+		items = list(_RECENT_LOGS)[-max_items:]
+	return [dict(item) for item in items]
+
+
 def log_print(*args, **kwargs) -> None:
 	ts = get_now_str()
 	stream = kwargs.pop("file", sys.stdout)
@@ -40,6 +59,13 @@ def log_print(*args, **kwargs) -> None:
 	flush  = kwargs.pop("flush", False)
 	parts  = [f"[log {ts}]", *(str(arg) for arg in args)]
 	text   = sep.join(parts)
+	stream_name = "stderr" if stream is sys.stderr else "stdout"
+	with _RECENT_LOGS_LOCK:
+		_RECENT_LOGS.append({
+			"timestamp": ts,
+			"stream": stream_name,
+			"text": text,
+		})
 	try:
 		print(text, file=stream, end=end, flush=flush, **kwargs)
 	except UnicodeEncodeError:

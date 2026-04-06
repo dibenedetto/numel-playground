@@ -240,6 +240,27 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["user"]["role"], "admin")
         headers = self._auth_headers(payload["token"])
 
+        save = await self._client.post(
+            "/workflow/save",
+            json={"workflow": _minimal_workflow_payload()},
+            headers=headers,
+        )
+        self.assertEqual(save.status_code, 200, save.text)
+
+        start = await self._client.post("/workflow/start", json={}, headers=headers)
+        self.assertEqual(start.status_code, 200, start.text)
+        execution_id = start.json()["execution_id"]
+        self.assertTrue(execution_id)
+
+        final_status = start.json()["status"]
+        for _ in range(60):
+            state = await self._client.post(f"/executions/{execution_id}", json={}, headers=headers)
+            self.assertEqual(state.status_code, 200, state.text)
+            final_status = state.json()["state"]["status"]
+            if final_status in {"completed", "failed", "cancelled"}:
+                break
+            await asyncio.sleep(0.2)
+
         diagnostics = await self._client.post("/admin/diagnostics", json={}, headers=headers)
         self.assertEqual(diagnostics.status_code, 200, diagnostics.text)
         data = diagnostics.json()
@@ -250,9 +271,70 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("process", data)
         self.assertIn("platform", data)
         self.assertIn("runtime", data)
+        self.assertIn("executions", data)
         self.assertTrue(data["runtime"]["paths"])
         self.assertEqual(data["platform"]["auth"]["has_users"], True)
         self.assertEqual(data["backend_config"]["database"]["url"], f"sqlite:///{self._db_path.as_posix()}")
+        self.assertTrue(data["executions"]["available"])
+        self.assertTrue(data["executions"]["recent"])
+        self.assertTrue(data["executions"]["recent"][0]["execution_id"].startswith("exec_"))
+        self.assertIn("asset_path=workflow.json", data["executions"]["recent"][0]["log_tail"])
+        self.assertIn("status=completed", data["executions"]["recent"][0]["log_tail"])
+        self.assertIn("app_logs", data)
+        self.assertTrue(data["app_logs"]["recent"])
+        self.assertIn("Platform backend: local", json.dumps(data["app_logs"]))
+
+    async def test_admin_execution_detail_surface_local(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "admin", "email": "admin@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        save = await self._client.post(
+            "/workflow/save",
+            json={"workflow": _minimal_workflow_payload()},
+            headers=headers,
+        )
+        self.assertEqual(save.status_code, 200, save.text)
+
+        start = await self._client.post("/workflow/start", json={}, headers=headers)
+        self.assertEqual(start.status_code, 200, start.text)
+        execution_id = start.json()["execution_id"]
+        self.assertTrue(execution_id)
+
+        final_status = start.json()["status"]
+        for _ in range(60):
+            state = await self._client.post(f"/executions/{execution_id}", json={}, headers=headers)
+            self.assertEqual(state.status_code, 200, state.text)
+            final_status = state.json()["state"]["status"]
+            if final_status in {"completed", "failed", "cancelled"}:
+                break
+            await asyncio.sleep(0.2)
+
+        self.assertEqual(final_status, "completed")
+
+        listing = await self._client.post("/admin/executions", json={}, headers=headers)
+        self.assertEqual(listing.status_code, 200, listing.text)
+        listing_data = listing.json()
+        self.assertEqual(listing_data["source"], "platform")
+        self.assertTrue(listing_data["executions"])
+        first_execution = listing_data["executions"][0]
+        self.assertEqual(first_execution["display_name"], "Surface Workflow")
+
+        detail = await self._client.post(
+            f"/admin/executions/{first_execution['execution_id']}",
+            json={"tail": 80},
+            headers=headers,
+        )
+        self.assertEqual(detail.status_code, 200, detail.text)
+        detail_data = detail.json()["execution"]
+        self.assertEqual(detail_data["source"], "platform")
+        self.assertEqual(detail_data["display_name"], "Surface Workflow")
+        self.assertEqual(detail_data["metadata"]["workflow_name"], "Surface Workflow")
+        self.assertIn("asset_path=workflow.json", detail_data["logs"])
+        self.assertEqual(detail_data["status"], "completed")
 
     async def test_first_run_space_accepts_hello_starter_and_completes(self) -> None:
         register = await self._client.post(
@@ -303,5 +385,8 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.2)
 
         self.assertEqual(final_status, "completed")
+
+
+
 
 

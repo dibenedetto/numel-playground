@@ -395,12 +395,16 @@ class DockerRuntimeProvider(RuntimeProvider):
 
         execution_id = f"exec_{uuid.uuid4().hex[:12]}"
         workflow_name = self._derive_workflow_name(request, execution_id)
+        display_workflow_name = str(
+            dict(request.metadata or {}).get("workflow_name", "") or ""
+        ).strip()
         runtime_profile_id = runtime.id if runtime is not None else request.runtime_profile_id
         metadata = dict(request.metadata)
         metadata.update(
             {
                 "runtime_mode": "workspace_engine",
-                "workflow_name": workflow_name,
+                "workflow_name": display_workflow_name or workflow_name,
+                "workspace_workflow_name": workflow_name,
                 "requested_env_keys": sorted((env or {}).keys()),
                 "env_injected": False,
                 "credential_names": list(request.credential_names),

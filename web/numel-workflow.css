@@ -2135,7 +2135,10 @@ body.nw-layout-project-workbench .nw-auth-title {
 	background: var(--nw-scrollbar-thumb-hover);
 }
 .nw-admin-tab-content { display: none; }
-.nw-admin-tab-content.active { display: block; }
+.nw-admin-tab-content.active {
+	display: block;
+	position: relative;
+}
 .nw-admin-toolbar {
 	display: flex;
 	align-items: center;
@@ -2166,6 +2169,15 @@ body.nw-layout-project-workbench .nw-auth-title {
 	border-radius: var(--nw-radius-control);
 	padding: 10px 12px;
 	font-size: 12px;
+}
+.nw-admin-card-clickable {
+	cursor: pointer;
+	transition: border-color 0.16s ease, transform 0.16s ease, background 0.16s ease;
+}
+.nw-admin-card-clickable:hover {
+	border-color: color-mix(in srgb, var(--sg-accent-blue, #4a9eff) 45%, var(--nw-border-soft));
+	background: color-mix(in srgb, var(--sg-bg-secondary) 88%, var(--sg-accent-blue, #4a9eff) 12%);
+	transform: translateY(-1px);
 }
 .nw-admin-card-header {
 	display: flex;
@@ -2300,6 +2312,18 @@ body.nw-layout-project-workbench .nw-auth-title {
 	color: var(--sg-accent-red, #d9534f);
 	border-color: color-mix(in srgb, var(--sg-accent-red, #d9534f) 35%, var(--nw-border-soft));
 }
+.nw-admin-json-inline {
+	margin-top: 10px;
+}
+.nw-admin-log-block {
+	margin-top: 10px;
+}
+.nw-admin-log-block .nw-ext-pre,
+.nw-admin-json-inline .nw-ext-pre {
+	margin: 6px 0 0;
+	max-height: 220px;
+	overflow: auto;
+}
 .nw-admin-active-list {
 	margin-bottom: 10px;
 }
@@ -2323,6 +2347,81 @@ body.nw-layout-project-workbench .nw-auth-title {
 .nw-admin-exec-failed    { background: var(--sg-accent-red, #d9534f); color: #fff; }
 .nw-admin-exec-cancelled { background: var(--sg-text-tertiary, #888); color: #fff; }
 .nw-admin-exec-running   { background: var(--sg-accent-blue, #4a9eff); color: #fff; }
+.nw-admin-exec-drawer {
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	width: min(100%, 360px);
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 12px;
+	background: color-mix(in srgb, var(--sg-bg-primary) 97%, white 3%);
+	border-left: 1px solid var(--nw-border-soft);
+	box-shadow: -12px 0 26px color-mix(in srgb, var(--sg-node-shadow, rgba(0,0,0,0.35)) 38%, transparent);
+	transform: translateX(104%);
+	opacity: 0;
+	pointer-events: none;
+	transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.nw-admin-exec-drawer.open {
+	transform: translateX(0);
+	opacity: 1;
+	pointer-events: auto;
+}
+.nw-admin-exec-drawer-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 10px;
+}
+.nw-admin-exec-subtitle {
+	margin-top: 3px;
+	font-size: 11px;
+	color: var(--sg-text-secondary);
+	word-break: break-word;
+}
+.nw-admin-exec-drawer-toolbar {
+	display: flex;
+	gap: 8px;
+}
+.nw-admin-exec-drawer-content {
+	flex: 1;
+	overflow: auto;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding-right: 2px;
+	scrollbar-width: thin;
+	scrollbar-color: var(--nw-scrollbar-thumb) transparent;
+}
+.nw-admin-exec-drawer-content::-webkit-scrollbar {
+	width: var(--nw-scrollbar-size);
+	height: var(--nw-scrollbar-size);
+}
+.nw-admin-exec-drawer-content::-webkit-scrollbar-track {
+	background: transparent;
+}
+.nw-admin-exec-drawer-content::-webkit-scrollbar-thumb {
+	background: var(--nw-scrollbar-thumb);
+	border-radius: 999px;
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+.nw-admin-exec-drawer-content::-webkit-scrollbar-thumb:hover {
+	background: var(--nw-scrollbar-thumb-hover);
+}
+.nw-admin-exec-error {
+	margin-top: 10px;
+	padding: 8px 10px;
+	border-radius: var(--nw-radius-control);
+	background: color-mix(in srgb, var(--sg-accent-red, #d9534f) 12%, transparent);
+	border: 1px solid color-mix(in srgb, var(--sg-accent-red, #d9534f) 26%, transparent);
+	color: var(--sg-accent-red, #d9534f);
+	font-size: 11px;
+	line-height: 1.45;
+}
 
 /* ── Admin User Edit Dialog ──────────────────────────────────── */
 .nw-admin-dialog-overlay {
