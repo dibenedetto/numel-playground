@@ -50,6 +50,10 @@ Core split:
   App-facing client for the platform HTTP layer.
 - [docs/public-private-boundary.md](/c:/devel/numel-playground/docs/public-private-boundary.md)
   Recommended commercial boundary between the public repo and the private prod slice.
+- [docs/product-roadmap.md](/c:/devel/numel-playground/docs/product-roadmap.md)
+  Current product direction and prioritization for making Numel more compelling.
+- [docs/ui-exploration-plan.md](/c:/devel/numel-playground/docs/ui-exploration-plan.md)
+  Current UI/product design exploration plan for making Numel feel less intimidating and more product-like.
 
 Data model direction:
 
@@ -127,6 +131,9 @@ Strong next candidates after the current state:
 - keep refining the platform domain around ownership, sharing, and permissions
 - extend the prod deployment story if you want a more turnkey setup than the
   current compose bundle
+- follow [docs/product-roadmap.md](/c:/devel/numel-playground/docs/product-roadmap.md) for product-facing priorities like onboarding, templates, planner-first UX, and stronger space/project framing
+- use [docs/ui-exploration-plan.md](/c:/devel/numel-playground/docs/ui-exploration-plan.md)
+  before the next major product-facing UI implementation wave
 
 ## If You Fork
 

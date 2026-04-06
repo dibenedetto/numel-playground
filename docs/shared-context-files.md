@@ -30,6 +30,8 @@ paths in both repos:
 - `docs/platform-domain.md`
 - `docs/platform-db-git.md`
 - `docs/public-private-boundary.md`
+- `docs/product-roadmap.md`
+- `docs/ui-exploration-plan.md`
 - `docs/runtime-container-contract.md`
 - `docs/shared-context-files.md`
 - `app/platform_backend.json`
@@ -72,7 +74,7 @@ If you want a slightly stronger version that also pulls in the deeper
 architecture docs, use:
 
 ```text
-Please read docs/chat-bootstrap.md, docs/fork-handoff.md, docs/platform-domain.md, docs/platform-db-git.md, docs/public-private-boundary.md, and docs/runtime-container-contract.md first, then inspect the current repo state, including the app/platform_prod submodule if present, and continue from there.
+Please read docs/chat-bootstrap.md, docs/fork-handoff.md, docs/platform-domain.md, docs/platform-db-git.md, docs/public-private-boundary.md, docs/product-roadmap.md, docs/ui-exploration-plan.md, and docs/runtime-container-contract.md first, then inspect the current repo state, including the app/platform_prod submodule if present, and continue from there.
 ```
 
 ## Minimum Shared Set
@@ -99,6 +101,8 @@ architecture and deployment context, not just the high-level handoff.
 - [platform-domain.md](/c:/devel/numel-playground/docs/platform-domain.md)
 - [platform-db-git.md](/c:/devel/numel-playground/docs/platform-db-git.md)
 - [public-private-boundary.md](/c:/devel/numel-playground/docs/public-private-boundary.md)
+- [product-roadmap.md](/c:/devel/numel-playground/docs/product-roadmap.md)
+- [ui-exploration-plan.md](/c:/devel/numel-playground/docs/ui-exploration-plan.md)
 - [runtime-container-contract.md](/c:/devel/numel-playground/docs/runtime-container-contract.md)
 - [platform_backend.json](/c:/devel/numel-playground/app/platform_backend.json)
 - [platform_backend.prod.json](/c:/devel/numel-playground/deploy/platform_backend.prod.json)
@@ -120,6 +124,8 @@ Recommended shared set:
 
 - keeps the architecture docs aligned
 - keeps the public-vs-private product boundary explicit
+- keeps the product-priority direction explicit
+- keeps the current UI/product exploration direction explicit
 - keeps the backend-selection model aligned
 - keeps the current production deployment story aligned
 - keeps the submodule-based prod/backend split easier to explain in future chats

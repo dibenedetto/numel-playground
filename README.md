@@ -83,6 +83,12 @@ The server starts on port **11360** by default.
 Optional flags:
 - `--tunnel` — Start a Cloudflared/ngrok tunnel for public webhook access
 
+For the current product-facing design direction, see
+[docs/ui-exploration-plan.md](docs/ui-exploration-plan.md) and
+[docs/product-roadmap.md](docs/product-roadmap.md).
+Concrete UI concepts for review live in
+[`web/prototypes/ui-exploration/`](web/prototypes/ui-exploration/).
+
 ### Connecting the Frontend
 
 1. Open `http://localhost:11360`
@@ -583,6 +589,7 @@ Notes:
 - The Django service uses the same logical user/profile/quota/token model as `platform_local`, so switching between `local` and `prod` remains seamless at the Numel interface level
 - From an interface point of view, switching between `local` and `prod` remains config-only: the frontend, `/platform`, `/spaces`, `/workflow`, and `/executions` surfaces do not change
 - See `docs/public-private-boundary.md` for the recommended commercial split: keep the working local/reference product public, and keep production guarantees in the private prod slice
+- See `docs/product-roadmap.md` for the current product-priority direction: onboarding, templates, planner-first UX, stronger space/project framing, and multimodal agent positioning
 
 ### Deployable Runtime Layout
 
@@ -652,6 +659,17 @@ Automated contract coverage for the local platform HTTP layer lives under `tests
 ```bash
 python -m unittest discover -s tests -v
 ```
+
+There is also a browser-level starter smoke for the first-run onboarding path. It boots a temporary local Numel backend, serves a lightweight frontend harness, and drives headless Edge through admin bootstrap plus the `Hello Workflow` starter load:
+
+```bash
+python -m unittest tests.test_frontend_starter_smoke -v
+```
+
+This browser smoke requires:
+- Node.js
+- `web/node_modules` with Playwright installed
+- Microsoft Edge available locally
 
 ### Login Flow
 

@@ -22,6 +22,7 @@ let consoleManager     = null;
 let galleryManager     = null;
 let appsManager        = null;
 let api                = null;  // NumelAPI instance, shared across all managers
+let currentWorkflowHasContent = false;
 
 // ── Task 2: Wire tooltip edge data store ─────────────────────────────────────
 // Key: "workflowNodeIdx:fieldName" → last output value from that slot
@@ -32,6 +33,189 @@ const _nodeGroups      = []; // {id, label, nodeIds[]}
 
 // DOM Elements
 const $ = id => document.getElementById(id);
+const STARTER_GALLERY_IDS = Object.freeze({
+	research: 'planner05',
+	media: '1d73d947',
+});
+const STARTER_ASSISTANT_PROMPT = '/gen A workflow that asks the user for input, transforms it into a short helpful response, and previews the result.';
+
+function _starterStorageKey() {
+	return `numel_starter_seen_v1_${window._numelUser?.id || 'guest'}`;
+}
+
+function _hasSeenStarterExperience() {
+	try {
+		return localStorage.getItem(_starterStorageKey()) === '1';
+	} catch {
+		return false;
+	}
+}
+
+function _markStarterExperienceSeen() {
+	try {
+		localStorage.setItem(_starterStorageKey(), '1');
+	} catch {}
+}
+
+function _hasWorkflowContent(workflow) {
+	return Array.isArray(workflow?.nodes) && workflow.nodes.length > 0;
+}
+
+function _isCurrentWorkflowEmptyState() {
+	const hasGraphNodes = !!schemaGraph?.graph?.nodes?.length;
+	return !hasGraphNodes && !currentWorkflowHasContent;
+}
+
+function _starterHelloWorkflow() {
+	return {
+		options: {
+			type: 'workflow_options',
+			name: 'Hello Workflow',
+			description: 'The simplest runnable workflow: Start, Preview, End.',
+		},
+		nodes: [
+			{ type: 'start_flow', extra: { pos: [60, 180], name: 'Start' } },
+			{ type: 'preview_flow', extra: { pos: [320, 180], name: 'Preview' } },
+			{ type: 'end_flow', extra: { pos: [580, 180], name: 'End' } },
+		],
+		edges: [
+			{ source: 0, target: 1, source_slot: 'flow_out', target_slot: 'flow_in' },
+			{ source: 1, target: 2, source_slot: 'flow_out', target_slot: 'flow_in' },
+		],
+	};
+}
+
+function _closeStarterModal(markSeen = true) {
+	const overlay = document.getElementById('nwStarterModal');
+	if (!overlay) return;
+	if (markSeen) _markStarterExperienceSeen();
+	overlay.remove();
+}
+
+function _showStarterModal() {
+	if (!_isAuthenticatedUser() || _hasSeenStarterExperience() || !_isCurrentWorkflowEmptyState()) return;
+	if (document.getElementById('nwStarterModal')) return;
+
+	const overlay = document.createElement('div');
+	overlay.id = 'nwStarterModal';
+	overlay.className = 'nw-modal';
+	overlay.innerHTML = `
+		<div class="nw-modal-content nw-starter-modal">
+			<div class="nw-modal-header">
+				<h3>Start Your First Workflow</h3>
+				<button class="nw-modal-close" data-role="close">&times;</button>
+			</div>
+			<div class="nw-modal-body">
+				<div class="nw-starter-modal-copy">
+					Numel works best when you start from a concrete workflow, not a blank canvas.
+					Choose a fast starting point for <b>${currentSpaceInfo?.title || 'this space'}</b>.
+				</div>
+				<div class="nw-starter-modal-grid">
+					<button class="nw-starter-action" data-starter-action="hello" type="button">
+						<span class="nw-starter-action-title">Hello Workflow</span>
+						<span class="nw-starter-action-copy">Load the smallest runnable graph and see the workflow surface immediately.</span>
+					</button>
+					<button class="nw-starter-action" data-starter-action="research" type="button">
+						<span class="nw-starter-action-title">Research Starter</span>
+						<span class="nw-starter-action-copy">Open a planner-style research and report pipeline.</span>
+					</button>
+					<button class="nw-starter-action" data-starter-action="media" type="button">
+						<span class="nw-starter-action-title">Webcam Starter</span>
+						<span class="nw-starter-action-copy">Try a browser-native webcam workflow with live media.</span>
+					</button>
+					<button class="nw-starter-action" data-starter-action="assistant" type="button">
+						<span class="nw-starter-action-title">Ask Assistant</span>
+						<span class="nw-starter-action-copy">Open Numel Assistant with a starter build prompt.</span>
+					</button>
+				</div>
+			</div>
+			<div class="nw-modal-footer">
+				<div class="nw-starter-modal-actions">
+					<button class="nw-btn nw-btn-secondary" data-starter-action="gallery" type="button">Browse Gallery</button>
+				</div>
+				<button class="nw-btn nw-btn-secondary" data-role="later" type="button">Later</button>
+			</div>
+		</div>`;
+	document.body.appendChild(overlay);
+
+	overlay.querySelector('[data-role="close"]')?.addEventListener('click', () => _closeStarterModal(true));
+	overlay.querySelector('[data-role="later"]')?.addEventListener('click', () => _closeStarterModal(true));
+	overlay.addEventListener('click', (e) => {
+		if (e.target === overlay) _closeStarterModal(true);
+	});
+	overlay.querySelectorAll('[data-starter-action]').forEach((btn) => {
+		btn.addEventListener('click', async () => {
+			await _runStarterAction(btn.getAttribute('data-starter-action') || '');
+		});
+	});
+}
+
+function _updateStarterPanel() {
+	const panel = $('spaceStarterPanel');
+	const subtitle = $('spaceStarterSubtitle');
+	if (!panel) return;
+	const visible = !!client?.isConnected && _isAuthenticatedUser() && _isCurrentWorkflowEmptyState();
+	panel.style.display = visible ? '' : 'none';
+	if (subtitle) {
+		subtitle.textContent = currentSpaceInfo?.title
+			? `"${currentSpaceInfo.title}" is empty. Choose a fast way to get to your first useful run.`
+			: 'Choose a fast way to get to your first useful run.';
+	}
+	if (!visible) {
+		_closeStarterModal(false);
+	}
+}
+
+function _updateStarterExperience(showModal = false) {
+	_updateStarterPanel();
+	if (showModal) {
+		_showStarterModal();
+	}
+}
+
+async function _loadStarterGalleryItem(id) {
+	if (!api) return;
+	const item = await api.galleryGet(id);
+	if (!item?.workflow) throw new Error(`Starter workflow "${id}" is unavailable`);
+	await window.loadAndSyncWorkflow(item.workflow, item.title || item.id);
+}
+
+async function _runStarterAction(action) {
+	try {
+		switch (action) {
+			case 'hello':
+				await window.loadAndSyncWorkflow(_starterHelloWorkflow(), 'Hello Workflow');
+				addLog('success', '✨ Loaded Hello Workflow starter');
+				break;
+			case 'research':
+				await _loadStarterGalleryItem(STARTER_GALLERY_IDS.research);
+				addLog('success', '✨ Loaded Research Starter');
+				break;
+			case 'media':
+				await _loadStarterGalleryItem(STARTER_GALLERY_IDS.media);
+				addLog('success', '✨ Loaded Webcam Starter');
+				break;
+			case 'assistant':
+				if (!consoleManager) throw new Error('Assistant is not ready yet');
+				await consoleManager.launchStarterPrompt(STARTER_ASSISTANT_PROMPT, { enablePlanner: false, autoSend: false });
+				addLog('info', '🤖 Assistant opened with a starter build prompt');
+				break;
+			case 'gallery':
+				if (!galleryManager) throw new Error('Gallery is not ready yet');
+				await galleryManager.open();
+				addLog('info', '🖼 Opened workflow gallery');
+				break;
+			default:
+				return;
+		}
+		_markStarterExperienceSeen();
+		_closeStarterModal(false);
+		_updateStarterExperience(false);
+	} catch (error) {
+		addLog('error', `❌ Starter action failed: ${error.message}`);
+		await NumelAlert('Starter Flow', error.message || 'Failed to load starter flow.');
+	}
+}
 
 function _isAdminUser() {
 	return !!(window._numelUser && String(window._numelUser.role || '').toLowerCase() === 'admin');
@@ -108,6 +292,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	schemaGraph.api.events.onGraphChanged((e) => {
 		workflowDirty = true;
 		updateClearButtonState();
+		_updateStarterExperience(false);
 		// console.log('Graph modified:', e.originalEvent);
 	});
 
@@ -166,6 +351,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	// Refresh workflow options panel when a workflow is imported/loaded
 	schemaGraph.eventBus.on(GraphEvents.WORKFLOW_IMPORTED, () => {
 		populateWorkflowOptionsPanel();
+		_updateStarterExperience(false);
 	});
 
 	if (true) {
@@ -627,6 +813,11 @@ function setupEventListeners() {
 	$('spaceSelect').addEventListener('change', selectCurrentSpace);
 	$('createSpaceBtn').addEventListener('click', createSpace);
 	$('removeSpaceBtn').addEventListener('click', removeCurrentSpace);
+	$('starterHelloBtn')?.addEventListener('click', () => _runStarterAction('hello'));
+	$('starterResearchBtn')?.addEventListener('click', () => _runStarterAction('research'));
+	$('starterMediaBtn')?.addEventListener('click', () => _runStarterAction('media'));
+	$('starterAssistantBtn')?.addEventListener('click', () => _runStarterAction('assistant'));
+	$('starterBrowseBtn')?.addEventListener('click', () => _runStarterAction('gallery'));
 
 	// Workflow management
 	$('clearWorkflowBtnSingle').addEventListener('click', clearWorkflow);
@@ -858,6 +1049,7 @@ async function disconnect() {
 	currentPlatformExecutionId = null;
 	currentSpaceId = null;
 	currentSpaceInfo = null;
+	currentWorkflowHasContent = false;
 
 	$('spaceSelect').disabled = true;
 	$('spaceSelect').innerHTML = '<option value="">Loading spaces...</option>';
@@ -871,6 +1063,7 @@ async function disconnect() {
 	setWsStatus('disconnected');
 	setExecStatus('idle', 'Not running');
 	$('execId').textContent = '-';
+	_updateStarterExperience(false);
 
 	addLog('info', '🔌 Disconnected');
 }
@@ -879,11 +1072,13 @@ function setupClientEvents() {
 	client.on('ws:connected', () => {
 		setWsStatus('connected');
 		addLog('success', '🔗 WebSocket connected');
+		_updateStarterExperience(false);
 	});
 
 	client.on('ws:disconnected', () => {
 		setWsStatus('disconnected');
 		addLog('warning', '🔌 WebSocket disconnected');
+		_updateStarterExperience(false);
 	});
 
 	client.on('workflow.started', (event) => {
@@ -1148,6 +1343,8 @@ async function loadCurrentWorkflow() {
 		$('execId').textContent = '-';
 		setExecStatus('idle', 'Not running');
 
+		currentWorkflowHasContent = _hasWorkflowContent(workflow);
+
 		if (workflow) {
 			const loaded = visualizer.loadWorkflow(workflow, name);
 			if (!loaded) throw new Error('Failed to load workflow into graph');
@@ -1166,6 +1363,7 @@ async function loadCurrentWorkflow() {
 		workflowDirty = false;
 		enableStart(true);
 		updateClearButtonState();
+		_updateStarterExperience(!currentWorkflowHasContent);
 	} catch (error) {
 		addLog('error', `❌ Failed to load workflow: ${error.message}`);
 	}
@@ -1173,8 +1371,14 @@ async function loadCurrentWorkflow() {
 
 async function createSpace() {
 	if (!api) return;
-	const title = prompt('New space name:', 'New Space');
-	if (!title || !title.trim()) return;
+	const title = await NumelPrompt(
+		'Create Space',
+		'Choose a name for the new space.',
+		'New Space',
+		'Create',
+		'New Space'
+	);
+	if (title === null || !title.trim()) return;
 
 	try {
 		if (workflowDirty && visualizer?.currentWorkflow) {
@@ -1260,8 +1464,10 @@ async function syncWorkflow(workflow = null, _name = null, force = false) {
 			// Restore chat messages
 			restoreChatState(chatState);
 			
+			currentWorkflowHasContent = _hasWorkflowContent(response.workflow || workflow);
 			workflowDirty = false;
 			schemaGraph.eventBus.emit('workflow:synced');
+			_updateStarterExperience(false);
 			addLog('success', `✅ Saved "${response.name}"`);
 		} else {
 			throw new Error('Save failed');
@@ -1279,8 +1485,10 @@ window.loadAndSyncWorkflow = async function(workflow, name) {
 	const n = name || workflow?.options?.name || 'Generated Workflow';
 	const loaded = visualizer.loadWorkflow(workflow, n);
 	if (loaded) {
+		currentWorkflowHasContent = _hasWorkflowContent(workflow);
 		await syncWorkflow(workflow, null, true);
 		enableStart(true);
+		_updateStarterExperience(false);
 		addLog('success', `✅ Loaded "${visualizer.currentWorkflowName}"`);
 	}
 };
@@ -1436,10 +1644,12 @@ async function clearWorkflow() {
 		visualizer.initEmptyWorkflow();
 		visualizer.graphNodes = [];
 		_setWorkflowName(visualizer.currentWorkflowName || 'Untitled');
+		currentWorkflowHasContent = false;
 		workflowDirty = true;
 		await syncWorkflow(visualizer.exportWorkflow(), null, true);
 		enableStart(true);
 		updateClearButtonState();
+		_updateStarterExperience(!_hasSeenStarterExperience());
 		addLog('info', '🧹 Workflow cleared');
 	} finally {
 		schemaGraph.api.lock.unlock();
@@ -2457,7 +2667,7 @@ async function submitUserInput() {
 
 	const input = $('userInputField').value.trim();
 	if (!input) {
-		alert('Please enter a value');
+		await NumelAlert('Input Required', 'Please enter a value.');
 		return;
 	}
 
@@ -2885,8 +3095,10 @@ function initNodeGroups() {
 				const tag = document.activeElement?.tagName;
 				if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 				e.preventDefault();
-				const name = prompt('Group label:', 'Group');
-				if (name !== null) createNodeGroup(name);
+				NumelPrompt('Create Group', 'Choose a label for this node group.', 'Group', 'Create', 'Group')
+					.then((name) => {
+						if (name !== null) createNodeGroup(name);
+					});
 			}
 		});
 		// Refresh groups at ~10fps
@@ -2900,7 +3112,7 @@ function createNodeGroup(label) {
 	try {
 		const selected = schemaGraph ? Array.from(schemaGraph.selectedNodes || []) : [];
 		if (!selected || selected.length < 2) {
-			alert('Select at least 2 nodes to create a group.');
+			NumelAlert('Create Group', 'Select at least 2 nodes to create a group.');
 			return;
 		}
 		_nodeGroups.push({

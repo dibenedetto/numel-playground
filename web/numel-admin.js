@@ -134,7 +134,7 @@ const NumelAdmin = (() => {
 				_loadUsers();
 			});
 		} catch (e) {
-			alert('Error: ' + e.message);
+			await NumelAlert('Admin Error', `Error: ${_esc(e.message)}`);
 		}
 	}
 
@@ -167,7 +167,7 @@ const NumelAdmin = (() => {
 				_loadUsers();
 			});
 		} catch (e) {
-			alert('Error: ' + e.message);
+			await NumelAlert('Admin Error', `Error: ${_esc(e.message)}`);
 		}
 	}
 
@@ -178,7 +178,7 @@ const NumelAdmin = (() => {
 			await _post(`/admin/users/${uid}/delete`);
 			_loadUsers();
 		} catch (e) {
-			alert('Error: ' + e.message);
+			await NumelAlert('Admin Error', `Error: ${_esc(e.message)}`);
 		}
 	}
 
@@ -295,7 +295,7 @@ const NumelAdmin = (() => {
 				await onSave();
 				overlay.remove();
 			} catch (e) {
-				alert('Error: ' + e.message);
+				await NumelAlert('Admin Error', `Error: ${_esc(e.message)}`);
 			}
 		};
 		overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });

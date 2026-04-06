@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Numel UI Exploration</title>
+	<link rel="stylesheet" href="ui-exploration.css">
+</head>
+<body>
+	<div class="ux-shell">
+		<header class="ux-masthead">
+			<div class="ux-masthead-copy">
+				<div class="ux-brand-kicker">Numel UI Exploration</div>
+				<h1 class="ux-brand-title">Three directions to make Numel feel less like an engineering console.</h1>
+				<p class="ux-copy">These concepts are lightweight visual probes. They keep the same product model underneath: spaces, one current workflow per space, tags on the canvas, assistant entry, and local-to-prod platform continuity. The goal is to choose a better mood, hierarchy, and onboarding shape before redesigning the live app.</p>
+			</div>
+			<div class="ux-top-actions">
+				<a class="ux-chip" href="../../../docs/ui-exploration-plan.md">Read plan</a>
+				<a class="ux-primary-link" href="../../../docs/product-roadmap.md">Product roadmap</a>
+			</div>
+		</header>
+
+		<section class="ux-concept-grid">
+			<article class="ux-concept-card">
+				<div class="ux-card-tag">Recommended</div>
+				<h2>Project Workbench</h2>
+				<p>Calmer, clearer, and more obviously project-shaped. This treats a space like a workbench, keeps the canvas central, and makes first actions feel approachable instead of technical.</p>
+				<ul>
+					<li>Best for broadening beyond expert users without losing the builder identity.</li>
+					<li>Strong visual hierarchy between current project, starter actions, canvas, and runs.</li>
+					<li>Good base for the product roadmap already started.</li>
+				</ul>
+				<div class="ux-mini-preview">
+					<div class="ux-preview-bars">
+						<div class="ux-preview-bar accent"></div>
+						<div class="ux-preview-bar medium"></div>
+						<div class="ux-preview-bar short"></div>
+					</div>
+				</div>
+				<div class="ux-actions" style="margin-top:16px;">
+					<a class="ux-btn ux-btn-primary" href="project-workbench.html">Open concept</a>
+				</div>
+			</article>
+
+			<article class="ux-concept-card">
+				<div class="ux-card-tag">Assistant-led</div>
+				<h2>Assistant Studio</h2>
+				<p>This version makes the assistant the front door. It is strongest if the product promise becomes “describe what you want, then refine the workflow visually.”</p>
+				<ul>
+					<li>Great first-run flow for less technical users.</li>
+					<li>Stronger planner and `/gen` framing.</li>
+					<li>Risk: canvas can start to feel secondary.</li>
+				</ul>
+				<div class="ux-mini-preview is-studio">
+					<div class="ux-preview-bars">
+						<div class="ux-preview-bar accent"></div>
+						<div class="ux-preview-bar medium"></div>
+						<div class="ux-preview-bar short"></div>
+					</div>
+				</div>
+				<div class="ux-actions" style="margin-top:16px;">
+					<a class="ux-btn ux-btn-primary" href="assistant-studio.html">Open concept</a>
+				</div>
+			</article>
+
+			<article class="ux-concept-card">
+				<div class="ux-card-tag">Multimodal-first</div>
+				<h2>Creative Agent Studio</h2>
+				<p>A more expressive direction for media capture, previews, and live multimodal workflows. It makes Numel feel bolder and more differentiated, especially around browser-native inputs.</p>
+				<ul>
+					<li>Best for demos, creator workflows, and live media identity.</li>
+					<li>Most distinctive visual language.</li>
+					<li>Risk: can oversignal “creative tool” over general workflow product.</li>
+				</ul>
+				<div class="ux-mini-preview is-creative">
+					<div class="ux-preview-bars">
+						<div class="ux-preview-bar accent"></div>
+						<div class="ux-preview-bar medium"></div>
+						<div class="ux-preview-bar short"></div>
+					</div>
+				</div>
+				<div class="ux-actions" style="margin-top:16px;">
+					<a class="ux-btn ux-btn-primary" href="creative-agent-studio.html">Open concept</a>
+				</div>
+			</article>
+		</section>
+
+		<div class="ux-callout">
+			<div class="ux-callout-title">Suggested next move</div>
+			<p>Choose one direction quickly, then apply it to a thin vertical slice: auth and first-run onboarding, the space/workflow left rail, the starter state, and the assistant entry point. The strongest default path is Project Workbench with selective Assistant Studio elements.</p>
+		</div>
+	</div>
+</body>
+</html>

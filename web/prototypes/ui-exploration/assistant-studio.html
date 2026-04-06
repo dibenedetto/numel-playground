@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Numel Concept - Assistant Studio</title>
+	<link rel="stylesheet" href="ui-exploration.css">
+</head>
+<body class="ux-theme-assistant">
+	<div class="ux-shell">
+		<div class="ux-topbar">
+			<div class="ux-brand">
+				<div class="ux-brand-kicker">Concept 2</div>
+				<div class="ux-brand-title">Assistant Studio</div>
+			</div>
+			<div class="ux-top-actions">
+				<a class="ux-nav-link" href="index.html">All concepts</a>
+				<a class="ux-nav-link" href="project-workbench.html">Previous concept</a>
+				<a class="ux-primary-link" href="creative-agent-studio.html">Next concept</a>
+			</div>
+		</div>
+
+		<div class="ux-grid" style="grid-template-columns: 360px minmax(0, 1fr) 280px;">
+			<aside class="ux-sidecar">
+				<div class="ux-preview-card">
+					<div class="ux-panel-label">Assistant</div>
+					<div class="ux-title">Tell Numel what you want to build.</div>
+					<div class="ux-copy" style="margin-top:8px;">This concept makes the assistant the warm entry point and treats the graph as a refinement surface.</div>
+				</div>
+				<div class="ux-preview-card">
+					<div class="ux-message assistant">
+						<div class="ux-message-role">Numel Assistant</div>
+						<div>I can draft a workflow for a file QA assistant, a webcam capture loop, or a research pipeline. What outcome do you want first?</div>
+					</div>
+					<div class="ux-message user" style="margin-top:12px;">
+						<div class="ux-message-role">You</div>
+						<div>Build a research assistant that asks for a topic, searches, and returns a concise brief.</div>
+					</div>
+					<div class="ux-message assistant" style="margin-top:12px;">
+						<div class="ux-message-role">Numel Assistant</div>
+						<div>I drafted a starting graph and added tags for Research, Planner, and Summary. Want me to also attach a source list?</div>
+					</div>
+				</div>
+				<div class="ux-actions">
+					<a class="ux-btn ux-btn-primary" href="#">Generate workflow</a>
+					<a class="ux-btn ux-btn-secondary" href="#">Browse starters</a>
+				</div>
+			</aside>
+
+			<main class="ux-main">
+				<section class="ux-hero">
+					<div class="ux-hero-kicker">Assistant-first flow</div>
+					<h1 class="ux-hero-title">Conversation becomes workflow, then workflow becomes app.</h1>
+					<p class="ux-hero-copy">The strongest feature here is a more approachable front door. Users begin in language, see the graph appear, then step into more explicit workflow editing once they already have something useful on the canvas.</p>
+				</section>
+
+				<section class="ux-canvas">
+					<div class="ux-canvas-bar">
+						<div class="ux-tabs">
+							<div class="ux-tab is-active">Draft Graph</div>
+							<div class="ux-tab">History</div>
+							<div class="ux-tab">Runs</div>
+							<div class="ux-tab">Prompt Notes</div>
+						</div>
+						<div class="ux-chip">Draft from assistant</div>
+					</div>
+
+					<div class="ux-canvas-stage">
+						<div class="ux-wire" style="left:166px; top:138px; width:180px;"></div>
+						<div class="ux-wire" style="left:410px; top:210px; width:170px;"></div>
+						<div class="ux-node small" style="left:44px; top:98px;">
+							<div class="ux-node-title">Ask Topic</div>
+							<div class="ux-node-copy">Added from prompt</div>
+						</div>
+						<div class="ux-node" style="left:300px; top:88px;">
+							<div class="ux-node-title">Research Agent</div>
+							<div class="ux-node-copy">Uses assistant-chosen tools and settings</div>
+						</div>
+						<div class="ux-node" style="left:560px; top:178px;">
+							<div class="ux-node-title">Brief Writer</div>
+							<div class="ux-node-copy">Produces the polished final answer</div>
+						</div>
+						<div class="ux-node small" style="left:796px; top:310px;">
+							<div class="ux-node-title">Output</div>
+							<div class="ux-node-copy">User-visible result</div>
+						</div>
+					</div>
+
+					<div class="ux-canvas-footer">
+						<div class="ux-tags">
+							<div class="ux-tag" style="background:rgba(24,124,110,0.14); color:#146055;">Prompt-built</div>
+							<div class="ux-tag" style="background:rgba(57,85,209,0.14); color:#2d49b0;">Assistant Draft</div>
+							<div class="ux-tag" style="background:rgba(212,107,54,0.14); color:#9d4a20;">Needs Review</div>
+						</div>
+						<div class="ux-copy">Tags become part of the conversation loop: what was generated, what needs review, what is stable.</div>
+					</div>
+				</section>
+			</main>
+
+			<aside class="ux-panel">
+				<div class="ux-panel-group">
+					<div class="ux-panel-label">Space</div>
+					<div class="ux-title">Research Assistant</div>
+					<div class="ux-copy">The space still exists, but it is quieter and less dominant than the assistant flow.</div>
+				</div>
+				<div class="ux-panel-group">
+					<div class="ux-panel-label">Quick actions</div>
+					<div class="ux-mini-list">
+						<div class="ux-mini-list-item">Turn this draft into a polished workflow</div>
+						<div class="ux-mini-list-item">Add web search</div>
+						<div class="ux-mini-list-item">Add sources and citations</div>
+					</div>
+				</div>
+				<div class="ux-panel-group">
+					<div class="ux-panel-label">Tradeoff</div>
+					<div class="ux-copy">This is the friendliest first-run experience, but it can make Numel feel more like an assistant product than a workflow studio if taken too far.</div>
+				</div>
+			</aside>
+		</div>
+	</div>
+</body>
+</html>

@@ -50,6 +50,43 @@ def _minimal_workflow_payload() -> dict:
     }
 
 
+def _starter_hello_workflow_payload() -> dict:
+    return {
+        "type": "workflow",
+        "options": {
+            "type": "workflow_options",
+            "name": "Hello Workflow",
+            "description": "The simplest workflow: Start, Preview, End.",
+        },
+        "nodes": [
+            {
+                "type": "start_flow",
+                "extra": {"pos": [60, 180], "name": "Start"},
+            },
+            {
+                "type": "preview_flow",
+                "extra": {"pos": [320, 180], "name": "Preview"},
+            },
+            {
+                "type": "end_flow",
+                "extra": {"pos": [580, 180], "name": "End"},
+            },
+        ],
+        "edges": [
+            {
+                "source": 0,
+                "target": 1,
+                "source_slot": "flow_out",
+                "target_slot": "flow_in",
+            },
+            {
+                "source": 1,
+                "target": 2,
+                "source_slot": "flow_out",
+                "target_slot": "flow_in",
+            },
+        ],
+    }
 class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self._root = PROJECT_ROOT / "storage" / "_test_runs" / f"app_{uuid.uuid4().hex[:8]}"
@@ -192,3 +229,53 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listing.status_code, 200, listing.text)
         execution_ids = listing.json()["execution_ids"]
         self.assertIn(execution_id, execution_ids)
+    async def test_first_run_space_accepts_hello_starter_and_completes(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "starter", "email": "starter@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        payload = register.json()
+        self.assertEqual(payload["user"]["role"], "admin")
+        headers = self._auth_headers(payload["token"])
+
+        current_space = await self._client.post("/spaces/current", json={}, headers=headers)
+        self.assertEqual(current_space.status_code, 200, current_space.text)
+        space = current_space.json()["space"]
+        self.assertTrue(space["id"])
+
+        initial_workflow = await self._client.post("/workflow/get", json={}, headers=headers)
+        self.assertEqual(initial_workflow.status_code, 200, initial_workflow.text)
+        self.assertIsNone(initial_workflow.json()["workflow"])
+
+        save = await self._client.post(
+            "/workflow/save",
+            json={"workflow": _starter_hello_workflow_payload()},
+            headers=headers,
+        )
+        self.assertEqual(save.status_code, 200, save.text)
+        self.assertEqual(save.json()["status"], "saved")
+        self.assertEqual(save.json()["name"], "Hello Workflow")
+
+        reloaded = await self._client.post("/workflow/get", json={}, headers=headers)
+        self.assertEqual(reloaded.status_code, 200, reloaded.text)
+        workflow = reloaded.json()["workflow"]
+        self.assertEqual(workflow["options"]["name"], "Hello Workflow")
+        self.assertEqual([node["type"] for node in workflow["nodes"]], ["start_flow", "preview_flow", "end_flow"])
+
+        start = await self._client.post("/workflow/start", json={}, headers=headers)
+        self.assertEqual(start.status_code, 200, start.text)
+        execution_id = start.json()["execution_id"]
+        self.assertTrue(execution_id)
+
+        final_status = start.json()["status"]
+        for _ in range(60):
+            state = await self._client.post(f"/executions/{execution_id}", json={}, headers=headers)
+            self.assertEqual(state.status_code, 200, state.text)
+            final_status = state.json()["state"]["status"]
+            if final_status in {"completed", "failed", "cancelled"}:
+                break
+            await asyncio.sleep(0.2)
+
+        self.assertEqual(final_status, "completed")
+

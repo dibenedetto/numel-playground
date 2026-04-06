@@ -8,6 +8,7 @@
     "build:dev": "webpack --mode=development",
     "watch": "webpack --mode=development --watch",
     "serve": "webpack serve --mode=development --open",
+    "test:starter-smoke": "node tests/starter-smoke.mjs",
     "build:codemirror": "webpack --config webpack.codemirror.config.js --mode=production",
     "build:threejs": "webpack --config webpack.threejs.config.js --mode=production"
   },
@@ -27,6 +28,7 @@
     "@babel/preset-env": "^7.23.0",
     "babel-loader": "^9.1.0",
     "buffer": "^6.0.3",
+    "playwright": "^1.59.1",
     "querystring-es3": "^0.2.1",
     "stream-browserify": "^3.0.0",
     "url": "^0.11.3",

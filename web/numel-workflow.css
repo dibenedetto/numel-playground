@@ -630,6 +630,77 @@ body {
 	grid-column: 1 / -1;
 }
 
+.nw-starter-panel {
+	margin-top: 8px;
+	padding: 10px;
+	border: 1px solid var(--sg-border-color);
+	border-radius: 8px;
+	background:
+		linear-gradient(180deg, color-mix(in srgb, var(--sg-bg-secondary) 78%, var(--sg-accent-blue) 22%), var(--sg-bg-secondary));
+}
+
+.nw-starter-panel-head {
+	margin-bottom: 8px;
+}
+
+.nw-starter-panel-title {
+	font-size: 12px;
+	font-weight: 700;
+	color: var(--sg-text-primary);
+	margin-bottom: 3px;
+}
+
+.nw-starter-panel-copy {
+	font-size: 11px;
+	line-height: 1.45;
+	color: var(--sg-text-secondary);
+}
+
+.nw-starter-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 8px;
+}
+
+.nw-starter-action {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	padding: 10px;
+	border-radius: 8px;
+	border: 1px solid var(--sg-border-color);
+	background: color-mix(in srgb, var(--sg-bg-primary) 88%, var(--sg-accent-blue) 12%);
+	color: var(--sg-text-primary);
+	text-align: left;
+	cursor: pointer;
+	transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.nw-starter-action:hover {
+	transform: translateY(-1px);
+	border-color: var(--sg-accent-blue, #46a2da);
+	background: color-mix(in srgb, var(--sg-bg-primary) 80%, var(--sg-accent-blue) 20%);
+}
+
+.nw-starter-action-title {
+	font-size: 12px;
+	font-weight: 700;
+}
+
+.nw-starter-action-copy {
+	font-size: 11px;
+	line-height: 1.4;
+	color: var(--sg-text-secondary);
+}
+
+.nw-starter-panel-footer {
+	margin-top: 8px;
+}
+
+.nw-starter-panel-footer .nw-btn {
+	flex: 1 1 100%;
+}
+
 /* ========================================================================
    SWITCH TOGGLE
    ======================================================================== */
@@ -1111,6 +1182,37 @@ body {
 	display: flex;
 	gap: 10px;
 	justify-content: flex-end;
+}
+
+.nw-starter-modal {
+	max-width: 760px;
+}
+
+.nw-starter-modal .nw-modal-body {
+	padding-top: 14px;
+}
+
+.nw-starter-modal-copy {
+	color: var(--sg-text-secondary);
+	font-size: 13px;
+	line-height: 1.5;
+	margin-bottom: 14px;
+}
+
+.nw-starter-modal-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 10px;
+}
+
+.nw-starter-modal-actions {
+	flex: 1;
+	display: flex;
+	justify-content: flex-end;
+}
+
+.nw-starter-modal-actions .nw-btn {
+	min-width: 110px;
 }
 
 /* ========================================================================
@@ -1807,3 +1909,10 @@ body.nw-auth-pending {
 .nw-ch-badge-error    { background: var(--sg-accent-red, #d9534f); color: #fff; }
 .nw-ch-badge-starting { background: var(--sg-accent-yellow, #f0ad4e); color: #fff; }
 .nw-ch-badge-stopping { background: var(--sg-accent-yellow, #f0ad4e); color: #fff; }
+
+@media (max-width: 700px) {
+	.nw-starter-grid,
+	.nw-starter-modal-grid {
+		grid-template-columns: 1fr;
+	}
+}

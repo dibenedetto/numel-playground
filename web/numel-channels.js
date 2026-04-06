@@ -151,7 +151,7 @@ const NumelChannels = (() => {
 				_showEditDialog(cid);
 			}
 		} catch (err) {
-			alert('Error: ' + err.message);
+			await NumelAlert('Channel Error', `Error: ${err.message}`);
 		}
 	}
 
@@ -228,7 +228,7 @@ const NumelChannels = (() => {
 				refresh();
 			});
 		} catch (e) {
-			alert('Error: ' + e.message);
+			await NumelAlert('Channel Error', `Error: ${e.message}`);
 		}
 	}
 
@@ -254,7 +254,7 @@ const NumelChannels = (() => {
 				await onSave();
 				overlay.remove();
 			} catch (e) {
-				alert('Error: ' + e.message);
+				await NumelAlert('Channel Error', `Error: ${e.message}`);
 			}
 		};
 		overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });

@@ -29,6 +29,8 @@ Before making changes, read:
 - docs/platform-domain.md
 - docs/platform-db-git.md
 - docs/public-private-boundary.md
+- docs/product-roadmap.md
+- docs/ui-exploration-plan.md
 - docs/runtime-container-contract.md
 
 Important project context:
@@ -36,6 +38,8 @@ Important project context:
 - app/platform_prod may be provided as a private git submodule and should be inspected when present.
 - The app/interface should stay seamless across local and prod: same frontend and same public /platform, /spaces, /workflow, and /executions surface.
 - Keep product concepts public and production guarantees private; see docs/public-private-boundary.md.
+- Follow docs/product-roadmap.md for the current product-priority direction.
+- Follow docs/ui-exploration-plan.md for the current UI/product exploration direction before the next large frontend/product-facing pass.
 - The product model is space-centric with one current workflow per current space.
 - Production currently uses PostgreSQL + Django identity + Docker runtime containers.
 - Runtime images live under runtime/numel_runtime.

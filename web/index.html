@@ -116,6 +116,7 @@
 					<select id="spaceSelect" class="nw-select" disabled aria-label="Current space">
 						<option value="">Loading spaces...</option>
 					</select>
+					<div class="nw-field-hint">Spaces are your project workbenches. Each space keeps one current workflow, its runs, and its assets.</div>
 					<div class="nw-btn-row">
 						<button id="createSpaceBtn" class="nw-btn nw-btn-secondary nw-btn-sm">New Space</button>
 						<button id="removeSpaceBtn" class="nw-btn nw-btn-danger nw-btn-sm" disabled>Delete Space</button>
@@ -123,6 +124,33 @@
 				</div>
 				<div class="nw-field">
 					<div id="singleWorkflowName" class="nw-mono-text">None</div>
+				</div>
+				<div id="spaceStarterPanel" class="nw-starter-panel" style="display:none;">
+					<div class="nw-starter-panel-head">
+						<div class="nw-starter-panel-title">Start This Space</div>
+						<div id="spaceStarterSubtitle" class="nw-starter-panel-copy">Choose a fast way to get to your first useful run.</div>
+					</div>
+					<div class="nw-starter-grid">
+						<button id="starterHelloBtn" class="nw-starter-action" type="button">
+							<span class="nw-starter-action-title">Hello Workflow</span>
+							<span class="nw-starter-action-copy">Load the simplest runnable graph.</span>
+						</button>
+						<button id="starterResearchBtn" class="nw-starter-action" type="button">
+							<span class="nw-starter-action-title">Research Starter</span>
+							<span class="nw-starter-action-copy">Open a planner-style research pipeline.</span>
+						</button>
+						<button id="starterMediaBtn" class="nw-starter-action" type="button">
+							<span class="nw-starter-action-title">Webcam Starter</span>
+							<span class="nw-starter-action-copy">Try a browser-native media workflow.</span>
+						</button>
+						<button id="starterAssistantBtn" class="nw-starter-action" type="button">
+							<span class="nw-starter-action-title">Ask Assistant</span>
+							<span class="nw-starter-action-copy">Open Numel Assistant with a starter build prompt.</span>
+						</button>
+					</div>
+					<div class="nw-btn-row nw-starter-panel-footer">
+						<button id="starterBrowseBtn" class="nw-btn nw-btn-secondary nw-btn-sm" type="button">Browse Gallery</button>
+					</div>
 				</div>
 				<div class="nw-btn-grid">
 					<button id="singleImportBtn" class="nw-btn nw-btn-secondary nw-btn-with-icon" disabled title="Import from file">

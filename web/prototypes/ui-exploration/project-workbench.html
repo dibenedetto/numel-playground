@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Numel Concept - Project Workbench</title>
+	<link rel="stylesheet" href="ui-exploration.css">
+</head>
+<body>
+	<div class="ux-shell">
+		<div class="ux-topbar">
+			<div class="ux-brand">
+				<div class="ux-brand-kicker">Concept 1</div>
+				<div class="ux-brand-title">Project Workbench</div>
+			</div>
+			<div class="ux-top-actions">
+				<a class="ux-nav-link" href="index.html">All concepts</a>
+				<a class="ux-nav-link" href="../../../docs/ui-exploration-plan.md">Plan</a>
+				<a class="ux-primary-link" href="assistant-studio.html">Next concept</a>
+			</div>
+		</div>
+
+		<div class="ux-grid">
+			<aside class="ux-panel">
+				<div class="ux-panel-group">
+					<div class="ux-panel-label">Current workbench</div>
+					<div class="ux-title-row">
+						<div class="ux-title">Research Assistant</div>
+						<div class="ux-chip">Online</div>
+					</div>
+					<div class="ux-copy">A space is a project workbench: current workflow, runs, assets, and scoped credentials in one place.</div>
+				</div>
+
+				<div class="ux-panel-group">
+					<div class="ux-panel-label">Spaces</div>
+					<div class="ux-space-pill is-active">
+						<div class="ux-bullet"></div>
+						<div>
+							<div><strong>Research Assistant</strong></div>
+							<div class="ux-copy">Planner, search, summary</div>
+						</div>
+					</div>
+					<div class="ux-space-pill">
+						<div class="ux-bullet" style="background:#2d7f77; box-shadow:0 0 0 6px rgba(45, 127, 119, 0.12);"></div>
+						<div>
+							<div><strong>Media Capture Lab</strong></div>
+							<div class="ux-copy">Webcam, preview, clip review</div>
+						</div>
+					</div>
+					<div class="ux-space-pill">
+						<div class="ux-bullet" style="background:#d46b36; box-shadow:0 0 0 6px rgba(212, 107, 54, 0.12);"></div>
+						<div>
+							<div><strong>Repo Helper</strong></div>
+							<div class="ux-copy">File tools, answers, notes</div>
+						</div>
+					</div>
+					<div class="ux-actions">
+						<a class="ux-btn ux-btn-secondary" href="#">New Space</a>
+					</div>
+				</div>
+
+				<div class="ux-panel-group">
+					<div class="ux-panel-label">Useful next step</div>
+					<div class="ux-card-copy">Instead of exposing every control at once, this concept foregrounds “what do you want to do next?”</div>
+					<div class="ux-actions">
+						<a class="ux-btn ux-btn-warm" href="#">Run current workflow</a>
+						<a class="ux-btn ux-btn-secondary" href="#">Ask assistant</a>
+					</div>
+				</div>
+
+				<div class="ux-panel-group">
+					<div class="ux-panel-label">Sections</div>
+					<div class="ux-mini-list">
+						<div class="ux-mini-list-item">Workflow</div>
+						<div class="ux-mini-list-item">Assets</div>
+						<div class="ux-mini-list-item">Runs</div>
+						<div class="ux-mini-list-item">Credentials</div>
+						<div class="ux-mini-list-item">Extensions</div>
+					</div>
+				</div>
+			</aside>
+
+			<main class="ux-main">
+				<section class="ux-hero">
+					<div class="ux-hero-kicker">Start here</div>
+					<h1 class="ux-hero-title">Build a workflow, then run it like a real project.</h1>
+					<p class="ux-hero-copy">This direction makes Numel feel less like a control panel and more like a focused workbench. The user sees the current space, the current workflow, the starter actions, and the next useful move before the advanced controls.</p>
+					<div class="ux-starter-grid">
+						<div class="ux-card">
+							<div class="ux-card-tag">Starter</div>
+							<div class="ux-card-title">Hello Workflow</div>
+							<div class="ux-card-copy">Load the simplest possible graph and get to a successful run fast.</div>
+							<a class="ux-btn ux-btn-primary" href="#">Use starter</a>
+						</div>
+						<div class="ux-card">
+							<div class="ux-card-tag">Assistant</div>
+							<div class="ux-card-title">Describe what you want</div>
+							<div class="ux-card-copy">Open the assistant with a prompt that creates a first draft workflow for this space.</div>
+							<a class="ux-btn ux-btn-secondary" href="#">Open assistant</a>
+						</div>
+					</div>
+				</section>
+
+				<section class="ux-canvas">
+					<div class="ux-canvas-bar">
+						<div>
+							<div class="ux-panel-label">Current workflow</div>
+							<div class="ux-title">Research Flow</div>
+						</div>
+						<div class="ux-actions">
+							<a class="ux-btn ux-btn-secondary" href="#">Save</a>
+							<a class="ux-btn ux-btn-primary" href="#">Run</a>
+						</div>
+					</div>
+
+					<div class="ux-canvas-stage">
+						<div class="ux-wire" style="left:140px; top:156px; width:150px;"></div>
+						<div class="ux-wire" style="left:360px; top:236px; width:160px;"></div>
+						<div class="ux-node small" style="left:36px; top:120px;">
+							<div class="ux-node-title">Ask Topic</div>
+							<div class="ux-node-copy">User input</div>
+						</div>
+						<div class="ux-node" style="left:260px; top:104px;">
+							<div class="ux-node-title">Plan Research</div>
+							<div class="ux-node-copy">Planner creates a short task list</div>
+						</div>
+						<div class="ux-node" style="left:520px; top:188px;">
+							<div class="ux-node-title">Summarize Findings</div>
+							<div class="ux-node-copy">Agent turns results into a short brief</div>
+						</div>
+						<div class="ux-node small" style="left:770px; top:330px;">
+							<div class="ux-node-title">Deliver</div>
+							<div class="ux-node-copy">Display response</div>
+						</div>
+					</div>
+
+					<div class="ux-canvas-footer">
+						<div class="ux-tags">
+							<div class="ux-tag">Research</div>
+							<div class="ux-tag">Planner</div>
+							<div class="ux-tag">User Input</div>
+						</div>
+						<div class="ux-copy">Canvas tags stay visible, but they support the workflow instead of competing with it.</div>
+					</div>
+				</section>
+			</main>
+
+			<aside class="ux-sidecar">
+				<div class="ux-preview-card">
+					<div class="ux-panel-label">Run pulse</div>
+					<div class="ux-kpi">
+						<div class="ux-kpi-card">
+							<div class="ux-kpi-label">Last run</div>
+							<div class="ux-kpi-value">42s</div>
+						</div>
+						<div class="ux-kpi-card">
+							<div class="ux-kpi-label">Success rate</div>
+							<div class="ux-kpi-value">94%</div>
+						</div>
+					</div>
+				</div>
+
+				<div class="ux-preview-card">
+					<div class="ux-panel-label">Assistant handoff</div>
+					<div class="ux-message assistant">
+						<div class="ux-message-role">Numel Assistant</div>
+						<div>Want me to expand this into a web research loop with sources and a final markdown report?</div>
+					</div>
+					<div class="ux-actions" style="margin-top:12px;">
+						<a class="ux-btn ux-btn-secondary" href="#">Refine graph</a>
+						<a class="ux-btn ux-btn-cool" href="#">Generate draft</a>
+					</div>
+				</div>
+
+				<div class="ux-preview-card">
+					<div class="ux-panel-label">Why this works</div>
+					<div class="ux-copy">This is the safest direction for the real product. It preserves Numel as a builder tool, but reduces the “operator dashboard” feeling and makes spaces feel like understandable projects.</div>
+				</div>
+			</aside>
+		</div>
+	</div>
+</body>
+</html>

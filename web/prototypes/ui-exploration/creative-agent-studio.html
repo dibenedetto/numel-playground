@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>Numel Concept - Creative Agent Studio</title>
+	<link rel="stylesheet" href="ui-exploration.css">
+</head>
+<body class="ux-theme-creative">
+	<div class="ux-shell">
+		<div class="ux-topbar">
+			<div class="ux-brand">
+				<div class="ux-brand-kicker">Concept 3</div>
+				<div class="ux-brand-title">Creative Agent Studio</div>
+			</div>
+			<div class="ux-top-actions">
+				<a class="ux-nav-link" href="index.html">All concepts</a>
+				<a class="ux-nav-link" href="assistant-studio.html">Previous concept</a>
+				<a class="ux-primary-link" href="project-workbench.html">Back to recommendation</a>
+			</div>
+		</div>
+
+		<div class="ux-grid" style="grid-template-columns: 300px minmax(0, 1fr) 320px;">
+			<aside class="ux-panel">
+				<div class="ux-panel-group">
+					<div class="ux-panel-label">Live session</div>
+					<div class="ux-title">Webcam Capture Lab</div>
+					<div class="ux-copy">This concept leans into Numel’s most distinctive identity: live multimodal workflows with visible previews and expressive project framing.</div>
+				</div>
+				<div class="ux-panel-group">
+					<div class="ux-panel-label">Capture sources</div>
+					<div class="ux-mini-list">
+						<div class="ux-mini-list-item">Camera</div>
+						<div class="ux-mini-list-item">Microphone</div>
+						<div class="ux-mini-list-item">Screen</div>
+						<div class="ux-mini-list-item">Upload clip</div>
+					</div>
+				</div>
+				<div class="ux-actions">
+					<a class="ux-btn ux-btn-primary" href="#">Start capture</a>
+					<a class="ux-btn ux-btn-secondary" href="#">Load media starter</a>
+				</div>
+			</aside>
+
+			<main class="ux-main">
+				<section class="ux-hero">
+					<div class="ux-hero-kicker">Multimodal identity</div>
+					<h1 class="ux-hero-title">Agents that see, hear, and react feel alive here.</h1>
+					<p class="ux-hero-copy">This direction is the most distinctive. It makes Numel feel like a place for live media, previews, and expressive workflows, while still keeping the graph visible as the underlying system.</p>
+				</section>
+
+				<section class="ux-canvas" style="min-height:680px;">
+					<div class="ux-canvas-bar">
+						<div class="ux-tabs">
+							<div class="ux-tab is-active">Canvas</div>
+							<div class="ux-tab">Live Preview</div>
+							<div class="ux-tab">Timeline</div>
+							<div class="ux-tab">Outputs</div>
+						</div>
+						<div class="ux-actions">
+							<a class="ux-btn ux-btn-secondary" href="#">Scene tags</a>
+							<a class="ux-btn ux-btn-primary" href="#">Perform run</a>
+						</div>
+					</div>
+
+					<div class="ux-card-grid" style="grid-template-columns: 1.2fr 0.8fr;">
+						<div class="ux-card" style="min-height:220px;">
+							<div class="ux-card-tag">Live preview</div>
+							<div class="ux-card-title">Camera to analysis loop</div>
+							<div class="ux-card-copy">A stronger product identity appears when media preview is part of the main experience rather than buried in technical controls.</div>
+							<div style="height:130px; border-radius:18px; background:linear-gradient(135deg, rgba(208, 89, 61, 0.9), rgba(119, 71, 201, 0.75)); position:relative; overflow:hidden;">
+								<div style="position:absolute; inset:18px; border-radius:14px; border:1px solid rgba(255,255,255,0.42); background:rgba(255,255,255,0.18);"></div>
+								<div style="position:absolute; left:28px; bottom:28px; width:84px; height:84px; border-radius:999px; border:2px solid rgba(255,255,255,0.84);"></div>
+							</div>
+						</div>
+						<div class="ux-card">
+							<div class="ux-card-tag">Scene tags</div>
+							<div class="ux-card-title">Tag what matters</div>
+							<div class="ux-card-copy">Here tags become almost editorial: capture, gesture, transcript, overlay, publish.</div>
+							<div class="ux-tags">
+								<div class="ux-tag" style="background:rgba(208,89,61,0.14); color:#9f402c;">Capture</div>
+								<div class="ux-tag" style="background:rgba(119,71,201,0.16); color:#6130b8;">Gesture</div>
+								<div class="ux-tag" style="background:rgba(31,108,149,0.16); color:#17567f;">Overlay</div>
+								<div class="ux-tag" style="background:rgba(45,127,119,0.16); color:#14534d;">Publish</div>
+							</div>
+						</div>
+					</div>
+
+					<div class="ux-canvas-stage">
+						<div class="ux-wire" style="left:150px; top:150px; width:146px; border-top-color:rgba(208,89,61,0.44);"></div>
+						<div class="ux-wire" style="left:390px; top:220px; width:166px; border-top-color:rgba(119,71,201,0.4);"></div>
+						<div class="ux-node small" style="left:44px; top:118px;">
+							<div class="ux-node-title">Camera</div>
+							<div class="ux-node-copy">Live browser input</div>
+						</div>
+						<div class="ux-node" style="left:280px; top:108px;">
+							<div class="ux-node-title">Detect Gesture</div>
+							<div class="ux-node-copy">MediaPipe or model node</div>
+						</div>
+						<div class="ux-node" style="left:558px; top:198px;">
+							<div class="ux-node-title">Respond with Overlay</div>
+							<div class="ux-node-copy">Visual or voice reaction</div>
+						</div>
+						<div class="ux-node small" style="left:824px; top:314px;">
+							<div class="ux-node-title">Publish Clip</div>
+							<div class="ux-node-copy">Artifact output</div>
+						</div>
+					</div>
+				</section>
+			</main>
+
+			<aside class="ux-sidecar">
+				<div class="ux-preview-card">
+					<div class="ux-panel-label">Mood</div>
+					<div class="ux-copy">Most visually distinctive. If Numel wants to own “live multimodal agent studio,” this is the strongest emotional signal.</div>
+				</div>
+				<div class="ux-preview-card">
+					<div class="ux-panel-label">Best use</div>
+					<div class="ux-mini-list">
+						<div class="ux-mini-list-item">Webcam workflows</div>
+						<div class="ux-mini-list-item">Live overlays</div>
+						<div class="ux-mini-list-item">Creator demos</div>
+						<div class="ux-mini-list-item">Showcase landing pages</div>
+					</div>
+				</div>
+				<div class="ux-preview-card">
+					<div class="ux-panel-label">Tradeoff</div>
+					<div class="ux-copy">This risks narrowing perception too much. It is exciting, but it may underplay the fact that Numel is also a general workflow and agent product.</div>
+				</div>
+			</aside>
+		</div>
+	</div>
+</body>
+</html>

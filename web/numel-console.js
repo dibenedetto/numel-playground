@@ -349,6 +349,34 @@ class AgentConsoleManager {
 		}
 	}
 
+	async launchStarterPrompt(message, {
+		enablePlanner = false,
+		plannerProfile = 'workflow',
+		autoSend = false,
+	} = {}) {
+		await this.open();
+		if (enablePlanner) {
+			if (this._plannerProfileSel) this._plannerProfileSel.value = plannerProfile;
+			if (this._plannerProfileRow) this._plannerProfileRow.style.display = '';
+			if (this._plannerTimeoutRow) this._plannerTimeoutRow.style.display = '';
+			if (this._plannerSessionTimeoutRow) this._plannerSessionTimeoutRow.style.display = '';
+			if (this._plannerMaxIterRow) this._plannerMaxIterRow.style.display = '';
+			if (!this._plannerEnabled) {
+				if (this._plannerToggle) this._plannerToggle.checked = true;
+				await this._togglePlanner(true);
+			}
+		}
+		if (message) {
+			this._input.value = message;
+			this._input.dispatchEvent(new Event('input'));
+			this._input.focus();
+			this._input.setSelectionRange(this._input.value.length, this._input.value.length);
+			if (autoSend) {
+				await this._send();
+			}
+		}
+	}
+
 	close() {
 		if (!this._open) return;
 		this._open = false;
