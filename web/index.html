@@ -51,7 +51,7 @@
 			<input type="hidden" id="serverUrl" autocomplete="off">
 
 			<!-- User sub-panel — visible when auth is enabled -->
-			<section id="authUserBar" class="nw-section nw-section-compact" style="display:none;">
+			<section id="authUserBar" class="nw-section nw-section-compact nw-section-secondary" style="display:none;">
 				<div class="nw-section-header">
 					<h3 class="nw-section-title">
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
@@ -76,8 +76,10 @@
 				</div>
 			</section>
 
-			<section id="workbenchOverviewSection" class="nw-section nw-workbench-hero">
-				<div class="nw-workbench-kicker">Current Workbench</div>
+			<section id="workbenchOverviewSection" class="nw-section nw-workbench-hero nw-section-primary">
+				<div class="nw-section-header">
+					<h3 class="nw-section-title">Current Workbench</h3>
+				</div>
 				<div class="nw-workbench-title-row">
 					<div>
 						<div id="workbenchSpaceName" class="nw-workbench-title">Loading space...</div>
@@ -86,6 +88,19 @@
 					<div id="workbenchStatusPill" class="nw-workbench-status">Local</div>
 				</div>
 				<div id="workbenchSummary" class="nw-workbench-summary">Choose a starter, ask the assistant, or open a gallery workflow to get this space moving.</div>
+				<div class="nw-workbench-space-row">
+					<div class="nw-layout-field nw-workbench-space-field">
+						<label for="spaceSelect">Space</label>
+						<select id="spaceSelect" class="nw-select" disabled aria-label="Current space">
+							<option value="">Loading spaces...</option>
+						</select>
+						<div class="nw-field-hint">Spaces are your project workbenches. Each space keeps one current workflow, its runs, and its assets.</div>
+					</div>
+					<div class="nw-btn-row nw-workbench-space-actions">
+						<button id="createSpaceBtn" class="nw-btn nw-btn-secondary nw-btn-sm">New Space</button>
+						<button id="removeSpaceBtn" class="nw-btn nw-btn-danger nw-btn-sm" disabled>Delete Space</button>
+					</div>
+				</div>
 				<div class="nw-btn-row nw-workbench-actions">
 					<button id="workbenchAskAssistantBtn" class="nw-btn nw-btn-success nw-btn-sm" type="button">Ask Assistant</button>
 					<button id="workbenchBrowseGalleryBtn" class="nw-btn nw-btn-secondary nw-btn-sm" type="button">Browse Gallery</button>
@@ -102,11 +117,12 @@
 			</section>
 
 			<!-- Credentials Section -->
-			<section id="credentialsSection" class="nw-section nw-section-compact">
+			<section id="credentialsSection" class="nw-section nw-section-compact nw-section-secondary nw-section-collapsed">
 				<div class="nw-section-header">
 					<h3 class="nw-section-title">Credentials</h3>
 					<button id="addCredentialBtn" class="nw-btn-icon" title="Add credential">＋</button>
 				</div>
+				<div class="nw-section-lede">Account-scoped secrets used only for your executions and connected tools.</div>
 				<div id="credentialsAccessNote" class="nw-access-note" style="display:none;">
 					<span class="nw-access-badge">Admin Only</span>
 					<span id="credentialsAccessText" class="nw-access-text"></span>
@@ -127,33 +143,23 @@
 			</section>
 
 			<!-- Channels sub-panel -->
-			<section id="channelsSection" class="nw-section nw-section-compact">
+			<section id="channelsSection" class="nw-section nw-section-compact nw-section-secondary nw-section-collapsed">
 				<div class="nw-section-header">
 					<h3 class="nw-section-title">Channels</h3>
 					<button id="channelPanelBtn" class="nw-btn-icon" title="Manage channels">
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
 					</button>
 				</div>
+				<div class="nw-section-lede">Bring this workbench into Telegram, Discord, Slack, email, and other delivery surfaces.</div>
 				<div id="channelSummary" class="nw-channel-summary">No channels configured</div>
 			</section>
 
 			<!-- Workflow Section -->
-			<section id="workflowSection" class="nw-section">
+			<section id="workflowSection" class="nw-section nw-section-primary">
 				<div class="nw-section-header">
 					<h3 class="nw-section-title">Current Workflow</h3>
 				</div>
-
-				<div class="nw-field">
-					<label for="spaceSelect">Space</label>
-					<select id="spaceSelect" class="nw-select" disabled aria-label="Current space">
-						<option value="">Loading spaces...</option>
-					</select>
-					<div class="nw-field-hint">Spaces are your project workbenches. Each space keeps one current workflow, its runs, and its assets.</div>
-					<div class="nw-btn-row">
-						<button id="createSpaceBtn" class="nw-btn nw-btn-secondary nw-btn-sm">New Space</button>
-						<button id="removeSpaceBtn" class="nw-btn nw-btn-danger nw-btn-sm" disabled>Delete Space</button>
-					</div>
-				</div>
+				<div class="nw-section-lede">Shape the graph for this workbench, then save and run it from the same project surface.</div>
 				<div class="nw-field">
 					<div id="singleWorkflowName" class="nw-mono-text">None</div>
 				</div>
@@ -229,10 +235,11 @@
 			</section>
 
 			<!-- Execution Section -->
-			<section id="executionSection" class="nw-section">
+			<section id="executionSection" class="nw-section nw-section-primary-soft">
 				<div class="nw-section-header">
 					<h3 class="nw-section-title">Execution</h3>
 				</div>
+				<div class="nw-section-lede">Run the current workflow, inspect status, and keep the latest execution in view.</div>
 				<div class="nw-btn-row">
 					<button id="startBtn" class="nw-btn nw-btn-success" disabled>▶ Start</button>
 					<button id="cancelBtn" class="nw-btn nw-btn-danger" disabled>■ Cancel</button>
@@ -260,7 +267,7 @@
 			</section>
 
 			<!-- Event Log Section -->
-			<section id="eventLogSection" class="nw-section nw-section-grow">
+			<section id="eventLogSection" class="nw-section nw-section-grow nw-section-secondary nw-section-collapsed">
 				<div class="nw-section-header">
 					<h3 class="nw-section-title">Event Log</h3>
 					<button id="clearLogBtn" class="nw-btn-icon" title="Clear log">🗑</button>
@@ -272,6 +279,19 @@
 
 		<!-- Right Panel: Graph Canvas -->
 		<div class="nw-canvas-panel">
+			<div class="nw-canvas-stagebar">
+				<div class="nw-canvas-stagecopy">
+					<div class="nw-canvas-kicker">Canvas Workbench</div>
+					<div id="canvasWorkbenchSpaceName" class="nw-canvas-title">Loading space...</div>
+					<div id="canvasWorkbenchWorkflowName" class="nw-canvas-subtitle">Workflow: None</div>
+					<div id="canvasWorkbenchSummary" class="nw-canvas-summary">The canvas is where workflow tags, graph edits, and previews come together.</div>
+				</div>
+				<div class="nw-canvas-stageactions">
+					<button id="canvasAskAssistantBtn" class="nw-btn nw-btn-secondary" type="button">Assistant</button>
+					<button id="canvasBrowseGalleryBtn" class="nw-btn nw-btn-secondary" type="button">Gallery</button>
+					<button id="canvasStartRunBtn" class="nw-btn nw-btn-success" type="button">Run</button>
+				</div>
+			</div>
 			<div class="sg-canvas-container">
 				<canvas id="sg-main-canvas"></canvas>
 				<div id="sg-contextMenu" class="sg-context-menu"></div>

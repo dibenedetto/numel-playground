@@ -53,10 +53,10 @@
 	top: 0;
 	right: 0;
 	bottom: 0;
-	width: 380px;
+	width: var(--nw-side-panel-width, 400px);
 	z-index: 8500;
-	background: var(--sg-bg-primary);
-	border-left: 1px solid var(--sg-border-color);
+	background: color-mix(in srgb, var(--sg-bg-primary) 96%, white 4%);
+	border-left: 1px solid var(--nw-border-soft, var(--sg-border-color));
 	box-shadow: none;
 	display: flex;
 	flex-direction: column;
@@ -65,7 +65,7 @@
 }
 .nw-console-panel.open {
 	transform: translateX(0);
-	box-shadow: -4px 0 20px var(--sg-node-shadow);
+	box-shadow: -10px 0 28px color-mix(in srgb, var(--sg-node-shadow, rgba(0,0,0,0.35)) 46%, transparent);
 }
 
 .nw-console-header {
@@ -73,8 +73,8 @@
 	align-items: center;
 	justify-content: space-between;
 	padding: 12px 16px;
-	border-bottom: 1px solid var(--sg-border-color);
-	background: var(--sg-bg-secondary);
+	border-bottom: 1px solid var(--nw-border-soft, var(--sg-border-color));
+	background: color-mix(in srgb, var(--sg-bg-secondary) 94%, white 6%);
 	flex-shrink: 0;
 }
 .nw-console-title {
@@ -117,8 +117,8 @@
 /* ── Settings Bar ──────────────────────────────────────────── */
 
 .nw-console-settings {
-	border-bottom: 1px solid var(--sg-border-color);
-	background: var(--sg-bg-secondary);
+	border-bottom: 1px solid var(--nw-border-soft, var(--sg-border-color));
+	background: color-mix(in srgb, var(--sg-bg-secondary) 94%, white 6%);
 	flex-shrink: 0;
 }
 
@@ -204,8 +204,8 @@
 .nw-console-model-select {
 	flex: 1;
 	background: var(--sg-bg-primary);
-	border: 1px solid var(--sg-border-color);
-	border-radius: 4px;
+	border: 1px solid var(--nw-border-soft, var(--sg-border-color));
+	border-radius: var(--nw-radius-control, 10px);
 	color: var(--sg-text-primary);
 	padding: 4px 8px;
 	font-size: 12px;
@@ -234,7 +234,22 @@
 	max-height: 48px;
 	overflow-y: auto;
 	scrollbar-width: thin;
-	scrollbar-color: var(--sg-bg-quaternary) transparent;
+	scrollbar-color: var(--nw-scrollbar-thumb, var(--sg-bg-quaternary)) transparent;
+}
+.nw-console-toolkit-list::-webkit-scrollbar {
+	width: var(--nw-scrollbar-size, 8px);
+}
+.nw-console-toolkit-list::-webkit-scrollbar-track {
+	background: transparent;
+}
+.nw-console-toolkit-list::-webkit-scrollbar-thumb {
+	background: var(--nw-scrollbar-thumb, var(--sg-bg-quaternary, rgba(255, 255, 255, 0.1)));
+	border-radius: 999px;
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+.nw-console-toolkit-list::-webkit-scrollbar-thumb:hover {
+	background: var(--nw-scrollbar-thumb-hover, var(--sg-text-tertiary, rgba(255, 255, 255, 0.2)));
 }
 .nw-console-toolkit-item {
 	display: flex;
@@ -337,8 +352,8 @@
 }
 .nw-console-voice-select {
 	background: var(--sg-bg-primary);
-	border: 1px solid var(--sg-border-color);
-	border-radius: 4px;
+	border: 1px solid var(--nw-border-soft, var(--sg-border-color));
+	border-radius: var(--nw-radius-control, 10px);
 	color: var(--sg-text-primary);
 	padding: 3px 6px;
 	font-size: 11px;
@@ -358,15 +373,19 @@
 	gap: 8px;
 	min-height: 0;
 	background: var(--sg-bg-primary, #1e1e1e);
+	scrollbar-width: thin;
+	scrollbar-color: var(--nw-scrollbar-thumb, var(--sg-bg-quaternary)) transparent;
 }
-.nw-console-messages::-webkit-scrollbar { width: 4px; }
+.nw-console-messages::-webkit-scrollbar { width: var(--nw-scrollbar-size, 8px); }
 .nw-console-messages::-webkit-scrollbar-track { background: transparent; }
 .nw-console-messages::-webkit-scrollbar-thumb {
-	background: var(--sg-bg-quaternary, rgba(255, 255, 255, 0.1));
-	border-radius: 2px;
+	background: var(--nw-scrollbar-thumb, var(--sg-bg-quaternary, rgba(255, 255, 255, 0.1)));
+	border-radius: 999px;
+	border: 2px solid transparent;
+	background-clip: padding-box;
 }
 .nw-console-messages::-webkit-scrollbar-thumb:hover {
-	background: var(--sg-text-tertiary, rgba(255, 255, 255, 0.2));
+	background: var(--nw-scrollbar-thumb-hover, var(--sg-text-tertiary, rgba(255, 255, 255, 0.2)));
 }
 
 .nw-console-msg {

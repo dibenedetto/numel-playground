@@ -414,3 +414,5 @@ const NumelExtensions = (() => {
 
 	return { open, close, toggle, isOpen, refresh };
 })();
+
+window.NumelExtensions = NumelExtensions;

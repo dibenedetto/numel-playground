@@ -363,3 +363,5 @@ const NumelAdmin = (() => {
 
 	return { open, close, toggle, isOpen, checkAdminAccess };
 })();
+
+window.NumelAdmin = NumelAdmin;

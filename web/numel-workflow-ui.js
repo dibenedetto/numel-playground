@@ -212,49 +212,97 @@ function _updateWorkbenchOverview() {
 	const statusEl = $('workbenchStatusPill');
 	const askBtn = $('workbenchAskAssistantBtn');
 	const galleryBtn = $('workbenchBrowseGalleryBtn');
+	const canvasSpaceEl = $('canvasWorkbenchSpaceName');
+	const canvasWorkflowEl = $('canvasWorkbenchWorkflowName');
+	const canvasSummaryEl = $('canvasWorkbenchSummary');
+	const canvasAskBtn = $('canvasAskAssistantBtn');
+	const canvasGalleryBtn = $('canvasBrowseGalleryBtn');
+	const canvasRunBtn = $('canvasStartRunBtn');
 	const spaceName = currentSpaceInfo?.title || currentSpaceInfo?.slug || 'Choose a space';
 	const workflowName = visualizer?.currentWorkflowName || $('singleWorkflowName')?.textContent || 'None';
 	const isReady = !!client?.isConnected && _isAuthenticatedUser();
 	const isEmpty = _isCurrentWorkflowEmptyState();
+	const startDisabled = $('startBtn')?.disabled ?? true;
+	let overviewSummary = '';
+	let canvasSummary = '';
 
 	if (spaceEl) spaceEl.textContent = spaceName;
 	if (workflowEl) workflowEl.textContent = `Workflow: ${workflowName || 'None'}`;
 	if (statusEl) statusEl.textContent = isReady ? 'Connected' : 'Offline';
-	if (summaryEl) {
-		if (!currentSpaceInfo) {
-			summaryEl.textContent = 'Create or select a space to start a focused workflow project.';
-		} else if (isEmpty) {
-			summaryEl.textContent = `"${spaceName}" is ready for its first useful run. Start from a template, open the gallery, or let the assistant draft the workflow.`;
-		} else {
-			summaryEl.textContent = `You are working in "${spaceName}". "${workflowName || 'Current Workflow'}" is ready to edit, save, and run.`;
-		}
+
+	if (!currentSpaceInfo) {
+		overviewSummary = 'Create or select a space to start a focused workflow project.';
+		canvasSummary = 'Choose a space to start shaping a tagged workflow on the canvas.';
+	} else if (isEmpty) {
+		overviewSummary = `"${spaceName}" is ready for its first useful run. Start from a template, open the gallery, or let the assistant draft the workflow.`;
+		canvasSummary = `"${spaceName}" is empty. Drop in a starter, sketch nodes, and use workflow tags to keep the canvas organized as it grows.`;
+	} else {
+		overviewSummary = `You are working in "${spaceName}". "${workflowName || 'Current Workflow'}" is ready to edit, save, and run.`;
+		canvasSummary = `"${workflowName || 'Current Workflow'}" is open in "${spaceName}". Edit nodes here, keep related areas tagged, and launch a run when you are ready.`;
 	}
+
+	if (summaryEl) summaryEl.textContent = overviewSummary;
+	if (canvasSpaceEl) canvasSpaceEl.textContent = spaceName;
+	if (canvasWorkflowEl) canvasWorkflowEl.textContent = `Workflow: ${workflowName || 'None'}`;
+	if (canvasSummaryEl) canvasSummaryEl.textContent = canvasSummary;
 	if (askBtn) askBtn.disabled = !isReady;
 	if (galleryBtn) galleryBtn.disabled = !isReady;
+	if (canvasAskBtn) canvasAskBtn.disabled = !isReady;
+	if (canvasGalleryBtn) canvasGalleryBtn.disabled = !isReady;
+	if (canvasRunBtn) canvasRunBtn.disabled = !isReady || startDisabled;
+}
+
+function _syncSpaceControls() {
+	const select = $('spaceSelect');
+	const createBtn = $('createSpaceBtn');
+	const removeBtn = $('removeSpaceBtn');
+	const hasApi = !!api;
+	const optionCount = select ? Array.from(select.options || []).filter((option) => !!option.value).length : 0;
+
+	if (select) {
+		select.disabled = !hasApi || optionCount === 0;
+	}
+	if (createBtn) {
+		createBtn.disabled = !hasApi;
+	}
+	if (removeBtn) {
+		removeBtn.disabled = !hasApi || !currentSpaceId || optionCount <= 1;
+	}
+}
+
+function _closeSidePanelDom(id) {
+	document.getElementById(id)?.classList.remove('open');
 }
 
 window.closeNumelSidePanels = function(except = []) {
 	const keep = new Set(Array.isArray(except) ? except : [except]);
 	if (!keep.has('console')) {
 		try { consoleManager?.close?.(); } catch {}
+		_closeSidePanelDom('consolePanel');
 	}
 	if (!keep.has('gallery')) {
 		try { galleryManager?.close?.(); } catch {}
+		_closeSidePanelDom('galleryPanel');
 	}
 	if (!keep.has('apps')) {
 		try { appsManager?.close?.(); } catch {}
+		_closeSidePanelDom('appsPanel');
 	}
 	if (!keep.has('admin')) {
-		try { window.NumelAdmin?.close?.(); } catch {}
+		try { if (typeof NumelAdmin !== 'undefined') NumelAdmin.close(); } catch {}
+		_closeSidePanelDom('adminPanel');
 	}
 	if (!keep.has('channels')) {
-		try { window.NumelChannels?.close?.(); } catch {}
+		try { if (typeof NumelChannels !== 'undefined') NumelChannels.close(); } catch {}
+		_closeSidePanelDom('channelPanel');
 	}
 	if (!keep.has('extensions')) {
-		try { window.NumelExtensions?.close?.(); } catch {}
+		try { if (typeof NumelExtensions !== 'undefined') NumelExtensions.close(); } catch {}
+		_closeSidePanelDom('extensionsPanel');
 	}
 	if (!keep.has('user')) {
-		try { window.NumelUserPanel?.close?.(); } catch {}
+		try { if (typeof NumelUserPanel !== 'undefined') NumelUserPanel.close(); } catch {}
+		_closeSidePanelDom('userPanel');
 	}
 };
 
@@ -921,6 +969,11 @@ function setupEventListeners() {
 	$('removeSpaceBtn').addEventListener('click', removeCurrentSpace);
 	$('workbenchAskAssistantBtn')?.addEventListener('click', () => _runStarterAction('assistant'));
 	$('workbenchBrowseGalleryBtn')?.addEventListener('click', () => _runStarterAction('gallery'));
+	$('canvasAskAssistantBtn')?.addEventListener('click', () => _runStarterAction('assistant'));
+	$('canvasBrowseGalleryBtn')?.addEventListener('click', () => _runStarterAction('gallery'));
+	$('canvasStartRunBtn')?.addEventListener('click', () => {
+		if (!$('canvasStartRunBtn')?.disabled) $('startBtn')?.click();
+	});
 	$('globalLayoutSelect')?.addEventListener('change', (e) => {
 		const preset = _setGlobalLayoutPreset(e.target.value || 'project-workbench');
 		addLog('info', `🎛 Workspace layout set to "${preset.replace(/-/g, ' ')}"`);
@@ -976,9 +1029,6 @@ function setupEventListeners() {
 }
 
 function enableStart(enable) {
-	$('spaceSelect'       ).disabled = !enable || !client?.isConnected;
-	$('createSpaceBtn'    ).disabled = !enable;
-	$('removeSpaceBtn'    ).disabled = !enable || !currentSpaceId;
 	$('startBtn'         ).disabled = !enable;
 	$('cancelBtn'        ).disabled = enable;
 	$('singleImportBtn'  ).disabled = !enable;
@@ -986,6 +1036,8 @@ function enableStart(enable) {
 	$('singleDownloadBtn').disabled = !enable;
 	$('singleCopyBtn'    ).disabled = !enable;
 	updateClearButtonState();
+	_syncSpaceControls();
+	_updateWorkbenchOverview();
 }
 
 function updateClearButtonState() {
@@ -1102,9 +1154,7 @@ async function connect() {
 		visualizer.initEmptyWorkflow();
 		await refreshSpaceList(true);
 
-		$('spaceSelect').disabled = false;
-		$('createSpaceBtn').disabled = false;
-		$('removeSpaceBtn').disabled = !currentSpaceId;
+		_syncSpaceControls();
 		$('singleImportBtn').disabled = false;
 		$('singlePasteBtn').disabled = false;
 		$('singleDownloadBtn').disabled = false;
@@ -1166,8 +1216,7 @@ async function disconnect() {
 
 	$('spaceSelect').disabled = true;
 	$('spaceSelect').innerHTML = '<option value="">Loading spaces...</option>';
-	$('createSpaceBtn').disabled = true;
-	$('removeSpaceBtn').disabled = true;
+	_syncSpaceControls();
 
 	enableStart(false);
 	$('cancelBtn').disabled = true;
@@ -1428,8 +1477,7 @@ async function refreshSpaceList(loadWorkflow = false) {
 			select.appendChild(option);
 		}
 		if (currentSpaceId) select.value = currentSpaceId;
-		select.disabled = spaces.length === 0;
-		$('removeSpaceBtn').disabled = spaces.length <= 1 || !currentSpaceId;
+		_syncSpaceControls();
 
 		if (loadWorkflow) {
 			await loadCurrentWorkflow();

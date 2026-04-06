@@ -213,3 +213,5 @@ const NumelUserPanel = (() => {
 
 	return { open, close, toggle, isOpen };
 })();
+
+window.NumelUserPanel = NumelUserPanel;

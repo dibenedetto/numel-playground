@@ -310,3 +310,5 @@ const NumelChannels = (() => {
 
 	return { open, close, toggle, isOpen, refresh, refreshSummary };
 })();
+
+window.NumelChannels = NumelChannels;
