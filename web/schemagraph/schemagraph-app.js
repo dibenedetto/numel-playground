@@ -242,6 +242,9 @@ class SchemaGraphApp {
 		this.loadTextScalingMode();
 
 		// ---- Tabs ----
+		// Temporary product simplification: keep the internal tab machinery, but
+		// expose only a single visible canvas surface in the UI.
+		this._singleTabMode = true;
 		this.tabs        = [{ id: this._genTabId(), name: 'Untitled', graphData: null, camera: { x: 0, y: 0, scale: 1.0 }, undoStack: [], redoStack: [] }];
 		this.activeTabId = this.tabs[0].id;
 
@@ -1035,9 +1038,6 @@ class SchemaGraphApp {
 					${row('Complete connection',        K('Release'), Sep('on'), K('● input'))}
 					${row('Remove input link',         K('Drag'), Sep('on'), K('● input'))}
 					${row('Insert preview on edge',    K('Alt'), Sep('+'), K('Click'), Sep('on'), K('edge'))}
-					${sec('Tabs')}
-					${row('New tab',                   K('Ctrl'), K('T'))}
-					${row('Rename tab',                K('Dbl-click'), Sep('on'), K('tab'))}
 				</div>
 			</div>
 			<div class="sg-shortcuts-footer">Press <strong>?</strong> or click <strong>? Help</strong> in the toolbar to open this screen · Click outside to close</div>
@@ -1194,7 +1194,6 @@ class SchemaGraphApp {
 						<button id="sg-generateImport" class="sg-generate-btn">Load into Current Space</button>
 						<button id="sg-generateMerge" class="sg-generate-btn secondary">Merge into Canvas</button>
 						<button id="sg-generateCopy" class="sg-generate-btn secondary">Copy JSON</button>
-						<button id="sg-generateOpenTab" class="sg-generate-btn secondary">Open in new Tab</button>
 						<button id="sg-generateRetry" class="sg-generate-btn secondary">Retry</button>
 					</div>
 				</div>
@@ -1217,9 +1216,6 @@ class SchemaGraphApp {
 
 		// Wire copy button
 		document.getElementById('sg-generateCopy').addEventListener('click', () => this._handleGenerateCopy());
-
-		// Wire open in tab button
-		document.getElementById('sg-generateOpenTab').addEventListener('click', () => this._handleGenerateOpenTab());
 
 		// Wire retry button
 		document.getElementById('sg-generateRetry').addEventListener('click', () => this._handleGenerate());
@@ -1738,6 +1734,10 @@ class SchemaGraphApp {
 	_handleGenerateOpenTab() {
 		if (!this._lastGeneratedWorkflow) {
 			this.showError('No generated workflow to open');
+			return;
+		}
+		if (this._singleTabMode) {
+			this._handleGenerateImport();
 			return;
 		}
 		const schemas = this.graph.getRegisteredSchemas().filter(s => this.graph.isWorkflowSchema(s));
@@ -7474,6 +7474,9 @@ class SchemaGraphApp {
 	}
 
 	_addTab(name) {
+		if (this._singleTabMode) {
+			return this.activeTabId;
+		}
 		this.eventBus.emit('tab:beforeSwitch', { fromTabId: this.activeTabId });
 		this._saveCurrentTabState();
 		const newTab = {
@@ -7588,8 +7591,17 @@ class SchemaGraphApp {
 
 	_renderTabs() {
 		const list = document.getElementById('sg-tab-list');
-		if (!list) return;
+		if (!list) {
+			this._updateHistoryButtons();
+			return;
+		}
 		list.innerHTML = '';
+		if (this._singleTabMode) {
+			const addBtn = list.parentElement?.querySelector('.sg-tab-add');
+			if (addBtn) addBtn.remove();
+			this._updateHistoryButtons();
+			return;
+		}
 		for (const tab of this.tabs) {
 			const el = document.createElement('div');
 			el.className = 'sg-tab' + (tab.id === this.activeTabId ? ' sg-tab--active' : '');
@@ -7619,11 +7631,10 @@ class SchemaGraphApp {
 		panelContainer.classList.add('sg-has-tabs');
 
 		const tabBar = document.createElement('div');
-		tabBar.className = 'sg-tab-bar';
+		tabBar.className = 'sg-tab-bar' + (this._singleTabMode ? ' sg-tab-bar--single' : '');
 		tabBar.id = 'sg-tab-bar';
 		tabBar.innerHTML = `
-			<div class="sg-tab-list" id="sg-tab-list"></div>
-			<div class="sg-tab-spacer"></div>
+			${this._singleTabMode ? '' : '<div class="sg-tab-list" id="sg-tab-list"></div><div class="sg-tab-spacer"></div>'}
 			<button class="sg-undo-btn" id="sg-undo-btn" title="Nothing to undo" disabled>↩</button>
 			<button class="sg-redo-btn" id="sg-redo-btn" title="Nothing to redo" disabled>↪</button>
 		`;
@@ -7645,6 +7656,10 @@ class SchemaGraphApp {
 				border-bottom: 1px solid var(--sg-border-color, #1a1a1a);
 				padding: 4px 6px;
 				gap: 2px; flex-shrink:0; overflow:hidden; box-sizing:border-box; user-select:none;
+			}
+			.sg-tab-bar--single {
+				justify-content:flex-end;
+				gap:6px;
 			}
 			.sg-tab-list {
 				display:flex; align-items:center; gap:1px; overflow-x:auto; min-width:0; max-width:calc(100% - 120px); height:100%;

@@ -2567,9 +2567,6 @@
 .sg-chat-workflow-merge-btn {
   background: var(--sg-accent-blue, #2d5a7b) !important;
 }
-.sg-chat-workflow-open-btn {
-  background: #7b5ea7 !important;
-}
 .sg-chat-workflow-copy-btn {
   background: #5a8f7b !important;
 }
