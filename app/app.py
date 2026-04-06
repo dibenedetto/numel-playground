@@ -14,6 +14,7 @@ warnings.filterwarnings(
 
 import argparse
 import asyncio
+import json
 import os
 import secrets
 import shutil
@@ -83,7 +84,7 @@ from   platform_loader import (
 	build_platform_stack_from_config,
 )
 from   runtime_settings import get_runtime_settings
-from   utils     import add_middleware, clear_recent_logs, get_recent_logs, log_print, seed_everything
+from   utils     import add_middleware, log_print, seed_everything
 from   workspace import WorkspaceManager as WSManager
 
 
@@ -158,7 +159,6 @@ async def run_server(
 	start_tunnel: Optional[bool] = None,
 ):
 	asyncio.get_event_loop().set_exception_handler(_asyncio_exception_handler)
-	clear_recent_logs()
 	log_print("Server starting...")
 	_runtime_settings = get_runtime_settings()
 	_runtime_settings.ensure_directories()
@@ -599,13 +599,12 @@ async def run_server(
 			"output_keys": _summarize_execution_outputs(outputs),
 		}
 
-	def _serialize_admin_execution_detail(record: Any, *, logs: str = "", source: str = "platform") -> dict[str, Any]:
+	def _serialize_admin_execution_detail(record: Any, *, source: str = "platform") -> dict[str, Any]:
 		summary = _serialize_admin_execution_summary(record, source=source)
 		metadata = _execution_record_value(record, "metadata", {}) or {}
 		outputs = _execution_record_value(record, "outputs", {}) or {}
 		summary.update(
 			{
-				"logs": logs,
 				"metadata": _sanitize_config_value(metadata),
 				"outputs": outputs,
 			}
@@ -681,25 +680,23 @@ async def run_server(
 			"source": "history",
 		}
 
-	async def _get_admin_execution_detail(execution_id: str, *, log_tail: int = 200) -> Optional[dict[str, Any]]:
+	async def _get_admin_execution_detail(execution_id: str) -> Optional[dict[str, Any]]:
 		runtime = getattr(_platform_stack, "runtime", None)
 		if runtime is not None:
 			try:
 				record = await runtime.get_execution(execution_id)
 				if record is not None:
-					logs = await runtime.get_logs(execution_id, tail=max(1, int(log_tail or 200)))
-					return _serialize_admin_execution_detail(record, logs=logs, source="platform")
+					return _serialize_admin_execution_detail(record, source="platform")
 			except Exception:
 				pass
 		legacy = exec_history.get(execution_id)
 		if legacy is None:
 			return None
-		return _serialize_admin_execution_detail(legacy, logs="", source="history")
+		return _serialize_admin_execution_detail(legacy, source="history")
 
 	async def _recent_execution_diagnostics(
 		*,
 		limit: int = 5,
-		log_tail: int = 40,
 	) -> dict[str, Any]:
 		runtime = getattr(_platform_stack, "runtime", None)
 		if runtime is None:
@@ -735,11 +732,6 @@ async def run_server(
 		recent = []
 		for record in records:
 			status_value = getattr(getattr(record, "status", None), "value", getattr(record, "status", "unknown"))
-			log_tail_text = ""
-			try:
-				log_tail_text = await runtime.get_logs(record.execution_id, tail=max(1, int(log_tail or 40)))
-			except Exception as exc:
-				log_tail_text = f"Log fetch failed: {exc}"
 			recent.append({
 				"execution_id": record.execution_id,
 				"user_id": record.user_id,
@@ -753,7 +745,6 @@ async def run_server(
 				"error": record.error,
 				"output_keys": _summarize_execution_outputs(record.outputs),
 				"metadata": _sanitize_config_value(record.metadata or {}),
-				"log_tail": log_tail_text,
 			})
 		return {
 			"available": True,
@@ -787,9 +778,6 @@ async def run_server(
 				"disk_usage": _runtime_disk_usage(),
 			},
 			"executions": execution_diagnostics,
-			"app_logs": {
-				"recent": get_recent_logs(limit=120),
-			},
 			"backend_config": _sanitize_config_value(backend_section),
 		}
 
@@ -967,11 +955,7 @@ async def run_server(
 	@app.post("/admin/executions/{execution_id}")
 	async def admin_execution_detail(execution_id: str, request: Request):
 		_require_admin(request)
-		body = {}
-		try: body = await request.json()
-		except Exception: pass
-		tail = int(body.get("tail", 200) or 200)
-		detail = await _get_admin_execution_detail(execution_id, log_tail=tail)
+		detail = await _get_admin_execution_detail(execution_id)
 		if detail is None:
 			raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' was not found")
 		return {"execution": detail}

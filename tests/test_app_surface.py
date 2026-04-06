@@ -278,11 +278,8 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(data["executions"]["available"])
         self.assertTrue(data["executions"]["recent"])
         self.assertTrue(data["executions"]["recent"][0]["execution_id"].startswith("exec_"))
-        self.assertIn("asset_path=workflow.json", data["executions"]["recent"][0]["log_tail"])
-        self.assertIn("status=completed", data["executions"]["recent"][0]["log_tail"])
-        self.assertIn("app_logs", data)
-        self.assertTrue(data["app_logs"]["recent"])
-        self.assertIn("Platform backend: local", json.dumps(data["app_logs"]))
+        self.assertEqual(data["executions"]["recent"][0]["asset_path"], "workflow.json")
+        self.assertEqual(data["executions"]["recent"][0]["status"], "completed")
 
     async def test_admin_execution_detail_surface_local(self) -> None:
         register = await self._client.post(
@@ -325,7 +322,7 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
 
         detail = await self._client.post(
             f"/admin/executions/{first_execution['execution_id']}",
-            json={"tail": 80},
+            json={},
             headers=headers,
         )
         self.assertEqual(detail.status_code, 200, detail.text)
@@ -333,7 +330,7 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(detail_data["source"], "platform")
         self.assertEqual(detail_data["display_name"], "Surface Workflow")
         self.assertEqual(detail_data["metadata"]["workflow_name"], "Surface Workflow")
-        self.assertIn("asset_path=workflow.json", detail_data["logs"])
+        self.assertEqual(detail_data["asset_path"], "workflow.json")
         self.assertEqual(detail_data["status"], "completed")
 
     async def test_first_run_space_accepts_hello_starter_and_completes(self) -> None:

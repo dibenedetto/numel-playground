@@ -3,6 +3,11 @@
 This document defines the recommended commercial split between the public Numel
 repo and the private production backend.
 
+For a more concrete feature-by-feature recommendation, see
+[feature-tier-matrix.md](/c:/devel/numel-playground/docs/feature-tier-matrix.md).
+That document also contains the current `safe-to-commit public surface` list to
+use before publishing new admin/ops work from the public repo.
+
 The goal is:
 
 - keep the public repo as a real, fully working product

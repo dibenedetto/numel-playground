@@ -50,6 +50,8 @@ Core split:
   App-facing client for the platform HTTP layer.
 - [docs/public-private-boundary.md](/c:/devel/numel-playground/docs/public-private-boundary.md)
   Recommended commercial boundary between the public repo and the private prod slice.
+- [docs/feature-tier-matrix.md](/c:/devel/numel-playground/docs/feature-tier-matrix.md)
+  Concrete recommendation for what should stay shared/public and what should move to `prod`.
 - [docs/product-roadmap.md](/c:/devel/numel-playground/docs/product-roadmap.md)
   Current product direction and prioritization for making Numel more compelling.
 - [docs/ui-exploration-plan.md](/c:/devel/numel-playground/docs/ui-exploration-plan.md)

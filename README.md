@@ -246,11 +246,12 @@ Web console users authenticated via the login modal are auto-linked — no expli
 - **Per-user resource quotas** (CPU, storage, GPU, concurrent runs)
 - **User panel** — profile info, quota usage bars, and password change
 - **Admin panel** — slide-out UI with user management, execution monitoring, and system stats
-- **Admin diagnostics** — active backend, runtime paths, startup checks, auth provider state, recent execution log tails, and sanitized backend config in one place
+- **Admin diagnostics** — active backend, runtime paths, startup checks, auth provider state, recent executions, and sanitized backend config in one place
 - **Shared server resources are protected** — contrib toolkit upload/removal is admin-only, while credentials are user-scoped
 - **System toolkit** — AI assistant can manage users, quotas, and executions via natural language
 - **User-scoped data** — execution history filtered by user (admins see all)
 - **Platform backend selection** — choose the active backend via `app/platform_backend.json`
+- **Commercial boundary guidance** — keep the local/reference product real while reserving the stronger ops/deploy layer for `platform_prod`; see [docs/public-private-boundary.md](/c:/devel/numel-playground/docs/public-private-boundary.md) and [docs/feature-tier-matrix.md](/c:/devel/numel-playground/docs/feature-tier-matrix.md)
 
 ---
 
@@ -655,6 +656,28 @@ python app/platform_migrate.py --reset-local-state
 
 `platform_migrate.py` reads the active backend from `app/platform_backend.json` (or `NUMEL_PLATFORM_CONFIG`) and operates on that backend's configured database.
 
+### Backup & Restore
+
+The public repo includes a deliberately limited local backup flow for the
+reference install:
+
+```bash
+python app/platform_backup.py plan
+python app/platform_backup.py backup --output storage/backups/numel-local-backup.zip
+python app/platform_backup.py restore --archive storage/backups/numel-local-backup.zip --overwrite
+```
+
+This public backup tool is intentionally local-only:
+
+- `backend` must be `local`
+- SQLite database only
+- Git-backed spaces, artifacts, and local runtime files only
+- no PostgreSQL dump/restore
+- no production recovery workflow
+
+The stronger production backup/restore tooling lives in the private
+`app/platform_prod` slice and should be used for the `prod` backend.
+
 Automated contract coverage for the local platform HTTP layer lives under `tests/` and runs with the standard library test runner:
 
 ```bash
@@ -979,6 +1002,7 @@ All endpoints use **POST** method unless otherwise noted.
 | `/admin/stats` | System-wide statistics |
 | `/admin/diagnostics` | Runtime, backend, and startup diagnostics |
 | `/admin/executions` | All execution history |
+| `/admin/executions/{id}` | Get execution detail, metadata, and outputs |
 | `/admin/executions/{id}/cancel` | Cancel a running execution |
 
 ### Execution History

@@ -273,7 +273,7 @@ const NumelAdmin = (() => {
 		const cancelBtn = document.getElementById('adminExecDrawerCancel');
 		if (!content) return;
 		try {
-			const data = await _post(`/admin/executions/${executionId}`, { tail: 200 });
+			const data = await _post(`/admin/executions/${executionId}`, {});
 			const execution = data.execution || {};
 			if (title) title.textContent = execution.display_name || execution.workflow_name || 'Execution Details';
 			if (subtitle) {
@@ -285,7 +285,6 @@ const NumelAdmin = (() => {
 			const outputKeys = Array.isArray(execution.output_keys) && execution.output_keys.length
 				? execution.output_keys.map((key) => `<span class="nw-admin-active-tag">${_esc(key)}</span>`).join(' ')
 				: '<span style="color:var(--sg-text-tertiary);font-size:11px;">No output keys recorded.</span>';
-			const logs = String(execution.logs || '').trim();
 			content.innerHTML = `
 				<div class="nw-admin-card">
 					<div class="nw-admin-card-title">Execution Summary</div>
@@ -298,10 +297,6 @@ const NumelAdmin = (() => {
 				</div>
 				${_renderJsonCard('Execution Metadata', execution.metadata || {})}
 				${_renderJsonCard('Execution Outputs', execution.outputs || {})}
-				<div class="nw-admin-card">
-					<div class="nw-admin-card-title">Execution Logs</div>
-					<pre class="nw-ext-pre">${_esc(logs || 'No logs recorded for this execution yet.')}</pre>
-				</div>
 			`;
 		} catch (e) {
 			content.innerHTML = `<div style="color:var(--sg-accent-red);font-size:12px;">Error: ${_esc(e.message)}</div>`;
@@ -438,8 +433,6 @@ const NumelAdmin = (() => {
 			const paths = Array.isArray(runtime.paths) ? runtime.paths : [];
 			const executionDiagnostics = data.executions || {};
 			const recentExecutions = Array.isArray(executionDiagnostics.recent) ? executionDiagnostics.recent : [];
-			const appLogs = data.app_logs || {};
-			const recentAppLogs = Array.isArray(appLogs.recent) ? appLogs.recent : [];
 
 			const diskLabel = disk.ok
 				? `${_formatBytes(disk.used_bytes)} used / ${_formatBytes(disk.total_bytes)} total`
@@ -486,21 +479,9 @@ const NumelAdmin = (() => {
 							<div class="nw-admin-diag-value">${_esc(item.error || '—')}</div>
 						</div>
 						${_renderJsonCard('Execution Metadata', item.metadata || {}, true)}
-						<div class="nw-admin-log-block">
-							<div class="nw-admin-card-title">Recent Logs</div>
-							<pre class="nw-ext-pre">${_esc(item.log_tail || 'No log output available.')}</pre>
-						</div>
 					</div>
 				`).join('')
 				: '<div class="nw-admin-card"><div class="nw-admin-card-detail">No platform executions recorded yet.</div></div>';
-
-			const appLogText = recentAppLogs.length
-				? recentAppLogs.map((entry) => {
-					const stream = entry.stream ? ` ${String(entry.stream).toUpperCase()}` : '';
-					const timestamp = entry.timestamp ? `[${entry.timestamp}]` : '';
-					return `${timestamp}${stream} ${entry.text || ''}`.trim();
-				}).join('\n')
-				: 'No app log entries captured yet.';
 
 			el.innerHTML = `
 				<div class="nw-admin-stat-row">
@@ -543,14 +524,9 @@ const NumelAdmin = (() => {
 				</div>
 				<div class="nw-admin-card">
 					<div class="nw-admin-card-title">Recent Platform Executions</div>
-					<div class="nw-section-lede">Recent runs from the active platform runtime, with short log tails for fast troubleshooting.</div>
+					<div class="nw-section-lede">Recent runs from the active platform runtime for quick status and context checks.</div>
 				</div>
 				${executionCards}
-				<div class="nw-admin-card">
-					<div class="nw-admin-card-title">Recent App Logs</div>
-					<div class="nw-section-lede">A rolling server-side log buffer for platform startup, runtime activity, and operational warnings.</div>
-					<pre class="nw-ext-pre">${_esc(appLogText)}</pre>
-				</div>
 				${_renderJsonCard('Platform Components', platform.components || {})}
 				${_renderJsonCard('Startup Checks', platform.startup_checks || {})}
 				${_renderJsonCard('Backend Configuration', data.backend_config || {})}

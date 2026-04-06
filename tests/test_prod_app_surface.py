@@ -648,11 +648,8 @@ class ProdAppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(data["executions"]["available"])
         self.assertTrue(data["executions"]["recent"])
         self.assertTrue(data["executions"]["recent"][0]["execution_id"].startswith("exec_"))
-        self.assertIn("container_id=container_1", data["executions"]["recent"][0]["log_tail"])
-        self.assertIn("status=completed", data["executions"]["recent"][0]["log_tail"])
-        self.assertIn("app_logs", data)
-        self.assertTrue(data["app_logs"]["recent"])
-        self.assertIn("Platform backend: prod", json.dumps(data["app_logs"]))
+        self.assertEqual(data["executions"]["recent"][0]["status"], "completed")
+        self.assertEqual(data["executions"]["recent"][0]["metadata"].get("container_id"), "container_1")
         self.assertNotIn("user-secret", json.dumps(data))
 
 
@@ -699,7 +696,7 @@ class ProdAppSurfaceTests(unittest.IsolatedAsyncioTestCase):
 
         detail = await self._client.post(
             f"/admin/executions/{first_execution['execution_id']}",
-            json={"tail": 80},
+            json={},
             headers=headers,
         )
         self.assertEqual(detail.status_code, 200, detail.text)
@@ -708,5 +705,7 @@ class ProdAppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(detail_data["display_name"], "Prod Surface Workflow")
         self.assertEqual(detail_data["metadata"]["workflow_name"], "Prod Surface Workflow")
         self.assertEqual(detail_data["metadata"]["runtime_mode"], "docker_api")
-        self.assertIn("container_id=container_1", detail_data["logs"])
+        self.assertEqual(detail_data["metadata"].get("container_id"), "container_1")
         self.assertEqual(detail_data["status"], "completed")
+
+
