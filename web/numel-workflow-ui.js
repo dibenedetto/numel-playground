@@ -38,6 +38,44 @@ const STARTER_GALLERY_IDS = Object.freeze({
 	media: '1d73d947',
 });
 const STARTER_ASSISTANT_PROMPT = '/gen A workflow that asks the user for input, transforms it into a short helpful response, and previews the result.';
+const GLOBAL_LAYOUT_PRESET_STORAGE_KEY = 'numel_global_layout_preset_v1';
+const GLOBAL_LAYOUT_PRESETS = Object.freeze(['project-workbench']);
+
+function _normalizeGlobalLayoutPreset(preset) {
+	const value = String(preset || '').trim().toLowerCase();
+	return GLOBAL_LAYOUT_PRESETS.includes(value) ? value : 'project-workbench';
+}
+
+function _getStoredGlobalLayoutPreset() {
+	try {
+		return _normalizeGlobalLayoutPreset(localStorage.getItem(GLOBAL_LAYOUT_PRESET_STORAGE_KEY));
+	} catch {
+		return 'project-workbench';
+	}
+}
+
+function _applyGlobalLayoutPreset(preset) {
+	const normalized = _normalizeGlobalLayoutPreset(preset);
+	const body = document.body;
+	if (body) {
+		Array.from(body.classList)
+			.filter((className) => className.startsWith('nw-layout-'))
+			.forEach((className) => body.classList.remove(className));
+		body.classList.add(`nw-layout-${normalized}`);
+	}
+	const select = $('globalLayoutSelect');
+	if (select) select.value = normalized;
+	window._numelGlobalLayoutPreset = normalized;
+	return normalized;
+}
+
+function _setGlobalLayoutPreset(preset) {
+	const normalized = _applyGlobalLayoutPreset(preset);
+	try {
+		localStorage.setItem(GLOBAL_LAYOUT_PRESET_STORAGE_KEY, normalized);
+	} catch {}
+	return normalized;
+}
 
 function _starterStorageKey() {
 	return `numel_starter_seen_v1_${window._numelUser?.id || 'guest'}`;
@@ -107,8 +145,8 @@ function _showStarterModal() {
 			</div>
 			<div class="nw-modal-body">
 				<div class="nw-starter-modal-copy">
-					Numel works best when you start from a concrete workflow, not a blank canvas.
-					Choose a fast starting point for <b>${currentSpaceInfo?.title || 'this space'}</b>.
+					Numel works best when each space starts from a concrete workflow, not a blank canvas.
+					Choose the fastest path to a useful first run for <b>${currentSpaceInfo?.title || 'this workbench'}</b>.
 				</div>
 				<div class="nw-starter-modal-grid">
 					<button class="nw-starter-action" data-starter-action="hello" type="button">
@@ -153,18 +191,72 @@ function _showStarterModal() {
 function _updateStarterPanel() {
 	const panel = $('spaceStarterPanel');
 	const subtitle = $('spaceStarterSubtitle');
+	_updateWorkbenchOverview();
 	if (!panel) return;
 	const visible = !!client?.isConnected && _isAuthenticatedUser() && _isCurrentWorkflowEmptyState();
 	panel.style.display = visible ? '' : 'none';
 	if (subtitle) {
 		subtitle.textContent = currentSpaceInfo?.title
-			? `"${currentSpaceInfo.title}" is empty. Choose a fast way to get to your first useful run.`
-			: 'Choose a fast way to get to your first useful run.';
+			? `"${currentSpaceInfo.title}" is empty. Start with a ready-made workflow, ask the assistant, or browse the gallery.`
+			: 'Start with a ready-made workflow, ask the assistant, or browse the gallery.';
 	}
 	if (!visible) {
 		_closeStarterModal(false);
 	}
 }
+
+function _updateWorkbenchOverview() {
+	const spaceEl = $('workbenchSpaceName');
+	const workflowEl = $('workbenchWorkflowName');
+	const summaryEl = $('workbenchSummary');
+	const statusEl = $('workbenchStatusPill');
+	const askBtn = $('workbenchAskAssistantBtn');
+	const galleryBtn = $('workbenchBrowseGalleryBtn');
+	const spaceName = currentSpaceInfo?.title || currentSpaceInfo?.slug || 'Choose a space';
+	const workflowName = visualizer?.currentWorkflowName || $('singleWorkflowName')?.textContent || 'None';
+	const isReady = !!client?.isConnected && _isAuthenticatedUser();
+	const isEmpty = _isCurrentWorkflowEmptyState();
+
+	if (spaceEl) spaceEl.textContent = spaceName;
+	if (workflowEl) workflowEl.textContent = `Workflow: ${workflowName || 'None'}`;
+	if (statusEl) statusEl.textContent = isReady ? 'Connected' : 'Offline';
+	if (summaryEl) {
+		if (!currentSpaceInfo) {
+			summaryEl.textContent = 'Create or select a space to start a focused workflow project.';
+		} else if (isEmpty) {
+			summaryEl.textContent = `"${spaceName}" is ready for its first useful run. Start from a template, open the gallery, or let the assistant draft the workflow.`;
+		} else {
+			summaryEl.textContent = `You are working in "${spaceName}". "${workflowName || 'Current Workflow'}" is ready to edit, save, and run.`;
+		}
+	}
+	if (askBtn) askBtn.disabled = !isReady;
+	if (galleryBtn) galleryBtn.disabled = !isReady;
+}
+
+window.closeNumelSidePanels = function(except = []) {
+	const keep = new Set(Array.isArray(except) ? except : [except]);
+	if (!keep.has('console')) {
+		try { consoleManager?.close?.(); } catch {}
+	}
+	if (!keep.has('gallery')) {
+		try { galleryManager?.close?.(); } catch {}
+	}
+	if (!keep.has('apps')) {
+		try { appsManager?.close?.(); } catch {}
+	}
+	if (!keep.has('admin')) {
+		try { window.NumelAdmin?.close?.(); } catch {}
+	}
+	if (!keep.has('channels')) {
+		try { window.NumelChannels?.close?.(); } catch {}
+	}
+	if (!keep.has('extensions')) {
+		try { window.NumelExtensions?.close?.(); } catch {}
+	}
+	if (!keep.has('user')) {
+		try { window.NumelUserPanel?.close?.(); } catch {}
+	}
+};
 
 function _updateStarterExperience(showModal = false) {
 	_updateStarterPanel();
@@ -197,13 +289,23 @@ async function _runStarterAction(action) {
 				break;
 			case 'assistant':
 				if (!consoleManager) throw new Error('Assistant is not ready yet');
+				if (typeof consoleManager.isOpen === 'function' && consoleManager.isOpen()) {
+					consoleManager.close();
+					addLog('info', '🧩 Assistant closed');
+					break;
+				}
 				await consoleManager.launchStarterPrompt(STARTER_ASSISTANT_PROMPT, { enablePlanner: false, autoSend: false });
 				addLog('info', '🤖 Assistant opened with a starter build prompt');
 				break;
 			case 'gallery':
 				if (!galleryManager) throw new Error('Gallery is not ready yet');
-				await galleryManager.open();
-				addLog('info', '🖼 Opened workflow gallery');
+				if (typeof galleryManager.isOpen === 'function' && galleryManager.isOpen()) {
+					galleryManager.close();
+					addLog('info', '🖼 Closed workflow gallery');
+				} else {
+					await galleryManager.open();
+					addLog('info', '🖼 Opened workflow gallery');
+				}
 				break;
 			default:
 				return;
@@ -276,6 +378,7 @@ function _setWorkflowName(name) {
 
 document.addEventListener('DOMContentLoaded', () => {
 	_applyPermissionVisibility();
+	_applyGlobalLayoutPreset(_getStoredGlobalLayoutPreset());
 
 	// Initialize SchemaGraph
 	schemaGraph = new SchemaGraphApp('sg-main-canvas');
@@ -513,6 +616,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (el && !el._editing) el.textContent = name || 'None';
 		const nameInput = $('wfOpt_name');
 		if (nameInput && nameInput.value !== (name || '')) nameInput.value = name || '';
+		_updateWorkbenchOverview();
 	});
 
 	// Sync initial workflow name from the startup tab
@@ -563,6 +667,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 	// Setup event listeners
 	setupEventListeners();
+	_updateWorkbenchOverview();
 
 	// Panel collapse toggle — button lives inside the title
 	const _panel = document.querySelector('.nw-panel');
@@ -786,6 +891,7 @@ function _showUserBar(user) {
 	if (emailEl)  emailEl.textContent  = user.email || '—';
 	if (serverEl) serverEl.textContent = ($('serverUrl').value || window.location.origin).replace(/^https?:\/\//, '');
 	_applyPermissionVisibility();
+	_updateWorkbenchOverview();
 	document.getElementById('authLogoutBtn').onclick = async () => {
 		const ok = await NumelConfirm('Log Out', 'Are you sure you want to log out?', 'Log Out');
 		if (!ok) return;
@@ -813,6 +919,13 @@ function setupEventListeners() {
 	$('spaceSelect').addEventListener('change', selectCurrentSpace);
 	$('createSpaceBtn').addEventListener('click', createSpace);
 	$('removeSpaceBtn').addEventListener('click', removeCurrentSpace);
+	$('workbenchAskAssistantBtn')?.addEventListener('click', () => _runStarterAction('assistant'));
+	$('workbenchBrowseGalleryBtn')?.addEventListener('click', () => _runStarterAction('gallery'));
+	$('globalLayoutSelect')?.addEventListener('change', (e) => {
+		const preset = _setGlobalLayoutPreset(e.target.value || 'project-workbench');
+		addLog('info', `🎛 Workspace layout set to "${preset.replace(/-/g, ' ')}"`);
+		_updateWorkbenchOverview();
+	});
 	$('starterHelloBtn')?.addEventListener('click', () => _runStarterAction('hello'));
 	$('starterResearchBtn')?.addEventListener('click', () => _runStarterAction('research'));
 	$('starterMediaBtn')?.addEventListener('click', () => _runStarterAction('media'));
@@ -1321,8 +1434,10 @@ async function refreshSpaceList(loadWorkflow = false) {
 		if (loadWorkflow) {
 			await loadCurrentWorkflow();
 		}
+		_updateWorkbenchOverview();
 	} catch (error) {
 		addLog('error', `❌ Failed to refresh spaces: ${error.message}`);
+		_updateWorkbenchOverview();
 	}
 }
 
@@ -1364,8 +1479,10 @@ async function loadCurrentWorkflow() {
 		enableStart(true);
 		updateClearButtonState();
 		_updateStarterExperience(!currentWorkflowHasContent);
+		_updateWorkbenchOverview();
 	} catch (error) {
 		addLog('error', `❌ Failed to load workflow: ${error.message}`);
+		_updateWorkbenchOverview();
 	}
 }
 

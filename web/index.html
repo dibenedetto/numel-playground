@@ -11,11 +11,17 @@
 		<link rel="stylesheet" href="numel-console.css">
 		<link rel="stylesheet" href="numel-gallery.css">
 	</head>
-	<body class="nw-auth-pending">
+	<body class="nw-auth-pending nw-layout-project-workbench">
 		<!-- Auth Modal — shown when auth is enabled and user is not logged in -->
 		<div id="authModal" class="nw-auth-modal" style="display:none;">
 			<div class="nw-auth-card">
-				<h1 class="nw-auth-title"><span class="nw-brand">Numel</span> Playground</h1>
+				<h1 class="nw-auth-title"><span class="nw-brand">Numel</span> Workbench</h1>
+				<p class="nw-auth-copy">Build assistants, visual workflows, and runnable apps from one project workbench. Start with a space, choose a starter, then refine the graph as you go.</p>
+				<div class="nw-auth-chips">
+					<span class="nw-auth-chip">Spaces as projects</span>
+					<span class="nw-auth-chip">Assistant + planner</span>
+					<span class="nw-auth-chip">Run and inspect visually</span>
+				</div>
 				<form id="authLoginForm" class="nw-auth-form" autocomplete="on" onsubmit="return false;">
 					<input id="authUsername" type="text" class="nw-input" placeholder="Username" autocomplete="username" aria-label="Username">
 					<input id="authPassword" type="password" class="nw-input" placeholder="Password" autocomplete="current-password" aria-label="Password">
@@ -38,9 +44,10 @@
 		<!-- Left Panel: Controls -->
 		<div class="nw-panel">
 			<h1 class="nw-title">
-				<span class="nw-brand">Numel</span> Playground
+				<span class="nw-brand">Numel</span> Workbench
 				<span id="wsStatus" class="nw-ws-badge disconnected">●</span>
 			</h1>
+			<div class="nw-title-subtitle">A calmer project shell for building, running, and refining agent workflows.</div>
 			<input type="hidden" id="serverUrl" autocomplete="off">
 
 			<!-- User sub-panel — visible when auth is enabled -->
@@ -69,8 +76,33 @@
 				</div>
 			</section>
 
+			<section id="workbenchOverviewSection" class="nw-section nw-workbench-hero">
+				<div class="nw-workbench-kicker">Current Workbench</div>
+				<div class="nw-workbench-title-row">
+					<div>
+						<div id="workbenchSpaceName" class="nw-workbench-title">Loading space...</div>
+						<div id="workbenchWorkflowName" class="nw-workbench-subtitle">Workflow: None</div>
+					</div>
+					<div id="workbenchStatusPill" class="nw-workbench-status">Local</div>
+				</div>
+				<div id="workbenchSummary" class="nw-workbench-summary">Choose a starter, ask the assistant, or open a gallery workflow to get this space moving.</div>
+				<div class="nw-btn-row nw-workbench-actions">
+					<button id="workbenchAskAssistantBtn" class="nw-btn nw-btn-success nw-btn-sm" type="button">Ask Assistant</button>
+					<button id="workbenchBrowseGalleryBtn" class="nw-btn nw-btn-secondary nw-btn-sm" type="button">Browse Gallery</button>
+				</div>
+				<div class="nw-layout-row">
+					<div class="nw-layout-field">
+						<label for="globalLayoutSelect">Layout</label>
+						<select id="globalLayoutSelect" class="nw-select" aria-label="Global layout preset">
+							<option value="project-workbench">Project Workbench</option>
+						</select>
+					</div>
+					<div class="nw-layout-note">Layout changes the shell around the canvas. Graph themes and drawing styles stay in the canvas toolbar.</div>
+				</div>
+			</section>
+
 			<!-- Credentials Section -->
-			<section class="nw-section nw-section-compact">
+			<section id="credentialsSection" class="nw-section nw-section-compact">
 				<div class="nw-section-header">
 					<h3 class="nw-section-title">Credentials</h3>
 					<button id="addCredentialBtn" class="nw-btn-icon" title="Add credential">＋</button>
@@ -95,7 +127,7 @@
 			</section>
 
 			<!-- Channels sub-panel -->
-			<section class="nw-section nw-section-compact">
+			<section id="channelsSection" class="nw-section nw-section-compact">
 				<div class="nw-section-header">
 					<h3 class="nw-section-title">Channels</h3>
 					<button id="channelPanelBtn" class="nw-btn-icon" title="Manage channels">
@@ -106,9 +138,9 @@
 			</section>
 
 			<!-- Workflow Section -->
-			<section class="nw-section">
+			<section id="workflowSection" class="nw-section">
 				<div class="nw-section-header">
-					<h3 class="nw-section-title">Workflow</h3>
+					<h3 class="nw-section-title">Current Workflow</h3>
 				</div>
 
 				<div class="nw-field">
@@ -197,7 +229,7 @@
 			</section>
 
 			<!-- Execution Section -->
-			<section class="nw-section">
+			<section id="executionSection" class="nw-section">
 				<div class="nw-section-header">
 					<h3 class="nw-section-title">Execution</h3>
 				</div>
@@ -228,7 +260,7 @@
 			</section>
 
 			<!-- Event Log Section -->
-			<section class="nw-section nw-section-grow">
+			<section id="eventLogSection" class="nw-section nw-section-grow">
 				<div class="nw-section-header">
 					<h3 class="nw-section-title">Event Log</h3>
 					<button id="clearLogBtn" class="nw-btn-icon" title="Clear log">🗑</button>

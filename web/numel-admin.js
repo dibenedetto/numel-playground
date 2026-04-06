@@ -38,14 +38,19 @@ const NumelAdmin = (() => {
 	}
 
 	function open() {
-		// Close channels panel if open to avoid overlap
-		if (typeof NumelChannels !== 'undefined') NumelChannels.close();
+		if (typeof window.closeNumelSidePanels === 'function') {
+			window.closeNumelSidePanels(['admin']);
+		}
 		if (_panel) _panel.classList.add('open');
 		_refreshCurrentTab();
 	}
 
 	function close() {
 		if (_panel) _panel.classList.remove('open');
+	}
+
+	function isOpen() {
+		return !!(_panel && _panel.classList.contains('open'));
 	}
 
 	function _switchTab(tabId) {
@@ -356,5 +361,5 @@ const NumelAdmin = (() => {
 		init();
 	}
 
-	return { open, close, toggle, checkAdminAccess };
+	return { open, close, toggle, isOpen, checkAdminAccess };
 })();

@@ -45,14 +45,19 @@ const NumelChannels = (() => {
 	}
 
 	function open() {
-		// Close admin panel if open to avoid overlap
-		if (typeof NumelAdmin !== 'undefined') NumelAdmin.close();
+		if (typeof window.closeNumelSidePanels === 'function') {
+			window.closeNumelSidePanels(['channels']);
+		}
 		if (_panel) _panel.classList.add('open');
 		refresh();
 	}
 
 	function close() {
 		if (_panel) _panel.classList.remove('open');
+	}
+
+	function isOpen() {
+		return !!(_panel && _panel.classList.contains('open'));
 	}
 
 	// ── Refresh channel list ────────────────────────────────────
@@ -303,5 +308,5 @@ const NumelChannels = (() => {
 		init();
 	}
 
-	return { open, close, toggle, refresh, refreshSummary };
+	return { open, close, toggle, isOpen, refresh, refreshSummary };
 })();

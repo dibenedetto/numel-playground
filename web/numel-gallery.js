@@ -42,8 +42,13 @@ class GalleryManager {
 
 	toggle() { this._open ? this.close() : this.open(); }
 
+	isOpen() { return !!this._open; }
+
 	async open() {
 		if (this._open) return;
+		if (typeof window.closeNumelSidePanels === 'function') {
+			window.closeNumelSidePanels(['gallery']);
+		}
 		this._open = true;
 		this._panel.classList.add('open');
 		this._searchInput.focus();
@@ -201,8 +206,13 @@ class AppsManager {
 
 	toggle() { this._open ? this.close() : this.open(); }
 
+	isOpen() { return !!this._open; }
+
 	async open() {
 		if (this._open) return;
+		if (typeof window.closeNumelSidePanels === 'function') {
+			window.closeNumelSidePanels(['apps']);
+		}
 		this._open = true;
 		this._panel.classList.add('open');
 		this._prefillFromCurrentWorkflow();

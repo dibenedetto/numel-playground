@@ -35,6 +35,9 @@ const NumelUserPanel = (() => {
 	}
 
 	function open() {
+		if (typeof window.closeNumelSidePanels === 'function') {
+			window.closeNumelSidePanels(['user']);
+		}
 		if (_panel) _panel.classList.add('open');
 		// Populate hidden username for password-form accessibility
 		const pwUser = document.getElementById('userPwUsername');
@@ -44,6 +47,10 @@ const NumelUserPanel = (() => {
 
 	function close() {
 		if (_panel) _panel.classList.remove('open');
+	}
+
+	function isOpen() {
+		return !!(_panel && _panel.classList.contains('open'));
 	}
 
 	// ── Profile ──────────────────────────────────────────────
@@ -204,5 +211,5 @@ const NumelUserPanel = (() => {
 		init();
 	}
 
-	return { open, close, toggle };
+	return { open, close, toggle, isOpen };
 })();

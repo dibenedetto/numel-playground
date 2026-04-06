@@ -54,8 +54,9 @@ const NumelExtensions = (() => {
 	}
 
 	function open() {
-		if (typeof NumelAdmin !== 'undefined') NumelAdmin.close();
-		if (typeof NumelChannels !== 'undefined') NumelChannels.close();
+		if (typeof window.closeNumelSidePanels === 'function') {
+			window.closeNumelSidePanels(['extensions']);
+		}
 		if (_panel) _panel.classList.add('open');
 		_setUploadVisibility();
 		refresh();
@@ -63,6 +64,10 @@ const NumelExtensions = (() => {
 
 	function close() {
 		if (_panel) _panel.classList.remove('open');
+	}
+
+	function isOpen() {
+		return !!(_panel && _panel.classList.contains('open'));
 	}
 
 	function _activeTabId() {
@@ -407,5 +412,5 @@ const NumelExtensions = (() => {
 		init();
 	}
 
-	return { open, close, toggle, refresh };
+	return { open, close, toggle, isOpen, refresh };
 })();

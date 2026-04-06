@@ -330,8 +330,15 @@ class AgentConsoleManager {
 		else this.open();
 	}
 
+	isOpen() {
+		return !!this._open;
+	}
+
 	async open() {
 		if (this._open) return;
+		if (typeof window.closeNumelSidePanels === 'function') {
+			window.closeNumelSidePanels(['console']);
+		}
 		this._open = true;
 		this._panel.classList.add('open');
 		this._badge.style.display = 'none';
@@ -1055,6 +1062,7 @@ class AgentConsoleManager {
 	async _handleGenerate(description) {
 		this._setStatus('Generating...');
 		this._pendingGen = true;
+		this._showThinking();
 
 		try {
 			// Fetch the generation prompt from the main server
@@ -1076,6 +1084,7 @@ class AgentConsoleManager {
 				this._setStatus(`${source}/${name}`);
 			}
 		} catch (err) {
+			this._hideThinking();
 			this._pendingGen = false;
 			this._addMessage('error', `Generation failed: ${err.message}`);
 			const { source, name } = this._getSelectedModel();
