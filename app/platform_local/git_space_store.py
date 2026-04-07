@@ -110,8 +110,8 @@ class GitSpaceStore(ScaffoldComponent):
                 message,
             )
         except subprocess.CalledProcessError as exc:
-            stderr = (exc.stderr or "").lower()
-            if "nothing to commit" not in stderr and "nothing added to commit" not in stderr:
+            combined = ((exc.stderr or "") + (exc.stdout or "")).lower()
+            if "nothing to commit" not in combined and "nothing added to commit" not in combined:
                 raise
         commit_id = self._git(repo_dir, "rev-parse", "HEAD")
         commit = self._commit_from_id(space_id, commit_id)

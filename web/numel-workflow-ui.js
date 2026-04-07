@@ -329,7 +329,11 @@ function _updateWorkbenchOverview() {
 	}
 	const hero = document.querySelector('.nw-canvas-hero');
 	if (hero) {
-		hero.classList.toggle('nw-hero-hidden', !isEmpty && !!currentSpaceInfo);
+		// Per-space dismissal: hero re-appears for new spaces.
+		let dismissedSet = {};
+		try { dismissedSet = JSON.parse(localStorage.getItem('numel-hero-dismissed') || '{}') || {}; } catch (_) {}
+		const dismissed = currentSpaceId ? !!dismissedSet[currentSpaceId] : false;
+		hero.classList.toggle('nw-hero-hidden', dismissed || (!isEmpty && !!currentSpaceInfo));
 	}
 	// Hide the "useful next step" card once there's a workflow loaded
 	const nextCard = document.querySelector('.nw-workbench-next-card');
@@ -837,6 +841,17 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 	}
 
+	// Map of section id → emoji icon used when the left panel is collapsed
+	const _sectionIcons = {
+		authUserBar: '👤',
+		workbenchOverviewSection: '🗂️',
+		workflowSection: '🧩',
+		executionSection: '▶',
+		channelsSection: '📣',
+		credentialsSection: '🔑',
+		eventLogSection: '📜',
+	};
+
 	// Make each panel section collapsible via header click
 	document.querySelectorAll('.nw-panel .nw-section').forEach(section => {
 		const header = section.querySelector('.nw-section-header');
@@ -854,11 +869,66 @@ document.addEventListener('DOMContentLoaded', () => {
 		icon.className = 'nw-section-collapse-icon';
 		header.insertBefore(icon, header.firstChild);
 
+		// Section glyph shown when panel is collapsed (vertical icon rail)
+		const glyph = _sectionIcons[section.id];
+		if (glyph) {
+			const rail = document.createElement('span');
+			rail.className = 'nw-section-rail-icon';
+			rail.textContent = glyph;
+			rail.setAttribute('title', section.querySelector('.nw-section-title')?.textContent?.trim() || '');
+			header.insertBefore(rail, header.firstChild);
+		}
+
 		header.addEventListener('click', (e) => {
 			if (e.target.closest('button, select, input, a')) return;
+			const panel = document.querySelector('.nw-panel');
+			// When panel is collapsed, clicking a section icon expands the panel
+			// AND ensures the clicked section is expanded. Other sections keep
+			// whatever state they had before the panel was collapsed.
+			if (panel && panel.classList.contains('nw-panel-collapsed')) {
+				panel.classList.remove('nw-panel-collapsed');
+				section.classList.remove('nw-section-collapsed');
+				// Pump resize so canvas + overlays follow the new layout
+				const animEnd = Date.now() + 300;
+				const pump = () => {
+					window.dispatchEvent(new Event('resize'));
+					if (Date.now() < animEnd) requestAnimationFrame(pump);
+				};
+				requestAnimationFrame(pump);
+				return;
+			}
 			section.classList.toggle('nw-section-collapsed');
 		});
 	});
+
+	// Expand-all / Collapse-all toolbar below the panel title
+	const _panelForToolbar = document.querySelector('.nw-panel');
+	if (_panelForToolbar && !document.getElementById('nw-section-toolbar')) {
+		const toolbar = document.createElement('div');
+		toolbar.id = 'nw-section-toolbar';
+		toolbar.className = 'nw-section-toolbar';
+		toolbar.innerHTML = `
+			<button type="button" id="nw-expand-all-btn" class="nw-section-toolbar-btn" title="Expand all sub-panels">Expand all</button>
+			<button type="button" id="nw-collapse-all-btn" class="nw-section-toolbar-btn" title="Collapse all sub-panels">Collapse all</button>
+		`;
+		// Insert right after the title (and its subtitle if any)
+		const firstSection = _panelForToolbar.querySelector('.nw-section');
+		if (firstSection) {
+			_panelForToolbar.insertBefore(toolbar, firstSection);
+		} else {
+			_panelForToolbar.appendChild(toolbar);
+		}
+		document.getElementById('nw-expand-all-btn').addEventListener('click', () => {
+			document.querySelectorAll('.nw-panel .nw-section').forEach(s => {
+				s.classList.remove('nw-section-collapsed');
+			});
+		});
+		document.getElementById('nw-collapse-all-btn').addEventListener('click', () => {
+			document.querySelectorAll('.nw-panel .nw-section').forEach(s => {
+				s.classList.add('nw-section-collapsed');
+			});
+		});
+	}
 
 	// Initial log
 	addLog('info', '🚀 Numel Playground ready');
@@ -1088,6 +1158,18 @@ function setupEventListeners() {
 	$('starterMediaBtn')?.addEventListener('click', () => _runStarterAction('media'));
 	$('starterAssistantBtn')?.addEventListener('click', () => _runStarterAction('assistant'));
 	$('starterBrowseBtn')?.addEventListener('click', () => _runStarterAction('gallery'));
+
+	// Hero close button — persist per-space dismissal
+	$('canvasHeroCloseBtn')?.addEventListener('click', () => {
+		try {
+			const raw = localStorage.getItem('numel-hero-dismissed') || '{}';
+			const set = JSON.parse(raw) || {};
+			if (currentSpaceId) set[currentSpaceId] = 1;
+			localStorage.setItem('numel-hero-dismissed', JSON.stringify(set));
+		} catch (_) {}
+		const hero = document.querySelector('.nw-canvas-hero');
+		if (hero) hero.classList.add('nw-hero-hidden');
+	});
 
 	// Advanced sections toggle
 	$('advancedToggleBtn')?.addEventListener('click', () => {
@@ -3580,19 +3662,17 @@ class CredentialManager {
 		const info   = $('tunnelInfo');
 		const urlEl  = $('tunnelUrl');
 		if (!info || !urlEl) return;
-		for (let i = 0; i < 20; i++) {
-			await new Promise(r => setTimeout(r, 3000));
-			try {
-				const r = await fetch(`${this._base}/tunnel/url`, { method: 'POST' });
-				const d = await r.json();
-				if (d.url) {
-					urlEl.textContent = d.url;
-					urlEl.href        = d.url;
-					info.style.display = 'flex';
-					return;
-				}
-			} catch (_) {}
-		}
+		// One-shot check: tunnel state is fixed at server start (set via --tunnel flag).
+		// If no URL is configured we bail immediately rather than polling forever.
+		try {
+			const r = await fetch(`${this._base}/tunnel/url`, { method: 'POST' });
+			const d = await r.json();
+			if (d && d.url) {
+				urlEl.textContent = d.url;
+				urlEl.href        = d.url;
+				info.style.display = 'flex';
+			}
+		} catch (_) {}
 	}
 }
 
