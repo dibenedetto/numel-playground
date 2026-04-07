@@ -198,8 +198,8 @@ function _updateStarterPanel() {
 	panel.style.display = visible ? '' : 'none';
 	if (subtitle) {
 		subtitle.textContent = currentSpaceInfo?.title
-			? `"${currentSpaceInfo.title}" is empty. Start with a ready-made workflow, ask the assistant, or browse the gallery.`
-			: 'Start with a ready-made workflow, ask the assistant, or browse the gallery.';
+			? `"${currentSpaceInfo.title}" is empty — pick a starter below.`
+			: 'Pick a starter to begin.';
 	}
 	if (!visible) {
 		_closeStarterModal(false);
@@ -210,17 +210,17 @@ function _renderWorkbenchSpaces() {
 	const list = $('workbenchSpacesList');
 	if (!list) return;
 	if (!availableSpaces.length) {
-		list.innerHTML = '<div class="nw-space-pill"><div class="nw-space-pill-bullet"></div><div class="nw-space-pill-meta"><div class="nw-space-pill-title">No spaces yet</div><div class="nw-space-pill-copy">Create a workbench to start shaping a workflow project.</div></div></div>';
+		list.innerHTML = '<div class="nw-space-pill"><div class="nw-space-pill-bullet"></div><div class="nw-space-pill-meta"><div class="nw-space-pill-title">No spaces yet</div><div class="nw-space-pill-copy">Create a space to get started.</div></div></div>';
 		return;
 	}
 	list.innerHTML = availableSpaces.map((space) => {
 		const title = space.title || space.slug || space.id;
 		const isActive = space.id === currentSpaceId;
-		let copy = 'Project workbench';
+		let copy = 'Space';
 		if (isActive && _isCurrentWorkflowEmptyState()) {
-			copy = 'Current workbench · waiting for its first workflow';
+			copy = 'Active · no workflow yet';
 		} else if (isActive) {
-			copy = 'Current workbench · ready to edit and run';
+			copy = 'Active · ready to edit and run';
 		} else if (space.visibility) {
 			copy = `${String(space.visibility).charAt(0).toUpperCase()}${String(space.visibility).slice(1)} space`;
 		}
@@ -275,35 +275,35 @@ function _updateWorkbenchOverview() {
 	let nextTitle = '';
 	let nextCopy = '';
 	let heroKicker = 'Start here';
-	let heroTitle = 'Build a workflow, then run it like a real project.';
-	let heroSummary = 'This work area should feel like a focused project surface: the current space, the next useful move, and the graph itself before the advanced controls.';
+	let heroTitle = 'Build a workflow, then run it.';
+	let heroSummary = 'Pick a space, choose a starter or ask the assistant, and get to your first run fast.';
 
 	if (spaceEl) spaceEl.textContent = spaceName;
 	if (workflowEl) workflowEl.textContent = `Workflow: ${workflowName || 'None'}`;
 	if (statusEl) statusEl.textContent = isReady ? 'Connected' : 'Offline';
 
 	if (!currentSpaceInfo) {
-		overviewSummary = 'Create or select a space to start a focused workflow project.';
-		canvasSummary = 'Choose a space to start shaping a tagged workflow on the canvas.';
-		nextTitle = 'Start by creating a workbench.';
-		nextCopy = 'A space is the project container for one current workflow, its runs, assets, and scoped credentials.';
-		heroTitle = 'Choose a workbench, then start from something concrete.';
-		heroSummary = 'Numel works best when each space feels like a project. Pick a space, use a starter, and move quickly to a first useful run.';
+		overviewSummary = 'Create or pick a space to get started.';
+		canvasSummary = 'Choose a space to start building.';
+		nextTitle = 'Create your first space.';
+		nextCopy = 'A space holds your workflow, its runs, and any credentials it needs.';
+		heroTitle = 'Pick a space to get started.';
+		heroSummary = 'Each space is a self-contained project. Create one, choose a starter, and run it.';
 	} else if (isEmpty) {
-		overviewSummary = `"${spaceName}" is ready for its first useful run. Start from a template, open the gallery, or let the assistant draft the workflow.`;
-		canvasSummary = `"${spaceName}" is empty. Drop in a starter, sketch nodes, and use workflow tags to keep the canvas organized as it grows.`;
-		nextTitle = 'Pick a starter and get to the first run fast.';
-		nextCopy = 'Use a ready-made flow, ask the assistant for a draft, or browse the gallery before opening the advanced controls.';
-		heroTitle = `"${spaceName}" is ready for its first useful workflow.`;
-		heroSummary = 'Start with a ready-made flow, ask the assistant to draft one, or browse the gallery. The goal is a fast path from blank workbench to first successful run.';
+		overviewSummary = `"${spaceName}" is empty — pick a starter, ask the assistant, or browse the gallery.`;
+		canvasSummary = `"${spaceName}" is empty. Choose a starter to begin.`;
+		nextTitle = 'Pick a starter and run it.';
+		nextCopy = 'Use a ready-made workflow, ask the assistant, or browse the gallery.';
+		heroTitle = `"${spaceName}" is ready for its first workflow.`;
+		heroSummary = 'Choose a starter, ask the assistant to draft one, or browse the gallery.';
 	} else {
-		overviewSummary = `You are working in "${spaceName}". "${workflowName || 'Current Workflow'}" is ready to edit, save, and run.`;
-		canvasSummary = `"${workflowName || 'Current Workflow'}" is open in "${spaceName}". Edit nodes here, keep related areas tagged, and launch a run when you are ready.`;
-		nextTitle = 'Refine the workflow or launch the next run.';
-		nextCopy = 'Use the canvas as the main surface, keep related areas tagged, and open the assistant when you want help expanding the graph.';
+		overviewSummary = `Working in "${spaceName}" — "${workflowName || 'Current Workflow'}" is ready to edit and run.`;
+		canvasSummary = `"${workflowName || 'Current Workflow'}" in "${spaceName}". Edit steps and run when ready.`;
+		nextTitle = 'Edit or run the workflow.';
+		nextCopy = 'Add steps on the canvas, save your changes, and run.';
 		heroKicker = 'Current workflow';
-		heroTitle = `Keep building "${workflowName || 'Current Workflow'}".`;
-		heroSummary = `"${spaceName}" is now a live workbench. Edit the graph here, save the changes, then run and inspect the result like a real project.`;
+		heroTitle = `"${workflowName || 'Current Workflow'}"`;
+		heroSummary = `Edit steps, save, and run. Open the assistant if you need help.`;
 	}
 
 	if (summaryEl) summaryEl.textContent = overviewSummary;
@@ -312,7 +312,7 @@ function _updateWorkbenchOverview() {
 	if (heroKickerEl) heroKickerEl.textContent = heroKicker;
 	if (heroTitleEl) heroTitleEl.textContent = heroTitle;
 	if (heroSummaryEl) heroSummaryEl.textContent = heroSummary;
-	if (canvasSpaceEl) canvasSpaceEl.textContent = `Space: ${spaceName}`;
+	if (canvasSpaceEl) canvasSpaceEl.textContent = spaceName;
 	if (canvasWorkflowEl) canvasWorkflowEl.textContent = workflowName || 'Current Workflow';
 	if (canvasSummaryEl) canvasSummaryEl.textContent = canvasSummary;
 	if (askBtn) askBtn.disabled = !isReady;
@@ -322,6 +322,20 @@ function _updateWorkbenchOverview() {
 	if (canvasGalleryBtn) canvasGalleryBtn.disabled = !isReady;
 	if (canvasRunBtn) canvasRunBtn.disabled = !isReady || startDisabled;
 	if (canvasSaveBtn) canvasSaveBtn.disabled = !isReady;
+	// Stage bar shows when workflow is loaded; hero shows when empty
+	const stageBar = document.querySelector('.nw-canvas-stagebar');
+	if (stageBar) {
+		stageBar.classList.toggle('nw-stagebar-hidden', isEmpty);
+	}
+	const hero = document.querySelector('.nw-canvas-hero');
+	if (hero) {
+		hero.classList.toggle('nw-hero-hidden', !isEmpty && !!currentSpaceInfo);
+	}
+	// Hide the "useful next step" card once there's a workflow loaded
+	const nextCard = document.querySelector('.nw-workbench-next-card');
+	if (nextCard) {
+		nextCard.classList.toggle('nw-next-hidden', !isEmpty && !!currentSpaceInfo);
+	}
 	_renderWorkbenchSpaces();
 }
 
@@ -1074,6 +1088,13 @@ function setupEventListeners() {
 	$('starterMediaBtn')?.addEventListener('click', () => _runStarterAction('media'));
 	$('starterAssistantBtn')?.addEventListener('click', () => _runStarterAction('assistant'));
 	$('starterBrowseBtn')?.addEventListener('click', () => _runStarterAction('gallery'));
+
+	// Advanced sections toggle
+	$('advancedToggleBtn')?.addEventListener('click', () => {
+		const isShowing = document.body.classList.toggle('nw-show-advanced');
+		const label = $('advancedToggleLabel');
+		if (label) label.textContent = isShowing ? 'Show less' : 'Show more';
+	});
 
 	// Workflow management
 	$('clearWorkflowBtnSingle').addEventListener('click', clearWorkflow);
@@ -3168,7 +3189,7 @@ function initNodeSearch() {
 
 					const labelSpan = document.createElement('span');
 					labelSpan.className = 'sg-node-search-result-label';
-					labelSpan.textContent = n.displayTitle || n.modelName || n.title || `node ${n.id}`;
+					labelSpan.textContent = n.displayTitle || n.modelName || n.title || `step ${n.id}`;
 
 					row.appendChild(typeSpan);
 					row.appendChild(labelSpan);

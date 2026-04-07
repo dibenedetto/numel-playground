@@ -352,6 +352,13 @@ class ChatOverlayManager {
 				if (currentNode) this._handleWorkflowCopy(currentNode, copyBtn.dataset.msgId, copyBtn);
 				return;
 			}
+			const openBtn = e.target.closest('.sg-chat-workflow-open-btn');
+			if (openBtn) {
+				e.stopPropagation();
+				const currentNode = getNode();
+				if (currentNode) this._handleWorkflowOpenTab(currentNode, openBtn.dataset.msgId);
+				return;
+			}
 			const retryBtn = e.target.closest('.sg-chat-workflow-retry-btn');
 			if (retryBtn) {
 				e.stopPropagation();
@@ -520,6 +527,7 @@ class ChatOverlayManager {
 							<button class="sg-chat-workflow-import-btn" data-msg-id="${lastMsg.id}">Load into Current Space</button>
 							<button class="sg-chat-workflow-merge-btn" data-msg-id="${lastMsg.id}">Merge into Canvas</button>
 							<button class="sg-chat-workflow-copy-btn" data-msg-id="${lastMsg.id}">Copy JSON</button>
+							<button class="sg-chat-workflow-open-btn" data-msg-id="${lastMsg.id}">Open in new Tab</button>
 							<button class="sg-chat-workflow-retry-btn" data-msg-id="${lastMsg.id}">Retry</button>
 							<details class="sg-chat-workflow-preview">
 								<summary>Preview JSON</summary>
@@ -790,6 +798,7 @@ class ChatOverlayManager {
 					<button class="sg-chat-workflow-import-btn" data-msg-id="${msg.id}">Load into Current Space</button>
 					<button class="sg-chat-workflow-merge-btn" data-msg-id="${msg.id}">Merge into Canvas</button>
 					<button class="sg-chat-workflow-copy-btn" data-msg-id="${msg.id}">Copy JSON</button>
+					<button class="sg-chat-workflow-open-btn" data-msg-id="${msg.id}">Open in new Tab</button>
 					<button class="sg-chat-workflow-retry-btn" data-msg-id="${msg.id}">Retry</button>
 					<details class="sg-chat-workflow-preview">
 						<summary>Preview JSON</summary>

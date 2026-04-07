@@ -227,6 +227,8 @@ class SchemaGraphApp {
 			anyDowncast: true,  // Allow connecting Any-typed outputs to concrete-typed inputs (downcast)
 			// Node types
 			nativeTypes: true,
+			// Multi-tab canvas (true = show tab bar with multiple tabs; false = single canvas only)
+			tabs: true,
 			layerFilter: 0   // 0 = all, 1 = kernel, 2 = framework, 3 = app
 		};
 		this.loadFeatures();
@@ -242,9 +244,8 @@ class SchemaGraphApp {
 		this.loadTextScalingMode();
 
 		// ---- Tabs ----
-		// Temporary product simplification: keep the internal tab machinery, but
-		// expose only a single visible canvas surface in the UI.
-		this._singleTabMode = true;
+		// Multi-tab canvas is controlled by the `tabs` feature flag.
+		this._singleTabMode = !this._features.tabs;
 		this.tabs        = [{ id: this._genTabId(), name: 'Untitled', graphData: null, camera: { x: 0, y: 0, scale: 1.0 }, undoStack: [], redoStack: [] }];
 		this.activeTabId = this.tabs[0].id;
 
@@ -577,7 +578,8 @@ class SchemaGraphApp {
 			'sg-feature-prettyfieldnames': this._features.prettyFieldNames,
 			'sg-feature-autolayoutonimport': this._features.autoLayoutOnImport,
 			'sg-feature-implicitstartend': this._features.implicitStartEnd,
-			'sg-feature-anydowncast': this._features.anyDowncast
+			'sg-feature-anydowncast': this._features.anyDowncast,
+			'sg-feature-tabs': this._features.tabs
 		};
 
 		for (const [id, checked] of Object.entries(basicCheckboxMap)) {
@@ -610,7 +612,7 @@ class SchemaGraphApp {
 		panel.innerHTML = `
 			<div class="sg-analytics-header"><div class="sg-analytics-title">📊 Analytics</div><button id="sg-analyticsCloseBtn" class="sg-analytics-close">✕</button></div>
 			<div class="sg-analytics-section"><div class="sg-analytics-metric"><span>Session ID:</span><span id="sg-sessionId">-</span></div><div class="sg-analytics-metric"><span>Duration:</span><span id="sg-sessionDuration">-</span></div><div class="sg-analytics-metric"><span>Events:</span><span id="sg-totalEvents">-</span></div></div>
-			<div class="sg-analytics-section"><div class="sg-analytics-metric"><span>Nodes Created:</span><span id="sg-nodesCreated">0</span></div><div class="sg-analytics-metric"><span>Nodes Deleted:</span><span id="sg-nodesDeleted">0</span></div><div class="sg-analytics-metric"><span>Links Created:</span><span id="sg-linksCreated">0</span></div><div class="sg-analytics-metric"><span>Links Deleted:</span><span id="sg-linksDeleted">0</span></div></div>
+			<div class="sg-analytics-section"><div class="sg-analytics-metric"><span>Steps Created:</span><span id="sg-nodesCreated">0</span></div><div class="sg-analytics-metric"><span>Steps Deleted:</span><span id="sg-nodesDeleted">0</span></div><div class="sg-analytics-metric"><span>Links Created:</span><span id="sg-linksCreated">0</span></div><div class="sg-analytics-metric"><span>Links Deleted:</span><span id="sg-linksDeleted">0</span></div></div>
 			<button id="sg-refreshAnalyticsBtn" class="sg-analytics-btn">🔄 Refresh</button><button id="sg-exportAnalyticsBtn" class="sg-analytics-btn">💾 Export</button>`;
 		document.body.appendChild(panel);
 	}
@@ -727,6 +729,11 @@ class SchemaGraphApp {
 						<input type="checkbox" id="sg-feature-minimap" checked>
 						<span class="sg-toolbar-toggle-slider"></span>
 						<span class="sg-toolbar-toggle-text">Mini-map</span>
+					</label>
+					<label class="sg-toolbar-toggle-switch" title="Show the multi-tab canvas bar so multiple workflows can be opened side by side">
+						<input type="checkbox" id="sg-feature-tabs" checked>
+						<span class="sg-toolbar-toggle-slider"></span>
+						<span class="sg-toolbar-toggle-text">Tabs</span>
 					</label>
 				</div>
 			</div>
@@ -1038,6 +1045,9 @@ class SchemaGraphApp {
 					${row('Complete connection',        K('Release'), Sep('on'), K('● input'))}
 					${row('Remove input link',         K('Drag'), Sep('on'), K('● input'))}
 					${row('Insert preview on edge',    K('Alt'), Sep('+'), K('Click'), Sep('on'), K('edge'))}
+					${sec('Tabs')}
+					${row('New tab',                   K('Ctrl'), K('T'))}
+					${row('Rename tab',                K('Dbl-click'), Sep('on'), K('tab'))}
 				</div>
 			</div>
 			<div class="sg-shortcuts-footer">Press <strong>?</strong> or click <strong>? Help</strong> in the toolbar to open this screen · Click outside to close</div>
@@ -1194,6 +1204,7 @@ class SchemaGraphApp {
 						<button id="sg-generateImport" class="sg-generate-btn">Load into Current Space</button>
 						<button id="sg-generateMerge" class="sg-generate-btn secondary">Merge into Canvas</button>
 						<button id="sg-generateCopy" class="sg-generate-btn secondary">Copy JSON</button>
+						<button id="sg-generateOpenTab" class="sg-generate-btn secondary">Open in new Tab</button>
 						<button id="sg-generateRetry" class="sg-generate-btn secondary">Retry</button>
 					</div>
 				</div>
@@ -1216,6 +1227,9 @@ class SchemaGraphApp {
 
 		// Wire copy button
 		document.getElementById('sg-generateCopy').addEventListener('click', () => this._handleGenerateCopy());
+
+		// Wire open in tab button
+		document.getElementById('sg-generateOpenTab').addEventListener('click', () => this._handleGenerateOpenTab());
 
 		// Wire retry button
 		document.getElementById('sg-generateRetry').addEventListener('click', () => this._handleGenerate());
@@ -2981,7 +2995,7 @@ class SchemaGraphApp {
 	}
 	deleteSelectedNodes() {
 		if (!this.selectedNodes.size) return;
-		const label = this.selectedNodes.size > 1 ? 'Delete Nodes' : 'Delete Node';
+		const label = this.selectedNodes.size > 1 ? 'Delete Steps' : 'Delete Step';
 		this._startBatch();
 		for (const node of Array.from(this.selectedNodes)) this.removeNode(node);
 		this.clearSelection();
@@ -4566,10 +4580,10 @@ class SchemaGraphApp {
 		let html = '';
 
 		if (node) {
-			html += '<div class="sg-context-menu-category">Node Actions</div>';
+			html += '<div class="sg-context-menu-category">Step Actions</div>';
 			html += this.selectedNodes.size > 1
-				? `<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete-all">❌ Delete ${this.selectedNodes.size} Nodes</div>`
-				: '<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete">❌ Delete Node</div>';
+				? `<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete-all">❌ Delete ${this.selectedNodes.size} Steps</div>`
+				: '<div class="sg-context-menu-item sg-context-menu-delete" data-action="delete">❌ Delete Step</div>';
 			if (this.selectedNodes.size >= 2) {
 				html += '<div class="sg-context-menu-item sg-context-menu-template" data-action="save-template">Save as Template</div>';
 			}
@@ -4712,7 +4726,7 @@ class SchemaGraphApp {
 				} else {
 					this._startBatch();
 					this.removeNode(node);
-					this._endBatch('Delete Node');
+					this._endBatch('Delete Step');
 				}
 				contextMenu.classList.remove('show');
 			});
@@ -7734,6 +7748,35 @@ class SchemaGraphApp {
 		this._renderTabs();
 	}
 
+	_rebuildTabBar() {
+		const tabBar = document.getElementById('sg-tab-bar');
+		if (!tabBar) return;
+		tabBar.className = 'sg-tab-bar' + (this._singleTabMode ? ' sg-tab-bar--single' : '');
+		tabBar.innerHTML = `
+			${this._singleTabMode ? '' : '<div class="sg-tab-list" id="sg-tab-list"></div><div class="sg-tab-spacer"></div>'}
+			<button class="sg-undo-btn" id="sg-undo-btn" title="Nothing to undo" disabled>↩</button>
+			<button class="sg-redo-btn" id="sg-redo-btn" title="Nothing to redo" disabled>↪</button>
+		`;
+		this._renderTabs();
+		this._updateHistoryButtons();
+	}
+
+	setTabsEnabled(enabled) {
+		const wantSingle = !enabled;
+		if (wantSingle === this._singleTabMode) return;
+		// When switching to single-tab mode, collapse to the active tab only.
+		if (wantSingle && this.tabs.length > 1) {
+			this._saveCurrentTabState();
+			const active = this.tabs.find(t => t.id === this.activeTabId) || this.tabs[0];
+			this.tabs = [active];
+			this.activeTabId = active.id;
+		}
+		this._singleTabMode = wantSingle;
+		this._rebuildTabBar();
+		// Re-render the tab list (or its absence) and ensure the + button presence is correct.
+		this._renderTabs();
+	}
+
 	// ========================================================================
 	// HISTORY MANAGEMENT
 	// ========================================================================
@@ -7805,7 +7848,7 @@ class SchemaGraphApp {
 		};
 
 		this.eventBus.on(GraphEvents.NODE_CREATED,  () => commit('Add Node'));
-		this.eventBus.on(GraphEvents.NODE_REMOVED,  () => commit('Delete Node'));
+		this.eventBus.on(GraphEvents.NODE_REMOVED,  () => commit('Delete Step'));
 		this.eventBus.on(GraphEvents.LINK_CREATED,  () => commit('Connect'));
 		this.eventBus.on(GraphEvents.LINK_REMOVED,  () => commit('Disconnect'));
 		this.eventBus.on(GraphEvents.GRAPH_CLEARED, () => commit('Clear'));
@@ -11556,6 +11599,10 @@ class SchemaGraphApp {
 					document.getElementById('sg-feature-minimap')?.addEventListener('change', (e) => {
 						const mm = document.getElementById('sg-minimap');
 						if (mm) mm.style.display = e.target.checked ? '' : 'none';
+					});
+					document.getElementById('sg-feature-tabs')?.addEventListener('change', (e) => {
+						self.api.features.set({ tabs: e.target.checked });
+						self.setTabsEnabled(e.target.checked);
 					});
 
 					// Features panel toggle (show/hide with animation)

@@ -16,7 +16,7 @@
 		<div id="authModal" class="nw-auth-modal" style="display:none;">
 			<div class="nw-auth-card">
 				<h1 class="nw-auth-title"><span class="nw-brand">Numel</span> Workbench</h1>
-				<p class="nw-auth-copy">Build assistants, visual workflows, and runnable apps from one project workbench. Start with a space, choose a starter, then refine the graph as you go.</p>
+				<p class="nw-auth-copy">Build visual agent workflows, run them, and ship them as apps — all from one place.</p>
 				<div class="nw-auth-chips">
 					<span class="nw-auth-chip">Spaces as projects</span>
 					<span class="nw-auth-chip">Assistant + planner</span>
@@ -47,7 +47,7 @@
 				<span class="nw-brand">Numel</span> Workbench
 				<span id="wsStatus" class="nw-ws-badge disconnected">●</span>
 			</h1>
-			<div class="nw-title-subtitle">A calmer project shell for building, running, and refining agent workflows.</div>
+			<div class="nw-title-subtitle">Build, run, and refine agent workflows.</div>
 			<input type="hidden" id="serverUrl" autocomplete="off">
 
 			<!-- User sub-panel — visible when auth is enabled -->
@@ -112,14 +112,13 @@
 					<button id="workbenchAskAssistantBtn" class="nw-btn nw-btn-success nw-btn-sm" type="button">Ask Assistant</button>
 					<button id="workbenchBrowseGalleryBtn" class="nw-btn nw-btn-secondary nw-btn-sm" type="button">Browse Gallery</button>
 				</div>
-				<div class="nw-layout-row">
+				<div class="nw-layout-row" style="display:none;">
 					<div class="nw-layout-field">
 						<label for="globalLayoutSelect">Layout</label>
 						<select id="globalLayoutSelect" class="nw-select" aria-label="Global layout preset">
 							<option value="project-workbench">Project Workbench</option>
 						</select>
 					</div>
-					<div class="nw-layout-note">Layout changes the shell around the canvas. Graph themes and drawing styles stay in the canvas toolbar.</div>
 				</div>
 			</section>
 
@@ -129,7 +128,7 @@
 					<h3 class="nw-section-title">Credentials</h3>
 					<button id="addCredentialBtn" class="nw-btn-icon" title="Add credential">＋</button>
 				</div>
-				<div class="nw-section-lede">Account-scoped secrets used only for your executions and connected tools.</div>
+				<div class="nw-section-lede">API keys and tokens used by your workflows.</div>
 				<div id="credentialsAccessNote" class="nw-access-note" style="display:none;">
 					<span class="nw-access-badge">Admin Only</span>
 					<span id="credentialsAccessText" class="nw-access-text"></span>
@@ -157,7 +156,7 @@
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
 					</button>
 				</div>
-				<div class="nw-section-lede">Bring this workbench into Telegram, Discord, Slack, email, and other delivery surfaces.</div>
+				<div class="nw-section-lede">Connect this space to Telegram, Discord, Slack, email, and other channels.</div>
 				<div id="channelSummary" class="nw-channel-summary">No channels configured</div>
 			</section>
 
@@ -166,7 +165,7 @@
 				<div class="nw-section-header">
 					<h3 class="nw-section-title">Current Workflow</h3>
 				</div>
-				<div class="nw-section-lede">Shape the graph for this workbench, then save and run it from the same project surface.</div>
+				<div class="nw-section-lede">Shape the workflow for this space, then save and run it.</div>
 				<div class="nw-field">
 					<div id="singleWorkflowName" class="nw-mono-text">None</div>
 				</div>
@@ -214,15 +213,15 @@
 				<input type="file" id="singleWorkflowFileInput" accept=".json" style="display:none;">
 			</section>
 
-			<!-- Execution Section -->
+			<!-- Run Section -->
 			<section id="executionSection" class="nw-section nw-section-primary-soft nw-section-collapsed">
 				<div class="nw-section-header">
-					<h3 class="nw-section-title">Execution</h3>
+					<h3 class="nw-section-title">Run</h3>
 				</div>
-				<div class="nw-section-lede">Run the current workflow, inspect status, and keep the latest execution in view.</div>
+				<div class="nw-section-lede">Run the current workflow and inspect its progress here.</div>
 				<div class="nw-btn-row">
-					<button id="startBtn" class="nw-btn nw-btn-success" disabled>▶ Start</button>
-					<button id="cancelBtn" class="nw-btn nw-btn-danger" disabled>■ Cancel</button>
+					<button id="startBtn" class="nw-btn nw-btn-success" disabled>▶ Run</button>
+					<button id="cancelBtn" class="nw-btn nw-btn-danger" disabled>■ Stop</button>
 				</div>
 
 				<!-- Execution Options (Collapsible, inside Execution section) -->
@@ -241,19 +240,23 @@
 					<div id="execStatus" class="nw-status idle">Not running</div>
 				</div>
 				<div class="nw-field">
-					<label>Execution ID</label>
+					<label>Run ID</label>
 					<div id="execId" class="nw-mono-text">-</div>
 				</div>
 			</section>
 
-			<!-- Event Log Section -->
+			<!-- Activity Section -->
 			<section id="eventLogSection" class="nw-section nw-section-grow nw-section-secondary nw-section-collapsed">
 				<div class="nw-section-header">
-					<h3 class="nw-section-title">Event Log</h3>
-					<button id="clearLogBtn" class="nw-btn-icon" title="Clear log">🗑</button>
+					<h3 class="nw-section-title">Activity</h3>
+					<button id="clearLogBtn" class="nw-btn-icon" title="Clear activity">🗑</button>
 				</div>
 				<div id="eventLog" class="nw-event-log"></div>
 			</section>
+
+			<button id="advancedToggleBtn" class="nw-advanced-toggle" type="button">
+				<span id="advancedToggleLabel">Show more</span>
+			</button>
 
 		</div>
 
@@ -262,8 +265,8 @@
 			<div class="nw-canvas-hero">
 				<div class="nw-canvas-hero-copy">
 					<div id="canvasHeroKicker" class="nw-canvas-hero-kicker">Start here</div>
-					<div id="canvasHeroTitle" class="nw-canvas-hero-title">Build a workflow, then run it like a real project.</div>
-					<div id="canvasHeroSummary" class="nw-canvas-hero-summary">This work area should feel like a focused project surface: the current space, the next useful move, and the graph itself before the advanced controls.</div>
+					<div id="canvasHeroTitle" class="nw-canvas-hero-title">Build a workflow, then run it.</div>
+					<div id="canvasHeroSummary" class="nw-canvas-hero-summary">Pick a space, choose a starter or ask the assistant, and get to your first run fast.</div>
 				</div>
 				<div class="nw-canvas-hero-actions">
 					<button id="canvasAskAssistantBtn" class="nw-btn nw-btn-secondary" type="button">Assistant</button>
@@ -271,25 +274,25 @@
 				</div>
 				<div id="spaceStarterPanel" class="nw-starter-panel" style="display:none;">
 					<div class="nw-starter-panel-head">
-						<div class="nw-starter-panel-title">Start This Space</div>
-						<div id="spaceStarterSubtitle" class="nw-starter-panel-copy">Choose a fast way to get to your first useful run.</div>
+						<div class="nw-starter-panel-title">Get started</div>
+						<div id="spaceStarterSubtitle" class="nw-starter-panel-copy">Pick a starter to begin.</div>
 					</div>
 					<div class="nw-starter-grid">
 						<button id="starterHelloBtn" class="nw-starter-action" type="button">
-							<span class="nw-starter-action-title">Hello Workflow</span>
-							<span class="nw-starter-action-copy">Load the simplest runnable graph.</span>
+							<span class="nw-starter-action-title">Hello workflow</span>
+							<span class="nw-starter-action-copy">The simplest runnable example.</span>
 						</button>
 						<button id="starterResearchBtn" class="nw-starter-action" type="button">
-							<span class="nw-starter-action-title">Research Starter</span>
-							<span class="nw-starter-action-copy">Open a planner-style research pipeline.</span>
+							<span class="nw-starter-action-title">Research</span>
+							<span class="nw-starter-action-copy">A planner-style research pipeline.</span>
 						</button>
 						<button id="starterMediaBtn" class="nw-starter-action" type="button">
-							<span class="nw-starter-action-title">Webcam Starter</span>
-							<span class="nw-starter-action-copy">Try a browser-native media workflow.</span>
+							<span class="nw-starter-action-title">Webcam</span>
+							<span class="nw-starter-action-copy">A browser webcam workflow.</span>
 						</button>
 						<button id="starterAssistantBtn" class="nw-starter-action" type="button">
-							<span class="nw-starter-action-title">Ask Assistant</span>
-							<span class="nw-starter-action-copy">Open Numel Assistant with a starter build prompt.</span>
+							<span class="nw-starter-action-title">Ask the assistant</span>
+							<span class="nw-starter-action-copy">Have one drafted for you.</span>
 						</button>
 					</div>
 					<div class="nw-btn-row nw-starter-panel-footer">
@@ -302,7 +305,7 @@
 					<div class="nw-canvas-kicker">Current workflow</div>
 					<div id="canvasWorkbenchWorkflowName" class="nw-canvas-title">Workflow: None</div>
 					<div id="canvasWorkbenchSpaceName" class="nw-canvas-subtitle">Loading space...</div>
-					<div id="canvasWorkbenchSummary" class="nw-canvas-summary">The canvas is where workflow tags, graph edits, and previews come together.</div>
+					<div id="canvasWorkbenchSummary" class="nw-canvas-summary">Edit steps, connect them, and run your workflow from here.</div>
 				</div>
 				<div class="nw-canvas-stageactions">
 					<button id="canvasSaveWorkflowBtn" class="nw-btn nw-btn-secondary" type="button">Save</button>
@@ -319,7 +322,7 @@
 			<div id="nodeSearchOverlay" style="display:none">
 				<div id="nodeSearchBox">
 					<div class="sg-node-search-header">
-						<input id="nodeSearchInput" type="text" placeholder="Search nodes…" autocomplete="off" spellcheck="false" aria-label="Search nodes">
+						<input id="nodeSearchInput" type="text" placeholder="Search steps…" autocomplete="off" spellcheck="false" aria-label="Search steps">
 						<span id="nodeSearchCount"></span>
 						<button id="nodeSearchClose">&times;</button>
 					</div>

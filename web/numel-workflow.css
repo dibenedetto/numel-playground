@@ -359,6 +359,53 @@ body.nw-layout-project-workbench .nw-section-title {
 	color: var(--sg-text-secondary);
 }
 
+/* ── Advanced sections: hidden by default, revealed via .nw-show-advanced ── */
+#credentialsSection,
+#channelsSection,
+#eventLogSection {
+	display: none;
+}
+
+body.nw-show-advanced #credentialsSection,
+body.nw-show-advanced #channelsSection,
+body.nw-show-advanced #eventLogSection {
+	display: block;
+}
+
+/* ── Stage bar: hide when workflow is empty ── */
+.nw-canvas-stagebar.nw-stagebar-hidden {
+	display: none;
+}
+
+/* ── Canvas hero: hide once a workflow is loaded (stage bar takes over) ── */
+.nw-canvas-hero.nw-hero-hidden {
+	display: none;
+}
+
+/* ── More / Less toggle button in left panel ── */
+.nw-advanced-toggle {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	width: 100%;
+	padding: 8px 0;
+	border: 1px solid var(--nw-border-quiet);
+	border-radius: var(--nw-radius-control);
+	background: transparent;
+	color: var(--sg-text-secondary);
+	font-size: 11px;
+	font-weight: 600;
+	letter-spacing: 0.06em;
+	cursor: pointer;
+	transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.nw-advanced-toggle:hover {
+	color: var(--sg-text-primary);
+	border-color: var(--sg-accent-blue, #46a2da);
+}
+
 /* ========================================================================
    FORM ELEMENTS
    ======================================================================== */
@@ -622,6 +669,10 @@ body.nw-layout-project-workbench .nw-section-title {
 	border-radius: 14px;
 	border: 1px solid color-mix(in srgb, var(--nw-border-soft) 90%, transparent);
 	background: color-mix(in srgb, var(--sg-bg-primary) 62%, transparent);
+}
+
+.nw-workbench-next-card.nw-next-hidden {
+	display: none;
 }
 
 .nw-workbench-next-title {
@@ -1007,13 +1058,38 @@ body.nw-layout-project-workbench .nw-btn-grid .nw-btn {
 }
 
 body.nw-layout-project-workbench .nw-starter-panel {
-	padding: 14px;
-	border-radius: 18px;
+	margin-top: 18px;
+	padding: 22px;
+	border-radius: 20px;
+	border: 1px solid color-mix(in srgb, var(--sg-accent-blue, #46a2da) 30%, var(--nw-border-soft));
+	box-shadow: 0 18px 36px color-mix(in srgb, var(--sg-node-shadow, rgba(0,0,0,0.35)) 38%, transparent);
 	background:
-		radial-gradient(circle at top right, color-mix(in srgb, var(--sg-accent-orange, #f5a623) 14%, transparent), transparent 26%),
+		radial-gradient(circle at top right, color-mix(in srgb, var(--sg-accent-orange, #f5a623) 16%, transparent), transparent 28%),
 		linear-gradient(180deg,
-			color-mix(in srgb, var(--sg-bg-secondary) 82%, var(--sg-accent-blue, #46a2da) 18%),
-			color-mix(in srgb, var(--sg-bg-secondary) 96%, white 4%));
+			color-mix(in srgb, var(--sg-bg-secondary) 78%, var(--sg-accent-blue, #46a2da) 22%),
+			color-mix(in srgb, var(--sg-bg-secondary) 95%, white 5%));
+}
+
+body.nw-layout-project-workbench .nw-starter-panel .nw-starter-panel-title {
+	font-size: 16px;
+}
+
+body.nw-layout-project-workbench .nw-starter-panel .nw-starter-panel-copy {
+	font-size: 13px;
+	margin-top: 4px;
+}
+
+body.nw-layout-project-workbench .nw-starter-grid {
+	gap: 12px;
+	margin-top: 12px;
+}
+
+body.nw-layout-project-workbench .nw-starter-action {
+	padding: 16px;
+}
+
+body.nw-layout-project-workbench .nw-starter-action-title {
+	font-size: 14px;
 }
 
 .nw-starter-panel-head {
@@ -1361,10 +1437,10 @@ body.nw-layout-project-workbench .nw-canvas-panel {
 
 .nw-canvas-hero-title {
 	margin-top: 8px;
-	font-size: clamp(28px, 3vw, 40px);
-	font-weight: 750;
-	line-height: 1.05;
-	letter-spacing: -0.04em;
+	font-size: clamp(22px, 2.2vw, 30px);
+	font-weight: 700;
+	line-height: 1.15;
+	letter-spacing: -0.02em;
 	color: var(--sg-text-primary);
 	max-width: 760px;
 }
@@ -1382,6 +1458,11 @@ body.nw-layout-project-workbench .nw-canvas-panel {
 	flex-wrap: wrap;
 	gap: 10px;
 	margin-top: 16px;
+}
+
+/* When the starter panel is visible, hide the duplicated hero action buttons */
+.nw-canvas-hero:has(.nw-starter-panel:not([style*="display: none"])) .nw-canvas-hero-actions {
+	display: none;
 }
 
 .nw-canvas-stagebar {
