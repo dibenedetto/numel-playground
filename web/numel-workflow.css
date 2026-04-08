@@ -313,6 +313,7 @@ body.nw-layout-project-workbench #executionSection { order: 4; }
 body.nw-layout-project-workbench #channelsSection { order: 5; }
 body.nw-layout-project-workbench #credentialsSection { order: 6; }
 body.nw-layout-project-workbench #eventLogSection { order: 7; }
+body.nw-layout-project-workbench #experimentalSection { order: 8; }
 body.nw-layout-project-workbench #advancedToggleBtn { order: 99; }
 
 body.nw-layout-project-workbench .nw-section-primary {
@@ -489,7 +490,8 @@ body.nw-layout-project-workbench .nw-section-title {
    collapsed-flex centering rule stays in effect. */
 body:not(.nw-show-advanced) #credentialsSection,
 body:not(.nw-show-advanced) #channelsSection,
-body:not(.nw-show-advanced) #eventLogSection {
+body:not(.nw-show-advanced) #eventLogSection,
+body:not(.nw-show-advanced) #experimentalSection {
 	display: none !important;
 }
 

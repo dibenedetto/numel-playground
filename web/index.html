@@ -95,14 +95,6 @@
 						</select>
 					</div>
 				</div>
-				<div class="nw-layout-row" style="display:none;">
-					<div class="nw-layout-field">
-						<label for="globalLayoutSelect">Layout</label>
-						<select id="globalLayoutSelect" class="nw-select" aria-label="Global layout preset">
-							<option value="project-workbench">Project Workbench</option>
-						</select>
-					</div>
-				</div>
 			</section>
 
 			<!-- Credentials Section -->
@@ -254,6 +246,23 @@
 					<button id="clearLogBtn" class="nw-btn-icon" title="Clear activity">🗑</button>
 				</div>
 				<div id="eventLog" class="nw-event-log"></div>
+			</section>
+
+			<!-- Experimental Section (hidden by default, revealed via Show more) -->
+			<section id="experimentalSection" class="nw-section nw-section-compact nw-section-secondary nw-section-collapsed">
+				<div class="nw-section-header">
+					<h3 class="nw-section-title">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 2v7.31"/><path d="M14 9.3V2"/><path d="M8.5 2h7"/><path d="M14 9.3a6.5 6.5 0 1 1-4 0"/><path d="M5.58 16.5h12.85"/></svg>
+						<span>Experimental</span>
+					</h3>
+				</div>
+				<div class="nw-section-lede">Experimental features. Behavior may change.</div>
+				<div class="nw-field">
+					<label for="globalLayoutSelect">Layout</label>
+					<select id="globalLayoutSelect" class="nw-select" aria-label="Global layout preset">
+						<option value="project-workbench">Project Workbench</option>
+					</select>
+				</div>
 			</section>
 
 			<button id="advancedToggleBtn" class="nw-advanced-toggle" type="button">

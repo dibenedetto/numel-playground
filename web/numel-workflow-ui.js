@@ -853,6 +853,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		channelsSection:          'Channels',
 		credentialsSection:       'Credentials',
 		eventLogSection:          'Activity',
+		experimentalSection:      'Experimental',
 	};
 
 	// Make each panel section collapsible via header click
@@ -2025,43 +2026,105 @@ async function pasteWorkflowFromClipboard() {
 async function clearWorkflow() {
 	if (!visualizer.currentWorkflow) return;
 
-	// Capture the pre-clear graph snapshot AND the current undoStack
-	// length. We let the clear+sync run normally (don't suppress history),
-	// then truncate the undoStack back to the captured length and push a
-	// single 'Clear Workflow' entry. This guarantees exactly one undo
-	// step regardless of how many internal operations push history.
+	// Snapshot the pre-clear graph state AND camera so a single undo
+	// restores both the workflow and the original view.
 	const beforeSnapshot = schemaGraph?._captureCurrentSnapshot?.();
-	const undoLenBefore = schemaGraph?.history?.undoStack?.length ?? 0;
+	const cameraBefore = schemaGraph?.camera
+		? { x: schemaGraph.camera.x, y: schemaGraph.camera.y, scale: schemaGraph.camera.scale }
+		: null;
+
+	// Snapshot the existing undo/redo stacks so we can fully restore them
+	// after clear+sync, wiping any intermediate entries the subsystem added,
+	// then push exactly ONE 'Clear Workflow' command on top.
+	const histMgr = schemaGraph?.history;
+	const savedUndoStack = histMgr ? histMgr.undoStack.slice() : null;
+	const savedRedoStack = histMgr ? histMgr.redoStack.slice() : null;
 
 	try {
 		schemaGraph.api.lock.lock('Clearing workflow');
 		schemaGraph.closeAllPreviewTextOverlays?.();
+		// Suppress all event-bus-driven commits during clear+sync.
+		schemaGraph._historyIgnore = true;
 		schemaGraph.api.graph.clear();
-		// NOTE: do not reset the view — preserves camera position so undo
-		// shows the workflow at the same zoom/pan as before clear.
+		schemaGraph.api.view.reset();
 		visualizer.initEmptyWorkflow();
 		visualizer.graphNodes = [];
 		_setWorkflowName(visualizer.currentWorkflowName || 'Untitled');
 		currentWorkflowHasContent = false;
 		workflowDirty = true;
 		await syncWorkflow(visualizer.exportWorkflow(), null, true);
-		// Squash everything that was pushed during clear+sync into one
-		// undo entry.
-		const afterSnapshot = schemaGraph?._captureCurrentSnapshot?.();
-		if (schemaGraph?.history?.undoStack) {
-			schemaGraph.history.undoStack.length = undoLenBefore;
-			schemaGraph.history.redoStack = [];
+
+		// Flush any pending field-change debounce so it can't fire a
+		// delayed history.push after we restore.
+		if (schemaGraph?._fieldChangeTimer) {
+			clearTimeout(schemaGraph._fieldChangeTimer);
+			schemaGraph._fieldChangeTimer = null;
+			schemaGraph._fieldChangeBefore = null;
 		}
-		if (beforeSnapshot && afterSnapshot && schemaGraph?.history && typeof SnapshotCmd !== 'undefined') {
-			schemaGraph.history.push(new SnapshotCmd('Clear Workflow', beforeSnapshot, afterSnapshot));
+		schemaGraph._historyIgnore = false;
+
+		const afterSnapshot = schemaGraph?._captureCurrentSnapshot?.();
+		const cameraAfter = schemaGraph?.camera
+			? { x: schemaGraph.camera.x, y: schemaGraph.camera.y, scale: schemaGraph.camera.scale }
+			: null;
+
+		// Hard reset the stacks to their pre-clear state — this discards
+		// any phantom entries added by graph.clear / loadWorkflow /
+		// layout apply / deferred 50ms completeness refreshes — then push
+		// exactly one 'Clear Workflow' command.
+		if (histMgr && beforeSnapshot && afterSnapshot) {
+			histMgr.undoStack = savedUndoStack;
+			histMgr.redoStack = savedRedoStack;
+			const cmd = {
+				label: 'Clear Workflow',
+				undo(app) {
+					app._historyRestore(beforeSnapshot);
+					if (cameraBefore && app.camera) {
+						app.camera.x = cameraBefore.x;
+						app.camera.y = cameraBefore.y;
+						app.camera.scale = cameraBefore.scale;
+					}
+					app.draw?.();
+				},
+				redo(app) {
+					app._historyRestore(afterSnapshot);
+					if (cameraAfter && app.camera) {
+						app.camera.x = cameraAfter.x;
+						app.camera.y = cameraAfter.y;
+						app.camera.scale = cameraAfter.scale;
+					}
+					app.draw?.();
+				},
+			};
+			histMgr.push(cmd);
 			schemaGraph._currentStateSnapshot = afterSnapshot;
 			schemaGraph._updateHistoryButtons?.();
 		}
+
+		// Schedule one more stack repair on the next macrotask so any
+		// setTimeout-deferred pushes (e.g. 50ms completeness refresh,
+		// async import follow-ups) that slip past _historyIgnore still
+		// get scrubbed — keep our single 'Clear Workflow' entry on top.
+		if (histMgr) {
+			const expectedTop = histMgr.undoStack[histMgr.undoStack.length - 1];
+			setTimeout(() => {
+				if (!histMgr) return;
+				const idx = histMgr.undoStack.indexOf(expectedTop);
+				if (idx >= 0 && idx < histMgr.undoStack.length - 1) {
+					// Extra entries were appended after our cmd — drop them.
+					histMgr.undoStack = histMgr.undoStack.slice(0, idx + 1);
+					histMgr.redoStack = [];
+					schemaGraph._updateHistoryButtons?.();
+				}
+			}, 100);
+		}
+
 		enableStart(true);
 		updateClearButtonState();
 		_updateStarterExperience(!_hasSeenStarterExperience());
 		addLog('info', '🧹 Workflow cleared');
 	} finally {
+		schemaGraph._historyIgnore = false;
 		schemaGraph.api.lock.unlock();
 	}
 }
