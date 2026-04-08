@@ -554,6 +554,25 @@
 	min-height: 18px;
 	max-height: 100px;
 	overflow-y: auto;
+	scrollbar-width: thin;
+	scrollbar-color: var(--nw-scrollbar-thumb) transparent;
+}
+.nw-console-input::-webkit-scrollbar {
+	width: var(--nw-scrollbar-size);
+}
+.nw-console-input::-webkit-scrollbar-track {
+	background: transparent;
+}
+.nw-console-input::-webkit-scrollbar-thumb {
+	background: var(--nw-scrollbar-thumb);
+	border-radius: 999px;
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+.nw-console-input::-webkit-scrollbar-thumb:hover {
+	background: var(--nw-scrollbar-thumb-hover);
+	border: 2px solid transparent;
+	background-clip: padding-box;
 }
 .nw-console-input::placeholder {
 	color: var(--sg-text-quaternary, #555);
@@ -657,4 +676,144 @@
 	color: #ff4444;
 	border-color: #ff4444;
 	background: rgba(220, 50, 50, 0.25);
+}
+
+/* ========================================================================
+   Assistant Dock Layout — console panel docked below the canvas with a
+   persistent settings column on the right. Enabled via
+   `body.nw-layout-assistant-dock`. Layout moves #consolePanel into
+   .nw-canvas-panel at runtime (see _applyAssistantDock in JS).
+   ======================================================================== */
+
+/* Hide the floating action button — the panel is always visible. */
+body.nw-layout-assistant-dock #consoleToggleBtn {
+	display: none !important;
+}
+
+/* With the console FAB hidden, shift the remaining canvas FABs down so
+   they fill the vertical gap where the console button used to sit. */
+body.nw-layout-assistant-dock .nw-gallery-fab {
+	bottom: 76px;   /* was 136px — console FAB slot */
+}
+body.nw-layout-assistant-dock .nw-apps-fab {
+	bottom: 136px;  /* was 196px — gallery FAB slot */
+}
+
+/* Docked panel: fill canvas-panel width, fixed height, grid layout with
+   main content on the left and settings column on the right. */
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel {
+	position: relative;
+	top: auto;
+	right: auto;
+	bottom: auto;
+	left: auto;
+	/* Reset z-index so the right-side gallery / apps panels (z-index 8400)
+	   overlap the docked assistant console when opened. */
+	z-index: auto;
+	width: 100%;
+	height: 320px;
+	flex: 0 0 320px;
+	transform: none !important;
+	box-shadow: none;
+	border: 1px solid var(--nw-border-soft, var(--sg-border-color));
+	border-radius: var(--nw-radius-shell, 10px);
+	background: color-mix(in srgb, var(--sg-bg-secondary) 94%, white 6%);
+	display: grid;
+	grid-template-columns: 1fr 360px;
+	grid-template-rows: auto 1fr auto;
+	grid-template-areas:
+		"header   settings"
+		"messages settings"
+		"input    settings";
+	min-height: 0;
+	overflow: hidden;
+}
+
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-header {
+	grid-area: header;
+}
+
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > #consoleMessages {
+	grid-area: messages;
+	min-height: 0;
+	overflow-y: auto;
+	scrollbar-width: thin;
+	scrollbar-color: var(--nw-scrollbar-thumb) transparent;
+}
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > #consoleMessages::-webkit-scrollbar {
+	width: var(--nw-scrollbar-size);
+}
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > #consoleMessages::-webkit-scrollbar-track {
+	background: transparent;
+}
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > #consoleMessages::-webkit-scrollbar-thumb {
+	background: var(--nw-scrollbar-thumb);
+	border-radius: 999px;
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > #consoleMessages::-webkit-scrollbar-thumb:hover {
+	background: var(--nw-scrollbar-thumb-hover);
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-input-row {
+	grid-area: input;
+}
+
+/* Settings column: always visible on the right, scrolls internally. */
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-settings {
+	grid-area: settings;
+	border-bottom: none;
+	border-left: 1px solid var(--nw-border-soft, var(--sg-border-color));
+	background: color-mix(in srgb, var(--sg-bg-secondary) 96%, white 4%);
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+}
+
+/* Collapsed settings header becomes a non-interactive column title. */
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-settings .nw-console-settings-header {
+	cursor: default;
+	pointer-events: none;
+	border-bottom: 1px solid var(--nw-border-soft, var(--sg-border-color));
+}
+
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-settings .nw-console-settings-summary,
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-settings .nw-console-chevron {
+	display: none;
+}
+
+/* Force the settings body visible and make it scroll inside the column. */
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-settings > .nw-console-settings-body {
+	display: flex !important;
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	scrollbar-width: thin;
+	scrollbar-color: var(--nw-scrollbar-thumb) transparent;
+}
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-settings > .nw-console-settings-body::-webkit-scrollbar {
+	width: var(--nw-scrollbar-size);
+}
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-settings > .nw-console-settings-body::-webkit-scrollbar-track {
+	background: transparent;
+}
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-settings > .nw-console-settings-body::-webkit-scrollbar-thumb {
+	background: var(--nw-scrollbar-thumb);
+	border-radius: 999px;
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-settings > .nw-console-settings-body::-webkit-scrollbar-thumb:hover {
+	background: var(--nw-scrollbar-thumb-hover);
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+
+/* Close button makes no sense when the panel is docked. */
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel .nw-console-close {
+	display: none;
 }

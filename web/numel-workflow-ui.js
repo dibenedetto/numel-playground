@@ -40,7 +40,15 @@ const STARTER_GALLERY_IDS = Object.freeze({
 });
 const STARTER_ASSISTANT_PROMPT = '/gen A workflow that asks the user for input, transforms it into a short helpful response, and previews the result.';
 const GLOBAL_LAYOUT_PRESET_STORAGE_KEY = 'numel_global_layout_preset_v1';
-const GLOBAL_LAYOUT_PRESETS = Object.freeze(['project-workbench']);
+const GLOBAL_LAYOUT_PRESETS = Object.freeze([
+	'project-workbench',
+	'project-workbench-assistant',
+]);
+
+// Layouts that dock the Numel Assistant below the canvas. These share the
+// 'project-workbench' base class so all existing workbench styling still
+// applies, and add 'nw-layout-assistant-dock' as a modifier.
+const ASSISTANT_DOCK_LAYOUTS = new Set(['project-workbench-assistant']);
 
 function _normalizeGlobalLayoutPreset(preset) {
 	const value = String(preset || '').trim().toLowerCase();
@@ -55,6 +63,56 @@ function _getStoredGlobalLayoutPreset() {
 	}
 }
 
+function _applyAssistantDock(enabled) {
+	const panel = document.getElementById('consolePanel');
+	const canvasPanel = document.querySelector('.nw-canvas-panel');
+	if (!panel || !canvasPanel) return;
+
+	if (enabled) {
+		// Move the assistant panel into the canvas panel so it docks below
+		// the canvas as a flex sibling. The id is stable so ConsoleAgent
+		// references still resolve.
+		if (panel.parentElement !== canvasPanel) {
+			canvasPanel.appendChild(panel);
+		}
+		panel.classList.add('open');
+		// Force the settings body open — the dock layout shows the config
+		// column on the right so there's no need to collapse it.
+		const settingsBody = document.getElementById('consoleSettingsBody');
+		if (settingsBody) settingsBody.style.display = '';
+		const settingsHeader = document.getElementById('consoleSettingsHeader');
+		if (settingsHeader) settingsHeader.setAttribute('aria-expanded', 'true');
+		// If the console manager already exists, trigger its open() so the
+		// agent starts. Safe to call when already open — the method no-ops.
+		if (typeof consoleManager !== 'undefined' && consoleManager?.open) {
+			consoleManager.open().catch(() => {});
+		}
+	} else {
+		// Restore the panel as a body-level fixed slide-out overlay.
+		if (panel.parentElement !== document.body) {
+			document.body.appendChild(panel);
+		}
+		panel.classList.remove('open');
+		if (typeof consoleManager !== 'undefined' && consoleManager?.close) {
+			consoleManager.close();
+		}
+	}
+
+	// The docked panel changes the canvas-panel available height, which
+	// the schemagraph canvas only picks up on a resize event. Pump a few
+	// resize events across the CSS transition window so the canvas buffer
+	// and overlays stay in sync with the new layout.
+	const animEnd = Date.now() + 300;
+	const pump = () => {
+		window.dispatchEvent(new Event('resize'));
+		if (typeof schemaGraph !== 'undefined') {
+			schemaGraph?.eventBus?.emit('camera:moved');
+		}
+		if (Date.now() < animEnd) requestAnimationFrame(pump);
+	};
+	requestAnimationFrame(pump);
+}
+
 function _applyGlobalLayoutPreset(preset) {
 	const normalized = _normalizeGlobalLayoutPreset(preset);
 	const body = document.body;
@@ -62,8 +120,18 @@ function _applyGlobalLayoutPreset(preset) {
 		Array.from(body.classList)
 			.filter((className) => className.startsWith('nw-layout-'))
 			.forEach((className) => body.classList.remove(className));
+		// Assistant-dock variants share the base project-workbench class so
+		// all existing workbench styling still applies, plus a modifier
+		// class used to trigger the docked assistant rules.
+		if (ASSISTANT_DOCK_LAYOUTS.has(normalized)) {
+			body.classList.add('nw-layout-project-workbench');
+			body.classList.add('nw-layout-assistant-dock');
+		} else {
+			body.classList.remove('nw-layout-assistant-dock');
+		}
 		body.classList.add(`nw-layout-${normalized}`);
 	}
+	_applyAssistantDock(ASSISTANT_DOCK_LAYOUTS.has(normalized));
 	const select = $('globalLayoutSelect');
 	if (select) select.value = normalized;
 	window._numelGlobalLayoutPreset = normalized;
@@ -1351,6 +1419,12 @@ async function connect() {
 		// Initialize console manager
 		consoleManager = new AgentConsoleManager(serverUrl, syncWorkflow, api);
 		$('consoleToggleBtn').style.display = '';
+		// In the docked-assistant layout the panel is always visible, so
+		// open the console immediately to start the agent and avoid the
+		// user needing a hidden FAB to do it.
+		if (ASSISTANT_DOCK_LAYOUTS.has(window._numelGlobalLayoutPreset)) {
+			consoleManager.open().catch(() => {});
+		}
 		addLog('info', '🤖 Console assistant initialized');
 
 		// Initialize gallery manager
