@@ -115,13 +115,17 @@ body.nw-layout-project-workbench .nw-panel.nw-panel-collapsed {
 /* Section rail icon (only rendered in the JS init) — hidden when panel is open */
 .nw-section-rail-icon {
 	display: none;
-	font-size: 16px;
-	line-height: 1;
 	width: 100%;
-	text-align: center;
+	align-items: center;
+	justify-content: center;
+	color: var(--sg-text-secondary);
+}
+.nw-section-rail-icon svg {
+	stroke: currentColor;
+	display: block;
 }
 
-/* Collapsed panel: turn each sub-panel into a single clickable icon tile */
+/* Collapsed panel: turn each sub-panel into a single clickable icon tile. */
 .nw-panel.nw-panel-collapsed .nw-section {
 	padding: 0;
 	background: transparent;
@@ -133,6 +137,14 @@ body.nw-layout-project-workbench .nw-panel.nw-panel-collapsed {
 	overflow: hidden;
 	cursor: pointer;
 	transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+/* Defeat the flat-collapsed bottom-hairline rule (which has higher
+   specificity due to the body class) when the panel itself is collapsed —
+   icons should float free with no separator lines under them. */
+body .nw-panel.nw-panel-collapsed .nw-section.nw-section-collapsed,
+body.nw-layout-project-workbench .nw-panel.nw-panel-collapsed .nw-section.nw-section-collapsed {
+	border-bottom-color: transparent;
 }
 .nw-panel.nw-panel-collapsed .nw-section:hover {
 	background: color-mix(in srgb, var(--sg-bg-tertiary) 72%, transparent);
@@ -149,7 +161,7 @@ body.nw-layout-project-workbench .nw-panel.nw-panel-collapsed {
 	display: none !important;
 }
 .nw-panel.nw-panel-collapsed .nw-section-rail-icon {
-	display: block;
+	display: flex;
 }
 .nw-panel.nw-panel-collapsed .nw-section-body,
 .nw-panel.nw-panel-collapsed .nw-advanced-toggle,
@@ -327,8 +339,7 @@ body.nw-layout-project-workbench .nw-section-secondary {
 }
 
 .nw-section-grow {
-	flex: 1;
-	min-height: 150px;
+	flex: none;
 	display: flex;
 	flex-direction: column;
 }
@@ -380,14 +391,37 @@ body.nw-layout-project-workbench .nw-section-secondary {
 
 .nw-section.nw-section-collapsed .nw-section-header {
 	margin-bottom: 0;
+	width: 100%;
 }
 
 .nw-section.nw-section-collapsed {
 	height: var(--nw-section-collapsed-height);
 	min-height: var(--nw-section-collapsed-height);
-	padding-top: 8px;
-	padding-bottom: 8px;
+	padding-top: 0;
+	padding-bottom: 0;
 	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	background: transparent;
+	border-color: transparent;
+	border-bottom: 1px solid var(--nw-border-soft);
+	border-radius: 0;
+}
+
+.nw-section.nw-section-collapsed:hover {
+	background: color-mix(in srgb, var(--sg-bg-tertiary) 60%, transparent);
+}
+
+/* Same flat treatment in the workbench layout (its rule has higher specificity) */
+body.nw-layout-project-workbench .nw-section.nw-section-collapsed {
+	background: transparent;
+	border-color: transparent;
+	border-bottom: 1px solid var(--nw-border-soft);
+	border-radius: 0;
+}
+body.nw-layout-project-workbench .nw-section.nw-section-collapsed:hover {
+	background: color-mix(in srgb, var(--sg-bg-tertiary) 60%, transparent);
 }
 
 .nw-section-body {
@@ -402,12 +436,19 @@ body.nw-layout-project-workbench .nw-section-secondary {
 	opacity: 0;
 }
 
-/* Event log section: pass flex-grow through the body wrapper */
+/* Activity-log body: stable fixed height with internal scrolling.
+   Avoids the flex-grow tug-of-war against the panel's overflow:auto,
+   which made the container vary/underflow as other sections changed. */
 .nw-section-grow .nw-section-body {
-	flex: 1;
 	display: flex;
 	flex-direction: column;
-	min-height: 0;
+	max-height: none;
+	height: 320px;
+	transition: opacity 0.15s ease;
+}
+
+.nw-section-grow.nw-section-collapsed .nw-section-body {
+	height: 0;
 }
 
 .nw-section-grow.nw-section-collapsed {
@@ -416,16 +457,24 @@ body.nw-layout-project-workbench .nw-section-secondary {
 
 .nw-section-title {
 	margin: 0;
-	font-size: 10px;
+	font-size: 12px;
 	font-weight: 700;
 	color: var(--sg-text-secondary);
 	text-transform: uppercase;
 	letter-spacing: 0.8px;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.nw-section-title svg {
+	flex-shrink: 0;
+	stroke: currentColor;
 }
 
 body.nw-layout-project-workbench .nw-section-title {
-	font-size: 10px;
-	letter-spacing: 0.12em;
+	font-size: 12px;
+	letter-spacing: 0.1em;
 }
 
 .nw-section-lede {
@@ -435,17 +484,13 @@ body.nw-layout-project-workbench .nw-section-title {
 	color: var(--sg-text-secondary);
 }
 
-/* ── Advanced sections: hidden by default, revealed via .nw-show-advanced ── */
-#credentialsSection,
-#channelsSection,
-#eventLogSection {
-	display: none;
-}
-
-body.nw-show-advanced #credentialsSection,
-body.nw-show-advanced #channelsSection,
-body.nw-show-advanced #eventLogSection {
-	display: block;
+/* ── Advanced sections: hidden by default, revealed via .nw-show-advanced ──
+   Only touch display when hidden. When revealed, leave display alone so the
+   collapsed-flex centering rule stays in effect. */
+body:not(.nw-show-advanced) #credentialsSection,
+body:not(.nw-show-advanced) #channelsSection,
+body:not(.nw-show-advanced) #eventLogSection {
+	display: none !important;
 }
 
 /* ── Stage bar: hide when workflow is empty ── */
@@ -493,7 +538,7 @@ body.nw-layout-project-workbench #executionSection .nw-btn-row .nw-btn {
 	padding: 5px 0;
 	margin-top: auto;
 	border: 1px dashed var(--nw-border-quiet);
-	border-radius: var(--nw-radius-control);
+	border-radius: var(--nw-radius-sub);
 	background: transparent;
 	color: var(--sg-text-tertiary);
 	font-size: 10px;
@@ -1141,6 +1186,15 @@ body.nw-layout-project-workbench .nw-btn-secondary {
 	color: var(--sg-text-primary);
 }
 
+.nw-btn-icon:disabled {
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+.nw-btn-icon:disabled:hover {
+	background: transparent;
+	color: var(--sg-text-secondary);
+}
+
 /* Icon + text buttons */
 .nw-btn-with-icon {
 	display: inline-flex;
@@ -1211,42 +1265,92 @@ body.nw-layout-project-workbench .nw-btn-grid .nw-btn-grid-full span {
 }
 
 body.nw-layout-project-workbench .nw-starter-panel {
-	margin-top: 12px;
-	padding: 14px;
-	border-radius: var(--nw-radius-control);
-	border: 1px solid color-mix(in srgb, var(--sg-accent-blue, #46a2da) 28%, var(--nw-border-soft));
-	background:
-		linear-gradient(180deg,
-			color-mix(in srgb, var(--sg-bg-secondary) 84%, var(--sg-accent-blue, #46a2da) 16%),
-			color-mix(in srgb, var(--sg-bg-secondary) 96%, white 4%));
+	margin-top: 6px;
+	padding: 0;
+	border: none;
+	background: transparent;
+	border-radius: 0;
 }
 
-body.nw-layout-project-workbench .nw-starter-panel .nw-starter-panel-title {
-	font-size: 13px;
+body.nw-layout-project-workbench .nw-starter-panel .nw-starter-panel-head {
+	display: none;
 }
 
-body.nw-layout-project-workbench .nw-starter-panel .nw-starter-panel-copy {
-	font-size: 11px;
-	margin-top: 2px;
-}
-
+/* Starter actions: compact cards with an icon on the left and title/copy
+   stacked to the right, arranged in a single horizontal row. */
 body.nw-layout-project-workbench .nw-starter-grid {
-	gap: 6px;
-	margin-top: 8px;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 0;
+	grid-template-columns: none;
 }
 
 body.nw-layout-project-workbench .nw-starter-action {
-	padding: 8px 10px;
-	border-radius: 8px;
+	flex: 1 1 0;
+	min-width: 140px;
+	flex-direction: row;
+	align-items: center;
+	gap: 10px;
+	padding: 10px 12px;
+	border-radius: var(--nw-radius-control);
+	border: 1px solid var(--nw-border-soft);
+	background: color-mix(in srgb, var(--sg-bg-primary) 86%, white 14%);
+}
+
+body.nw-layout-project-workbench .nw-starter-action:hover {
+	background: color-mix(in srgb, var(--sg-bg-primary) 74%, var(--sg-accent-blue, #46a2da) 14%);
+	border-color: var(--sg-accent-blue, #46a2da);
+	transform: translateY(-1px);
+}
+
+body.nw-layout-project-workbench .nw-starter-action-icon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	flex-shrink: 0;
+	border-radius: var(--nw-radius-sub);
+	background: color-mix(in srgb, var(--sg-accent-blue, #46a2da) 18%, transparent);
+	color: var(--sg-accent-blue, #46a2da);
+}
+
+body.nw-layout-project-workbench .nw-starter-action:hover .nw-starter-action-icon {
+	background: color-mix(in srgb, var(--sg-accent-blue, #46a2da) 32%, transparent);
+	color: var(--sg-text-primary);
+}
+
+body.nw-layout-project-workbench .nw-starter-action-body {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
 }
 
 body.nw-layout-project-workbench .nw-starter-action-title {
-	font-size: 12px;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--sg-text-primary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 100%;
 }
 
 body.nw-layout-project-workbench .nw-starter-action-copy {
-	font-size: 10px;
+	display: block;
+	font-size: 11px;
 	line-height: 1.35;
+	color: var(--sg-text-tertiary);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	max-width: 100%;
+}
+
+body.nw-layout-project-workbench .nw-starter-panel-footer {
+	display: none;
 }
 
 .nw-starter-panel-head {
@@ -1430,6 +1534,38 @@ body.nw-layout-project-workbench .nw-status {
 	border: 1px solid var(--sg-accent-red);
 }
 
+/* Run status dot in the section header — mirrors execStatus state.
+   margin-right offsets the dot so its center aligns with the centers
+   of the icon-buttons in the other sub-panel headers. */
+.nw-exec-status-pill {
+	display: inline-block;
+	width: 10px;
+	height: 10px;
+	border-radius: 50%;
+	margin-left: auto;
+	margin-right: 10px;
+	flex-shrink: 0;
+	background: var(--sg-accent-purple);
+	border: 1px solid var(--sg-accent-purple);
+}
+.nw-exec-status-pill.idle {
+	background: rgba(147, 112, 219, 0.5);
+	border-color: var(--sg-accent-purple);
+}
+.nw-exec-status-pill.running {
+	background: var(--sg-accent-blue);
+	border-color: var(--sg-accent-blue);
+	animation: pulse 1.2s ease-in-out infinite;
+}
+.nw-exec-status-pill.completed {
+	background: var(--sg-accent-green);
+	border-color: var(--sg-accent-green);
+}
+.nw-exec-status-pill.failed {
+	background: var(--sg-accent-red);
+	border-color: var(--sg-accent-red);
+}
+
 @keyframes pulse {
 	0%, 100% { opacity: 1; }
 	50% { opacity: 0.6; }
@@ -1480,7 +1616,9 @@ body.nw-layout-project-workbench .nw-mono-text {
    ======================================================================== */
 
 .nw-event-log {
-	flex: 1;
+	flex: 1 1 auto;
+	min-height: 0;
+	height: 100%;
 	background: var(--sg-bg-quaternary);
 	border: 1px solid var(--nw-border-soft);
 	border-radius: var(--nw-radius-control);
@@ -1570,12 +1708,9 @@ body.nw-layout-project-workbench .nw-canvas-panel {
 
 .nw-canvas-hero {
 	position: relative;
-	padding: 14px 16px;
+	padding: 10px 12px;
 	border-radius: var(--nw-radius-control);
-	background:
-		linear-gradient(180deg,
-			color-mix(in srgb, var(--sg-bg-secondary) 88%, white 12%),
-			color-mix(in srgb, var(--sg-bg-secondary) 96%, var(--sg-accent-blue, #46a2da) 4%));
+	background: color-mix(in srgb, var(--sg-bg-secondary) 96%, white 4%);
 	border: 1px solid var(--nw-border-soft);
 }
 
@@ -1614,8 +1749,8 @@ body.nw-layout-project-workbench .nw-canvas-panel {
 
 .nw-canvas-hero-title {
 	margin-top: 0;
-	font-size: 16px;
-	font-weight: 700;
+	font-size: 13px;
+	font-weight: 600;
 	line-height: 1.25;
 	letter-spacing: -0.01em;
 	color: var(--sg-text-primary);
@@ -1623,23 +1758,38 @@ body.nw-layout-project-workbench .nw-canvas-panel {
 }
 
 .nw-canvas-hero-summary {
-	margin-top: 4px;
+	margin-top: 2px;
 	max-width: 700px;
-	font-size: 12px;
-	line-height: 1.5;
-	color: var(--sg-text-secondary);
+	font-size: 11px;
+	line-height: 1.4;
+	color: var(--sg-text-tertiary);
 }
 
+/* Inline chip-style action row — shared between hero actions and starter actions */
 .nw-canvas-hero-actions {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 8px;
-	margin-top: 10px;
+	gap: 4px;
+	margin-top: 6px;
 }
 
 .nw-canvas-hero-actions .nw-btn {
-	padding: 5px 10px;
-	font-size: 11px;
+	padding: 2px 7px;
+	font-size: 10px;
+	font-weight: 500;
+	border-radius: var(--nw-radius-sub);
+	border: 1px solid var(--nw-border-soft);
+	background: transparent;
+	color: var(--sg-text-secondary);
+	box-shadow: none;
+}
+
+.nw-canvas-hero-actions .nw-btn:hover:not(:disabled) {
+	transform: none;
+	box-shadow: none;
+	color: var(--sg-text-primary);
+	border-color: var(--sg-accent-blue, #46a2da);
+	background: color-mix(in srgb, var(--sg-bg-primary) 60%, transparent);
 }
 
 /* When the starter panel is visible, hide the duplicated hero action buttons */
@@ -3004,4 +3154,47 @@ body.nw-layout-project-workbench .nw-auth-title {
 	.nw-canvas-hero-title {
 		font-size: 26px;
 	}
+}
+
+/* ========================================================================
+   GLOBAL FONT-SIZE BUMP
+   The compact overhaul shrunk text too aggressively. These overrides pull
+   the most visible text back up to a comfortable reading size without
+   breaking the compact layout.
+   ======================================================================== */
+body.nw-layout-project-workbench .nw-btn {
+	font-size: 13px;
+	padding: 7px 12px;
+}
+body.nw-layout-project-workbench .nw-btn-sm {
+	font-size: 12px;
+	padding: 5px 10px;
+}
+body.nw-layout-project-workbench .nw-input,
+body.nw-layout-project-workbench .nw-select {
+	font-size: 13px;
+}
+body.nw-layout-project-workbench .nw-field label,
+body.nw-layout-project-workbench .nw-layout-field label {
+	font-size: 11px;
+}
+body.nw-layout-project-workbench .nw-mono-text {
+	font-size: 12px;
+}
+body.nw-layout-project-workbench .nw-workbench-title { font-size: 15px; }
+body.nw-layout-project-workbench .nw-workbench-subtitle { font-size: 12px; }
+body.nw-layout-project-workbench .nw-workbench-status { font-size: 10px; }
+
+body.nw-layout-project-workbench .nw-canvas-hero-title { font-size: 16px; }
+body.nw-layout-project-workbench .nw-canvas-hero-summary { font-size: 13px; }
+
+body.nw-layout-project-workbench .nw-canvas-title { font-size: 14px; }
+body.nw-layout-project-workbench .nw-canvas-subtitle { font-size: 12px; }
+
+body.nw-layout-project-workbench .nw-event-log { font-size: 12px; }
+body.nw-layout-project-workbench .nw-user-info-row { font-size: 12px; }
+
+body.nw-layout-project-workbench .nw-advanced-toggle,
+body.nw-layout-project-workbench .nw-section-toolbar-btn {
+	font-size: 11px;
 }

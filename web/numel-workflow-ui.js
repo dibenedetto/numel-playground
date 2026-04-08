@@ -594,6 +594,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	schemaGraph.eventBus.on(GraphEvents.WORKFLOW_IMPORTED, () => {
 		populateWorkflowOptionsPanel();
 		_updateStarterExperience(false);
+		updateClearButtonState();
 	});
 
 	if (true) {
@@ -841,15 +842,17 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 	}
 
-	// Map of section id → emoji icon used when the left panel is collapsed
-	const _sectionIcons = {
-		authUserBar: '👤',
-		workbenchOverviewSection: '🗂️',
-		workflowSection: '🧩',
-		executionSection: '▶',
-		channelsSection: '📣',
-		credentialsSection: '🔑',
-		eventLogSection: '📜',
+	// Tooltip labels for the collapsed-panel rail icons. The icon SVGs
+	// themselves are cloned from each section's title <svg>, so the rail
+	// always matches the in-header icon.
+	const _sectionLabels = {
+		authUserBar:              'Account',
+		workbenchOverviewSection: 'Space',
+		workflowSection:          'Workflow',
+		executionSection:         'Run',
+		channelsSection:          'Channels',
+		credentialsSection:       'Credentials',
+		eventLogSection:          'Activity',
 	};
 
 	// Make each panel section collapsible via header click
@@ -869,13 +872,22 @@ document.addEventListener('DOMContentLoaded', () => {
 		icon.className = 'nw-section-collapse-icon';
 		header.insertBefore(icon, header.firstChild);
 
-		// Section glyph shown when panel is collapsed (vertical icon rail)
-		const glyph = _sectionIcons[section.id];
-		if (glyph) {
+		// Section glyph shown when panel is collapsed (vertical icon rail).
+		// Clones the SVG from the section's <h3> so the rail icon always
+		// matches the in-header icon. Tooltip uses the static label; the
+		// auth bar's tooltip is refreshed with the username once the user
+		// is known (see _showUserBar).
+		const label = _sectionLabels[section.id];
+		const titleSvg = section.querySelector('.nw-section-title svg');
+		if (label && titleSvg) {
 			const rail = document.createElement('span');
 			rail.className = 'nw-section-rail-icon';
-			rail.textContent = glyph;
-			rail.setAttribute('title', section.querySelector('.nw-section-title')?.textContent?.trim() || '');
+			const svgClone = titleSvg.cloneNode(true);
+			svgClone.setAttribute('width', '18');
+			svgClone.setAttribute('height', '18');
+			rail.appendChild(svgClone);
+			rail.setAttribute('title', label);
+			rail.setAttribute('aria-label', label);
 			header.insertBefore(rail, header.firstChild);
 		}
 
@@ -1088,6 +1100,13 @@ function _showUserBar(user) {
 	if (!bar || !user) return;
 	document.getElementById('authUserName').textContent = user.username;
 	bar.style.display = '';
+	// Refresh the collapsed-panel rail icon tooltip with the username
+	const railIcon = bar.querySelector('.nw-section-rail-icon');
+	if (railIcon) {
+		const tip = user.username ? `Account — ${user.username}` : 'Account';
+		railIcon.setAttribute('title', tip);
+		railIcon.setAttribute('aria-label', tip);
+	}
 	// Populate expanded info
 	const roleEl   = document.getElementById('authUserRole');
 	const emailEl  = document.getElementById('authUserEmail');
@@ -1180,6 +1199,7 @@ function setupEventListeners() {
 
 	// Workflow management
 	$('clearWorkflowBtnSingle').addEventListener('click', clearWorkflow);
+	$('clearWorkflowHeaderBtn')?.addEventListener('click', clearWorkflow);
 
 	// Single mode buttons
 	$('singleImportBtn').addEventListener('click', () => $('singleWorkflowFileInput').click());
@@ -1234,10 +1254,18 @@ function enableStart(enable) {
 }
 
 function updateClearButtonState() {
+	// A workflow is "clearable" if there's a workflow object AND we have
+	// either nodes on the canvas OR content was loaded from disk. We
+	// intentionally do NOT gate on client.isConnected — the WebSocket may
+	// still be settling when a workflow first loads, and clear is mostly
+	// a local operation. clearWorkflow() handles sync failures itself.
+	const hasWorkflow = !!visualizer?.currentWorkflow;
 	const hasNodes = schemaGraph?.graph?.nodes?.length > 0;
-	const isConnected = client?.isConnected;
-	const disabled = !hasNodes || !isConnected;
+	const hasContent = hasWorkflow && (hasNodes || currentWorkflowHasContent);
+	const disabled = !hasContent;
 	$('clearWorkflowBtnSingle').disabled = disabled;
+	const headerBtn = $('clearWorkflowHeaderBtn');
+	if (headerBtn) headerBtn.disabled = disabled;
 }
 
 // ========================================================================
@@ -1997,17 +2025,38 @@ async function pasteWorkflowFromClipboard() {
 async function clearWorkflow() {
 	if (!visualizer.currentWorkflow) return;
 
+	// Capture the pre-clear graph snapshot AND the current undoStack
+	// length. We let the clear+sync run normally (don't suppress history),
+	// then truncate the undoStack back to the captured length and push a
+	// single 'Clear Workflow' entry. This guarantees exactly one undo
+	// step regardless of how many internal operations push history.
+	const beforeSnapshot = schemaGraph?._captureCurrentSnapshot?.();
+	const undoLenBefore = schemaGraph?.history?.undoStack?.length ?? 0;
+
 	try {
 		schemaGraph.api.lock.lock('Clearing workflow');
 		schemaGraph.closeAllPreviewTextOverlays?.();
 		schemaGraph.api.graph.clear();
-		schemaGraph.api.view.reset();
+		// NOTE: do not reset the view — preserves camera position so undo
+		// shows the workflow at the same zoom/pan as before clear.
 		visualizer.initEmptyWorkflow();
 		visualizer.graphNodes = [];
 		_setWorkflowName(visualizer.currentWorkflowName || 'Untitled');
 		currentWorkflowHasContent = false;
 		workflowDirty = true;
 		await syncWorkflow(visualizer.exportWorkflow(), null, true);
+		// Squash everything that was pushed during clear+sync into one
+		// undo entry.
+		const afterSnapshot = schemaGraph?._captureCurrentSnapshot?.();
+		if (schemaGraph?.history?.undoStack) {
+			schemaGraph.history.undoStack.length = undoLenBefore;
+			schemaGraph.history.redoStack = [];
+		}
+		if (beforeSnapshot && afterSnapshot && schemaGraph?.history && typeof SnapshotCmd !== 'undefined') {
+			schemaGraph.history.push(new SnapshotCmd('Clear Workflow', beforeSnapshot, afterSnapshot));
+			schemaGraph._currentStateSnapshot = afterSnapshot;
+			schemaGraph._updateHistoryButtons?.();
+		}
 		enableStart(true);
 		updateClearButtonState();
 		_updateStarterExperience(!_hasSeenStarterExperience());
@@ -3063,6 +3112,11 @@ function setExecStatus(type, text) {
 	const status = $('execStatus');
 	status.className = `nw-status ${type}`;
 	status.textContent = text;
+	const pill = $('execStatusPill');
+	if (pill) {
+		pill.className = `nw-exec-status-pill ${type}`;
+		pill.setAttribute('title', text);
+	}
 }
 
 function addLog(type, message) {

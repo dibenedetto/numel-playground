@@ -54,8 +54,8 @@
 			<section id="authUserBar" class="nw-section nw-section-compact nw-section-primary-soft nw-section-collapsed" style="display:none;">
 				<div class="nw-section-header">
 					<h3 class="nw-section-title">
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-						<span id="authUserName"></span>
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+						<span id="authUserName">Account</span>
 					</h3>
 					<div class="nw-user-actions">
 						<button id="userPanelBtn" class="nw-btn-icon" title="My Account">
@@ -78,34 +78,22 @@
 
 			<section id="workbenchOverviewSection" class="nw-section nw-workbench-hero nw-section-primary nw-section-collapsed">
 				<div class="nw-section-header">
-					<h3 class="nw-section-title">Workspace</h3>
-					<div id="workbenchStatusPill" class="nw-workbench-status">Local</div>
+					<h3 class="nw-section-title">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+						<span>Space</span>
+					</h3>
+					<div class="nw-user-actions">
+						<button id="createSpaceBtn" class="nw-btn-icon" title="New space">＋</button>
+						<button id="removeSpaceBtn" class="nw-btn-icon" disabled title="Delete space">🗑</button>
+					</div>
 				</div>
-				<div id="workbenchSpaceName" class="nw-workbench-title" style="display:none;">Loading space...</div>
-				<div id="workbenchWorkflowName" class="nw-workbench-subtitle" style="display:none;">Workflow: None</div>
-				<div id="workbenchSummary" class="nw-workbench-summary">Choose a starter, ask the assistant, or open a gallery workflow to get this space moving.</div>
 				<div id="workbenchSpacesList" class="nw-space-stack"></div>
-				<div class="nw-workbench-space-row">
+				<div class="nw-workbench-space-row nw-workbench-space-row-hidden">
 					<div class="nw-layout-field nw-workbench-space-field nw-workbench-space-field-hidden">
-						<label for="spaceSelect">Space</label>
 						<select id="spaceSelect" class="nw-select" disabled aria-label="Current space">
 							<option value="">Loading spaces...</option>
 						</select>
 					</div>
-					<div class="nw-btn-row nw-workbench-space-actions">
-						<button id="createSpaceBtn" class="nw-btn nw-btn-secondary nw-btn-sm" title="New space">＋</button>
-						<button id="removeSpaceBtn" class="nw-btn nw-btn-danger nw-btn-sm" disabled title="Delete space">🗑</button>
-					</div>
-				</div>
-				<div class="nw-workbench-next-card">
-					<div class="nw-workbench-subsection-label">Useful next step</div>
-					<div id="workbenchNextTitle" class="nw-workbench-next-title">Pick a starter and get to the first run fast.</div>
-					<div id="workbenchNextCopy" class="nw-workbench-next-copy">Use a starter, ask the assistant, or browse the gallery to give this workbench a concrete direction.</div>
-				</div>
-				<div class="nw-btn-row nw-workbench-actions">
-					<button id="workbenchRunBtn" class="nw-btn nw-btn-warm nw-btn-sm" type="button">Run Current Workflow</button>
-					<button id="workbenchAskAssistantBtn" class="nw-btn nw-btn-success nw-btn-sm" type="button">Ask Assistant</button>
-					<button id="workbenchBrowseGalleryBtn" class="nw-btn nw-btn-secondary nw-btn-sm" type="button">Browse Gallery</button>
 				</div>
 				<div class="nw-layout-row" style="display:none;">
 					<div class="nw-layout-field">
@@ -120,7 +108,10 @@
 			<!-- Credentials Section -->
 			<section id="credentialsSection" class="nw-section nw-section-compact nw-section-secondary nw-section-collapsed">
 				<div class="nw-section-header">
-					<h3 class="nw-section-title">Credentials</h3>
+					<h3 class="nw-section-title">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+						<span>Credentials</span>
+					</h3>
 					<button id="addCredentialBtn" class="nw-btn-icon" title="Add credential">＋</button>
 				</div>
 				<div class="nw-section-lede">API keys and tokens used by your workflows.</div>
@@ -146,7 +137,10 @@
 			<!-- Channels sub-panel -->
 			<section id="channelsSection" class="nw-section nw-section-compact nw-section-secondary nw-section-collapsed">
 				<div class="nw-section-header">
-					<h3 class="nw-section-title">Channels</h3>
+					<h3 class="nw-section-title">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+						<span>Channels</span>
+					</h3>
 					<button id="channelPanelBtn" class="nw-btn-icon" title="Manage channels">
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
 					</button>
@@ -158,7 +152,13 @@
 			<!-- Workflow Section -->
 			<section id="workflowSection" class="nw-section nw-section-primary-soft nw-section-collapsed">
 				<div class="nw-section-header">
-					<h3 class="nw-section-title">Workflow</h3>
+					<h3 class="nw-section-title">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+						<span>Workflow</span>
+					</h3>
+					<button id="clearWorkflowHeaderBtn" class="nw-btn-icon" disabled title="Clear workflow">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 5.64"/><polyline points="1 4 5.64 5.64 4 10"/></svg>
+					</button>
 				</div>
 				<div class="nw-section-lede">Shape the workflow for this space, then save and run it.</div>
 				<div class="nw-field">
@@ -211,7 +211,11 @@
 			<!-- Run Section -->
 			<section id="executionSection" class="nw-section nw-section-primary-soft nw-section-collapsed">
 				<div class="nw-section-header">
-					<h3 class="nw-section-title">Run</h3>
+					<h3 class="nw-section-title">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+						<span>Run</span>
+					</h3>
+					<span id="execStatusPill" class="nw-exec-status-pill idle" title="Not running"></span>
 				</div>
 				<div class="nw-section-lede">Run the current workflow and inspect its progress here.</div>
 				<div class="nw-btn-row">
@@ -243,7 +247,10 @@
 			<!-- Activity Section -->
 			<section id="eventLogSection" class="nw-section nw-section-grow nw-section-secondary nw-section-collapsed">
 				<div class="nw-section-header">
-					<h3 class="nw-section-title">Activity</h3>
+					<h3 class="nw-section-title">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+						<span>Activity</span>
+					</h3>
 					<button id="clearLogBtn" class="nw-btn-icon" title="Clear activity">🗑</button>
 				</div>
 				<div id="eventLog" class="nw-event-log"></div>
@@ -275,20 +282,40 @@
 					</div>
 					<div class="nw-starter-grid">
 						<button id="starterHelloBtn" class="nw-starter-action" type="button">
-							<span class="nw-starter-action-title">Hello workflow</span>
-							<span class="nw-starter-action-copy">The simplest runnable example.</span>
+							<span class="nw-starter-action-icon" aria-hidden="true">
+								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+							</span>
+							<span class="nw-starter-action-body">
+								<span class="nw-starter-action-title">Hello workflow</span>
+								<span class="nw-starter-action-copy">The simplest runnable example.</span>
+							</span>
 						</button>
 						<button id="starterResearchBtn" class="nw-starter-action" type="button">
-							<span class="nw-starter-action-title">Research</span>
-							<span class="nw-starter-action-copy">A planner-style research pipeline.</span>
+							<span class="nw-starter-action-icon" aria-hidden="true">
+								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+							</span>
+							<span class="nw-starter-action-body">
+								<span class="nw-starter-action-title">Research</span>
+								<span class="nw-starter-action-copy">A planner-style research pipeline.</span>
+							</span>
 						</button>
 						<button id="starterMediaBtn" class="nw-starter-action" type="button">
-							<span class="nw-starter-action-title">Webcam</span>
-							<span class="nw-starter-action-copy">A browser webcam workflow.</span>
+							<span class="nw-starter-action-icon" aria-hidden="true">
+								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
+							</span>
+							<span class="nw-starter-action-body">
+								<span class="nw-starter-action-title">Webcam</span>
+								<span class="nw-starter-action-copy">A browser webcam workflow.</span>
+							</span>
 						</button>
 						<button id="starterAssistantBtn" class="nw-starter-action" type="button">
-							<span class="nw-starter-action-title">Ask the assistant</span>
-							<span class="nw-starter-action-copy">Have one drafted for you.</span>
+							<span class="nw-starter-action-icon" aria-hidden="true">
+								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l1.9 5.8H20l-4.9 3.6L17 17l-5-3.6L7 17l1.9-5.6L4 7.8h6.1z"/></svg>
+							</span>
+							<span class="nw-starter-action-body">
+								<span class="nw-starter-action-title">Ask the assistant</span>
+								<span class="nw-starter-action-copy">Have one drafted for you.</span>
+							</span>
 						</button>
 					</div>
 					<div class="nw-btn-row nw-starter-panel-footer">
