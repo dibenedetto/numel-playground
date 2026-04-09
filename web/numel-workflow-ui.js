@@ -63,6 +63,92 @@ function _getStoredGlobalLayoutPreset() {
 	}
 }
 
+const ASSISTANT_DOCK_HEIGHT_KEY = 'numel_assistant_dock_height_v1';
+const ASSISTANT_DOCK_CONFIG_COLLAPSED_KEY = 'numel_assistant_dock_config_collapsed_v1';
+const ASSISTANT_DOCK_HEIGHT_MIN = 160;
+const ASSISTANT_DOCK_HEIGHT_MAX_FRACTION = 0.85; // of canvas-panel height
+
+function _setAssistantDockHeight(panel, canvasPanel, px) {
+	const cpRect = canvasPanel.getBoundingClientRect();
+	const max = Math.max(ASSISTANT_DOCK_HEIGHT_MIN, cpRect.height * ASSISTANT_DOCK_HEIGHT_MAX_FRACTION);
+	const clamped = Math.max(ASSISTANT_DOCK_HEIGHT_MIN, Math.min(max, px));
+	panel.style.setProperty('--nw-assistant-dock-height', `${clamped}px`);
+	return clamped;
+}
+
+function _ensureAssistantDockChrome(panel) {
+	// Resize handle (top of panel) — drag to resize console height.
+	let handle = panel.querySelector(':scope > .nw-assistant-dock-resize');
+	if (!handle) {
+		handle = document.createElement('div');
+		handle.className = 'nw-assistant-dock-resize';
+		handle.setAttribute('role', 'separator');
+		handle.setAttribute('aria-label', 'Resize assistant console');
+		handle.setAttribute('title', 'Drag to resize');
+		panel.insertBefore(handle, panel.firstChild);
+
+		let dragging = false;
+		const onPointerMove = (ev) => {
+			if (!dragging) return;
+			const canvasPanel = panel.parentElement;
+			if (!canvasPanel) return;
+			const cpRect = canvasPanel.getBoundingClientRect();
+			// Mouse Y relative to canvas-panel bottom → desired panel height.
+			const newH = cpRect.bottom - ev.clientY;
+			const applied = _setAssistantDockHeight(panel, canvasPanel, newH);
+			window._numelAssistantDockHeight = applied;
+			window.dispatchEvent(new Event('resize'));
+		};
+		const onPointerUp = (ev) => {
+			if (!dragging) return;
+			dragging = false;
+			handle.releasePointerCapture?.(ev.pointerId);
+			document.body.classList.remove('nw-assistant-dock-resizing');
+			try {
+				localStorage.setItem(ASSISTANT_DOCK_HEIGHT_KEY,
+					String(window._numelAssistantDockHeight || ''));
+			} catch {}
+			// Final resize pump so the canvas re-reads container size.
+			const animEnd = Date.now() + 200;
+			const pump = () => {
+				window.dispatchEvent(new Event('resize'));
+				if (Date.now() < animEnd) requestAnimationFrame(pump);
+			};
+			requestAnimationFrame(pump);
+		};
+		handle.addEventListener('pointerdown', (ev) => {
+			dragging = true;
+			handle.setPointerCapture?.(ev.pointerId);
+			document.body.classList.add('nw-assistant-dock-resizing');
+			ev.preventDefault();
+		});
+		handle.addEventListener('pointermove', onPointerMove);
+		handle.addEventListener('pointerup', onPointerUp);
+		handle.addEventListener('pointercancel', onPointerUp);
+	}
+
+	// Settings collapse toggle — sits on the divider between the messages
+	// area and the right config column. Click to collapse/expand.
+	let toggle = panel.querySelector(':scope > .nw-assistant-dock-config-toggle');
+	if (!toggle) {
+		toggle = document.createElement('button');
+		toggle.type = 'button';
+		toggle.className = 'nw-assistant-dock-config-toggle';
+		toggle.setAttribute('aria-label', 'Toggle config panel');
+		toggle.setAttribute('title', 'Show / hide config');
+		toggle.innerHTML = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>';
+		toggle.addEventListener('click', (ev) => {
+			ev.stopPropagation();
+			const collapsed = panel.classList.toggle('assistant-config-collapsed');
+			try {
+				localStorage.setItem(ASSISTANT_DOCK_CONFIG_COLLAPSED_KEY, collapsed ? '1' : '0');
+			} catch {}
+			window.dispatchEvent(new Event('resize'));
+		});
+		panel.appendChild(toggle);
+	}
+}
+
 function _applyAssistantDock(enabled) {
 	const panel = document.getElementById('consolePanel');
 	const canvasPanel = document.querySelector('.nw-canvas-panel');
@@ -82,6 +168,22 @@ function _applyAssistantDock(enabled) {
 		if (settingsBody) settingsBody.style.display = '';
 		const settingsHeader = document.getElementById('consoleSettingsHeader');
 		if (settingsHeader) settingsHeader.setAttribute('aria-expanded', 'true');
+
+		// Inject the resize handle and config-collapse toggle.
+		_ensureAssistantDockChrome(panel);
+
+		// Restore persisted height + collapsed state.
+		try {
+			const stored = parseFloat(localStorage.getItem(ASSISTANT_DOCK_HEIGHT_KEY));
+			if (Number.isFinite(stored) && stored > 0) {
+				_setAssistantDockHeight(panel, canvasPanel, stored);
+			}
+		} catch {}
+		try {
+			const collapsed = localStorage.getItem(ASSISTANT_DOCK_CONFIG_COLLAPSED_KEY) === '1';
+			panel.classList.toggle('assistant-config-collapsed', collapsed);
+		} catch {}
+
 		// If the console manager already exists, trigger its open() so the
 		// agent starts. Safe to call when already open — the method no-ops.
 		if (typeof consoleManager !== 'undefined' && consoleManager?.open) {
@@ -93,6 +195,8 @@ function _applyAssistantDock(enabled) {
 			document.body.appendChild(panel);
 		}
 		panel.classList.remove('open');
+		// Clear inline height override so the slide-out CSS rules apply.
+		panel.style.removeProperty('--nw-assistant-dock-height');
 		if (typeof consoleManager !== 'undefined' && consoleManager?.close) {
 			consoleManager.close();
 		}

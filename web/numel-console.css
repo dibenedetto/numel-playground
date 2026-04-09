@@ -699,8 +699,9 @@ body.nw-layout-assistant-dock .nw-apps-fab {
 	bottom: 136px;  /* was 196px — gallery FAB slot */
 }
 
-/* Docked panel: fill canvas-panel width, fixed height, grid layout with
-   main content on the left and settings column on the right. */
+/* Docked panel: fill canvas-panel width, dynamic height (resizable),
+   grid layout with main content on the left and settings column on the
+   right. The grid leaves a small first row for the resize handle. */
 body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel {
 	position: relative;
 	top: auto;
@@ -711,8 +712,8 @@ body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel {
 	   overlap the docked assistant console when opened. */
 	z-index: auto;
 	width: 100%;
-	height: 320px;
-	flex: 0 0 320px;
+	height: var(--nw-assistant-dock-height, 320px);
+	flex: 0 0 var(--nw-assistant-dock-height, 320px);
 	transform: none !important;
 	box-shadow: none;
 	border: 1px solid var(--nw-border-soft, var(--sg-border-color));
@@ -720,13 +721,97 @@ body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel {
 	background: color-mix(in srgb, var(--sg-bg-secondary) 94%, white 6%);
 	display: grid;
 	grid-template-columns: 1fr 360px;
-	grid-template-rows: auto 1fr auto;
+	grid-template-rows: 6px auto 1fr auto;
 	grid-template-areas:
+		"resize   resize"
 		"header   settings"
 		"messages settings"
 		"input    settings";
 	min-height: 0;
 	overflow: hidden;
+	/* Smoothly animate the column-track resize when the config column
+	   collapses/expands. grid-template-columns is animatable in modern
+	   browsers (Chromium/Firefox); the .nw-console-settings child uses
+	   overflow:hidden so its content gets clipped during the transition
+	   instead of squashing or wrapping awkwardly. */
+	transition: grid-template-columns 0.25s ease;
+}
+
+/* Collapsed config column — track shrinks to 0 so the main message area
+   fills the panel. The settings element itself stays in the DOM with
+   overflow:hidden so the transition is smooth (no display:none flash). */
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel.assistant-config-collapsed {
+	grid-template-columns: 1fr 0;
+}
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel.assistant-config-collapsed > .nw-console-settings {
+	border-left-color: transparent;
+	opacity: 0;
+}
+
+/* ── Resize handle (top of docked panel) ───────────────────────── */
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-assistant-dock-resize {
+	grid-area: resize;
+	height: 6px;
+	cursor: ns-resize;
+	background: transparent;
+	border-top-left-radius: var(--nw-radius-shell, 10px);
+	border-top-right-radius: var(--nw-radius-shell, 10px);
+	position: relative;
+	user-select: none;
+	touch-action: none;
+}
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-assistant-dock-resize::after {
+	content: "";
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	transform: translate(-50%, -50%);
+	width: 36px;
+	height: 3px;
+	border-radius: 2px;
+	background: var(--nw-scrollbar-thumb, rgba(255,255,255,0.18));
+	transition: background 0.15s;
+}
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-assistant-dock-resize:hover::after,
+body.nw-assistant-dock-resizing .nw-canvas-panel > #consolePanel > .nw-assistant-dock-resize::after {
+	background: var(--nw-scrollbar-thumb-hover, rgba(255,255,255,0.32));
+}
+body.nw-assistant-dock-resizing,
+body.nw-assistant-dock-resizing * {
+	cursor: ns-resize !important;
+	user-select: none !important;
+}
+
+/* ── Config column collapse toggle (anchored to top-right of panel) ── */
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-assistant-dock-config-toggle {
+	position: absolute;
+	top: 10px;
+	right: 8px;
+	z-index: 2;
+	width: 22px;
+	height: 22px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: color-mix(in srgb, var(--sg-bg-secondary) 92%, white 8%);
+	border: 1px solid var(--nw-border-soft, var(--sg-border-color));
+	border-radius: 4px;
+	color: var(--sg-text-secondary);
+	cursor: pointer;
+	padding: 0;
+	transition: background 0.15s, color 0.15s;
+}
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-assistant-dock-config-toggle:hover {
+	background: color-mix(in srgb, var(--sg-bg-tertiary) 90%, white 10%);
+	color: var(--sg-text-primary);
+}
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-assistant-dock-config-toggle svg {
+	transition: transform 0.2s;
+}
+/* Expanded → chevron points right (to collapse). Collapsed → points left
+   (to expand). */
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel.assistant-config-collapsed > .nw-assistant-dock-config-toggle svg {
+	transform: rotate(180deg);
 }
 
 body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-header {
@@ -772,6 +857,8 @@ body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-set
 	flex-direction: column;
 	min-height: 0;
 	overflow: hidden;
+	opacity: 1;
+	transition: opacity 0.25s ease, border-left-color 0.25s ease;
 }
 
 /* Collapsed settings header becomes a non-interactive column title. */
