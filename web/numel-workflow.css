@@ -1928,11 +1928,6 @@ body.nw-layout-assistant-dock .nw-canvas-panel.sg-has-tabs .sg-canvas-container 
 	background: color-mix(in srgb, var(--sg-bg-primary) 60%, transparent);
 }
 
-/* When the starter panel is visible, hide the duplicated hero action buttons */
-.nw-canvas-hero:has(.nw-starter-panel:not([style*="display: none"])) .nw-canvas-hero-actions {
-	display: none;
-}
-
 .nw-canvas-stagebar {
 	display: flex;
 	align-items: center;

@@ -425,20 +425,20 @@ function _showStarterModal() {
 				</div>
 				<div class="nw-starter-modal-grid">
 					<button class="nw-starter-action" data-starter-action="hello" type="button">
-						<span class="nw-starter-action-title">Hello Workflow</span>
-						<span class="nw-starter-action-copy">Load the smallest runnable graph and see the workflow surface immediately.</span>
+						<span class="nw-starter-action-title">Quick Start</span>
+						<span class="nw-starter-action-copy">Load a tiny runnable flow you can inspect right away.</span>
 					</button>
 					<button class="nw-starter-action" data-starter-action="research" type="button">
 						<span class="nw-starter-action-title">Research Starter</span>
-						<span class="nw-starter-action-copy">Open a planner-style research and report pipeline.</span>
+						<span class="nw-starter-action-copy">Open a planner-style workflow for research and reporting.</span>
 					</button>
 					<button class="nw-starter-action" data-starter-action="media" type="button">
 						<span class="nw-starter-action-title">Webcam Starter</span>
-						<span class="nw-starter-action-copy">Try a browser-native webcam workflow with live media.</span>
+						<span class="nw-starter-action-copy">Try a browser-media workflow with live camera input.</span>
 					</button>
 					<button class="nw-starter-action" data-starter-action="assistant" type="button">
 						<span class="nw-starter-action-title">Ask Assistant</span>
-						<span class="nw-starter-action-copy">Open Numel Assistant with a starter build prompt.</span>
+						<span class="nw-starter-action-copy">Open Numel Assistant with a prompt to draft a first workflow.</span>
 					</button>
 				</div>
 			</div>
@@ -478,8 +478,8 @@ function _updateStarterPanel() {
 	}
 	if (subtitle) {
 		subtitle.textContent = currentSpaceInfo?.title
-			? `"${currentSpaceInfo.title}" is empty — pick a starter below.`
-			: 'Pick a starter to begin.';
+			? `"${currentSpaceInfo.title}" is ready — choose a starter below.`
+			: 'Choose a starter to begin.';
 	}
 	if (!visible) {
 		_closeStarterModal(false);
@@ -498,7 +498,7 @@ function _renderWorkbenchSpaces() {
 		const isActive = space.id === currentSpaceId;
 		let copy = 'Space';
 		if (isActive && _isCurrentWorkflowEmptyState()) {
-			copy = 'Active · no workflow yet';
+			copy = 'Active · ready for a first workflow';
 		} else if (isActive) {
 			copy = 'Active · ready to edit and run';
 		} else if (space.visibility) {
@@ -555,35 +555,35 @@ function _updateWorkbenchOverview() {
 	let nextTitle = '';
 	let nextCopy = '';
 	let heroKicker = 'Start here';
-	let heroTitle = 'Build a workflow, then run it.';
-	let heroSummary = 'Pick a space, choose a starter or ask the assistant, and get to your first run fast.';
+	let heroTitle = 'Start with a space, then build something runnable.';
+	let heroSummary = 'Choose a space, pick a starter or ask the assistant, and get to a first run quickly.';
 
 	if (spaceEl) spaceEl.textContent = spaceName;
 	if (workflowEl) workflowEl.textContent = `Workflow: ${workflowName || 'None'}`;
 	if (statusEl) statusEl.textContent = isReady ? 'Connected' : 'Offline';
 
 	if (!currentSpaceInfo) {
-		overviewSummary = 'Create or pick a space to get started.';
+		overviewSummary = 'Create or pick a space to open a workbench.';
 		canvasSummary = 'Choose a space to start building.';
 		nextTitle = 'Create your first space.';
-		nextCopy = 'A space holds your workflow, its runs, and any credentials it needs.';
-		heroTitle = 'Pick a space to get started.';
-		heroSummary = 'Each space is a self-contained project. Create one, choose a starter, and run it.';
+		nextCopy = 'A space keeps one current workflow, its runs, and the resources it needs.';
+		heroTitle = 'Pick a space to begin.';
+		heroSummary = 'Each space is a project workbench. Create one, choose a starter, and run it.';
 	} else if (isEmpty) {
-		overviewSummary = `"${spaceName}" is empty — pick a starter, ask the assistant, or browse the gallery.`;
-		canvasSummary = `"${spaceName}" is empty. Choose a starter to begin.`;
-		nextTitle = 'Pick a starter and run it.';
+		overviewSummary = `"${spaceName}" is ready for its first workflow. Pick a starter, ask the assistant, or browse examples.`;
+		canvasSummary = `"${spaceName}" is ready. Choose a starter or ask for a first draft.`;
+		nextTitle = 'Choose a starting point.';
 		nextCopy = 'Use a ready-made workflow, ask the assistant, or browse the gallery.';
 		heroTitle = `"${spaceName}" is ready for its first workflow.`;
 		heroSummary = 'Choose a starter, ask the assistant to draft one, or browse the gallery.';
 	} else {
-		overviewSummary = `Working in "${spaceName}" — "${workflowName || 'Current Workflow'}" is ready to edit and run.`;
-		canvasSummary = `"${workflowName || 'Current Workflow'}" in "${spaceName}". Edit steps and run when ready.`;
+		overviewSummary = `Working in "${spaceName}" — "${workflowName || 'Current Workflow'}" is ready to shape and run.`;
+		canvasSummary = `"${workflowName || 'Current Workflow'}" in "${spaceName}". Edit steps, save, and run when ready.`;
 		nextTitle = 'Edit or run the workflow.';
 		nextCopy = 'Add steps on the canvas, save your changes, and run.';
 		heroKicker = 'Current workflow';
 		heroTitle = `"${workflowName || 'Current Workflow'}"`;
-		heroSummary = `Edit steps, save, and run. Open the assistant if you need help.`;
+		heroSummary = 'Edit steps, save your changes, and run. Open the assistant if you want help refining it.';
 	}
 
 	if (summaryEl) summaryEl.textContent = overviewSummary;
@@ -602,6 +602,24 @@ function _updateWorkbenchOverview() {
 	if (canvasGalleryBtn) canvasGalleryBtn.disabled = !isReady;
 	if (canvasRunBtn) canvasRunBtn.disabled = !isReady || startDisabled;
 	if (canvasSaveBtn) canvasSaveBtn.disabled = !isReady;
+	if (canvasAskBtn) {
+		canvasAskBtn.title = isReady
+			? (isEmpty ? 'Ask Numel Assistant to draft a first workflow' : 'Ask Numel Assistant to help edit this workflow')
+			: 'Connect first to use the assistant';
+	}
+	if (canvasGalleryBtn) {
+		canvasGalleryBtn.title = isReady
+			? 'Browse example workflows and starters'
+			: 'Connect first to browse the gallery';
+	}
+	if (canvasRunBtn) {
+		canvasRunBtn.title = (!isReady || startDisabled)
+			? 'Save or finish connecting before you run'
+			: 'Run the current workflow';
+	}
+	if (canvasSaveBtn) {
+		canvasSaveBtn.title = isReady ? 'Save the current workflow' : 'Connect first to save changes';
+	}
 	// Stage bar shows when workflow is loaded; hero shows when empty
 	const stageBar = document.querySelector('.nw-canvas-stagebar');
 	if (stageBar) {
@@ -708,11 +726,6 @@ async function _runStarterAction(action) {
 				break;
 			case 'assistant':
 				if (!consoleManager) throw new Error('Assistant is not ready yet');
-				if (typeof consoleManager.isOpen === 'function' && consoleManager.isOpen()) {
-					consoleManager.close();
-					addLog('info', '🧩 Assistant closed');
-					break;
-				}
 				await consoleManager.launchStarterPrompt(STARTER_ASSISTANT_PROMPT, { enablePlanner: false, autoSend: false });
 				addLog('info', '🤖 Assistant opened with a starter build prompt');
 				break;

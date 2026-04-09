@@ -88,7 +88,7 @@
 					</div>
 				</div>
 				<div id="workbenchSpacesList" class="nw-space-stack"></div>
-				<div class="nw-field-hint">Spaces are your project workbenches. Each space keeps one current workflow, its runs, and its assets.</div>
+				<div class="nw-field-hint">Spaces are your project workbenches. Each one holds one live workflow, its runs, and anything that workflow needs.</div>
 				<div class="nw-workbench-space-row nw-workbench-space-row-hidden">
 					<div class="nw-layout-field nw-workbench-space-field nw-workbench-space-field-hidden">
 						<select id="spaceSelect" class="nw-select" disabled aria-label="Current space">
@@ -107,7 +107,7 @@
 					</h3>
 					<button id="addCredentialBtn" class="nw-btn-icon" title="Add credential">＋</button>
 				</div>
-				<div class="nw-section-lede">API keys and tokens used by your workflows.</div>
+				<div class="nw-section-lede">Store the API keys and tokens this workflow can use.</div>
 				<div id="credentialsAccessNote" class="nw-access-note" style="display:none;">
 					<span class="nw-access-badge">Admin Only</span>
 					<span id="credentialsAccessText" class="nw-access-text"></span>
@@ -138,7 +138,7 @@
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
 					</button>
 				</div>
-				<div class="nw-section-lede">Connect this space to Telegram, Discord, Slack, email, and other channels.</div>
+				<div class="nw-section-lede">Send this space to Telegram, Discord, Slack, email, and other channels.</div>
 				<div id="channelSummary" class="nw-channel-summary">No channels configured</div>
 			</section>
 
@@ -153,7 +153,7 @@
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 5.64"/><polyline points="1 4 5.64 5.64 4 10"/></svg>
 					</button>
 				</div>
-				<div class="nw-section-lede">Shape the workflow for this space, then save and run it.</div>
+				<div class="nw-section-lede">Build the flow for this space, then save and run it.</div>
 				<div class="nw-field">
 					<div id="singleWorkflowName" class="nw-mono-text">None</div>
 				</div>
@@ -210,7 +210,7 @@
 					</h3>
 					<span id="execStatusPill" class="nw-exec-status-pill idle" title="Not running"></span>
 				</div>
-				<div class="nw-section-lede">Run the current workflow and inspect its progress here.</div>
+				<div class="nw-section-lede">Run the current workflow and follow its progress here.</div>
 				<div class="nw-btn-row">
 					<button id="startBtn" class="nw-btn nw-btn-success" disabled>▶ Run</button>
 					<button id="cancelBtn" class="nw-btn nw-btn-danger" disabled>■ Stop</button>
@@ -257,7 +257,7 @@
 						<span>Experimental</span>
 					</h3>
 				</div>
-				<div class="nw-section-lede">Experimental features. Behavior may change.</div>
+				<div class="nw-section-lede">Alternate layouts and advanced options.</div>
 				<div class="nw-field">
 					<label for="globalLayoutSelect">Layout</label>
 					<select id="globalLayoutSelect" class="nw-select" aria-label="Global layout preset">
@@ -281,12 +281,12 @@
 				<button id="canvasHeroCloseBtn" class="nw-canvas-hero-close" type="button" title="Hide this panel" aria-label="Hide hero panel">×</button>
 				<div class="nw-canvas-hero-copy">
 					<div id="canvasHeroKicker" class="nw-canvas-hero-kicker">Start here</div>
-					<div id="canvasHeroTitle" class="nw-canvas-hero-title">Build a workflow, then run it.</div>
-					<div id="canvasHeroSummary" class="nw-canvas-hero-summary">Pick a space, choose a starter or ask the assistant, and get to your first run fast.</div>
+					<div id="canvasHeroTitle" class="nw-canvas-hero-title">Start with a space, then build something runnable.</div>
+					<div id="canvasHeroSummary" class="nw-canvas-hero-summary">Choose a space, pick a starter or ask the assistant, and get to a first run quickly.</div>
 				</div>
 				<div class="nw-canvas-hero-actions">
-					<button id="canvasAskAssistantBtn" class="nw-btn nw-btn-secondary" type="button">Assistant</button>
-					<button id="canvasBrowseGalleryBtn" class="nw-btn nw-btn-secondary" type="button">Gallery</button>
+					<button id="canvasAskAssistantBtn" class="nw-btn nw-btn-secondary" type="button" title="Ask Numel Assistant to help build or edit this workflow">Ask Assistant</button>
+					<button id="canvasBrowseGalleryBtn" class="nw-btn nw-btn-secondary" type="button" title="Browse example workflows and starters">Browse Gallery</button>
 				</div>
 				<div id="spaceStarterPanel" class="nw-starter-panel" style="display:none;">
 					<div class="nw-starter-panel-head">
@@ -299,8 +299,8 @@
 								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
 							</span>
 							<span class="nw-starter-action-body">
-								<span class="nw-starter-action-title">Hello workflow</span>
-								<span class="nw-starter-action-copy">The simplest runnable example.</span>
+								<span class="nw-starter-action-title">Quick start</span>
+								<span class="nw-starter-action-copy">A tiny runnable example you can inspect right away.</span>
 							</span>
 						</button>
 						<button id="starterResearchBtn" class="nw-starter-action" type="button">
@@ -309,7 +309,7 @@
 							</span>
 							<span class="nw-starter-action-body">
 								<span class="nw-starter-action-title">Research</span>
-								<span class="nw-starter-action-copy">A planner-style research pipeline.</span>
+								<span class="nw-starter-action-copy">A planner-style workflow for research and reporting.</span>
 							</span>
 						</button>
 						<button id="starterMediaBtn" class="nw-starter-action" type="button">
@@ -318,7 +318,7 @@
 							</span>
 							<span class="nw-starter-action-body">
 								<span class="nw-starter-action-title">Webcam</span>
-								<span class="nw-starter-action-copy">A browser webcam workflow.</span>
+								<span class="nw-starter-action-copy">A live browser-media workflow you can try in place.</span>
 							</span>
 						</button>
 						<button id="starterAssistantBtn" class="nw-starter-action" type="button">
@@ -327,7 +327,7 @@
 							</span>
 							<span class="nw-starter-action-body">
 								<span class="nw-starter-action-title">Ask the assistant</span>
-								<span class="nw-starter-action-copy">Have one drafted for you.</span>
+								<span class="nw-starter-action-copy">Describe what you want and get a first draft.</span>
 							</span>
 						</button>
 					</div>
