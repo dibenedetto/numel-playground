@@ -40,6 +40,9 @@ const STARTER_GALLERY_IDS = Object.freeze({
 });
 const STARTER_ASSISTANT_PROMPT = '/gen A workflow that asks the user for input, transforms it into a short helpful response, and previews the result.';
 const GLOBAL_LAYOUT_PRESET_STORAGE_KEY = 'numel_global_layout_preset_v1';
+const PANEL_COLLAPSED_STORAGE_KEY = 'numel_left_panel_collapsed_v1';
+const SECTION_COLLAPSE_STORAGE_KEY = 'numel_left_panel_section_state_v1';
+const ADVANCED_VISIBLE_STORAGE_KEY = 'numel_show_advanced_v1';
 const GLOBAL_LAYOUT_PRESETS = Object.freeze([
 	'project-workbench',
 	'project-workbench-assistant',
@@ -51,6 +54,86 @@ const GLOBAL_LAYOUT_PRESETS = Object.freeze([
 // 'project-workbench' base class so all existing workbench styling still
 // applies, and add 'nw-layout-assistant-dock' as a modifier.
 const ASSISTANT_DOCK_LAYOUTS = new Set(['project-workbench-assistant', 'project-workbench-studio']);
+
+function _readJsonStorage(key, fallback = {}) {
+	try {
+		const raw = localStorage.getItem(key);
+		if (!raw) return fallback;
+		const parsed = JSON.parse(raw);
+		return parsed && typeof parsed === 'object' ? parsed : fallback;
+	} catch {
+		return fallback;
+	}
+}
+
+function _writeJsonStorage(key, value) {
+	try {
+		localStorage.setItem(key, JSON.stringify(value));
+	} catch {}
+}
+
+function _readStorageFlag(key, fallback = false) {
+	try {
+		const raw = localStorage.getItem(key);
+		if (raw == null) return fallback;
+		return raw === '1';
+	} catch {
+		return fallback;
+	}
+}
+
+function _setPanelCollapsed(collapsed) {
+	const panel = document.querySelector('.nw-panel');
+	if (!panel) return;
+	const next = !!collapsed;
+	panel.classList.toggle('nw-panel-collapsed', next);
+	const toggle = $('nw-panel-toggle');
+	if (toggle) {
+		toggle.setAttribute('aria-expanded', next ? 'false' : 'true');
+		toggle.setAttribute('aria-label', next ? 'Expand left panel' : 'Collapse left panel');
+		toggle.title = next ? 'Expand panel' : 'Collapse panel';
+	}
+	try {
+		localStorage.setItem(PANEL_COLLAPSED_STORAGE_KEY, next ? '1' : '0');
+	} catch {}
+}
+
+function _setSectionCollapsed(section, collapsed) {
+	if (!section) return;
+	const next = !!collapsed;
+	section.classList.toggle('nw-section-collapsed', next);
+	const header = section.querySelector('.nw-section-header');
+	if (header) {
+		header.setAttribute('aria-expanded', next ? 'false' : 'true');
+	}
+}
+
+function _saveSectionCollapseState() {
+	const state = {};
+	document.querySelectorAll('.nw-panel .nw-section[id]').forEach((section) => {
+		state[section.id] = section.classList.contains('nw-section-collapsed');
+	});
+	_writeJsonStorage(SECTION_COLLAPSE_STORAGE_KEY, state);
+}
+
+function _restoreSectionCollapseState() {
+	const state = _readJsonStorage(SECTION_COLLAPSE_STORAGE_KEY, null);
+	if (!state || typeof state !== 'object') return;
+	document.querySelectorAll('.nw-panel .nw-section[id]').forEach((section) => {
+		if (!Object.prototype.hasOwnProperty.call(state, section.id)) return;
+		_setSectionCollapsed(section, !!state[section.id]);
+	});
+}
+
+function _setAdvancedSectionsVisible(visible) {
+	const next = !!visible;
+	document.body.classList.toggle('nw-show-advanced', next);
+	const label = $('advancedToggleLabel');
+	if (label) label.textContent = next ? 'Show less' : 'Show more';
+	try {
+		localStorage.setItem(ADVANCED_VISIBLE_STORAGE_KEY, next ? '1' : '0');
+	} catch {}
+}
 
 function _normalizeGlobalLayoutPreset(preset) {
 	const value = String(preset || '').trim().toLowerCase();
@@ -1022,12 +1105,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
 		const panelToggle = document.createElement('button');
 		panelToggle.id = 'nw-panel-toggle';
-		panelToggle.title = 'Toggle panel';
 		h1.insertBefore(panelToggle, h1.firstChild);
 
 		panelToggle.addEventListener('click', (e) => {
 			e.stopPropagation();
-			_panel.classList.toggle('nw-panel-collapsed');
+			_setPanelCollapsed(!_panel.classList.contains('nw-panel-collapsed'));
 			// Pump resize + camera:moved during CSS transition so overlays follow canvas
 			const animEnd = Date.now() + 300;
 			const pump = () => {
@@ -1088,6 +1170,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			rail.setAttribute('aria-label', label);
 			header.insertBefore(rail, header.firstChild);
 		}
+		_setSectionCollapsed(section, section.classList.contains('nw-section-collapsed'));
 
 		header.addEventListener('click', (e) => {
 			if (e.target.closest('button, select, input, a')) return;
@@ -1096,8 +1179,9 @@ document.addEventListener('DOMContentLoaded', () => {
 			// AND ensures the clicked section is expanded. Other sections keep
 			// whatever state they had before the panel was collapsed.
 			if (panel && panel.classList.contains('nw-panel-collapsed')) {
-				panel.classList.remove('nw-panel-collapsed');
-				section.classList.remove('nw-section-collapsed');
+				_setPanelCollapsed(false);
+				_setSectionCollapsed(section, false);
+				_saveSectionCollapseState();
 				// Pump resize so canvas + overlays follow the new layout
 				const animEnd = Date.now() + 300;
 				const pump = () => {
@@ -1107,7 +1191,8 @@ document.addEventListener('DOMContentLoaded', () => {
 				requestAnimationFrame(pump);
 				return;
 			}
-			section.classList.toggle('nw-section-collapsed');
+			_setSectionCollapsed(section, !section.classList.contains('nw-section-collapsed'));
+			_saveSectionCollapseState();
 		});
 	});
 
@@ -1130,15 +1215,21 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 		document.getElementById('nw-expand-all-btn').addEventListener('click', () => {
 			document.querySelectorAll('.nw-panel .nw-section').forEach(s => {
-				s.classList.remove('nw-section-collapsed');
+				_setSectionCollapsed(s, false);
 			});
+			_saveSectionCollapseState();
 		});
 		document.getElementById('nw-collapse-all-btn').addEventListener('click', () => {
 			document.querySelectorAll('.nw-panel .nw-section').forEach(s => {
-				s.classList.add('nw-section-collapsed');
+				_setSectionCollapsed(s, true);
 			});
+			_saveSectionCollapseState();
 		});
 	}
+
+	_restoreSectionCollapseState();
+	_setPanelCollapsed(_readStorageFlag(PANEL_COLLAPSED_STORAGE_KEY, false));
+	_setAdvancedSectionsVisible(_readStorageFlag(ADVANCED_VISIBLE_STORAGE_KEY, false));
 
 	// Initial log
 	addLog('info', '🚀 Numel Playground ready');
@@ -1390,9 +1481,7 @@ function setupEventListeners() {
 
 	// Advanced sections toggle
 	$('advancedToggleBtn')?.addEventListener('click', () => {
-		const isShowing = document.body.classList.toggle('nw-show-advanced');
-		const label = $('advancedToggleLabel');
-		if (label) label.textContent = isShowing ? 'Show less' : 'Show more';
+		_setAdvancedSectionsVisible(!document.body.classList.contains('nw-show-advanced'));
 	});
 
 	// Workflow management

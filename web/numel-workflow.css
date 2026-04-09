@@ -660,11 +660,19 @@ body.nw-layout-project-workbench #executionSection .nw-btn-row .nw-btn {
 	font-size: 13px;
 	cursor: pointer;
 	margin-bottom: 10px;
+	transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
 .nw-select:disabled {
 	opacity: 0.5;
 	cursor: not-allowed;
+}
+
+.nw-select:focus,
+.nw-select:focus-visible {
+	outline: none;
+	border-color: color-mix(in srgb, var(--sg-accent-blue, #46a2da) 58%, var(--nw-border-soft) 42%);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--sg-accent-blue, #46a2da) 16%, transparent);
 }
 
 .nw-textarea {
@@ -3373,6 +3381,8 @@ body.nw-layout-project-workbench .nw-auth-title {
 .nw-admin-dialog select:focus,
 .nw-admin-dialog textarea:focus {
 	border-color: var(--sg-accent-blue) !important;
+	outline: none;
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--sg-accent-blue, #46a2da) 16%, transparent);
 }
 .nw-admin-dialog input::placeholder,
 .nw-admin-dialog textarea::placeholder {
