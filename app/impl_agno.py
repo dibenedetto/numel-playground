@@ -84,6 +84,7 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 		raise ValueError(f"Invalid Agno db search type: {value}")
 
 
+	# not needed for now since we don't have any global backend config, but keep the function for future use
 	# def _build_backend(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
 	# 	item_config = workflow.nodes[index]
 	# 	assert item_config is not None and item_config.type == "backend_config", "Invalid Agno backend"
