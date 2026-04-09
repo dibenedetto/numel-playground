@@ -54,14 +54,14 @@ const ASSISTANT_DOCK_LAYOUTS = new Set(['project-workbench-assistant', 'project-
 
 function _normalizeGlobalLayoutPreset(preset) {
 	const value = String(preset || '').trim().toLowerCase();
-	return GLOBAL_LAYOUT_PRESETS.includes(value) ? value : 'project-workbench';
+	return GLOBAL_LAYOUT_PRESETS.includes(value) ? value : 'project-workbench-assistant';
 }
 
 function _getStoredGlobalLayoutPreset() {
 	try {
 		return _normalizeGlobalLayoutPreset(localStorage.getItem(GLOBAL_LAYOUT_PRESET_STORAGE_KEY));
 	} catch {
-		return 'project-workbench';
+		return 'project-workbench-assistant';
 	}
 }
 
@@ -1366,7 +1366,7 @@ function setupEventListeners() {
 		if (!$('canvasStartRunBtn')?.disabled) $('startBtn')?.click();
 	});
 	$('globalLayoutSelect')?.addEventListener('change', (e) => {
-		const preset = _setGlobalLayoutPreset(e.target.value || 'project-workbench');
+		const preset = _setGlobalLayoutPreset(e.target.value || 'project-workbench-assistant');
 		addLog('info', `🎛 Workspace layout set to "${preset.replace(/-/g, ' ')}"`);
 		_updateWorkbenchOverview();
 	});
