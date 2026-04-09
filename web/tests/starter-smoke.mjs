@@ -117,11 +117,24 @@ async function main() {
 		try {
 			snapshot = await page.evaluate(() => {
 				const authModal = document.getElementById('authModal');
+				const starterPanel = document.getElementById('spaceStarterPanel');
+				const hero = document.querySelector('.nw-canvas-hero');
+				const stagebar = document.querySelector('.nw-canvas-stagebar');
+				const spacesList = document.getElementById('workbenchSpacesList');
 				return {
 					readyState: document.readyState,
 					bodyClass: document.body?.className || '',
 					authModalDisplay: authModal ? getComputedStyle(authModal).display : null,
 					authModalHtml: authModal?.outerHTML?.slice(0, 300) || null,
+					starterDisplay: starterPanel ? getComputedStyle(starterPanel).display : null,
+					starterHiddenAttr: starterPanel?.hidden ?? null,
+					heroClass: hero?.className || null,
+					heroDisplay: hero ? getComputedStyle(hero).display : null,
+					stagebarClass: stagebar?.className || null,
+					stagebarDisplay: stagebar ? getComputedStyle(stagebar).display : null,
+					spacesCount: spacesList?.children?.length ?? null,
+					spacesHtml: spacesList?.innerHTML?.slice(0, 500) || null,
+					singleWorkflowName: document.getElementById('singleWorkflowName')?.textContent || null,
 					hasNumelUser: typeof window._numelUser !== 'undefined' ? !!window._numelUser : null,
 					hasSchemaGraphApp: typeof window.SchemaGraphApp,
 					location: window.location.href,

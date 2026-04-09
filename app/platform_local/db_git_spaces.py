@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
+import re
 import time
 import uuid
 from pathlib import Path
@@ -122,6 +124,33 @@ class DbGitSpaceProvider(SpaceProvider, ScaffoldComponent):
         if not rel or rel.startswith("../") or "/../" in f"/{rel}/":
             raise ValueError(f"Invalid asset path: {path!r}")
         return rel
+
+    def _normalize_space_slug(self, value: str) -> str:
+        slug = re.sub(r"[^a-zA-Z0-9._-]+", "-", (value or "").strip().lower()).strip("-._")
+        return slug or "space"
+
+    def _ensure_unique_space_slug(
+        self,
+        conn,
+        owner_user_id: str,
+        slug: str,
+        *,
+        exclude_space_id: Optional[str] = None,
+    ) -> str:
+        base = self._normalize_space_slug(slug)
+        candidate = base
+        suffix = 2
+        while True:
+            params = [owner_user_id, candidate]
+            sql = "SELECT 1 FROM spaces WHERE owner_user_id = ? AND slug = ?"
+            if exclude_space_id:
+                sql += " AND id <> ?"
+                params.append(exclude_space_id)
+            row = conn.execute(sql, tuple(params)).fetchone()
+            if row is None:
+                return candidate
+            candidate = f"{base}-{suffix}"
+            suffix += 1
 
     def _json_dumps(self, obj) -> str:
         return json.dumps(obj, separators=(",", ":"), sort_keys=True)
@@ -433,33 +462,50 @@ class DbGitSpaceProvider(SpaceProvider, ScaffoldComponent):
         space_id = f"space_{uuid.uuid4().hex[:12]}"
         policy = PermissionPolicy(owner_user_id=owner_user_id, visibility=visibility)
         now = time.time()
+        normalized_slug = self._normalize_space_slug(slug or title or "space")
         await self.git_store.create_space_repo(space_id)
-        refs = await self.git_store.list_refs(space_id)
-        head_commit_id = refs[0].commit_id if refs else ""
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO spaces (
-                    id, owner_user_id, slug, title, description, visibility, default_ref,
-                    head_commit_id, policy_json, metadata_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    space_id,
-                    owner_user_id,
-                    slug,
-                    title,
-                    description,
-                    visibility.value,
-                    self.git_store.config.default_branch,
-                    head_commit_id,
-                    self._policy_to_json(policy),
-                    self._json_dumps({}),
-                    now,
-                    now,
-                ),
-            )
-            row = self._get_space_row(conn, space_id)
+        try:
+            refs = await self.git_store.list_refs(space_id)
+            head_commit_id = refs[0].commit_id if refs else ""
+            with self._connect() as conn:
+                candidate_slug = normalized_slug
+                while True:
+                    try:
+                        conn.execute(
+                            """
+                            INSERT INTO spaces (
+                                id, owner_user_id, slug, title, description, visibility, default_ref,
+                                head_commit_id, policy_json, metadata_json, created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                space_id,
+                                owner_user_id,
+                                candidate_slug,
+                                title,
+                                description,
+                                visibility.value,
+                                self.git_store.config.default_branch,
+                                head_commit_id,
+                                self._policy_to_json(policy),
+                                self._json_dumps({}),
+                                now,
+                                now,
+                            ),
+                        )
+                        break
+                    except sqlite3.IntegrityError as exc:
+                        if "spaces.owner_user_id, spaces.slug" not in str(exc):
+                            raise
+                        candidate_slug = self._ensure_unique_space_slug(
+                            conn,
+                            owner_user_id,
+                            normalized_slug,
+                        )
+                row = self._get_space_row(conn, space_id)
+        except Exception:
+            await self.git_store.delete_space_repo(space_id)
+            raise
         if row is None:
             raise RuntimeError(f"Failed to create space '{space_id}'")
         return self._space_from_row(row)
@@ -496,6 +542,12 @@ class DbGitSpaceProvider(SpaceProvider, ScaffoldComponent):
             metadata = updates.get("metadata", json.loads(row["metadata_json"]) if row["metadata_json"] else {})
             visibility = updates.get("visibility", row["visibility"])
             visibility_value = visibility.value if isinstance(visibility, Visibility) else visibility
+            next_slug = self._ensure_unique_space_slug(
+                conn,
+                row["owner_user_id"],
+                str(updates.get("slug", row["slug"]) or row["slug"]),
+                exclude_space_id=space_id,
+            )
             policy = self._policy_from_json(
                 row["policy_json"],
                 row["owner_user_id"],
@@ -510,7 +562,7 @@ class DbGitSpaceProvider(SpaceProvider, ScaffoldComponent):
                 WHERE id = ?
                 """,
                 (
-                    updates.get("slug", row["slug"]),
+                    next_slug,
                     updates.get("title", row["title"]),
                     updates.get("description", row["description"]),
                     visibility_value,

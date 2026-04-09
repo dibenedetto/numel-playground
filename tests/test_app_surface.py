@@ -56,7 +56,7 @@ def _starter_hello_workflow_payload() -> dict:
         "options": {
             "type": "workflow_options",
             "name": "Hello Workflow",
-            "description": "The simplest workflow: Start, Preview, End.",
+            "description": "A tiny first workflow that creates output and previews it.",
         },
         "nodes": [
             {
@@ -64,12 +64,18 @@ def _starter_hello_workflow_payload() -> dict:
                 "extra": {"pos": [60, 180], "name": "Start"},
             },
             {
+                "type": "transform_flow",
+                "lang": "python",
+                "script": "output = {'message': 'Hello from Numel!', 'next_step': 'Edit this transform or ask the assistant to expand it.'}",
+                "extra": {"pos": [320, 180], "name": "Hello"},
+            },
+            {
                 "type": "preview_flow",
-                "extra": {"pos": [320, 180], "name": "Preview"},
+                "extra": {"pos": [580, 180], "name": "Preview"},
             },
             {
                 "type": "end_flow",
-                "extra": {"pos": [580, 180], "name": "End"},
+                "extra": {"pos": [840, 180], "name": "End"},
             },
         ],
         "edges": [
@@ -82,6 +88,12 @@ def _starter_hello_workflow_payload() -> dict:
             {
                 "source": 1,
                 "target": 2,
+                "source_slot": "output",
+                "target_slot": "flow_in",
+            },
+            {
+                "source": 2,
+                "target": 3,
                 "source_slot": "flow_out",
                 "target_slot": "flow_in",
             },
@@ -365,7 +377,10 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reloaded.status_code, 200, reloaded.text)
         workflow = reloaded.json()["workflow"]
         self.assertEqual(workflow["options"]["name"], "Hello Workflow")
-        self.assertEqual([node["type"] for node in workflow["nodes"]], ["start_flow", "preview_flow", "end_flow"])
+        self.assertEqual(
+            [node["type"] for node in workflow["nodes"]],
+            ["start_flow", "transform_flow", "preview_flow", "end_flow"],
+        )
 
         start = await self._client.post("/workflow/start", json={}, headers=headers)
         self.assertEqual(start.status_code, 200, start.text)
@@ -382,6 +397,34 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.2)
 
         self.assertEqual(final_status, "completed")
+
+    async def test_create_space_reuses_title_with_unique_slug(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "spaces", "email": "spaces@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        first = await self._client.post(
+            "/spaces/create",
+            json={"title": "New Space"},
+            headers=headers,
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+
+        second = await self._client.post(
+            "/spaces/create",
+            json={"title": "New Space"},
+            headers=headers,
+        )
+        self.assertEqual(second.status_code, 200, second.text)
+
+        first_space = first.json()["space"]
+        second_space = second.json()["space"]
+        self.assertNotEqual(first_space["id"], second_space["id"])
+        self.assertEqual(first_space["slug"], "new-space")
+        self.assertEqual(second_space["slug"], "new-space-2")
 
 
 

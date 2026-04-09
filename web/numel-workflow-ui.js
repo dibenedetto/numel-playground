@@ -273,8 +273,14 @@ function _hasWorkflowContent(workflow) {
 }
 
 function _isCurrentWorkflowEmptyState() {
-	const hasGraphNodes = !!schemaGraph?.graph?.nodes?.length;
-	return !hasGraphNodes && !currentWorkflowHasContent;
+	const workflowNodeCount = Array.isArray(visualizer?.graphNodes)
+		? visualizer.graphNodes.filter((node) => !!node).length
+		: 0;
+	const canvasNodeCount = Array.isArray(schemaGraph?.graph?.nodes)
+		? schemaGraph.graph.nodes.filter((node) => !!node).length
+		: 0;
+	const hasWorkflowNodes = workflowNodeCount > 0 || canvasNodeCount > 0;
+	return !hasWorkflowNodes && !currentWorkflowHasContent;
 }
 
 function _starterHelloWorkflow() {
@@ -282,16 +288,23 @@ function _starterHelloWorkflow() {
 		options: {
 			type: 'workflow_options',
 			name: 'Hello Workflow',
-			description: 'The simplest runnable workflow: Start, Preview, End.',
+			description: 'A tiny first workflow that creates output and previews it.',
 		},
 		nodes: [
 			{ type: 'start_flow', extra: { pos: [60, 180], name: 'Start' } },
-			{ type: 'preview_flow', extra: { pos: [320, 180], name: 'Preview' } },
-			{ type: 'end_flow', extra: { pos: [580, 180], name: 'End' } },
+			{
+				type: 'transform_flow',
+				lang: 'python',
+				script: 'output = {"message": "Hello from Numel!", "next_step": "Edit this transform or ask the assistant to expand it."}',
+				extra: { pos: [320, 180], name: 'Hello' },
+			},
+			{ type: 'preview_flow', extra: { pos: [580, 180], name: 'Preview' } },
+			{ type: 'end_flow', extra: { pos: [840, 180], name: 'End' } },
 		],
 		edges: [
 			{ source: 0, target: 1, source_slot: 'flow_out', target_slot: 'flow_in' },
-			{ source: 1, target: 2, source_slot: 'flow_out', target_slot: 'flow_in' },
+			{ source: 1, target: 2, source_slot: 'output', target_slot: 'flow_in' },
+			{ source: 2, target: 3, source_slot: 'flow_out', target_slot: 'flow_in' },
 		],
 	};
 }
@@ -364,10 +377,16 @@ function _showStarterModal() {
 function _updateStarterPanel() {
 	const panel = $('spaceStarterPanel');
 	const subtitle = $('spaceStarterSubtitle');
+	const hero = document.querySelector('.nw-canvas-hero');
+	const stageBar = document.querySelector('.nw-canvas-stagebar');
 	_updateWorkbenchOverview();
 	if (!panel) return;
-	const visible = !!client?.isConnected && _isAuthenticatedUser() && _isCurrentWorkflowEmptyState();
+	const visible = !!api && _isAuthenticatedUser() && _isCurrentWorkflowEmptyState();
 	panel.style.display = visible ? '' : 'none';
+	if (visible) {
+		hero?.classList.remove('nw-hero-hidden');
+		stageBar?.classList.add('nw-stagebar-hidden');
+	}
 	if (subtitle) {
 		subtitle.textContent = currentSpaceInfo?.title
 			? `"${currentSpaceInfo.title}" is empty — pick a starter below.`
@@ -2014,9 +2033,12 @@ async function syncWorkflow(workflow = null, _name = null, force = false) {
 		// Close all preview text overlays (node IDs will change)
 		schemaGraph.closeAllPreviewTextOverlays?.();
 
-		// Always re-export from graph to strip frontend-only nodes (e.g. preview_flow)
+		// When an explicit workflow is supplied (starters/import/gallery), preserve
+		// that payload for saving so stripped frontend-only display transforms do not
+		// collapse the saved workflow into an empty graph.
+		const hasExplicitWorkflow = !!workflow;
 		const exported = visualizer.exportWorkflow();
-		if (exported) workflow = exported;
+		if (!hasExplicitWorkflow && exported) workflow = exported;
 
 		const response = await api.saveWorkflow(workflow);
 
