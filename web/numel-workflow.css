@@ -8,10 +8,10 @@
 }
 
 :root {
-	--nw-radius-shell: 18px;
-	--nw-radius-surface: 16px;
-	--nw-radius-control: 10px;
-	--nw-radius-sub: 6px;
+	--nw-radius-shell: 12px;
+	--nw-radius-surface: 11px;
+	--nw-radius-control: 8px;
+	--nw-radius-sub: 5px;
 	--nw-side-panel-width: 400px;
 	--nw-section-collapsed-height: 38px;
 	--nw-border-soft: color-mix(in srgb, var(--sg-border-color) 82%, transparent);
@@ -204,23 +204,26 @@ body.nw-layout-project-workbench .nw-panel.nw-panel-collapsed .nw-section.nw-sec
 	display: none;
 }
 
-/* Panel toggle button — lives inside .nw-title */
+/* Panel toggle button — lives inside .nw-title.
+   Borderless / transparent so it reads as part of the panel chrome instead
+   of a stuck-on control; only the chevron is visible until hover. */
 #nw-panel-toggle {
-	width: 26px;
-	height: 26px;
-	border-radius: 6px;
-	border: 1px solid var(--sg-border-color);
+	width: 24px;
+	height: 24px;
+	border-radius: var(--nw-radius-sub);
+	border: 1px solid transparent;
 	background: transparent;
+	color: var(--sg-text-tertiary);
 	cursor: pointer;
 	flex-shrink: 0;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	transition: background 0.15s ease;
+	transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
 #nw-panel-toggle:hover {
-	background: var(--sg-bg-tertiary);
+	color: var(--sg-text-primary);
 }
 
 /* CSS chevron pointing left (panel open → collapse) */
@@ -295,6 +298,16 @@ body.nw-layout-project-workbench .nw-title {
 	border: 1px solid var(--nw-border-soft);
 	border-radius: var(--nw-radius-control);
 	padding: 10px 12px;
+	/* Animate the chrome (size, padding, background, border) so the
+	   collapse/expand reads as one continuous motion together with the
+	   body's max-height/opacity transition below. */
+	transition:
+		min-height 0.25s ease,
+		padding 0.25s ease,
+		margin 0.25s ease,
+		background 0.2s ease,
+		border-color 0.2s ease,
+		border-radius 0.2s ease;
 }
 
 body.nw-layout-project-workbench .nw-section {
@@ -396,7 +409,6 @@ body.nw-layout-project-workbench .nw-section-secondary {
 }
 
 .nw-section.nw-section-collapsed {
-	height: var(--nw-section-collapsed-height);
 	min-height: var(--nw-section-collapsed-height);
 	padding-top: 0;
 	padding-bottom: 0;
@@ -488,11 +500,48 @@ body.nw-layout-project-workbench .nw-section-title {
 /* ── Advanced sections: hidden by default, revealed via .nw-show-advanced ──
    Only touch display when hidden. When revealed, leave display alone so the
    collapsed-flex centering rule stays in effect. */
+/* Show-more / show-less hidden sections.
+   Use animatable properties (max-height/opacity/padding/margin/border)
+   instead of display:none so the appearance/disappearance can be animated.
+   The matching transition is declared on `.nw-section` itself plus the
+   rule below covering max-height/opacity. */
+.nw-section {
+	max-height: 2000px;
+}
 body:not(.nw-show-advanced) #credentialsSection,
 body:not(.nw-show-advanced) #channelsSection,
 body:not(.nw-show-advanced) #eventLogSection,
 body:not(.nw-show-advanced) #experimentalSection {
-	display: none !important;
+	max-height: 0 !important;
+	min-height: 0 !important;
+	padding-top: 0 !important;
+	padding-bottom: 0 !important;
+	margin-top: 0 !important;
+	margin-bottom: 0 !important;
+	border-width: 0 !important;
+	opacity: 0;
+	overflow: hidden;
+	pointer-events: none;
+	visibility: hidden;
+	transition:
+		max-height 0.3s ease,
+		min-height 0.3s ease,
+		padding 0.3s ease,
+		margin 0.3s ease,
+		opacity 0.2s ease,
+		visibility 0s linear 0.3s;
+}
+body.nw-show-advanced #credentialsSection,
+body.nw-show-advanced #channelsSection,
+body.nw-show-advanced #eventLogSection,
+body.nw-show-advanced #experimentalSection {
+	transition:
+		max-height 0.3s ease,
+		min-height 0.3s ease,
+		padding 0.3s ease,
+		margin 0.3s ease,
+		opacity 0.2s ease 0.05s,
+		visibility 0s linear 0s;
 }
 
 /* ── Stage bar: hide when workflow is empty ── */
@@ -1708,6 +1757,32 @@ body.nw-layout-project-workbench .nw-canvas-panel {
 	gap: 8px;
 }
 
+/* Schemagraph's tab-bar setup (see _setupTabBar in schemagraph-app.js)
+   adds an `.sg-has-tabs` class and injects a "unified card" style on the
+   canvas panel itself: a darker border, 8px border-radius and overflow:
+   hidden. With our stacked-pieces layout (hero · stagebar · canvas ·
+   console) that wrapper card reads as a separate darker container with
+   the wrong corner radius behind the actual panels — undo it. */
+body.nw-layout-project-workbench .nw-canvas-panel.sg-has-tabs {
+	border: none !important;
+	border-radius: 0 !important;
+	overflow: visible !important;
+}
+/* The same injected stylesheet flattens the canvas-container to
+   border-radius:0 — re-apply our harmonized corners (sharp top because the
+   canvas sits below the stagebar/tab-bar, rounded bottom because it meets
+   the page edge or, in dock mode, the console). */
+body.nw-layout-project-workbench .nw-canvas-panel.sg-has-tabs .sg-canvas-container {
+	border-top-left-radius: 0;
+	border-top-right-radius: 0;
+	border-bottom-left-radius: var(--nw-radius-shell);
+	border-bottom-right-radius: var(--nw-radius-shell);
+}
+body.nw-layout-assistant-dock .nw-canvas-panel.sg-has-tabs .sg-canvas-container {
+	border-bottom-left-radius: 0;
+	border-bottom-right-radius: 0;
+}
+
 .nw-canvas-hero {
 	position: relative;
 	padding: 10px 12px;
@@ -1869,9 +1944,55 @@ body.nw-layout-project-workbench .nw-canvas-panel {
 }
 
 body.nw-layout-project-workbench .sg-canvas-container {
-	border-radius: calc(var(--nw-radius-shell) + 2px);
+	border-radius: var(--nw-radius-shell);
 	border-color: var(--nw-border-soft);
-	box-shadow: 0 20px 44px color-mix(in srgb, var(--sg-node-shadow, rgba(0,0,0,0.35)) 48%, transparent);
+	/* No drop shadow: the canvas is one piece of a vertical stack now
+	   (hero · stagebar · canvas · console), so a shadow sized for a
+	   standalone shell reads as a separate darker rectangle behind the
+	   other pieces with the wrong corner shape. */
+	box-shadow: none;
+}
+
+/* ── Right column corner harmonization ───────────────────────────────────
+   The right column stacks (top→bottom): hero · stagebar · canvas, plus
+   (in dock layout) the assistant console. Each element rounds its outer
+   corners that meet the container/window edge with the SAME radius as the
+   left panel (--nw-radius-shell), and uses sharp corners on the sides that
+   face an adjacent stacked sibling — so the seam between them reads as a
+   clean shared edge and every topmost rectangle in the page shares one
+   uniform corner-rounding parameter. */
+body.nw-layout-project-workbench .nw-canvas-hero {
+	border-top-left-radius: var(--nw-radius-shell);
+	border-top-right-radius: var(--nw-radius-shell);
+	border-bottom-left-radius: 0;
+	border-bottom-right-radius: 0;
+}
+body.nw-layout-project-workbench .nw-canvas-stagebar {
+	border-radius: 0;
+}
+body.nw-layout-project-workbench .sg-canvas-container {
+	border-top-left-radius: 0;
+	border-top-right-radius: 0;
+}
+/* Dock layout: canvas bottom is now shared with the console header. */
+body.nw-layout-assistant-dock .sg-canvas-container {
+	border-bottom-left-radius: 0;
+	border-bottom-right-radius: 0;
+}
+
+/* When the hero is collapsed/hidden, the next sibling becomes the topmost
+   rectangle in the right column and must inherit the same rounded top
+   corners — otherwise the column gets sharp top corners while the left
+   panel still has rounded ones. */
+body.nw-layout-project-workbench .nw-canvas-panel:has(> .nw-canvas-hero.nw-hero-hidden) > .nw-canvas-stagebar {
+	border-top-left-radius: var(--nw-radius-shell);
+	border-top-right-radius: var(--nw-radius-shell);
+}
+/* And if the stagebar is also hidden, the canvas container itself becomes
+   the topmost element. */
+body.nw-layout-project-workbench .nw-canvas-panel:has(> .nw-canvas-hero.nw-hero-hidden):has(> .nw-canvas-stagebar.nw-stagebar-hidden) > .sg-canvas-container {
+	border-top-left-radius: var(--nw-radius-shell);
+	border-top-right-radius: var(--nw-radius-shell);
 }
 
 /* ── Mini-map ───────────────────────────────────────────────────────────── */

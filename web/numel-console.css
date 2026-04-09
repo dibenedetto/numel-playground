@@ -717,7 +717,9 @@ body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel {
 	transform: none !important;
 	box-shadow: none;
 	border: 1px solid var(--nw-border-soft, var(--sg-border-color));
-	border-radius: var(--nw-radius-shell, 10px);
+	/* Sharp top corners — they share an edge with the canvas above.
+	   Bottom corners stay rounded since they meet the canvas-panel edge. */
+	border-radius: 0 0 var(--nw-radius-shell, 12px) var(--nw-radius-shell, 12px);
 	background: color-mix(in srgb, var(--sg-bg-secondary) 94%, white 6%);
 	display: grid;
 	grid-template-columns: 1fr 360px;
@@ -782,10 +784,13 @@ body.nw-assistant-dock-resizing * {
 	user-select: none !important;
 }
 
-/* ── Config column collapse toggle (anchored to top-right of panel) ── */
+/* ── Config column collapse toggle ──
+   Borderless icon button that lives flush against the divider between the
+   message column and the settings column, so it reads as part of the seam
+   rather than a chip floating over the header. */
 body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-assistant-dock-config-toggle {
 	position: absolute;
-	top: 10px;
+	top: 12px;
 	right: 8px;
 	z-index: 2;
 	width: 22px;
@@ -793,16 +798,15 @@ body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-assistant-d
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	background: color-mix(in srgb, var(--sg-bg-secondary) 92%, white 8%);
-	border: 1px solid var(--nw-border-soft, var(--sg-border-color));
-	border-radius: 4px;
-	color: var(--sg-text-secondary);
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: var(--nw-radius-sub, 5px);
+	color: var(--sg-text-tertiary);
 	cursor: pointer;
 	padding: 0;
-	transition: background 0.15s, color 0.15s;
+	transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-assistant-dock-config-toggle:hover {
-	background: color-mix(in srgb, var(--sg-bg-tertiary) 90%, white 10%);
 	color: var(--sg-text-primary);
 }
 body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-assistant-dock-config-toggle svg {
@@ -816,6 +820,11 @@ body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel.assistant-config-
 
 body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-header {
 	grid-area: header;
+	/* Reserve space at the right edge for the absolutely-positioned
+	   config-collapse toggle so it never overlaps the clear-memory button —
+	   this matters most when the settings column is collapsed and the header
+	   expands to the full panel width. */
+	padding-right: 40px;
 }
 
 body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > #consoleMessages {
