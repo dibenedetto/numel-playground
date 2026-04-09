@@ -1757,6 +1757,10 @@ body.nw-layout-project-workbench .nw-canvas-panel {
 	gap: 8px;
 }
 
+body.nw-layout-assistant-dock .nw-canvas-panel {
+	margin-bottom: 11px;
+}
+
 /* Schemagraph's tab-bar setup (see _setupTabBar in schemagraph-app.js)
    adds an `.sg-has-tabs` class and injects a "unified card" style on the
    canvas panel itself: a darker border, 8px border-radius and overflow:
