@@ -1995,6 +1995,203 @@ body.nw-layout-project-workbench .nw-canvas-panel:has(> .nw-canvas-hero.nw-hero-
 	border-top-right-radius: var(--nw-radius-shell);
 }
 
+/* ========================================================================
+   EXPERIMENTAL LAYOUTS
+   ======================================================================== */
+
+body.nw-layout-project-workbench-canvas {
+	background:
+		radial-gradient(circle at 8% 0%, color-mix(in srgb, var(--sg-accent-orange, #f5a623) 18%, transparent), transparent 34%),
+		radial-gradient(circle at 92% 8%, color-mix(in srgb, var(--sg-accent-blue, #46a2da) 20%, transparent), transparent 32%),
+		linear-gradient(180deg, color-mix(in srgb, var(--sg-bg-primary) 96%, white 4%), var(--sg-bg-primary));
+}
+
+body.nw-layout-project-workbench-canvas .nw-panel {
+	width: 248px;
+	min-width: 232px;
+	max-width: 272px;
+	padding: 12px;
+	gap: 8px;
+	background:
+		linear-gradient(180deg,
+			color-mix(in srgb, var(--sg-bg-secondary) 82%, white 18%),
+			color-mix(in srgb, var(--sg-bg-secondary) 94%, var(--sg-accent-orange, #f5a623) 6%));
+}
+
+body.nw-layout-project-workbench-canvas .nw-section {
+	padding: 9px 11px;
+}
+
+body.nw-layout-project-workbench-canvas #credentialsSection,
+body.nw-layout-project-workbench-canvas #channelsSection,
+body.nw-layout-project-workbench-canvas #eventLogSection,
+body.nw-layout-project-workbench-canvas #experimentalSection {
+	opacity: 0.78;
+}
+
+body.nw-layout-project-workbench-canvas .nw-canvas-panel {
+	border-radius: 24px;
+	padding: 18px;
+	background:
+		linear-gradient(180deg,
+			color-mix(in srgb, var(--sg-bg-secondary) 90%, white 10%),
+			color-mix(in srgb, var(--sg-bg-primary) 96%, var(--sg-accent-blue, #46a2da) 4%));
+	box-shadow: 0 20px 50px color-mix(in srgb, var(--sg-node-shadow, rgba(0, 0, 0, 0.35)) 55%, transparent);
+}
+
+body.nw-layout-project-workbench-canvas .nw-canvas-hero {
+	padding: 28px 30px 24px;
+	min-height: 220px;
+	border-radius: 24px;
+	background:
+		linear-gradient(135deg,
+			color-mix(in srgb, var(--sg-bg-tertiary) 76%, white 24%),
+			color-mix(in srgb, var(--sg-bg-tertiary) 90%, var(--sg-accent-orange, #f5a623) 10%));
+}
+
+body.nw-layout-project-workbench-canvas .nw-canvas-hero-copy {
+	max-width: 760px;
+}
+
+body.nw-layout-project-workbench-canvas .nw-canvas-hero-kicker {
+	font-size: 12px;
+	letter-spacing: 0.18em;
+}
+
+body.nw-layout-project-workbench-canvas .nw-canvas-hero-title {
+	font-size: 34px;
+	line-height: 1.04;
+	max-width: 13ch;
+}
+
+body.nw-layout-project-workbench-canvas .nw-canvas-hero-summary {
+	max-width: 58ch;
+	font-size: 15px;
+}
+
+body.nw-layout-project-workbench-canvas .nw-starter-grid {
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+body.nw-layout-project-workbench-canvas .nw-canvas-stagebar {
+	margin: -20px 22px 0;
+	padding: 14px 16px;
+	border-radius: 18px;
+	border: 1px solid color-mix(in srgb, var(--sg-accent-blue, #46a2da) 16%, var(--sg-border-color) 84%);
+	background:
+		linear-gradient(180deg,
+			color-mix(in srgb, var(--sg-bg-secondary) 84%, white 16%),
+			color-mix(in srgb, var(--sg-bg-tertiary) 94%, var(--sg-accent-blue, #46a2da) 6%));
+	box-shadow: 0 14px 30px color-mix(in srgb, var(--sg-node-shadow, rgba(0, 0, 0, 0.35)) 32%, transparent);
+}
+
+body.nw-layout-project-workbench-canvas .sg-canvas-container {
+	padding-top: 20px;
+}
+
+body.nw-layout-project-workbench-studio {
+	background:
+		radial-gradient(circle at 10% 10%, color-mix(in srgb, var(--sg-accent-blue, #46a2da) 16%, transparent), transparent 28%),
+		radial-gradient(circle at 88% 10%, color-mix(in srgb, var(--sg-accent-orange, #f5a623) 18%, transparent), transparent 26%),
+		linear-gradient(180deg, color-mix(in srgb, var(--sg-bg-primary) 94%, white 6%), var(--sg-bg-primary));
+}
+
+body.nw-layout-project-workbench-studio .nw-panel {
+	width: 300px;
+	min-width: 280px;
+	max-width: 330px;
+	background:
+		linear-gradient(180deg,
+			color-mix(in srgb, var(--sg-bg-secondary) 78%, white 22%),
+			color-mix(in srgb, var(--sg-bg-secondary) 92%, var(--sg-accent-blue, #46a2da) 8%));
+}
+
+body.nw-layout-project-workbench-studio .nw-canvas-panel {
+	border-radius: 28px;
+	padding: 18px;
+	background:
+		linear-gradient(180deg,
+			color-mix(in srgb, var(--sg-bg-secondary) 82%, white 18%),
+			color-mix(in srgb, var(--sg-bg-primary) 94%, var(--sg-accent-orange, #f5a623) 6%));
+	box-shadow: 0 24px 54px color-mix(in srgb, var(--sg-node-shadow, rgba(0, 0, 0, 0.35)) 58%, transparent);
+}
+
+body.nw-layout-project-workbench-studio .nw-canvas-hero {
+	display: grid;
+	grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+	align-items: stretch;
+	gap: 18px;
+	padding: 24px 26px;
+	min-height: 236px;
+	border-radius: 24px;
+	background:
+		linear-gradient(135deg,
+			color-mix(in srgb, var(--sg-bg-tertiary) 72%, white 28%),
+			color-mix(in srgb, var(--sg-bg-tertiary) 88%, var(--sg-accent-blue, #46a2da) 12%));
+}
+
+body.nw-layout-project-workbench-studio .nw-canvas-hero-copy {
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+}
+
+body.nw-layout-project-workbench-studio .nw-canvas-hero-title {
+	font-size: 32px;
+	line-height: 1.05;
+	max-width: 14ch;
+}
+
+body.nw-layout-project-workbench-studio .nw-canvas-hero-summary {
+	font-size: 15px;
+	max-width: 52ch;
+}
+
+body.nw-layout-project-workbench-studio .nw-canvas-hero-actions {
+	justify-content: flex-start;
+}
+
+body.nw-layout-project-workbench-studio .nw-starter-panel {
+	margin: 0;
+	min-height: 100%;
+	background:
+		linear-gradient(180deg,
+			color-mix(in srgb, var(--sg-bg-secondary) 72%, white 28%),
+			color-mix(in srgb, var(--sg-bg-secondary) 90%, var(--sg-accent-orange, #f5a623) 10%));
+	border: 1px solid color-mix(in srgb, var(--sg-accent-orange, #f5a623) 18%, var(--sg-border-color) 82%);
+}
+
+body.nw-layout-project-workbench-studio .nw-starter-grid {
+	grid-template-columns: 1fr;
+}
+
+body.nw-layout-project-workbench-studio .nw-canvas-stagebar {
+	padding: 14px 16px;
+	border-radius: 18px;
+	border: 1px solid color-mix(in srgb, var(--sg-accent-blue, #46a2da) 18%, var(--sg-border-color) 82%);
+	background:
+		linear-gradient(180deg,
+			color-mix(in srgb, var(--sg-bg-secondary) 80%, white 20%),
+			color-mix(in srgb, var(--sg-bg-tertiary) 92%, var(--sg-accent-blue, #46a2da) 8%));
+}
+
+body.nw-layout-project-workbench-studio.nw-layout-assistant-dock .nw-console-panel {
+	background:
+		linear-gradient(180deg,
+			color-mix(in srgb, var(--sg-bg-secondary) 82%, white 18%),
+			color-mix(in srgb, var(--sg-bg-primary) 94%, var(--sg-accent-blue, #46a2da) 6%));
+	border-top: 1px solid color-mix(in srgb, var(--sg-accent-blue, #46a2da) 20%, var(--sg-border-color) 80%);
+	box-shadow: none;
+}
+
+body.nw-layout-project-workbench-studio.nw-layout-assistant-dock .nw-assistant-dock-resize {
+	background:
+		linear-gradient(90deg,
+			transparent,
+			color-mix(in srgb, var(--sg-accent-blue, #46a2da) 30%, transparent),
+			transparent);
+}
+
 /* ── Mini-map ───────────────────────────────────────────────────────────── */
 #sg-minimap {
 	position: absolute;
@@ -3267,6 +3464,10 @@ body.nw-layout-project-workbench .nw-auth-title {
 
 	.nw-starter-grid,
 	.nw-starter-modal-grid {
+		grid-template-columns: 1fr;
+	}
+
+	body.nw-layout-project-workbench-studio .nw-canvas-hero {
 		grid-template-columns: 1fr;
 	}
 
