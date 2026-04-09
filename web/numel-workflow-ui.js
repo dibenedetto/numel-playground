@@ -1139,6 +1139,8 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.querySelectorAll('.nw-panel .nw-section').forEach(section => {
 		const header = section.querySelector('.nw-section-header');
 		if (!header) return;
+		header.setAttribute('role', 'button');
+		header.setAttribute('tabindex', '0');
 
 		// Wrap all content after the header in a body div
 		const body = document.createElement('div');
@@ -1172,8 +1174,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 		_setSectionCollapsed(section, section.classList.contains('nw-section-collapsed'));
 
-		header.addEventListener('click', (e) => {
-			if (e.target.closest('button, select, input, a')) return;
+		const toggleSection = () => {
 			const panel = document.querySelector('.nw-panel');
 			// When panel is collapsed, clicking a section icon expands the panel
 			// AND ensures the clicked section is expanded. Other sections keep
@@ -1193,6 +1194,17 @@ document.addEventListener('DOMContentLoaded', () => {
 			}
 			_setSectionCollapsed(section, !section.classList.contains('nw-section-collapsed'));
 			_saveSectionCollapseState();
+		};
+
+		header.addEventListener('click', (e) => {
+			if (e.target.closest('button, select, input, a')) return;
+			toggleSection();
+		});
+		header.addEventListener('keydown', (e) => {
+			if (e.key !== 'Enter' && e.key !== ' ') return;
+			if (e.target.closest('button, select, input, a') && e.target !== header) return;
+			e.preventDefault();
+			toggleSection();
 		});
 	});
 

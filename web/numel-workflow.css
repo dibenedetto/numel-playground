@@ -366,11 +366,23 @@ body.nw-layout-project-workbench .nw-section-secondary {
 	margin-bottom: 6px;
 	cursor: pointer;
 	user-select: none;
+	border-radius: var(--nw-radius-sub);
+	transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .nw-section-header .nw-ws-badge,
 .nw-section-header .nw-btn-icon {
 	margin-left: auto;
+}
+
+.nw-section-header:hover {
+	background: color-mix(in srgb, var(--sg-bg-quaternary) 56%, transparent);
+}
+
+.nw-section-header:focus-visible {
+	outline: none;
+	background: color-mix(in srgb, var(--sg-bg-quaternary) 62%, transparent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--sg-accent-blue, #46a2da) 16%, transparent);
 }
 
 .nw-section-collapse-icon {
@@ -652,6 +664,7 @@ body.nw-layout-project-workbench #executionSection .nw-btn-row .nw-btn {
 
 .nw-select {
 	width: 100%;
+	min-height: 32px;
 	padding: 8px 10px;
 	background: var(--sg-bg-quaternary);
 	border: 1px solid var(--nw-border-soft);
@@ -693,6 +706,7 @@ body.nw-layout-project-workbench #executionSection .nw-btn-row .nw-btn {
 
 .nw-input {
 	width: 100%;
+	min-height: 32px;
 	padding: 8px 10px;
 	background: var(--sg-bg-quaternary);
 	border: 1px solid var(--nw-border-soft);
@@ -816,6 +830,12 @@ body.nw-layout-project-workbench #executionSection .nw-btn-row .nw-btn {
 	transform: translateY(-1px);
 	border-color: color-mix(in srgb, var(--sg-accent-blue, #46a2da) 42%, var(--nw-border-soft));
 	background: color-mix(in srgb, var(--sg-bg-primary) 52%, var(--sg-accent-blue, #46a2da) 8%);
+}
+
+.nw-space-pill:focus-visible {
+	outline: none;
+	border-color: color-mix(in srgb, var(--sg-accent-blue, #46a2da) 44%, var(--nw-border-soft));
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--sg-accent-blue, #46a2da) 16%, transparent);
 }
 
 .nw-space-pill.is-active {
@@ -1147,6 +1167,11 @@ body.nw-layout-project-workbench .nw-user-info-label {
    ======================================================================== */
 
 .nw-btn {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 6px;
+	min-height: 32px;
 	padding: 6px 11px;
 	border: none;
 	border-radius: 5px;
@@ -1178,9 +1203,17 @@ body.nw-layout-project-workbench .nw-section .nw-tunnel-info {
 	box-shadow: 0 2px 6px rgba(0,0,0,0.2);
 }
 
+.nw-btn:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--sg-accent-blue, #46a2da) 18%, transparent);
+}
+
 .nw-btn:disabled {
-	opacity: 0.5;
+	opacity: 0.52;
+	filter: saturate(0.72);
 	cursor: not-allowed;
+	transform: none;
+	box-shadow: none;
 }
 
 .nw-btn-block {
@@ -1233,21 +1266,35 @@ body.nw-layout-project-workbench .nw-btn-secondary {
 .nw-btn-icon {
 	background: transparent;
 	border: none;
-	padding: 4px 8px;
+	width: 30px;
+	height: 30px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0;
 	cursor: pointer;
 	font-size: 14px;
 	border-radius: 4px;
 	color: var(--sg-text-secondary);
+	transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
 .nw-btn-icon:hover {
 	background: var(--sg-bg-quaternary);
 	color: var(--sg-text-primary);
+	transform: translateY(-1px);
+}
+
+.nw-btn-icon:focus-visible {
+	outline: none;
+	background: color-mix(in srgb, var(--sg-bg-quaternary) 72%, transparent);
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--sg-accent-blue, #46a2da) 16%, transparent);
 }
 
 .nw-btn-icon:disabled {
 	opacity: 0.4;
 	cursor: not-allowed;
+	transform: none;
 }
 .nw-btn-icon:disabled:hover {
 	background: transparent;
@@ -2363,6 +2410,7 @@ body.nw-layout-project-workbench-studio.nw-layout-assistant-dock .nw-assistant-d
 }
 
 .nw-btn-sm {
+	min-height: 28px;
 	padding: 4px 10px;
 	font-size: 11px;
 }
@@ -2848,10 +2896,12 @@ body.nw-layout-project-workbench .nw-auth-title {
 	display: flex;
 	flex-direction: column;
 	transform: translateX(100%);
+	pointer-events: none;
 	transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 .nw-admin-panel.open {
 	transform: translateX(0);
+	pointer-events: auto;
 	box-shadow: -10px 0 28px color-mix(in srgb, var(--sg-node-shadow, rgba(0,0,0,0.35)) 46%, transparent);
 }
 

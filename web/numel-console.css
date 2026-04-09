@@ -61,10 +61,12 @@
 	display: flex;
 	flex-direction: column;
 	transform: translateX(100%);
+	pointer-events: none;
 	transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 .nw-console-panel.open {
 	transform: translateX(0);
+	pointer-events: auto;
 	box-shadow: -10px 0 28px color-mix(in srgb, var(--sg-node-shadow, rgba(0,0,0,0.35)) 46%, transparent);
 }
 
@@ -580,6 +582,7 @@
 .nw-console-input:focus {
 	outline: none;
 	border-color: var(--sg-accent-blue, rgba(45, 90, 123, 0.8));
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--sg-accent-blue, #46a2da) 16%, transparent);
 }
 .nw-console-input:disabled {
 	opacity: 0.5;
@@ -602,6 +605,13 @@
 }
 .nw-console-send:hover:not(:disabled) {
 	background: var(--sg-accent-blue-light, #3d7a9b);
+}
+.nw-console-send:focus-visible,
+.nw-console-action-btn:focus-visible,
+.nw-console-mic:focus-visible,
+.nw-console-stop-speak:focus-visible {
+	outline: none;
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--sg-accent-blue, #46a2da) 16%, transparent);
 }
 .nw-console-send:disabled {
 	background: var(--sg-bg-quaternary, #3a3f44);
