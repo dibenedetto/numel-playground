@@ -43,14 +43,12 @@ const GLOBAL_LAYOUT_PRESET_STORAGE_KEY = 'numel_global_layout_preset_v1';
 const GLOBAL_LAYOUT_PRESETS = Object.freeze([
 	'project-workbench',
 	'project-workbench-assistant',
-	'project-workbench-canvas',
-	'project-workbench-studio',
 ]);
 
 // Layouts that dock the Numel Assistant below the canvas. These share the
 // 'project-workbench' base class so all existing workbench styling still
 // applies, and add 'nw-layout-assistant-dock' as a modifier.
-const ASSISTANT_DOCK_LAYOUTS = new Set(['project-workbench-assistant', 'project-workbench-studio']);
+const ASSISTANT_DOCK_LAYOUTS = new Set(['project-workbench-assistant']);
 
 function _normalizeGlobalLayoutPreset(preset) {
 	const value = String(preset || '').trim().toLowerCase();
@@ -226,15 +224,11 @@ function _applyGlobalLayoutPreset(preset) {
 		Array.from(body.classList)
 			.filter((className) => className.startsWith('nw-layout-'))
 			.forEach((className) => body.classList.remove(className));
-		// Project-workbench variants share the base workbench class so the
-		// current shell remains the common structural foundation, while each
-		// preset can layer a stronger visual direction on top.
-		if (normalized.startsWith('project-workbench')) {
-			body.classList.add('nw-layout-project-workbench');
-		}
-		// Assistant-dock variants also add a modifier class used to trigger
-		// the docked assistant rules.
+		// Assistant-dock variants share the base project-workbench class so
+		// all existing workbench styling still applies, plus a modifier
+		// class used to trigger the docked assistant rules.
 		if (ASSISTANT_DOCK_LAYOUTS.has(normalized)) {
+			body.classList.add('nw-layout-project-workbench');
 			body.classList.add('nw-layout-assistant-dock');
 		} else {
 			body.classList.remove('nw-layout-assistant-dock');
