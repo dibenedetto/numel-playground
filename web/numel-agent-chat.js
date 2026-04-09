@@ -522,7 +522,7 @@ class AgentChatManager {
 
 			// Send augmented message through AGUI — the agent's own
 			// model, tools, memory, and knowledge are all available
-			const augmented = `${genPrompt}\n\n---\nGenerate a workflow for: ${description}`;
+			const augmented = `[Workflow Generation Contract]\n${genPrompt}\n\n[Generation Request]\nGenerate a workflow for: ${description}`;
 			await entry.handler.send(augmented);
 
 		} catch (err) {

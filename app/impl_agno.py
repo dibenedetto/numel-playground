@@ -8,6 +8,13 @@ import tempfile
 from   importlib                       import import_module
 from   inspect                         import iscoroutinefunction, getmembers, ismethod
 from   fastapi                         import FastAPI
+from   prompt_stack                    import (
+	ACTIVE_SKILLS_SECTION_INTRO,
+	ACTIVE_SKILLS_SECTION_TITLE,
+	CONNECTED_TOOLKITS_SECTION_INTRO,
+	CONNECTED_TOOLKITS_SECTION_TITLE,
+	extend_instruction_block,
+)
 from   typing                          import Any, Dict, List, Tuple
 from   utils                           import log_print
 
@@ -442,11 +449,12 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 		# Merge toolkit descriptions into agent instructions
 		agent_instructions = options.instructions
 		if toolkit_descriptions:
-			extra = ["\n## Available Toolkits\n"] + toolkit_descriptions
-			if agent_instructions:
-				agent_instructions = list(agent_instructions) + extra
-			else:
-				agent_instructions = extra
+			agent_instructions = extend_instruction_block(
+				agent_instructions,
+				CONNECTED_TOOLKITS_SECTION_TITLE,
+				toolkit_descriptions,
+				CONNECTED_TOOLKITS_SECTION_INTRO,
+			)
 
 		# Skills: resolve names to instruction text via SkillManager
 		skills_links = node_links.get("skills")
@@ -459,11 +467,12 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 			if skill_names:
 				skill_instructions = skill_mgr.get_instructions_for(skill_names)
 				if skill_instructions:
-					extra = ["\n--- Active Skills ---"] + skill_instructions
-					if agent_instructions:
-						agent_instructions = list(agent_instructions) + extra
-					else:
-						agent_instructions = extra
+					agent_instructions = extend_instruction_block(
+						agent_instructions,
+						ACTIVE_SKILLS_SECTION_TITLE,
+						skill_instructions,
+						ACTIVE_SKILLS_SECTION_INTRO,
+					)
 
 		if True:
 			item = Agent(

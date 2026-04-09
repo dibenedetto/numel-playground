@@ -40,6 +40,12 @@ _agno_log.logger.warning = _logger_warning_filtered
 
 from   event_bus                       import EventBus
 from   memory                          import MemoryStore
+from   prompt_stack                    import (
+	ACTIVE_SKILLS_SECTION_INTRO,
+	ACTIVE_SKILLS_SECTION_TITLE,
+	PLANNER_MODE_DIRECTIVE,
+	extend_instruction_block,
+)
 from   runtime_settings                import get_runtime_settings
 from   toolkits.console_toolkit        import ConsoleToolkit
 from   utils                           import add_middleware, log_print
@@ -487,8 +493,12 @@ class ConsoleAgentManager:
 			else:
 				skill_instructions = self._skill_mgr.get_active_instructions()
 			if skill_instructions:
-				instructions.append("\n--- Active Skills ---")
-				instructions.extend(skill_instructions)
+				instructions = extend_instruction_block(
+					instructions,
+					ACTIVE_SKILLS_SECTION_TITLE,
+					skill_instructions,
+					ACTIVE_SKILLS_SECTION_INTRO,
+				)
 				log_print(f"Console agent: injected {len(skill_instructions)} skill(s)")
 
 		self._agent = Agent(
@@ -649,9 +659,11 @@ class ConsoleAgentManager:
 		if self._agent:
 			if not hasattr(self, '_base_instructions'):
 				self._base_instructions = list(self._agent.instructions or [])
-			self._agent.instructions = self._base_instructions + [
-				"You are in PLANNER MODE. When asked to build a workflow, output a complete workflow JSON inside a ```json code block. The system will load it automatically. Always include eval_flow nodes."
-			]
+			self._agent.instructions = extend_instruction_block(
+				self._base_instructions,
+				"Planner Mode",
+				[PLANNER_MODE_DIRECTIVE],
+			)
 
 		log_print(f"Planner [{pkey[:20]}] enabled (events={event_types})")
 
@@ -774,9 +786,7 @@ class ConsoleAgentManager:
 								augmented = "\n\n".join(parts) + f"\n\n{message}"
 						except Exception:
 							pass
-						_planner_directive = [
-							"You are in PLANNER MODE. When asked to build a workflow, output a complete workflow JSON inside a ```json code block. The system will load it automatically. Always include eval_flow nodes."
-						]
+						_planner_directive = [PLANNER_MODE_DIRECTIVE]
 						pool_session = f"planner_{ps.key}"
 						result = await asyncio.wait_for(
 							self._channel_pool.chat(
@@ -847,15 +857,13 @@ class ConsoleAgentManager:
 		if attachments:
 			message = _describe_attachments(message, attachments)
 
-		# Prepend planner instructions + workspace context to the user message
+		# Prepend workspace context to the user message
 		augmented = message
 
 		if include_context:
 			try:
 				ctx = await self.get_context()
 				parts = []
-				if self._planner_enabled and self._planner_instructions:
-					parts.append(f"[Planner Instructions]\n{self._planner_instructions}")
 				if ctx.get("context"):
 					parts.append(f"[Current space state]\n{ctx['context']}")
 				# Manual memory retrieval (only when not using backend)
@@ -1051,12 +1059,9 @@ class ConsoleAgentManager:
 			if recent_summary:
 				context_parts.append(f"Recent executions: {recent_summary}")
 
-		# Prepend planner instructions if active
+		# Prepend planner generation contract and instructions if active
 		planner_ctx = ""
 		if self._planner_enabled and self._planner_instructions:
-			planner_ctx = f"[Planner Instructions]\n{self._planner_instructions}\n\n"
-			if self._resource_index:
-				planner_ctx += f"[Available Resources]\n{self._resource_index}\n\n"
 			# Include generation prompt (node catalog + JSON schema) so the planner can build workflows
 			build_prompt = getattr(getattr(self, '_fastapi_app', None), 'state', None)
 			build_prompt = getattr(build_prompt, 'build_generation_prompt', None) if build_prompt else None
@@ -1064,11 +1069,14 @@ class ConsoleAgentManager:
 				try:
 					gen_prompt = build_prompt()
 					log_print(f"Planner: injecting node catalog ({len(gen_prompt)} chars)")
-					planner_ctx += f"[Node Catalog & JSON Format]\n{gen_prompt}\n\n"
+					planner_ctx += f"[Workflow Generation Contract]\n{gen_prompt}\n\n"
 				except Exception as e:
 					log_print(f"Planner: node catalog build failed: {e}")
 			else:
 				log_print(f"Planner: no build_generation_prompt (fastapi_app={self._fastapi_app is not None})")
+			if self._resource_index:
+				planner_ctx += f"[Available Resources]\n{self._resource_index}\n\n"
+			planner_ctx += f"[Planner Instructions]\n{self._planner_instructions}\n\n"
 
 		return {
 			"context":          planner_ctx + "\n".join(context_parts),
@@ -1263,8 +1271,12 @@ class ChannelAgentPool:
 		if self._skill_mgr:
 			skill_instructions = self._skill_mgr.get_active_instructions()
 			if skill_instructions:
-				instructions.append("\n--- Active Skills ---")
-				instructions.extend(skill_instructions)
+				instructions = extend_instruction_block(
+					instructions,
+					ACTIVE_SKILLS_SECTION_TITLE,
+					skill_instructions,
+					ACTIVE_SKILLS_SECTION_INTRO,
+				)
 
 		# Inject extra instructions (e.g. planner directive)
 		if extra_instructions:
@@ -1475,9 +1487,7 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 					log_print(f"Planner augmented msg length: {len(augmented)} chars, starts: {augmented[:200]}...")
 					pool_session = f"planner_{ps.key}"
 					_token = req.headers.get("authorization", "").removeprefix("Bearer ").strip()
-					_planner_directive = [
-						"You are in PLANNER MODE. When asked to build a workflow, output a complete workflow JSON inside a ```json code block. The system will load it automatically. Always include eval_flow nodes."
-					]
+					_planner_directive = [PLANNER_MODE_DIRECTIVE]
 					result = await channel_pool.chat(
 						message     = augmented,
 						session_id  = pool_session,

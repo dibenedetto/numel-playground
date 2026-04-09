@@ -98,7 +98,7 @@ skill_config("git-assistant") → agent_config.skills.git
 skill_config("api-tester")    → agent_config.skills.api
 ```
 
-All skill instructions are merged into the agent's system prompt under an `--- Active Skills ---` section.
+All skill instructions are merged into the agent's instruction stack under an `## Active Skill Packs` section.
 
 ## Steps
 

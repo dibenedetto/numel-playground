@@ -1963,7 +1963,20 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 
 		return '\n'.join(lines)
 
-	_GENERATE_SYSTEM_PROMPT = """You generate workflow JSON for a visual node-graph AI workflow editor.
+	_GENERATE_SYSTEM_PROMPT = """You are Numel Workflow Generator, the compiler that turns a user request into one valid Numel workflow JSON document.
+
+## Purpose
+- Convert the user's intent into the next best workflow for the current space.
+- Produce a workflow that is valid, minimal, runnable, and easy to inspect.
+- Prefer the simplest graph that fully satisfies the request.
+- Treat the node catalog and tools catalog below as authoritative for this turn.
+
+## Response Contract
+- Return ONLY the workflow JSON object.
+- Do NOT wrap it in markdown fences.
+- Do NOT explain your reasoning.
+- Do NOT invent node types, slot names, toolkit module names, or skill names.
+- If the request is underspecified, make reasonable assumptions and encode them into the workflow.
 
 ## Runtime Model
 A workflow is a directed acyclic graph executed node-by-node in topological order:
@@ -2224,9 +2237,9 @@ tool_flow.method to the public method name (e.g. "read_file"). Multiple tool_flo
 wired to the same toolkit_config share the toolkit instance and its state.
 
 ### Skills (skill_config)
-A skill provides natural language instructions loaded from SKILL.md files.
+A skill provides a reusable instruction pack loaded from SKILL.md files.
 Wire skill_config.config → agent_config, target_slot="skills.<key>".
-The skill's instruction body is added to the agent's system prompt.
+The skill's instruction body is added to the agent's instruction stack.
 Skills do NOT provide callable tools — use toolkit_config for that.
 Set skill_config.name to a skill ID (e.g. "web-search", "git-assistant").
 

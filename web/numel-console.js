@@ -1068,7 +1068,7 @@ class AgentConsoleManager {
 			// Fetch the generation prompt from the main server
 			const { prompt: genPrompt } = await this.api.generationPrompt();
 
-			const augmented = `${genPrompt}\n\n---\nGenerate a workflow for: ${description}`;
+			const augmented = `[Workflow Generation Contract]\n${genPrompt}\n\n[Generation Request]\nGenerate a workflow for: ${description}`;
 
 			if (this._streamingMode && this.handler?.isConnected()) {
 				await this._sendViaAGUI(augmented);
