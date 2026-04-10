@@ -211,6 +211,7 @@
 					<span id="execStatusPill" class="nw-exec-status-pill idle" title="Not running"></span>
 				</div>
 				<div class="nw-section-lede">Run the current workflow and follow its progress here.</div>
+				<div id="execAlert" class="nw-inline-alert" hidden></div>
 				<div class="nw-btn-row">
 					<button id="startBtn" class="nw-btn nw-btn-success" disabled>▶ Run</button>
 					<button id="cancelBtn" class="nw-btn nw-btn-danger" disabled>■ Stop</button>
@@ -437,12 +438,15 @@
 		<!-- Console Agent Panel -->
 		<div id="consolePanel" class="nw-console-panel">
 			<div class="nw-console-header">
-				<div>
+				<div class="nw-console-title-wrap">
 					<span class="nw-console-title">Numel Assistant</span>
 					<span id="consoleStatus" class="nw-console-status"></span>
+					<span id="consolePlannerIndicator" class="nw-console-planner-indicator" style="display:none">Planner on</span>
 				</div>
-				<button id="consoleClearMemoryBtn" class="nw-console-header-btn" title="Clear agent memory &amp; sessions">&#128465;</button>
-				<button id="consoleCloseBtn" class="nw-console-close">&times;</button>
+				<div class="nw-console-header-actions">
+					<button id="consoleClearMemoryBtn" class="nw-console-header-btn" title="Clear agent memory &amp; sessions">&#128465;</button>
+					<button id="consoleCloseBtn" class="nw-console-close">&times;</button>
+				</div>
 			</div>
 			<div class="nw-console-settings">
 				<button id="consoleSettingsHeader" class="nw-console-settings-header" aria-expanded="false">

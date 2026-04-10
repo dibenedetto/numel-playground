@@ -138,6 +138,24 @@ def build_native_toolkit_agno(toolkit_record: Dict[str, Any]):
 
 def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend:
 
+	def _resolve_module_like_name(item_config, *, kind: str) -> str:
+		explicit = str(getattr(item_config, "name", "") or "").strip()
+		if explicit:
+			return explicit
+		extra = getattr(item_config, "extra", None)
+		candidate = ""
+		if isinstance(extra, dict):
+			candidate = str(extra.get("name", "") or "").strip()
+		if not candidate:
+			return ""
+		if kind == "toolkit" and "." in candidate:
+			log_print(f"ℹ️  Recovered {kind} name from display label: {candidate}")
+			return candidate
+		if kind == "tool" and (candidate.startswith("@") or "." in candidate):
+			log_print(f"ℹ️  Recovered {kind} name from display label: {candidate}")
+			return candidate
+		return ""
+
 	def _get_search_type(value: str) -> SearchType:
 		if value == "hybrid":
 			return SearchType.hybrid
@@ -307,18 +325,19 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 					return _sync_run(**kwargs)
 			impl[index] = run_fn
 			return
-		if not item_config.name:
+		resolved_name = _resolve_module_like_name(item_config, kind="tool")
+		if not resolved_name:
 			raise ValueError(f"Agno tool needs name")
 		args = item_config.args or dict()
 		item = None
-		if item_config.name[0] == "@":
-			if item_config.name == "@reasoning":
+		if resolved_name[0] == "@":
+			if resolved_name == "@reasoning":
 				item = ReasoningTools()
-			elif item_config.name == "@web_search":
+			elif resolved_name == "@web_search":
 				max_results = args.get("max_results", DEFAULT_TOOL_MAX_WEB_SEARCH_RESULTS)
 				item = DuckDuckGoTools(fixed_max_results=max_results)
 		else:
-			module_path, func_name = item_config.name.rsplit(".", 1)
+			module_path, func_name = resolved_name.rsplit(".", 1)
 			# Try the exact module, then fallback paths for convenience
 			candidates = [module_path]
 			if "." not in module_path:
@@ -338,16 +357,17 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 				except (ImportError, ModuleNotFoundError):
 					continue
 			if item is None:
-				log_print(f"⚠️  Agno tool not found: {item_config.name} (tried: {', '.join(c + '.' + func_name for c in candidates)})")
+				log_print(f"⚠️  Agno tool not found: {resolved_name} (tried: {', '.join(c + '.' + func_name for c in candidates)})")
 		impl[index] = item
 
 
 	def _build_toolkit(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "toolkit_config", "Invalid Agno toolkit"
-		if not item_config.name:
+		resolved_name = _resolve_module_like_name(item_config, kind="toolkit")
+		if not resolved_name:
 			raise ValueError("Agno toolkit needs name")
-		record = load_numel_toolkit(item_config.name, item_config.args or {}, log_prefix="Toolkit")
+		record = load_numel_toolkit(resolved_name, item_config.args or {}, log_prefix="Toolkit")
 		if record is None:
 			impl[index] = None
 			return

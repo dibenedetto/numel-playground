@@ -74,20 +74,61 @@
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	padding: 12px 16px;
+	padding: var(--nw-console-header-pad-y, 8px) var(--nw-console-header-pad-x, 16px);
 	border-bottom: 1px solid var(--nw-border-soft, var(--sg-border-color));
 	background: color-mix(in srgb, var(--sg-bg-secondary) 94%, white 6%);
 	flex-shrink: 0;
 }
+.nw-console-title-wrap {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
 .nw-console-title {
-	font-size: 14px;
+	font-size: var(--nw-console-header-title-size, 14px);
 	font-weight: 600;
+	line-height: var(--nw-console-header-line-height, 1.2);
 	color: var(--sg-text-primary);
+	flex-shrink: 0;
 }
 .nw-console-status {
 	font-size: 11px;
 	color: var(--sg-text-tertiary);
-	margin-left: 8px;
+	min-width: 0;
+}
+.nw-console-planner-indicator {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 3px 8px;
+	border-radius: 999px;
+	border: 1px solid color-mix(in srgb, var(--sg-accent-blue, #46a2da) 35%, transparent);
+	background: color-mix(in srgb, var(--sg-accent-blue, #46a2da) 10%, transparent);
+	color: color-mix(in srgb, var(--sg-accent-blue, #46a2da) 76%, white 24%);
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	flex-shrink: 0;
+}
+.nw-console-planner-indicator::before {
+	content: '';
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	background: currentColor;
+	opacity: 0.85;
+}
+.nw-console-planner-indicator.busy {
+	border-color: color-mix(in srgb, var(--sg-accent-red, #d9534f) 36%, transparent);
+	background: color-mix(in srgb, var(--sg-accent-red, #d9534f) 12%, transparent);
+	color: color-mix(in srgb, var(--sg-accent-red, #d9534f) 70%, white 30%);
+}
+.nw-console-header-actions {
+	display: flex;
+	align-items: center;
+	gap: 4px;
 }
 .nw-console-header-btn {
 	background: none;
@@ -830,11 +871,37 @@ body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel.assistant-config-
 
 body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-header {
 	grid-area: header;
+	align-items: center;
+	padding-top: var(--nw-console-header-pad-y, 8px);
+	padding-bottom: var(--nw-console-header-pad-y, 8px);
 	/* Reserve space at the right edge for the absolutely-positioned
 	   config-collapse toggle so it never overlaps the clear-memory button —
 	   this matters most when the settings column is collapsed and the header
 	   expands to the full panel width. */
 	padding-right: 40px;
+}
+body.nw-layout-assistant-dock .nw-console-title-wrap {
+	flex-wrap: nowrap;
+	row-gap: 0;
+	align-items: center;
+	overflow: hidden;
+	transform: translateY(-1px);
+}
+body.nw-layout-assistant-dock .nw-console-header-actions {
+	align-self: center;
+	transform: translateY(-1px);
+}
+body.nw-layout-assistant-dock .nw-console-title-wrap > * {
+	flex-shrink: 0;
+}
+body.nw-layout-assistant-dock .nw-console-title-wrap > .nw-console-status {
+	flex-shrink: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+body.nw-layout-assistant-dock .nw-console-title-wrap > .nw-console-planner-indicator {
+	white-space: nowrap;
 }
 
 body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > #consoleMessages {
@@ -864,6 +931,13 @@ body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > #consoleMessage
 
 body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-input-row {
 	grid-area: input;
+	align-items: center;
+	padding: 8px 10px;
+	min-height: 56px;
+}
+
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-input-row > * {
+	align-self: center;
 }
 
 /* Settings column: always visible on the right, scrolls internally. */
@@ -884,7 +958,20 @@ body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-set
 body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-settings .nw-console-settings-header {
 	cursor: default;
 	pointer-events: none;
+	align-items: center;
+	padding: var(--nw-console-header-pad-y, 8px) var(--nw-console-header-pad-x, 16px);
+	background: color-mix(in srgb, var(--sg-bg-secondary) 94%, white 6%);
+	color: var(--sg-text-primary);
 	border-bottom: 1px solid var(--nw-border-soft, var(--sg-border-color));
+}
+
+body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-settings .nw-console-settings-label {
+	font-size: var(--nw-console-header-title-size, 14px);
+	font-weight: 600;
+	line-height: var(--nw-console-header-line-height, 1.2);
+	text-transform: none;
+	letter-spacing: 0;
+	color: var(--sg-text-primary);
 }
 
 body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel > .nw-console-settings .nw-console-settings-summary,

@@ -99,6 +99,57 @@ def _starter_hello_workflow_payload() -> dict:
             },
         ],
     }
+
+
+def _toolkit_edge_workflow_payload(root: str) -> dict:
+    return {
+        "type": "workflow",
+        "options": {
+            "name": "Toolkit Edge Workflow",
+            "description": "Uses toolkit_config wired into tool_flow via edges only.",
+        },
+        "nodes": [
+            {
+                "type": "start_flow",
+                "extra": {"pos": [60, 180], "name": "Start"},
+            },
+            {
+                "type": "toolkit_config",
+                "args": {"root": root},
+                "extra": {"pos": [60, 360], "name": "toolkits.file_toolkit"},
+            },
+            {
+                "type": "tool_flow",
+                "method": "list_directory",
+                "args": {"path": "."},
+                "extra": {"pos": [340, 180], "name": "List Directory"},
+            },
+            {
+                "type": "end_flow",
+                "extra": {"pos": [620, 180], "name": "End"},
+            },
+        ],
+        "edges": [
+            {
+                "source": 0,
+                "target": 2,
+                "source_slot": "flow_out",
+                "target_slot": "flow_in",
+            },
+            {
+                "source": 1,
+                "target": 2,
+                "source_slot": "config",
+                "target_slot": "config",
+            },
+            {
+                "source": 2,
+                "target": 3,
+                "source_slot": "flow_out",
+                "target_slot": "flow_in",
+            },
+        ],
+    }
 class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self._root = PROJECT_ROOT / "storage" / "_test_runs" / f"app_{uuid.uuid4().hex[:8]}"
@@ -425,6 +476,37 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(first_space["id"], second_space["id"])
         self.assertEqual(first_space["slug"], "new-space")
         self.assertEqual(second_space["slug"], "new-space-2")
+
+    async def test_toolkit_edge_config_workflow_saves_and_runs(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "toolkit", "email": "toolkit@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        save = await self._client.post(
+            "/workflow/save",
+            json={"workflow": _toolkit_edge_workflow_payload(str(self._root))},
+            headers=headers,
+        )
+        self.assertEqual(save.status_code, 200, save.text)
+
+        start = await self._client.post("/workflow/start", json={}, headers=headers)
+        self.assertEqual(start.status_code, 200, start.text)
+        execution_id = start.json()["execution_id"]
+        self.assertTrue(execution_id)
+
+        final_status = start.json()["status"]
+        for _ in range(60):
+            state = await self._client.post(f"/executions/{execution_id}", json={}, headers=headers)
+            self.assertEqual(state.status_code, 200, state.text)
+            final_status = state.json()["state"]["status"]
+            if final_status in {"completed", "failed", "cancelled"}:
+                break
+            await asyncio.sleep(0.2)
+
+        self.assertEqual(final_status, "completed")
 
 
 

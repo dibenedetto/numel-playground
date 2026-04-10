@@ -2027,6 +2027,8 @@ Field semantics:
 - nodes[i].<field>     – INPUT field value; omit if default is acceptable.
 - nodes[i].<field>     – MULTI_OUTPUT field: dict of {key: null} declaring route names.
 - nodes[i].extra       – optional display metadata (pos, size, name, color); safe to omit.
+- nodes[i].extra.name  – display label only. Never use it instead of real config fields like
+                         toolkit_config.name, tool_config.name, skill_config.name, model_config.name, etc.
 - edges[*].source      – 0-based index of the source node in the nodes array.
 - edges[*].target      – 0-based index of the target node in the nodes array.
 - edges[*].source_slot – OUTPUT field name on source node (or "output.key" for MULTI_OUTPUT).
@@ -2236,6 +2238,7 @@ The active backend exposes the toolkit's public methods as tools and may also su
 **With tool_flow (standalone)**: wire toolkit_config.config → tool_flow.config, and set
 tool_flow.method to the public method name (e.g. "read_file"). Multiple tool_flow nodes
 wired to the same toolkit_config share the toolkit instance and its state.
+Set the actual toolkit module path on toolkit_config.name itself. Do not put module paths in extra.name.
 
 ### Skills (skill_config)
 A skill provides a reusable capability package loaded from SKILL.md files.

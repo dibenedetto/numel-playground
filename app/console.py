@@ -6,6 +6,7 @@ import httpx
 import importlib
 import json
 import os
+import sqlite3
 import time
 import uuid
 
@@ -119,6 +120,58 @@ def _resolve_native_skill_bundle(skill_mgr, skill_names: Optional[List[str]] = N
 	if not skill_definitions:
 		return None
 	return build_backend_skills(skill_definitions, backend_name=backend_name)
+
+
+def _remove_sqlite_sidecars(db_path: str) -> None:
+	"""Delete a sqlite db file plus WAL/SHM companions."""
+	for suffix in ("", "-wal", "-shm"):
+		try:
+			os.remove(db_path + suffix)
+		except OSError:
+			pass
+
+
+def _versioned_agno_db_path(db_path: str) -> str:
+	root, ext = os.path.splitext(db_path)
+	return f"{root}_v2{ext or '.db'}"
+
+
+def _prepare_agno_memory_db_path(db_path: Optional[str]) -> Optional[str]:
+	"""Remove old Agno memory databases whose approvals schema predates run_status.
+
+	Numel no longer needs backward compatibility for these local memory DBs, so
+	we prefer pruning an incompatible file over surfacing repeated startup
+	warnings from Agno's strict schema validator.
+	"""
+	if not db_path:
+		return db_path
+	if not os.path.exists(db_path):
+		return db_path
+
+	conn = None
+	try:
+		conn = sqlite3.connect(db_path)
+		cur = conn.cursor()
+		cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='agno_approvals'")
+		row = cur.fetchone()
+		if not row:
+			return db_path
+		cur.execute("PRAGMA table_info(agno_approvals)")
+		columns = {info[1] for info in cur.fetchall()}
+		if "run_status" in columns:
+			return db_path
+	finally:
+		if conn is not None:
+			conn.close()
+
+	log_print(f"Pruning stale Agno memory db with outdated approvals schema: {db_path}")
+	_remove_sqlite_sidecars(db_path)
+	if not os.path.exists(db_path):
+		return db_path
+
+	fallback_path = _versioned_agno_db_path(db_path)
+	log_print(f"Agno memory db is locked; using fresh replacement path instead: {fallback_path}")
+	return fallback_path
 
 
 # ── Planner State (per-user) ────────────────────────────────────
@@ -432,6 +485,7 @@ class ConsoleAgentManager:
 				db_path = self._user_memory_db.get_db_path(user_id)
 			else:
 				db_path = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
+			db_path = _prepare_agno_memory_db_path(db_path)
 			db                      = SqliteDb(db_file=db_path)
 			enable_agentic_memory   = True
 			add_memories_to_context = True
@@ -1239,6 +1293,7 @@ class ChannelAgentPool:
 			else:
 				# Fallback: shared db (no user isolation available)
 				db_path = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
+			db_path = _prepare_agno_memory_db_path(db_path)
 			db = SqliteDb(db_file=db_path)
 			log_print(f"ChannelAgentPool: memory db → {os.path.basename(db_path)}")
 
@@ -1627,8 +1682,13 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 			return {"error": "No valid workflow JSON"}
 		try:
 			user = getattr(req.state, 'user', None)
-			result = await console_mgr._apply_workflow_json(wf_json, user_id=user.id if user else None)
-			return {"ok": True, "result": result}
+			user_id = user.id if user else None
+			session_id = request.get("session_id")
+			auto_disable = bool(request.get("auto_disable"))
+			if auto_disable:
+				console_mgr.disable_planner(user_id=user_id, session_id=session_id)
+			result = await console_mgr._apply_workflow_json(wf_json, user_id=user_id)
+			return {"ok": True, "result": result, "planner_disabled": auto_disable}
 		except Exception as e:
 			return {"error": str(e)}
 

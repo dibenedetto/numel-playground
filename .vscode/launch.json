@@ -3,7 +3,7 @@
 	"configurations": [
 		{
 			"name"       : "Numel (launch)",
-			"python"     : "python",
+			"python"     : "${command:python.interpreterPath}",
 			"type"       : "debugpy",
 			"justMyCode" : false,
 			"request"    : "launch",

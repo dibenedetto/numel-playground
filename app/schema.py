@@ -836,7 +836,7 @@ class ToolFlow(FlowType):
 
 	Keyword arguments go in 'args'; result appears on 'output'."""
 	type   : Annotated[Literal["tool_flow"], FieldRole.CONSTANT] = "tool_flow"
-	config : Annotated[ToolBaseConfig                  , FieldRole.INPUT] = Field(default=None, description="ToolConfig or ToolkitConfig to invoke; wire from a tool_config or toolkit_config node")
+	config : Annotated[Optional[ToolBaseConfig]        , FieldRole.INPUT] = Field(default=None, description="ToolConfig or ToolkitConfig to invoke; wire from a tool_config or toolkit_config node")
 	method : Annotated[Optional[str]                   , FieldRole.INPUT] = Field(default=None, description="Toolkit method name to call (e.g. 'read_file'). Required when config is a ToolkitConfig; ignored for ToolConfig")
 	args   : Annotated[Dict[str, Any]                  , FieldRole.INPUT] = Field(default=DEFAULT_TOOL_NODE_ARGS, description="Keyword arguments passed to the tool function or toolkit method")
 	output : Annotated[Any                             , FieldRole.OUTPUT] = Field(default=None, description="Result returned by the tool or toolkit method after execution")
@@ -853,7 +853,7 @@ class ToolFlow(FlowType):
 class AgentFlow(FlowType):
 	"""Execute one agent turn within the flow graph. Wire agent_config→config. Text/dict on 'request'; LLM response dict on 'response'."""
 	type     : Annotated[Literal["agent_flow"], FieldRole.CONSTANT] = "agent_flow"
-	config   : Annotated[AgentConfig          , FieldRole.INPUT   ] = Field(default=None, description="AgentConfig describing the agent to invoke; wire from an agent_config node")
+	config   : Annotated[Optional[AgentConfig], FieldRole.INPUT   ] = Field(default=None, description="AgentConfig describing the agent to invoke; wire from an agent_config node")
 	request  : Annotated[Any                  , FieldRole.INPUT   ] = Field(default=None, description="Text or dict sent as the user message to the agent for this turn")
 	image    : Annotated[Optional[str]         , FieldRole.INPUT   ] = Field(default=None, description="Optional base64-encoded image to include in the agent request (multimodal)")
 	response : Annotated[Any                  , FieldRole.OUTPUT  ] = Field(default=None, description="Dict containing the agent's response content and metadata")
@@ -1490,7 +1490,7 @@ class UserInputFlow(FlowType):
 class ToolCall(InteractiveType):
 	"""Interactive tool execution UI panel. Wire tool_config→config; optional args override. Result shown on 'result' output."""
 	type   : Annotated[Literal["tool_call"]    , FieldRole.CONSTANT] = "tool_call"
-	config : Annotated[ToolConfig              , FieldRole.INPUT   ] = Field(default=None, description="ToolConfig describing which tool to invoke; wire from a tool_config node")
+	config : Annotated[Optional[ToolConfig]    , FieldRole.INPUT   ] = Field(default=None, description="ToolConfig describing which tool to invoke; wire from a tool_config node")
 	args   : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT   ] = Field(default=None, description="Optional argument overrides for this interactive invocation")
 	result : Annotated[Any                     , FieldRole.OUTPUT  ] = Field(default=None, description="The tool's return value after the user triggers execution")
 
@@ -1518,7 +1518,7 @@ class ToolCall(InteractiveType):
 class AgentChat(FlowType):
 	"""Interactive chat UI for conversing with an agent. Wire agent_config→config. Supports streaming responses. Use system_prompt to override agent prompt for this chat. Wire a string to 'request' to auto-send a message; the agent's last reply appears on 'response'."""
 	type          : Annotated[Literal["agent_chat"], FieldRole.CONSTANT] = "agent_chat"
-	config        : Annotated[AgentConfig          , FieldRole.INPUT   ] = Field(default=None, description="AgentConfig defining the agent to converse with; wire from an agent_config node")
+	config        : Annotated[Optional[AgentConfig], FieldRole.INPUT   ] = Field(default=None, description="AgentConfig defining the agent to converse with; wire from an agent_config node")
 	system_prompt : Annotated[Optional[str]        , FieldRole.INPUT   ] = Field(default=None, description="Optional system prompt override applied to this chat session only")
 	request       : Annotated[Optional[Any]        , FieldRole.INPUT   ] = Field(default=None, description="Optional message to send automatically when the node executes, as if typed in the chat UI")
 	response      : Annotated[Optional[Any]        , FieldRole.OUTPUT  ] = Field(default=None, description="The last message sent by the agent in the chat session")

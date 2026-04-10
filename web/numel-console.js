@@ -67,6 +67,7 @@ class AgentConsoleManager {
 		this._plannerMaxIterRow        = document.getElementById('consolePlannerMaxIterRow');
 		this._plannerProfileSel        = document.getElementById('consolePlannerProfile');
 		this._plannerProfileRow        = document.getElementById('consolePlannerProfileRow');
+		this._plannerIndicator         = document.getElementById('consolePlannerIndicator');
 		this._plannerEnabled   = false;
 		this._plannerBusy      = false;  // true while planner is actively processing
 		this._plannerTimeoutMs = (parseInt(this._plannerTimeoutSel?.value, 10) || 120) * 1000;
@@ -79,6 +80,7 @@ class AgentConsoleManager {
 		this._setupSTT();  // must run before _setupTTS so sttLangSelect is populated
 		this._setupTTS();
 		this._setInputEnabled(false);
+		this._syncPlannerUi();
 	}
 
 	// ── UI Wiring ────────────────────────────────────────────────
@@ -156,11 +158,6 @@ class AgentConsoleManager {
 		// Planner mode toggle
 		this._plannerToggle?.addEventListener('change', () => {
 			this._togglePlanner(this._plannerToggle.checked);
-			const show = this._plannerToggle.checked ? '' : 'none';
-			if (this._plannerTimeoutRow) this._plannerTimeoutRow.style.display = show;
-			if (this._plannerSessionTimeoutRow) this._plannerSessionTimeoutRow.style.display = show;
-			if (this._plannerMaxIterRow) this._plannerMaxIterRow.style.display = show;
-			if (this._plannerProfileRow) this._plannerProfileRow.style.display = show;
 		});
 
 		// Planner profile selector
@@ -194,6 +191,24 @@ class AgentConsoleManager {
 
 		// Planner interrupt button
 		this._plannerStopBtn?.addEventListener('click', () => this._interruptPlanner());
+	}
+
+	_syncPlannerUi() {
+		const enabled = !!this._plannerEnabled;
+		const show = enabled ? '' : 'none';
+		if (this._plannerToggle) this._plannerToggle.checked = enabled;
+		if (this._plannerTimeoutRow) this._plannerTimeoutRow.style.display = show;
+		if (this._plannerSessionTimeoutRow) this._plannerSessionTimeoutRow.style.display = show;
+		if (this._plannerMaxIterRow) this._plannerMaxIterRow.style.display = show;
+		if (this._plannerProfileRow) this._plannerProfileRow.style.display = show;
+		if (this._plannerIndicator) {
+			this._plannerIndicator.style.display = enabled ? '' : 'none';
+			this._plannerIndicator.textContent = this._plannerBusy ? 'Planner working' : 'Planner on';
+			this._plannerIndicator.classList.toggle('busy', enabled && this._plannerBusy);
+		}
+		this._panel?.classList.toggle('nw-console-planner-enabled', enabled);
+		this._panel?.classList.toggle('nw-console-planner-busy', enabled && this._plannerBusy);
+		this._updateSettingsSummary();
 	}
 
 	// ── Planner lock / interrupt ─────────────────────────────────
@@ -238,6 +253,7 @@ class AgentConsoleManager {
 		}
 		// Clear safety timer when unlocking
 		if (!busy) clearTimeout(this._plannerBusyTimer);
+		this._syncPlannerUi();
 	}
 
 	// Start safety-net timeout — only called when backend confirms processing
@@ -251,12 +267,8 @@ class AgentConsoleManager {
 			this._setPlannerBusy(false);
 			try { await this.api.consolePlannerDisable({ session_id: this._sessionId }); } catch {}
 			this._plannerEnabled = false;
-			if (this._plannerToggle) this._plannerToggle.checked = false;
-			if (this._plannerTimeoutRow) this._plannerTimeoutRow.style.display = 'none';
-			if (this._plannerSessionTimeoutRow) this._plannerSessionTimeoutRow.style.display = 'none';
-			if (this._plannerMaxIterRow) this._plannerMaxIterRow.style.display = 'none';
+			this._syncPlannerUi();
 			this._addMessage('error', 'Planner timed out (connection lost). Planner disabled.');
-			this._updateSettingsSummary();
 		}, fallbackMs);
 	}
 
@@ -266,11 +278,10 @@ class AgentConsoleManager {
 		try {
 			await this.api.consolePlannerDisable({ session_id: this._sessionId });
 			this._plannerEnabled = false;
-			if (this._plannerToggle) this._plannerToggle.checked = false;
 			this._setPlannerBusy(false);
 			this._hideThinking();
+			this._syncPlannerUi();
 			this._addMessage('system', 'Planner interrupted.');
-			this._updateSettingsSummary();
 		} catch (err) {
 			this._addMessage('error', `Interrupt failed: ${err.message}`);
 		}
@@ -316,10 +327,10 @@ class AgentConsoleManager {
 				this._addMessage('system', 'Planner mode disabled.');
 			}
 			this._setInputEnabled(true);
-			this._updateSettingsSummary();
+			this._syncPlannerUi();
 		} catch (err) {
 			this._addMessage('error', `Planner toggle failed: ${err.message}`);
-			this._plannerToggle.checked = !enabled;
+			this._syncPlannerUi();
 		}
 	}
 
@@ -364,12 +375,7 @@ class AgentConsoleManager {
 		await this.open();
 		if (enablePlanner) {
 			if (this._plannerProfileSel) this._plannerProfileSel.value = plannerProfile;
-			if (this._plannerProfileRow) this._plannerProfileRow.style.display = '';
-			if (this._plannerTimeoutRow) this._plannerTimeoutRow.style.display = '';
-			if (this._plannerSessionTimeoutRow) this._plannerSessionTimeoutRow.style.display = '';
-			if (this._plannerMaxIterRow) this._plannerMaxIterRow.style.display = '';
 			if (!this._plannerEnabled) {
-				if (this._plannerToggle) this._plannerToggle.checked = true;
 				await this._togglePlanner(true);
 			}
 		}
@@ -381,6 +387,26 @@ class AgentConsoleManager {
 			if (autoSend) {
 				await this._send();
 			}
+		}
+	}
+
+	isPlannerEnabled() {
+		return !!this._plannerEnabled;
+	}
+
+	async disablePlannerForManualRun() {
+		if (!this._plannerEnabled) return false;
+		try {
+			await this.api.consolePlannerDisable({ session_id: this._sessionId });
+			this._plannerEnabled = false;
+			this._setPlannerBusy(false);
+			this._hideThinking();
+			this._syncPlannerUi();
+			this._addMessage('system', 'Planner paused so the current workflow can run normally.');
+			return true;
+		} catch (err) {
+			this._addMessage('error', `Failed to pause planner before run: ${err.message}`);
+			return false;
 		}
 	}
 
@@ -1016,7 +1042,17 @@ class AgentConsoleManager {
 		const wf = this._extractWorkflowJson(text);
 		if (!wf) return false;
 		try {
-			await this.api.consolePlannerApply(wf);
+			const result = await this.api.consolePlannerApply(wf, {
+				auto_disable: this._plannerEnabled,
+				session_id: this._sessionId,
+			});
+			if (result?.planner_disabled) {
+				this._plannerEnabled = false;
+				this._setPlannerBusy(false);
+				this._hideThinking();
+				this._syncPlannerUi();
+				this._addMessage('system', 'Planner applied the workflow and is now off. Turn it back on if you want more autonomous refinement.');
+			}
 			this._addMessage('system', `Workflow applied (${wf.nodes?.length || 0} nodes)`);
 			return true;
 		} catch (err) {

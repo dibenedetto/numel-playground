@@ -14,6 +14,10 @@
 	--nw-radius-sub: 5px;
 	--nw-side-panel-width: 400px;
 	--nw-section-collapsed-height: 38px;
+	--nw-console-header-pad-y: 8px;
+	--nw-console-header-pad-x: 16px;
+	--nw-console-header-title-size: 14px;
+	--nw-console-header-line-height: 1.2;
 	--nw-border-soft: color-mix(in srgb, var(--sg-border-color) 82%, transparent);
 	--nw-border-quiet: color-mix(in srgb, var(--sg-border-color) 72%, white 10%);
 	--nw-shadow-soft: 0 16px 36px color-mix(in srgb, var(--sg-node-shadow, rgba(0,0,0,0.35)) 56%, transparent);
@@ -1640,6 +1644,29 @@ body.nw-layout-project-workbench .nw-status {
 	border: 1px solid var(--sg-accent-red);
 }
 
+.nw-inline-alert {
+	margin: 2px 0 10px;
+	padding: 10px 12px;
+	border-radius: var(--nw-radius-control);
+	font-size: 12px;
+	line-height: 1.45;
+	border: 1px solid transparent;
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.nw-inline-alert.error {
+	background: color-mix(in srgb, var(--sg-accent-red, #d9534f) 14%, transparent);
+	color: color-mix(in srgb, var(--sg-accent-red, #d9534f) 82%, white 18%);
+	border-color: color-mix(in srgb, var(--sg-accent-red, #d9534f) 48%, transparent);
+}
+
+.nw-inline-alert.warning {
+	background: color-mix(in srgb, #f0ad4e 16%, transparent);
+	color: color-mix(in srgb, #f0ad4e 82%, white 18%);
+	border-color: color-mix(in srgb, #f0ad4e 48%, transparent);
+}
+
 /* Run status dot in the section header — mirrors execStatus state.
    margin-right offsets the dot so its center aligns with the centers
    of the icon-buttons in the other sub-panel headers. */
@@ -1813,7 +1840,7 @@ body.nw-layout-project-workbench .nw-canvas-panel {
 }
 
 body.nw-layout-assistant-dock .nw-canvas-panel {
-	margin-bottom: 11px;
+	margin-bottom: 30px;
 }
 
 /* Schemagraph's tab-bar setup (see _setupTabBar in schemagraph-app.js)

@@ -1785,6 +1785,7 @@ function setupClientEvents() {
 
 	client.on('workflow.started', (event) => {
 		if (currentExecutionId !== event.execution_id) return;
+		_clearExecutionIssue();
 		setExecStatus('running', 'Running');
 		const shownId = currentPlatformExecutionId || event.execution_id;
 		$('execId').textContent = shownId.substring(0, 8) + '...';
@@ -1802,6 +1803,7 @@ function setupClientEvents() {
 		if (event.execution_id !== currentExecutionId) return;
 		currentExecutionId = null;
 		currentPlatformExecutionId = null;
+		_clearExecutionIssue();
 		setExecStatus('completed', 'Completed');
 		enableStart(true);
 
@@ -1818,6 +1820,7 @@ function setupClientEvents() {
 		currentPlatformExecutionId = null;
 		setExecStatus('failed', 'Failed');
 		enableStart(true);
+		_revealExecutionIssue('error', event.error || 'Unknown error');
 
 		// UNLOCK GRAPH after failure
 		schemaGraph.api.lock.unlock();
@@ -1830,6 +1833,7 @@ function setupClientEvents() {
 		if (event.execution_id !== currentExecutionId) return;
 		currentExecutionId = null;
 		currentPlatformExecutionId = null;
+		_clearExecutionIssue();
 		setExecStatus('idle', 'Cancelled');
 		enableStart(true);
 
@@ -2455,6 +2459,7 @@ async function clearWorkflow() {
 
 async function startExecution() {
 	if (!client || !visualizer?.currentWorkflow) {
+		_revealExecutionIssue('error', 'No workflow loaded');
 		addLog('error', '⚠️ No workflow loaded');
 		return;
 	}
@@ -2462,6 +2467,8 @@ async function startExecution() {
 	// Validate workflow before starting
 	const validation = schemaGraph.api.workflow.validate();
 	if (!validation.valid) {
+		setExecStatus('failed', 'Validation failed');
+		_revealExecutionIssue('error', validation.errors.join('\n'));
 		for (const error of validation.errors) {
 			addLog('error', `⚠️ ${error}`);
 		}
@@ -2475,6 +2482,14 @@ async function startExecution() {
 
 	try {
 		enableStart(false);
+		_clearExecutionIssue();
+
+		if (consoleManager?.isPlannerEnabled?.()) {
+			const paused = await consoleManager.disablePlannerForManualRun();
+			if (paused) {
+				addLog('info', '🧠 Planner paused for manual run');
+			}
+		}
 
 		await syncWorkflow();
 
@@ -2505,6 +2520,8 @@ async function startExecution() {
 		currentExecutionId = null;
 		currentPlatformExecutionId = null;
 		enableStart(true);
+		setExecStatus('failed', 'Start failed');
+		_revealExecutionIssue('error', error.message || 'Unknown error');
 		addLog('error', `❌ Start failed: ${error.message}`);
 	}
 }
@@ -3500,6 +3517,33 @@ function setExecStatus(type, text) {
 		pill.className = `nw-exec-status-pill ${type}`;
 		pill.setAttribute('title', text);
 	}
+}
+
+function _setExecutionAlert(type, message) {
+	const alert = $('execAlert');
+	if (!alert) return;
+	const text = String(message || '').trim();
+	if (!text) {
+		alert.hidden = true;
+		alert.textContent = '';
+		alert.className = 'nw-inline-alert';
+		return;
+	}
+	alert.hidden = false;
+	alert.textContent = text;
+	alert.className = `nw-inline-alert ${type || 'error'}`;
+}
+
+function _clearExecutionIssue() {
+	_setExecutionAlert('', '');
+}
+
+function _revealExecutionIssue(type, message) {
+	_setExecutionAlert(type, message);
+	_setPanelCollapsed(false);
+	_setSectionCollapsed($('executionSection'), false);
+	_setSectionCollapsed($('eventLogSection'), false);
+	_saveSectionCollapseState();
 }
 
 function addLog(type, message) {
