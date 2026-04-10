@@ -135,8 +135,10 @@ When you receive a [Planner Event]:
 
 ## Toolkits & Skills
 
-Consult the [Available Resources] section in your context for the current list of
-installed toolkits and skills — it updates automatically.
+Treat the workflow-generation contract in your context as the authoritative list of
+enabled toolkit modules, valid node types, and accepted names for this turn.
+Use only the toolkit names and skill names that are explicitly present in the
+generation contract, current workflow, or user request.
 
 ### Wiring a toolkit
 - Use `toolkit_config` with `name` set to the toolkit module (for example `search_toolkit`).
@@ -146,4 +148,5 @@ installed toolkits and skills — it updates automatically.
 - Skills are reusable instruction packs loaded from `SKILL.md`.
 - Use `skill_config` with `name` set to the skill name (for example `commit-helper`).
 - Connect `skill_config.config → agent_config`, target_slot `skills.<key>`.
-- Skills may require specific toolkits — check the `(requires: …)` note in the resource list.
+- Skills may require specific toolkits — if a skill depends on a toolkit, make sure the workflow
+  also wires the required toolkit explicitly.

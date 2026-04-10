@@ -93,9 +93,9 @@ body.nw-layout-workbench {
 }
 
 body.nw-layout-project-workbench .nw-panel {
-	width: 280px;
-	min-width: 260px;
-	max-width: 320px;
+	width: 304px;
+	min-width: 284px;
+	max-width: 344px;
 	padding: 14px;
 	gap: 10px;
 	border-radius: var(--nw-radius-shell);
@@ -107,9 +107,9 @@ body.nw-layout-project-workbench .nw-panel {
 }
 
 body.nw-layout-workbench .nw-panel {
-	width: 280px;
-	min-width: 260px;
-	max-width: 320px;
+	width: 304px;
+	min-width: 284px;
+	max-width: 344px;
 	padding: 14px;
 	gap: 10px;
 	border-radius: var(--nw-radius-shell);
@@ -203,6 +203,7 @@ body.nw-layout-project-workbench .nw-panel.nw-panel-collapsed .nw-section.nw-sec
 	display: flex;
 	gap: 6px;
 	order: 0;
+	margin-top: 12px;
 }
 .nw-section-toolbar-btn {
 	flex: 1;
@@ -280,8 +281,8 @@ body.nw-layout-project-workbench .nw-panel.nw-panel-collapsed .nw-section.nw-sec
 }
 
 .nw-title {
-	margin: 0;
-	font-size: 16px;
+	margin: 0 0 6px 0;
+	font-size: 18px;
 	font-weight: 600;
 	color: var(--sg-text-primary);
 	display: flex;
@@ -290,7 +291,7 @@ body.nw-layout-project-workbench .nw-panel.nw-panel-collapsed .nw-section.nw-sec
 }
 
 body.nw-layout-project-workbench .nw-title {
-	font-size: 17px;
+	font-size: 19px;
 	letter-spacing: -0.01em;
 }
 
@@ -301,6 +302,7 @@ body.nw-layout-project-workbench .nw-title {
 .nw-title-text {
 	flex: 1;
 	text-align: center;
+	padding-right: 6px;
 	transition: opacity 0.2s ease, max-width 0.25s ease;
 	white-space: nowrap;
 	overflow: hidden;
@@ -309,7 +311,14 @@ body.nw-layout-project-workbench .nw-title {
 .nw-brand {
 	color: var(--sg-accent-orange);
 	font-weight: 700;
-	font-size: 1.14em;
+	font-size: 1.28em;
+	line-height: 1;
+	display: inline-block;
+}
+
+.nw-title-word {
+	font-size: 1.28em;
+	font-weight: 700;
 	line-height: 1;
 	display: inline-block;
 }
@@ -1219,6 +1228,7 @@ body.nw-layout-workbench .nw-space-pill.is-active {
 	align-items: center;
 	gap: 4px;
 	margin-left: auto;
+	padding-left: 10px;
 }
 
 /* User info (expanded content) — kept visible but compacted */
@@ -1331,7 +1341,11 @@ body.nw-layout-project-workbench .nw-section .nw-tunnel-info {
 }
 
 body.nw-layout-project-workbench .nw-btn-secondary {
-	background: color-mix(in srgb, var(--sg-bg-quaternary) 86%, white 14%);
+	background: var(--sg-bg-quaternary);
+}
+
+body.nw-layout-workbench .nw-btn-secondary {
+	background: var(--sg-bg-quaternary);
 }
 
 .nw-btn-success {
@@ -1860,7 +1874,12 @@ body.nw-layout-project-workbench .nw-mono-text {
 
 body.nw-layout-project-workbench .nw-event-log {
 	border-radius: var(--nw-radius-surface);
-	background: color-mix(in srgb, var(--sg-bg-quaternary) 90%, white 10%);
+	background: var(--sg-bg-quaternary);
+}
+
+body.nw-layout-workbench .nw-event-log {
+	border-radius: var(--nw-radius-surface);
+	background: var(--sg-bg-quaternary);
 }
 
 .nw-event-log::-webkit-scrollbar {

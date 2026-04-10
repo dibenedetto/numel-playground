@@ -150,6 +150,64 @@ def _toolkit_edge_workflow_payload(root: str) -> dict:
             },
         ],
     }
+
+
+def _planner_slot_workflow_payload() -> dict:
+    return {
+        "type": "workflow",
+        "options": {
+            "name": "Planner Slot Workflow",
+            "description": "Includes planner-style flow placeholders on a non-flow node.",
+        },
+        "nodes": [
+            {
+                "type": "start_flow",
+                "extra": {"pos": [60, 180], "name": "Start"},
+            },
+            {
+                "type": "native_string",
+                "raw": "mesh.obj",
+                "extra": {"pos": [60, 360], "name": "Mesh Path"},
+            },
+            {
+                "type": "transform_flow",
+                "script": "output = {'path': input}",
+                "extra": {"pos": [340, 180], "name": "Wrap Path"},
+            },
+            {
+                "type": "end_flow",
+                "extra": {"pos": [620, 180], "name": "End"},
+            },
+        ],
+        "edges": [
+            {
+                "source": 0,
+                "target": 1,
+                "source_slot": "flow_out",
+                "target_slot": "flow_in",
+            },
+            {
+                "source": 0,
+                "target": 2,
+                "source_slot": "flow_out",
+                "target_slot": "flow_in",
+            },
+            {
+                "source": 1,
+                "target": 2,
+                "source_slot": "flow_out",
+                "target_slot": "input",
+            },
+            {
+                "source": 2,
+                "target": 3,
+                "source_slot": "output",
+                "target_slot": "flow_in",
+            },
+        ],
+    }
+
+
 class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self._root = PROJECT_ROOT / "storage" / "_test_runs" / f"app_{uuid.uuid4().hex[:8]}"
@@ -507,6 +565,92 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.2)
 
         self.assertEqual(final_status, "completed")
+
+    async def test_workflow_validate_repairs_planner_style_toolkit_name(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "validator", "email": "validator@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        payload = _toolkit_edge_workflow_payload(str(self._root))
+        payload["nodes"][1].pop("name", None)
+
+        response = await self._client.post(
+            "/workflow/validate",
+            json={"workflow": payload, "apply_repairs": True},
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertTrue(data["valid"])
+        self.assertTrue(data["repaired"])
+        self.assertEqual(data["workflow"]["nodes"][1]["name"], "toolkits.file_toolkit")
+
+    async def test_console_planner_apply_rejects_invalid_toolkit_method(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "planner", "email": "planner@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        payload = _toolkit_edge_workflow_payload(str(self._root))
+        payload["nodes"][1].pop("name", None)
+        payload["nodes"][2]["method"] = "not_a_real_method"
+
+        response = await self._client.post(
+            "/console/planner/apply",
+            json={"workflow": payload},
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("unknown toolkit method", response.text.lower())
+
+    async def test_console_planner_apply_repairs_invalid_non_flow_edges(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "plannerfix", "email": "plannerfix@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        response = await self._client.post(
+            "/console/planner/apply",
+            json={"workflow": _planner_slot_workflow_payload()},
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        self.assertTrue(data["ok"])
+        self.assertTrue(data["validation"]["repaired"])
+        self.assertTrue(
+            any("removed invalid flow edge into non-flow node" in item for item in data["validation"]["repairs"])
+        )
+
+    async def test_generation_prompt_can_be_filtered_to_selected_toolkits(self) -> None:
+        response = await self._client.post(
+            "/generation-prompt",
+            json={"toolkit_names": ["file_toolkit"]},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        prompt = response.json()["prompt"]
+        self.assertIn("toolkits.file_toolkit", prompt)
+        self.assertNotIn("toolkits.console_toolkit", prompt)
+        self.assertIn("Only the following toolkits are enabled for this turn: file_toolkit.", prompt)
+
+    async def test_generation_prompt_mesh_scope_excludes_unselected_toolkits(self) -> None:
+        response = await self._client.post(
+            "/generation-prompt",
+            json={"toolkit_names": ["mesh_toolkit"]},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        prompt = response.json()["prompt"]
+        self.assertIn("contrib.toolkits.mesh_toolkit", prompt)
+        self.assertIn("Only the following toolkits are enabled for this turn: mesh_toolkit.", prompt)
+        self.assertNotIn("toolkits.file_toolkit", prompt)
+        self.assertNotIn("toolkits.workspace_toolkit", prompt)
 
 
 

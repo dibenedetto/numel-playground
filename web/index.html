@@ -15,7 +15,7 @@
 		<!-- Auth Modal — shown when auth is enabled and user is not logged in -->
 		<div id="authModal" class="nw-auth-modal" style="display:none;">
 			<div class="nw-auth-card">
-				<h1 class="nw-auth-title"><span class="nw-brand">Numel</span> Playground</h1>
+				<h1 class="nw-auth-title"><span class="nw-brand">Numel</span> <span class="nw-title-word">Playground</span></h1>
 				<p class="nw-auth-copy">Build visual agent workflows, run them, and ship them as apps — all from one place.</p>
 				<div class="nw-auth-chips">
 					<span class="nw-auth-chip">Spaces as projects</span>
@@ -44,7 +44,7 @@
 		<!-- Left Panel: Controls -->
 		<div class="nw-panel">
 			<h1 class="nw-title">
-				<span class="nw-brand">Numel</span> Playground
+				<span class="nw-brand">Numel</span> <span class="nw-title-word">Playground</span>
 				<span id="wsStatus" class="nw-ws-badge disconnected">●</span>
 			</h1>
 			<div class="nw-title-subtitle">Build, run, and refine agent workflows.</div>
@@ -593,6 +593,7 @@
 					</svg>
 				</button>
 				<button id="consoleSendBtn" class="nw-console-send" title="Send">&#10148;</button>
+				<button id="consoleStopBtn" class="nw-console-stop" title="Stop assistant" style="display:none">&#9632;</button>
 				<button id="consolePlannerStopBtn" class="nw-console-planner-stop" title="Interrupt planner" style="display:none">&#9632;</button>
 			</div>
 		</div>

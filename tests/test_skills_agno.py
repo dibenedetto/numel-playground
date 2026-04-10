@@ -61,8 +61,9 @@ class AgnoSkillsIntegrationTests(unittest.TestCase):
 		self.assertIsNotNone(agent.skills)
 		self.assertIsNotNone(agent.skills.get_skill("web-search"))
 		self.assertNotIn("DuckDuckGo", "\n".join(agent.instructions or []))
+		self.assertNotIn("HTTP request toolkit", "\n".join(agent.instructions or []))
 
-	def test_prompt_override_keeps_native_skill_metadata_available(self):
+	def test_prompt_override_is_not_manually_extended_with_skill_metadata(self):
 		mgr = self._skill_manager()
 		workflow = self._load_skill_demo_workflow()
 
@@ -74,9 +75,11 @@ class AgnoSkillsIntegrationTests(unittest.TestCase):
 		agent = backend.handles[agent_index]
 
 		self.assertIsInstance(agent.system_message, str)
-		self.assertIn("You are a custom research agent.", agent.system_message)
-		self.assertIn("<skills_system>", agent.system_message)
-		self.assertIn("web-search", agent.system_message)
+		self.assertEqual(agent.system_message, "You are a custom research agent.")
+		self.assertNotIn("<skills_system>", agent.system_message)
+		self.assertNotIn("web-search", agent.system_message)
+		self.assertIsNotNone(agent.skills)
+		self.assertIsNotNone(agent.skills.get_skill("web-search"))
 
 
 if __name__ == "__main__":

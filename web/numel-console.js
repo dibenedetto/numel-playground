@@ -21,7 +21,7 @@ class AgentConsoleManager {
 		this._open          = false;
 		this._busy          = false;  // true while sending/streaming
 		this._pendingSuggestions = [];
-		this._sessionId     = null;  // server-side session ID (REST mode)
+		this._sessionId     = this.api?.sessionId || null;  // stable per-tab session ID
 		this._history       = [];    // accumulated messages (AGUI mode)
 		this._pendingGen    = false;
 		this._streamingMode = true; // true = AGUI streaming (default), false = REST (reliable fallback)
@@ -49,6 +49,7 @@ class AgentConsoleManager {
 		this._stopSpeakBtn   = document.getElementById('consoleStopSpeakBtn');
 		this._showSysToggle  = document.getElementById('consoleShowSysToggle');
 		this._micBtn         = document.getElementById('consoleMicBtn');
+		this._stopBtn        = document.getElementById('consoleStopBtn');
 		this._sttActive      = false;
 		this._recognition    = null;
 		this._sttLangSelect  = document.getElementById('consoleSttLang');
@@ -70,7 +71,11 @@ class AgentConsoleManager {
 		this._plannerIndicator         = document.getElementById('consolePlannerIndicator');
 		this._plannerEnabled   = false;
 		this._plannerBusy      = false;  // true while planner is actively processing
+		this._plannerDisableAfterTurn = false;
+		this._plannerApplyPending = false;
+		this._plannerTurnDone = false;
 		this._plannerTimeoutMs = (parseInt(this._plannerTimeoutSel?.value, 10) || 120) * 1000;
+		this._assistantAbortRequested = false;
 
 		this._skillList = document.getElementById('consoleSkillList');
 
@@ -130,6 +135,7 @@ class AgentConsoleManager {
 				} else {
 					this._disconnectAgent();
 				}
+				this._syncAssistantStopUi();
 			});
 		}
 
@@ -191,6 +197,7 @@ class AgentConsoleManager {
 
 		// Planner interrupt button
 		this._plannerStopBtn?.addEventListener('click', () => this._interruptPlanner());
+		this._stopBtn?.addEventListener('click', () => this._interruptAssistant());
 	}
 
 	_syncPlannerUi() {
@@ -208,7 +215,21 @@ class AgentConsoleManager {
 		}
 		this._panel?.classList.toggle('nw-console-planner-enabled', enabled);
 		this._panel?.classList.toggle('nw-console-planner-busy', enabled && this._plannerBusy);
+		this._syncAssistantStopUi();
 		this._updateSettingsSummary();
+	}
+
+	_syncAssistantStopUi() {
+		if (!this._stopBtn) return;
+		const canAbort = !!(
+			this._busy &&
+			!this._plannerBusy &&
+			this._streamingMode &&
+			this.handler?.isConnected?.() &&
+			this.handler?.agent?.abortRun
+		);
+		this._stopBtn.style.display = canAbort ? '' : 'none';
+		this._stopBtn.disabled = !canAbort;
 	}
 
 	// ── Planner lock / interrupt ─────────────────────────────────
@@ -216,6 +237,12 @@ class AgentConsoleManager {
 	_setPlannerBusy(busy) {
 		if (this._plannerBusy === busy) return;  // avoid redundant toggles
 		this._plannerBusy = busy;
+		if (busy) {
+			this._plannerTurnDone = false;
+		} else {
+			this._plannerApplyPending = false;
+			this._plannerTurnDone = false;
+		}
 		// Show/hide interrupt button
 		if (this._plannerStopBtn) this._plannerStopBtn.style.display = busy ? '' : 'none';
 		// Lock/unlock console input + reset _busy flag so _send() isn't blocked
@@ -256,6 +283,45 @@ class AgentConsoleManager {
 		this._syncPlannerUi();
 	}
 
+	_finalizePlannerTurn() {
+		if (this._plannerApplyPending) return;
+		if (this._plannerDisableAfterTurn) {
+			this._plannerEnabled = false;
+			this._plannerDisableAfterTurn = false;
+		}
+		this._hideThinking();
+		this._setPlannerBusy(false);
+	}
+
+	_plannerProposalSummary(text) {
+		const wf = this._extractWorkflowJson(text);
+		if (!wf?.nodes) return text;
+		const wfName = wf?.options?.name || wf?.name || wf?.title || 'Workflow';
+		const nodeCount = Array.isArray(wf.nodes) ? wf.nodes.length : 0;
+		return `Planner proposed "${wfName}" (${nodeCount} nodes). Applying it now...`;
+	}
+
+	_plannerAppliedSummary(wf, appliedNodes) {
+		const wfName = wf?.options?.name || wf?.name || wf?.title || 'Workflow';
+		return `Planner applied "${wfName}" (${appliedNodes} nodes).`;
+	}
+
+	_summarizeValidationItems(items, prefix) {
+		const values = Array.isArray(items)
+			? items.map(v => String(v || '').trim()).filter(Boolean)
+			: [];
+		if (!values.length) return '';
+		const counts = new Map();
+		for (const value of values) counts.set(value, (counts.get(value) || 0) + 1);
+		const parts = [];
+		for (const [value, count] of counts.entries()) {
+			parts.push(count > 1 ? `${value} ×${count}` : value);
+		}
+		const preview = parts.slice(0, 6);
+		const remaining = parts.length - preview.length;
+		return `${prefix}: ${preview.join(' · ')}${remaining > 0 ? ` · +${remaining} more` : ''}`;
+	}
+
 	// Start safety-net timeout — only called when backend confirms processing
 	// (planner_thinking WebSocket message). NOT from the initial user message send.
 	_startPlannerSafetyTimer() {
@@ -267,6 +333,7 @@ class AgentConsoleManager {
 			this._setPlannerBusy(false);
 			try { await this.api.consolePlannerDisable({ session_id: this._sessionId }); } catch {}
 			this._plannerEnabled = false;
+			this._plannerDisableAfterTurn = false;
 			this._syncPlannerUi();
 			this._addMessage('error', 'Planner timed out (connection lost). Planner disabled.');
 		}, fallbackMs);
@@ -278,12 +345,28 @@ class AgentConsoleManager {
 		try {
 			await this.api.consolePlannerDisable({ session_id: this._sessionId });
 			this._plannerEnabled = false;
+			this._plannerDisableAfterTurn = false;
+			this._plannerApplyPending = false;
+			this._plannerTurnDone = false;
 			this._setPlannerBusy(false);
 			this._hideThinking();
 			this._syncPlannerUi();
 			this._addMessage('system', 'Planner interrupted.');
 		} catch (err) {
 			this._addMessage('error', `Interrupt failed: ${err.message}`);
+		}
+	}
+
+	async _interruptAssistant() {
+		if (!this._busy || this._plannerBusy || !this._streamingMode || !this.handler?.agent?.abortRun) return;
+		this._assistantAbortRequested = true;
+		try {
+			this.handler.agent.abortRun();
+			this._setStatus('Stopping...');
+			this._syncAssistantStopUi();
+		} catch (err) {
+			this._assistantAbortRequested = false;
+			this._addMessage('error', `Stop failed: ${err.message}`);
 		}
 	}
 
@@ -323,6 +406,9 @@ class AgentConsoleManager {
 			} else {
 				await this.api.consolePlannerDisable({ session_id: this._sessionId });
 				this._plannerEnabled = false;
+				this._plannerDisableAfterTurn = false;
+				this._plannerApplyPending = false;
+				this._plannerTurnDone = false;
 				this._setPlannerBusy(false);
 				this._addMessage('system', 'Planner mode disabled.');
 			}
@@ -400,15 +486,14 @@ class AgentConsoleManager {
 	async disablePlannerForManualRun() {
 		if (!this._plannerEnabled) return false;
 		try {
-			await this.api.consolePlannerDisable({ session_id: this._sessionId });
-			this._plannerEnabled = false;
-			this._setPlannerBusy(false);
-			this._hideThinking();
-			this._syncPlannerUi();
-			this._addMessage('system', 'Planner paused so the current workflow can run normally.');
-			return true;
+			const result = await this.api.consolePlannerPause({ session_id: this._sessionId, duration_s: 180 });
+			if (result?.paused) {
+				this._addMessage('system', 'Planner is staying on, but it will ignore this manual run.');
+				return true;
+			}
+			return false;
 		} catch (err) {
-			this._addMessage('error', `Failed to pause planner before run: ${err.message}`);
+			this._addMessage('error', `Failed to pause planner reaction before run: ${err.message}`);
 			return false;
 		}
 	}
@@ -429,7 +514,7 @@ class AgentConsoleManager {
 		this._disconnectAgent();
 		this._disconnectProactive();
 		this.agentPort = null;
-		this._sessionId = null;
+		this._sessionId = this.api?.sessionId || null;
 		this._history = [];
 		this._setInputEnabled(false);
 	}
@@ -441,7 +526,7 @@ class AgentConsoleManager {
 			await this.api.consoleMemoryClear();
 			this._messages.querySelectorAll('.nw-console-msg').forEach(m => m.remove());
 			this._hideThinking();
-			this._sessionId = null;
+			this._sessionId = this.api?.sessionId || null;
 			this._history = [];
 			this._addMessage('system', 'Memory cleared.');
 		} catch (err) {
@@ -697,7 +782,7 @@ class AgentConsoleManager {
 		this._input.placeholder = 'Reconfiguring agent...';
 		this._addMessage('system', 'Reconfiguring agent...');
 		this._history = [];
-		this._sessionId = null;
+		this._sessionId = this.api?.sessionId || this._sessionId;
 		await this._startAgent();
 	}
 
@@ -757,6 +842,7 @@ class AgentConsoleManager {
 		if (!connected) {
 			this._addMessage('error', 'Failed to connect to agent (AGUI not available).');
 		}
+		this._syncAssistantStopUi();
 	}
 
 	_disconnectAgent() {
@@ -764,16 +850,21 @@ class AgentConsoleManager {
 			this.handler.disconnect();
 			this.handler = null;
 		}
+		this._syncAssistantStopUi();
 	}
 
 	_connectProactive() {
 		this._disconnectProactive();
-		const wsUrl = this.serverUrl.replace(/^http/, 'ws') + '/ws/console';
+		const query = this._sessionId ? `?session_id=${encodeURIComponent(this._sessionId)}` : '';
+		const wsUrl = this.serverUrl.replace(/^http/, 'ws') + '/ws/console' + query;
 		try {
 			this.proactiveWs = new WebSocket(wsUrl);
 			this.proactiveWs.onmessage = (e) => {
 				try {
 					const msg = JSON.parse(e.data);
+					if (msg.session_id && this._sessionId && msg.session_id !== this._sessionId) {
+						return;
+					}
 					if (msg.type === 'suggestion') {
 						if (this._open) {
 							this._addMessage('suggestion', msg.content);
@@ -783,26 +874,39 @@ class AgentConsoleManager {
 						}
 					} else if (msg.type === 'planner_thinking') {
 						this._setPlannerBusy(true);
+						this._plannerApplyPending = false;
+						this._plannerTurnDone = false;
 						this._startPlannerSafetyTimer();  // timeout starts NOW, not when message was sent
 						this._showThinking();
 					} else if (msg.type === 'planner_done') {
-						// Safety net: always unlock after planner turn finishes
-						this._hideThinking();
-						this._setPlannerBusy(false);
+						this._plannerTurnDone = true;
+						this._finalizePlannerTurn();
+					} else if (msg.type === 'planner_reason') {
+						if (msg.content) {
+							this._addMessage('system', msg.content);
+						}
 					} else if (msg.type === 'planner_action' || msg.type === 'planner_error' || msg.type === 'planner_paused') {
-						if (msg.content) this._addMessage('planner', msg.content);
+						const hasWorkflow = !!this._extractWorkflowJson(msg.content || '');
+						if (msg.content) {
+							const proposalSummary = msg.type === 'planner_action'
+								? this._plannerProposalSummary(msg.content)
+								: msg.content;
+							if (!(msg.type === 'planner_action' && hasWorkflow)) {
+								this._addMessage('planner', proposalSummary);
+							}
+						}
 						if (msg.type === 'planner_action' && msg.content) {
 							this._speak(msg.content);
-							this._plannerAutoApply(msg.content).then(applied => {
-								// Keep thinking visible if workflow was applied (next event will fire)
-								if (!applied) {
-									this._hideThinking();
-									this._setPlannerBusy(false);
-								}
-							});
+							if (hasWorkflow) {
+								this._plannerApplyPending = true;
+								this._plannerAutoApply(msg.content).finally(() => {
+									this._plannerApplyPending = false;
+									if (this._plannerTurnDone) this._finalizePlannerTurn();
+								});
+							}
 						} else {
-							this._hideThinking();
-							this._setPlannerBusy(false);
+							this._plannerTurnDone = true;
+							this._finalizePlannerTurn();
 						}
 						if (!this._open) { this._badge.style.display = ''; }
 					}
@@ -900,22 +1004,26 @@ class AgentConsoleManager {
 					this._setPlannerBusy(false);
 				}
 			} else if (result.response) {
-				this._addMessage('assistant', result.response);
-				this._speak(result.response);
-				// Planner: auto-apply any workflow JSON in the response
 				if (this._plannerBusy) {
-					const applied = await this._plannerAutoApply(result.response);
-					// If no workflow JSON was found/applied, no events will fire — unlock
-					if (!applied) {
-						this._hideThinking();
-						this._setPlannerBusy(false);
+					const hasWorkflow = !!this._extractWorkflowJson(result.response);
+					if (!hasWorkflow) {
+						this._addMessage('planner', result.response);
 					}
+					this._speak(result.response);
+					this._plannerApplyPending = hasWorkflow;
+					const applied = hasWorkflow ? await this._plannerAutoApply(result.response) : false;
+					this._plannerApplyPending = false;
+					this._plannerTurnDone = true;
+					this._finalizePlannerTurn();
+				} else {
+					this._addMessage('assistant', result.response);
+					this._speak(result.response);
 				}
 			} else {
 				// No response and no error — unlock if planner is busy
 				if (this._plannerBusy) {
-					this._hideThinking();
-					this._setPlannerBusy(false);
+					this._plannerTurnDone = true;
+					this._finalizePlannerTurn();
 				}
 			}
 		} catch (err) {
@@ -923,7 +1031,9 @@ class AgentConsoleManager {
 			this._addMessage('error', `Send failed: ${err.message}`);
 			// Error with planner active — unlock
 			if (this._plannerBusy) {
-				this._setPlannerBusy(false);
+				this._plannerTurnDone = true;
+				this._plannerApplyPending = false;
+				this._finalizePlannerTurn();
 			}
 		}
 
@@ -954,6 +1064,7 @@ class AgentConsoleManager {
 		this._history.push(userMessage);
 		this.handler.agent.setMessages([...this._history]);
 
+		this._busy = true;
 		this._setInputEnabled(false);
 		try {
 			console.log('[Console] AGUI runAgent on port', this.agentPort);
@@ -976,21 +1087,30 @@ class AgentConsoleManager {
 		this._busy = false;
 		this._setInputEnabled(true);
 		console.log('[Console] Run finished. History length:', this._history.length);
+		const aborted = this._assistantAbortRequested;
+		this._assistantAbortRequested = false;
 
 		// Capture the assistant response into history for memory
 		const lastAssistant = this._getLastAssistantContent();
-		if (lastAssistant) {
+		if (!aborted && lastAssistant) {
 			this._history.push({
 				id: AgentHandler._randomMessageId(),
 				role: 'assistant',
 				content: lastAssistant,
 			});
-		} else {
+		} else if (!aborted) {
 			// No assistant content produced — likely a model/connection error
 			// that AGUI swallowed silently.  Show a notice so the user isn't
 			// left staring at a blank console.
 			this._addMessage('error',
 				'No response from the model. Check that the selected model is available and running.');
+		}
+		if (aborted) {
+			this._pendingGen = false;
+			const { source, name } = this._getSelectedModel();
+			this._setStatus(`${source}/${name}`);
+			this._addMessage('system', 'Assistant stopped.');
+			return;
 		}
 
 		// Handle /gen response
@@ -1015,7 +1135,15 @@ class AgentConsoleManager {
 		this._setInputEnabled(true);
 		this._pendingGen = false;
 		const msg = error?.message || String(error) || 'Agent error';
+		const aborted = this._assistantAbortRequested || /abort|cancel/i.test(msg);
+		this._assistantAbortRequested = false;
 		console.error('[Console] Run error:', msg);
+		if (aborted) {
+			const { source, name } = this._getSelectedModel();
+			this._setStatus(`${source}/${name}`);
+			this._addMessage('system', 'Assistant stopped.');
+			return;
+		}
 		this._addMessage('error', msg);
 	}
 
@@ -1051,20 +1179,32 @@ class AgentConsoleManager {
 		if (!wf) return false;
 		try {
 			const result = await this.api.consolePlannerApply(wf, {
-				auto_disable: this._plannerEnabled,
+				auto_disable: false,
 				session_id: this._sessionId,
 			});
 			if (result?.planner_disabled) {
-				this._plannerEnabled = false;
-				this._setPlannerBusy(false);
-				this._hideThinking();
-				this._syncPlannerUi();
-				this._addMessage('system', 'Planner applied the workflow and is now off. Turn it back on if you want more autonomous refinement.');
+				if (this._plannerBusy) {
+					this._plannerDisableAfterTurn = true;
+				} else {
+					this._plannerEnabled = false;
+					this._plannerDisableAfterTurn = false;
+					this._syncPlannerUi();
+				}
 			}
-			this._addMessage('system', `Workflow applied (${wf.nodes?.length || 0} nodes)`);
+			const appliedNodes = result?.result?.nodes ?? wf.nodes?.length ?? 0;
+			const repairs = result?.validation?.repairs || [];
+			const warnings = result?.validation?.warnings || [];
+			this._addMessage('planner', this._plannerAppliedSummary(wf, appliedNodes));
+			if (repairs.length) {
+				this._addMessage('system', this._summarizeValidationItems(repairs, 'Workflow repaired before apply'));
+			}
+			if (warnings.length) {
+				this._addMessage('system', this._summarizeValidationItems(warnings, 'Workflow warnings'));
+			}
 			return true;
 		} catch (err) {
 			console.warn('[Console] Planner auto-apply failed:', err.message);
+			this._addMessage('error', `Workflow needs review before apply: ${err.message}`);
 			return false;
 		}
 	}
@@ -1110,7 +1250,8 @@ class AgentConsoleManager {
 
 		try {
 			// Fetch the generation prompt from the main server
-			const { prompt: genPrompt } = await this.api.generationPrompt();
+			const toolkit_names = this._getSelectedToolkits().filter((name) => !['console_toolkit', 'channel_toolkit'].includes(name));
+			const { prompt: genPrompt } = await this.api.generationPrompt({ toolkit_names });
 
 			const augmented = `[Workflow Generation Contract]\n${genPrompt}\n\n[Generation Request]\nGenerate a workflow for: ${description}`;
 
@@ -1164,11 +1305,21 @@ class AgentConsoleManager {
 	}
 
 	async _loadGeneratedWorkflow(workflow) {
+		const validation = this.api?.validateWorkflow
+			? await this.api.validateWorkflow(workflow, { apply_repairs: true })
+			: { workflow, repairs: [], warnings: [], repaired: false };
+		const repairedWorkflow = validation.workflow || workflow;
+		if (validation.repaired && validation.repairs?.length) {
+			this._addMessage('system', `Workflow repaired before loading: ${validation.repairs.join(' · ')}`);
+		}
+		if (validation.warnings?.length) {
+			this._addMessage('system', `Workflow warnings: ${validation.warnings.join(' · ')}`);
+		}
 		if (typeof window.loadAndSyncWorkflow === 'function') {
-			await window.loadAndSyncWorkflow(workflow, workflow.name || 'Generated Workflow');
+			await window.loadAndSyncWorkflow(repairedWorkflow, repairedWorkflow.name || 'Generated Workflow');
 		} else {
 			// Fallback: post to backend
-			await this.api.saveWorkflow(workflow);
+			await this.api.saveWorkflow(repairedWorkflow);
 		}
 	}
 
@@ -1257,6 +1408,7 @@ class AgentConsoleManager {
 		} else {
 			this._input.placeholder = 'Connecting to assistant...';
 		}
+		this._syncAssistantStopUi();
 	}
 
 	// ── TTS (Text-to-Speech) ─────────────────────────────────────

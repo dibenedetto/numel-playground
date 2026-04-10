@@ -9,11 +9,6 @@ from   importlib                       import import_module
 from   inspect                         import iscoroutinefunction, getmembers, ismethod
 from   fastapi                         import FastAPI
 from   toolkit_runtime                 import load_numel_toolkit
-from   prompt_stack                    import (
-	CONNECTED_TOOLKITS_SECTION_INTRO,
-	CONNECTED_TOOLKITS_SECTION_TITLE,
-	extend_instruction_block,
-)
 from   typing                          import Any, Dict, List, Tuple
 from   utils                           import log_print
 
@@ -413,8 +408,7 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 
 		# Toolkits: keep the shared toolkit instance for tool_flow and prefer a native
 		# backend toolkit wrapper for agent execution. If no native wrapper is available,
-		# fall back to the previous behavior of merging toolkit descriptions + methods.
-		toolkit_descriptions = []
+		# fall back to exposing the toolkit methods directly.
 		toolkits_links = node_links.get("toolkits")
 		if isinstance(toolkits_links, dict) and toolkits_links:
 			for src in toolkits_links.values():
@@ -427,8 +421,6 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 						tools = []
 					tools.append(native_toolkit)
 					continue
-				if tk["description"]:
-					toolkit_descriptions.append(tk["description"])
 				if tk["tools"]:
 					if tools is None:
 						tools = []
@@ -474,16 +466,6 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 						session_summary_prompt = session_mgr_config.prompt,
 					)
 
-		# Merge toolkit descriptions into agent instructions
-		agent_instructions = options.instructions
-		if toolkit_descriptions:
-			agent_instructions = extend_instruction_block(
-				agent_instructions,
-				CONNECTED_TOOLKITS_SECTION_TITLE,
-				toolkit_descriptions,
-				CONNECTED_TOOLKITS_SECTION_INTRO,
-			)
-
 		# Skills: attach selected skills as native Agno Skills when available
 		agno_skills = None
 		skills_links = node_links.get("skills")
@@ -497,12 +479,6 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 				skill_definitions = skill_mgr.get_definitions_for(skill_names)
 				agno_skills = build_native_skills_agno(skill_definitions)
 
-		system_message = options.prompt_override
-		if system_message and agno_skills:
-			skills_snippet = agno_skills.get_system_prompt_snippet()
-			if skills_snippet:
-				system_message = f"{system_message.rstrip()}\n\n{skills_snippet}"
-
 		if True:
 			item = Agent(
 				name                    = options.name or "Agent",
@@ -510,8 +486,8 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 				model                   = model,
 
 				description             = options.description,
-				instructions            = agent_instructions,
-				system_message          = system_message,
+				instructions            = options.instructions,
+				system_message          = options.prompt_override,
 				skills                  = agno_skills,
 
 				markdown                = options.markdown,

@@ -126,6 +126,7 @@ class NumelAPI {
 	selectSpace(spaceId)          { return this.json('/spaces/select', { space_id: spaceId }); }
 	deleteSpace(spaceId)          { return this.json('/spaces/delete', { space_id: spaceId }); }
 	getWorkflow()                 { return this.json('/workflow/get'); }
+	validateWorkflow(workflow, opts = {}) { return this.json('/workflow/validate', { workflow, ...opts }); }
 	saveWorkflow(workflow)        { return this.json('/workflow/save', { workflow }); }
 	deleteWorkflow()              { return this.json('/workflow/delete'); }
 	startWorkflow(data = null)    { return this.json('/workflow/start', { initial_data: data }); }
@@ -164,6 +165,7 @@ class NumelAPI {
 	consolePlannerDisable(opts={}) { return this.json('/console/planner/disable', opts); }
 	consolePlannerStatus(opts={}) { return this.json('/console/planner/status', opts); }
 	consolePlannerReset(opts={})  { return this.json('/console/planner/reset', opts); }
+	consolePlannerPause(opts={})  { return this.json('/console/planner/pause', opts); }
 	consolePlannerConfig(opts={}) { return this.json('/console/planner/config', opts); }
 	consolePlannerApply(wf, opts = {}) { return this.json('/console/planner/apply', { workflow: wf, ...opts }); }
 

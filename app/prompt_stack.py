@@ -1,10 +1,5 @@
 from typing import Iterable, List, Optional
 
-CONNECTED_TOOLKITS_SECTION_TITLE = "Connected Toolkits"
-CONNECTED_TOOLKITS_SECTION_INTRO = (
-    "These toolkit descriptions explain external capabilities available to the current agent."
-)
-
 PLANNER_MODE_DIRECTIVE = (
     "You are in PLANNER MODE for Numel.\n"
     "Your job is to inspect the current space, decide the next best workflow state, "

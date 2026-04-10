@@ -24,6 +24,7 @@ from   platform_client import PlatformRequestError
 from   runtime_settings import get_runtime_settings
 from   schema    import DEFAULT_BACKEND_NAME, Workflow, WorkflowExecutionOptions
 from   utils     import get_now_str, get_timestamp_str, log_print, serialize_result
+from   workflow_validation import validate_workflow_payload
 from   events    import (
 	get_event_registry, init_event_registry, shutdown_event_registry,
 	TimerSourceConfig, FSWatchSourceConfig,
@@ -58,6 +59,11 @@ class CurrentWorkflowSaveRequest(BaseModel):
 
 class CurrentWorkflowStartRequest(BaseModel):
 	initial_data : WorkflowExecutionOptions = None
+
+
+class WorkflowValidateRequest(BaseModel):
+	workflow      : Dict[str, Any]
+	apply_repairs : bool = True
 
 
 class UserInputRequest(BaseModel):
@@ -537,16 +543,48 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			"workflow": doc,
 		}
 
+	@app.post("/workflow/validate")
+	async def validate_current_workflow(request: WorkflowValidateRequest):
+		result = validate_workflow_payload(
+			request.workflow or {},
+			apply_repairs=bool(request.apply_repairs),
+		)
+		if not result["valid"]:
+			raise HTTPException(
+				status_code=400,
+				detail={
+					"message": "Workflow validation failed",
+					"errors": result["errors"],
+					"warnings": result["warnings"],
+					"repairs": result["repairs"],
+				},
+			)
+		return result
+
 	@app.post("/workflow/save")
 	async def save_current_workflow(request: CurrentWorkflowSaveRequest, req: Request):
 		user, space = await _ensure_current_space(req)
-		workflow = request.workflow
+		validation = validate_workflow_payload(
+			_workflow_doc_from_model(request.workflow),
+			apply_repairs=True,
+		)
+		if not validation["valid"]:
+			raise HTTPException(
+				status_code=400,
+				detail={
+					"message": "Workflow validation failed before save",
+					"errors": validation["errors"],
+					"warnings": validation["warnings"],
+					"repairs": validation["repairs"],
+				},
+			)
+		doc = validation["workflow"]
+		workflow = _workflow_model_from_doc(doc)
 		name = (
 			workflow.options.name
 			if getattr(workflow, "options", None) is not None and workflow.options.name
 			else "Untitled"
 		)
-		doc = _workflow_doc_from_model(workflow)
 		try:
 			await _platform(req).post_json(
 				f"/platform/spaces/{space['id']}/assets/write",
@@ -597,6 +635,37 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		doc = await _read_current_workflow_doc(req, user.id, str(space.get("id", "") or ""))
 		if doc is None:
 			raise HTTPException(status_code=404, detail="No workflow is saved in the current space")
+		validation = validate_workflow_payload(doc, apply_repairs=True)
+		if not validation["valid"]:
+			raise HTTPException(
+				status_code=400,
+				detail={
+					"message": "Workflow validation failed before run",
+					"errors": validation["errors"],
+					"warnings": validation["warnings"],
+					"repairs": validation["repairs"],
+				},
+			)
+		doc = validation["workflow"]
+		if validation["repaired"]:
+			name = _workflow_name_from_doc(doc) or "Untitled"
+			try:
+				await _platform(req).post_json(
+					f"/platform/spaces/{space['id']}/assets/write",
+					{
+						"user_id": user.id,
+						"path": _CURRENT_WORKFLOW_PATH,
+						"kind": "workflow",
+						"title": name,
+						"description": "",
+						"executable": True,
+						"text": json.dumps(doc, indent=2),
+						"message": f"Repair workflow '{name}' before run",
+					},
+				)
+				await _cache_current_workflow(req, _workflow_model_from_doc(doc))
+			except PlatformRequestError as exc:
+				raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 		options = request.initial_data or WorkflowExecutionOptions()
 		inputs = options.model_dump() if options else {}
 		workflow_name = ""
@@ -1971,6 +2040,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 - Produce a workflow that is valid, minimal, runnable, and easy to inspect.
 - Prefer the simplest graph that fully satisfies the request.
 - Treat the node catalog and tools catalog below as authoritative for this turn.
+{toolkit_scope}
 
 ## Response Contract
 - Return ONLY the workflow JSON object.
@@ -2514,6 +2584,43 @@ Example (mesh processing with toolkit):
 		cache.update({"config_hash": config_hash, "backend": backend, "agent_index": agent_idx})
 		return backend, agent_idx
 
+	def _build_generation_prompt(tool_names: Optional[List[str]] = None,
+	                             toolkit_names: Optional[List[str]] = None) -> str:
+		"""Build the workflow-generation contract, optionally filtered to active tools/toolkits."""
+		nonlocal schema_code
+		node_catalog = _build_node_catalog(schema_code)
+		normalized_tool_names = None if tool_names is None else list(tool_names)
+		normalized_toolkit_names = None if toolkit_names is None else list(toolkit_names)
+		toolkit_scope = ""
+		if normalized_toolkit_names is not None:
+			if normalized_toolkit_names:
+				scoped_names = ", ".join(normalized_toolkit_names)
+				toolkit_scope = (
+					"\n## Toolkit Scope\n"
+					f"- Only the following toolkits are enabled for this turn: {scoped_names}.\n"
+					"- If one of those toolkits matches the user's domain, use it instead of unrelated nodes or generic transforms.\n"
+					"- Do NOT invent or rely on toolkits outside that enabled set.\n"
+				)
+			else:
+				toolkit_scope = (
+					"\n## Toolkit Scope\n"
+					"- No toolkits are enabled for this turn.\n"
+					"- Do NOT invent toolkit usage unless the user explicitly asks to add one.\n"
+				)
+		if normalized_tool_names is None and normalized_toolkit_names is None:
+			tools_catalog = _build_tools_catalog()
+		else:
+			tools_catalog = _build_tools_catalog(
+				tool_names=normalized_tool_names or [],
+				toolkit_names=normalized_toolkit_names or [],
+			)
+		return (
+			_GENERATE_SYSTEM_PROMPT
+			.replace("{node_catalog}", node_catalog)
+			.replace("{tools_catalog}", tools_catalog)
+			.replace("{toolkit_scope}", toolkit_scope)
+		)
+
 	class GenerationPromptRequest(BaseModel):
 		tool_names:    Optional[List[str]] = None  # e.g. ["tools.my_fn"]
 		toolkit_names: Optional[List[str]] = None  # e.g. ["contrib.toolkits.mesh_toolkit"]
@@ -2522,16 +2629,12 @@ Example (mesh processing with toolkit):
 	async def get_generation_prompt(request: GenerationPromptRequest = GenerationPromptRequest()):
 		"""Return the generation system prompt (node catalog + instructions) for chat-based /gen.
 		When tool_names/toolkit_names are provided, only those are listed in the catalog."""
-		nonlocal schema_code
-		tool_names    = request.tool_names
-		toolkit_names = request.toolkit_names
-		node_catalog  = _build_node_catalog(schema_code)
-		if True:
-			if tool_names is None: tool_names = []
-			if toolkit_names is None: toolkit_names = []
-		tools_catalog = _build_tools_catalog(tool_names=tool_names, toolkit_names=toolkit_names)
-		prompt = _GENERATE_SYSTEM_PROMPT.replace("{node_catalog}", node_catalog).replace("{tools_catalog}", tools_catalog)
-		return {"prompt": prompt}
+		return {
+			"prompt": _build_generation_prompt(
+				tool_names=request.tool_names,
+				toolkit_names=request.toolkit_names,
+			)
+		}
 
 	@app.post("/generate-workflow")
 	async def generate_workflow(request: GenerateWorkflowRequest):
@@ -2867,9 +2970,7 @@ Example (mesh processing with toolkit):
 			"filename": os.path.basename(contrib_path),
 		}
 
-	# Expose generation prompt builder for planner reuse
-	app.state.build_generation_prompt = lambda: _GENERATE_SYSTEM_PROMPT.replace(
-		"{node_catalog}", _build_node_catalog(schema_code)
-	).replace("{tools_catalog}", _build_tools_catalog())
+	# Expose generation prompt builder for planner / assistant reuse.
+	app.state.build_generation_prompt = _build_generation_prompt
 
 	log_print("Workflow API endpoints registered")

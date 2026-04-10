@@ -648,6 +648,8 @@
 	background: var(--sg-accent-blue-light, #3d7a9b);
 }
 .nw-console-send:focus-visible,
+.nw-console-stop:focus-visible,
+.nw-console-planner-stop:focus-visible,
 .nw-console-action-btn:focus-visible,
 .nw-console-mic:focus-visible,
 .nw-console-stop-speak:focus-visible {
@@ -659,6 +661,7 @@
 	opacity: 0.5;
 	cursor: not-allowed;
 }
+.nw-console-stop,
 .nw-console-planner-stop {
 	background: var(--sg-accent-red, #d9534f);
 	border: none;
@@ -672,8 +675,14 @@
 	align-items: center;
 	justify-content: center;
 	flex-shrink: 0;
+}
+.nw-console-stop {
+	animation: none;
+}
+.nw-console-planner-stop {
 	animation: nw-planner-stop-pulse 1.5s ease-in-out infinite;
 }
+.nw-console-stop:hover,
 .nw-console-planner-stop:hover {
 	background: #e66;
 }

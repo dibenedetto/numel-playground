@@ -162,6 +162,17 @@ function _setAssistantDockHeight(panel, canvasPanel, px) {
 	return clamped;
 }
 
+function _pumpCanvasLayoutRefresh(durationMs = 280) {
+	const endAt = Date.now() + durationMs;
+	const pump = () => {
+		window.dispatchEvent(new Event('resize'));
+		schemaGraph?.eventBus?.emit('camera:moved');
+		if (schemaGraph?.draw) schemaGraph.draw();
+		if (Date.now() < endAt) requestAnimationFrame(pump);
+	};
+	requestAnimationFrame(pump);
+}
+
 function _ensureAssistantDockChrome(panel) {
 	// Resize handle (top of panel) — drag to resize console height.
 	let handle = panel.querySelector(':scope > .nw-assistant-dock-resize');
@@ -474,8 +485,13 @@ function _updateStarterPanel() {
 	const visible = !!api && _isAuthenticatedUser() && _isCurrentWorkflowEmptyState();
 	panel.style.display = visible ? '' : 'none';
 	if (visible) {
+		const heroChanged = !!hero && hero.classList.contains('nw-hero-hidden');
+		const stageChanged = !!stageBar && !stageBar.classList.contains('nw-stagebar-hidden');
 		hero?.classList.remove('nw-hero-hidden');
 		stageBar?.classList.add('nw-stagebar-hidden');
+		if (heroChanged || stageChanged) {
+			_pumpCanvasLayoutRefresh();
+		}
 	}
 	if (subtitle) {
 		subtitle.textContent = currentSpaceInfo?.title
@@ -623,8 +639,13 @@ function _updateWorkbenchOverview() {
 	}
 	// Stage bar shows when workflow is loaded; hero shows when empty
 	const stageBar = document.querySelector('.nw-canvas-stagebar');
+	let layoutChanged = false;
 	if (stageBar) {
-		stageBar.classList.toggle('nw-stagebar-hidden', isEmpty);
+		const nextStageHidden = isEmpty;
+		if (stageBar.classList.contains('nw-stagebar-hidden') !== nextStageHidden) {
+			layoutChanged = true;
+		}
+		stageBar.classList.toggle('nw-stagebar-hidden', nextStageHidden);
 	}
 	const hero = document.querySelector('.nw-canvas-hero');
 	if (hero) {
@@ -632,12 +653,19 @@ function _updateWorkbenchOverview() {
 		let dismissedSet = {};
 		try { dismissedSet = JSON.parse(localStorage.getItem('numel-hero-dismissed') || '{}') || {}; } catch (_) {}
 		const dismissed = currentSpaceId ? !!dismissedSet[currentSpaceId] : false;
-		hero.classList.toggle('nw-hero-hidden', dismissed || (!isEmpty && !!currentSpaceInfo));
+		const nextHeroHidden = dismissed || (!isEmpty && !!currentSpaceInfo);
+		if (hero.classList.contains('nw-hero-hidden') !== nextHeroHidden) {
+			layoutChanged = true;
+		}
+		hero.classList.toggle('nw-hero-hidden', nextHeroHidden);
 	}
 	// Hide the "useful next step" card once there's a workflow loaded
 	const nextCard = document.querySelector('.nw-workbench-next-card');
 	if (nextCard) {
 		nextCard.classList.toggle('nw-next-hidden', !isEmpty && !!currentSpaceInfo);
+	}
+	if (layoutChanged) {
+		_pumpCanvasLayoutRefresh();
 	}
 	_renderWorkbenchSpaces();
 }
@@ -1506,6 +1534,7 @@ function setupEventListeners() {
 		} catch (_) {}
 		const hero = document.querySelector('.nw-canvas-hero');
 		if (hero) hero.classList.add('nw-hero-hidden');
+		_pumpCanvasLayoutRefresh();
 	});
 
 	// Advanced sections toggle
@@ -2198,13 +2227,24 @@ async function syncWorkflow(workflow = null, _name = null, force = false) {
 // Global helper for console /gen — load + sync a workflow JSON object
 window.loadAndSyncWorkflow = async function(workflow, name) {
 	if (!visualizer || !schemaGraph) return;
+	let preparedWorkflow = workflow;
+	if (api?.validateWorkflow) {
+		const validation = await api.validateWorkflow(workflow, { apply_repairs: true });
+		preparedWorkflow = validation.workflow || workflow;
+		for (const repair of validation.repairs || []) {
+			addLog('info', `🛠 ${repair}`);
+		}
+		for (const warning of validation.warnings || []) {
+			addLog('warning', `⚠️ ${warning}`);
+		}
+	}
 	schemaGraph.api.graph.clear();
 	schemaGraph.api.view.reset();
-	const n = name || workflow?.options?.name || 'Generated Workflow';
-	const loaded = visualizer.loadWorkflow(workflow, n);
+	const n = name || preparedWorkflow?.options?.name || 'Generated Workflow';
+	const loaded = visualizer.loadWorkflow(preparedWorkflow, n);
 	if (loaded) {
-		currentWorkflowHasContent = _hasWorkflowContent(workflow);
-		await syncWorkflow(workflow, null, true);
+		currentWorkflowHasContent = _hasWorkflowContent(preparedWorkflow);
+		await syncWorkflow(preparedWorkflow, null, true);
 		enableStart(true);
 		_updateStarterExperience(false);
 		addLog('success', `✅ Loaded "${visualizer.currentWorkflowName}"`);
@@ -2264,16 +2304,26 @@ async function handleSingleImport(event) {
 
 		const text = await file.text();
 		const workflow = JSON.parse(text);
+		const validation = api?.validateWorkflow
+			? await api.validateWorkflow(workflow, { apply_repairs: true })
+			: { workflow, repairs: [], warnings: [] };
+		const preparedWorkflow = validation.workflow || workflow;
+		for (const repair of validation.repairs || []) {
+			addLog('info', `🛠 ${repair}`);
+		}
+		for (const warning of validation.warnings || []) {
+			addLog('warning', `⚠️ ${warning}`);
+		}
 
 		// Clear current workflow
 		schemaGraph.api.graph.clear();
 		schemaGraph.api.view.reset();
 
 		// Validate
-		const name      = workflow?.options?.name || file.name.replace('.json', '');
-		const validated = visualizer.loadWorkflow(workflow, name);
+		const name      = preparedWorkflow?.options?.name || file.name.replace('.json', '');
+		const validated = visualizer.loadWorkflow(preparedWorkflow, name);
 		if (validated) {
-			await syncWorkflow(workflow, null, true);
+			await syncWorkflow(preparedWorkflow, null, true);
 			enableStart(true);
 			addLog('success', `📂 Imported "${visualizer.currentWorkflowName}"`);
 		}

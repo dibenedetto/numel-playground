@@ -58,15 +58,23 @@ def build_toolkit_record_from_instance(instance, *, name: Optional[str] = None, 
 	}
 
 
-def load_numel_toolkit(module_name: str, args: Optional[Dict[str, Any]] = None, *, log_prefix: str = "Toolkit"):
+def load_numel_toolkit(
+	module_name: str,
+	args: Optional[Dict[str, Any]] = None,
+	*,
+	log_prefix: str = "Toolkit",
+	quiet: bool = False,
+):
 	module, resolved_name, candidates = resolve_toolkit_module(module_name)
 	if module is None:
-		log_print(f"⚠️  {log_prefix} not found: {module_name} (tried: {', '.join(candidates)})")
+		if not quiet:
+			log_print(f"⚠️  {log_prefix} not found: {module_name} (tried: {', '.join(candidates)})")
 		return None
 
 	toolkit_cls = find_toolkit_class(module)
 	if toolkit_cls is None:
-		log_print(f"⚠️  {log_prefix} class not found in module: {module_name}")
+		if not quiet:
+			log_print(f"⚠️  {log_prefix} class not found in module: {module_name}")
 		return None
 
 	try:
@@ -74,7 +82,8 @@ def load_numel_toolkit(module_name: str, args: Optional[Dict[str, Any]] = None, 
 		resolved_args = _creds.resolve_dict(args or {})
 		instance = toolkit_cls(**resolved_args)
 	except Exception as exc:
-		log_print(f"⚠️  {log_prefix} instantiation failed: {toolkit_cls.__name__} ({exc})")
+		if not quiet:
+			log_print(f"⚠️  {log_prefix} instantiation failed: {toolkit_cls.__name__} ({exc})")
 		return None
 
 	record = build_toolkit_record_from_instance(
@@ -82,5 +91,6 @@ def load_numel_toolkit(module_name: str, args: Optional[Dict[str, Any]] = None, 
 		name=resolved_name or module_name,
 		module_name=resolved_name or module_name,
 	)
-	log_print(f"  {log_prefix} loaded: {record['module_name']} ({len(record['tools'])} tools)")
+	if not quiet:
+		log_print(f"  {log_prefix} loaded: {record['module_name']} ({len(record['tools'])} tools)")
 	return record

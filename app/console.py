@@ -10,7 +10,7 @@ import sqlite3
 import time
 import uuid
 
-from   fastapi                         import FastAPI, Request, WebSocket, WebSocketDisconnect
+from   fastapi                         import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from   pydantic                        import BaseModel
 from   typing                          import Any, Dict, List, Optional, Set
 
@@ -19,6 +19,7 @@ from   agno.models.ollama              import Ollama
 from   agno.models.openai              import OpenAIChat
 from   agno.os                         import AgentOS
 from   agno.os.interfaces.agui         import AGUI
+from   workflow_validation             import validate_workflow_payload
 
 # Suppress agno's harmless SessionSummaryManager parse warnings (local models
 # often return non-JSON for summary requests).  summary.py does
@@ -183,14 +184,16 @@ class PlannerState:
 		"key", "user_id", "enabled", "active", "session_id", "turn_count",
 		"max_turns", "timeout", "session_timeout", "session_start",
 		"debounce", "timer", "pending", "subs", "instructions", "profile",
+		"browser_session_id", "pause_until", "suppress_added_until",
 	)
 
-	def __init__(self, key: str, user_id: Optional[str] = None):
+	def __init__(self, key: str, user_id: Optional[str] = None, browser_session_id: Optional[str] = None):
 		self.key: str               = key
 		self.user_id: Optional[str] = user_id
 		self.enabled: bool          = False
 		self.active: bool           = False
 		self.session_id: str        = f"planner-{key[:16]}-{uuid.uuid4().hex[:8]}"
+		self.browser_session_id: Optional[str] = browser_session_id
 		self.turn_count: int        = 0
 		self.max_turns: int         = 10
 		self.timeout: float         = 120.0      # per-turn timeout
@@ -202,6 +205,8 @@ class PlannerState:
 		self.subs: List[str]        = []          # subscribed event type strings
 		self.instructions: str      = ""
 		self.profile: str           = ""
+		self.pause_until: float     = 0.0
+		self.suppress_added_until: float = 0.0
 
 	def reset(self):
 		self.turn_count = 0
@@ -240,7 +245,7 @@ class ConsoleAgentManager:
 		self._toolkit_names = []      # e.g. ["console_toolkit", "file_toolkit"]
 		self._skill_names   = None    # e.g. ["web-search", "git-assistant"]
 		self._skill_mgr     = None    # set via set_skill_mgr()
-		self._proactive_ws       : Set[WebSocket] = set()
+		self._proactive_ws       : Dict[WebSocket, Optional[str]] = {}
 		self._sessions           : Dict[str, List[dict]] = {}  # session_id → message history
 		self._start_lock         = asyncio.Lock()               # prevents concurrent start/stop
 		self._use_backend_memory = False                        # set during start()
@@ -248,7 +253,6 @@ class ConsoleAgentManager:
 		# ── Planner mode (per-session) ──
 		# Keyed by planner_key (typically "user_{user_id}_{session_id}" or
 		# "guest_{session_id}") so the same user in two tabs gets independent planners.
-		self._resource_index: str = ""                 # cached toolkit+skill index for planner
 		self._planners: Dict[str, PlannerState] = {}   # planner_key → PlannerState
 		self._planner_lock  = asyncio.Lock()          # serializes planner turns across sessions
 		self._workflow_lock = asyncio.Lock()           # exclusive workflow access during planner modifications
@@ -263,53 +267,6 @@ class ConsoleAgentManager:
 	def set_skill_mgr(self, mgr):
 		"""Inject the skill manager for resolving skill instructions."""
 		self._skill_mgr = mgr
-
-	def refresh_resource_index(self) -> str:
-		"""Rebuild and cache the toolkit+skill index. Returns the new index."""
-		self._resource_index = self._build_resource_index()
-		return self._resource_index
-
-	def _build_resource_index(self) -> str:
-		"""Build a compact index of available toolkits and skills for planner context."""
-		import glob as _glob, re as _re
-		lines = []
-
-		# ── Toolkits (file-based, no import — avoids module cache staleness) ──
-		app_dir      = os.path.dirname(os.path.abspath(__file__))
-		project_root = os.path.dirname(app_dir)
-		tk_entries = []
-		for base_dir in [os.path.join(app_dir, "toolkits"),
-		                  os.path.join(project_root, "contrib", "toolkits")]:
-			for fpath in sorted(_glob.glob(os.path.join(base_dir, "*_toolkit.py"))):
-				short = os.path.basename(fpath).replace(".py", "")
-				doc   = ""
-				try:
-					text = open(fpath, encoding="utf-8").read(4096)
-					if "__toolkit__" not in text:
-						continue
-					m = _re.search(r'"""(.+?)"""', text, _re.DOTALL)
-					if m:
-						doc = m.group(1).strip().split('\n')[0]
-				except Exception:
-					pass
-				tk_entries.append(f"- {short} — {doc}" if doc else f"- {short}")
-		if tk_entries:
-			lines.append("## Available Toolkits")
-			lines.extend(tk_entries)
-
-		# ── Skills ──
-		if self._skill_mgr:
-			skills = self._skill_mgr.list()
-			if skills:
-				lines.append("\n## Available Skills")
-				for sk in skills:
-					req = ""
-					toolkits_req = (sk.get("requires") or {}).get("toolkits", [])
-					if toolkits_req:
-						req = f" (requires: {', '.join(toolkits_req)})"
-					lines.append(f"- {sk['name']} — {sk['description']}{req}")
-
-		return "\n".join(lines)
 
 	@staticmethod
 	def _planner_key(user_id: Optional[str], session_id: Optional[str]) -> str:
@@ -335,6 +292,18 @@ class ConsoleAgentManager:
 		"""Check if a specific session has planner enabled."""
 		p = self._planners.get(self._planner_key(user_id, session_id))
 		return p is not None and p.enabled
+
+	def _resolve_planner_state(self, user_id: Optional[str], session_id: Optional[str]) -> Optional[PlannerState]:
+		"""Resolve a planner by exact key first, then fall back to the user's sole active planner."""
+		p = self._planners.get(self._planner_key(user_id, session_id))
+		if p is not None:
+			return p
+		if user_id is None:
+			return None
+		candidates = [ps for ps in self._planners.values() if ps.enabled and ps.user_id == user_id]
+		if len(candidates) == 1:
+			return candidates[0]
+		return candidates[0] if candidates else None
 
 	def _request_headers(self, user_id: Optional[str] = None) -> Dict[str, str]:
 		headers: Dict[str, str] = {}
@@ -619,7 +588,7 @@ class ConsoleAgentManager:
 		cfg = config or {}
 		log_print(f"Planner enable [{pkey[:20]}] config: {cfg}")
 
-		ps = PlannerState(key=pkey, user_id=user_id)
+		ps = PlannerState(key=pkey, user_id=user_id, browser_session_id=session_id)
 		ps.max_turns        = cfg.get("max_iterations", cfg.get("max_autonomous_turns", 10))
 		ps.debounce         = cfg.get("debounce_ms", 2000) / 1000.0
 		ps.timeout          = cfg.get("timeout_s", 120)
@@ -673,7 +642,6 @@ class ConsoleAgentManager:
 
 		ps.enabled = True
 		self._planners[pkey] = ps
-		self.refresh_resource_index()
 
 		# Inject planner directive into the singleton agent's system prompt
 		if self._agent:
@@ -690,6 +658,7 @@ class ConsoleAgentManager:
 	def disable_planner(self, user_id: Optional[str] = None,
 						session_id: Optional[str] = None):
 		"""Deactivate planner for a specific session, or all sessions if both are None."""
+		ps = None
 		if user_id is None and session_id is None:
 			# Disable all planners
 			keys = list(self._planners.keys())
@@ -697,9 +666,9 @@ class ConsoleAgentManager:
 				self._disable_planner_state(self._planners[k])
 			self._planners.clear()
 		else:
-			pkey = self._planner_key(user_id, session_id)
-			ps = self._planners.pop(pkey, None)
+			ps = self._resolve_planner_state(user_id, session_id)
 			if ps:
+				self._planners.pop(ps.key, None)
 				self._disable_planner_state(ps)
 
 		# Unsubscribe from events if no planners remain active
@@ -723,10 +692,38 @@ class ConsoleAgentManager:
 		"""Clean up a single PlannerState."""
 		ps.enabled = False
 		ps.active  = False
+		ps.pause_until = 0.0
+		ps.suppress_added_until = 0.0
 		ps.pending.clear()
 		if ps.timer:
 			ps.timer.cancel()
 			ps.timer = None
+
+	def pause_planner_for_manual_run(self, user_id: Optional[str] = None,
+	                                 session_id: Optional[str] = None,
+	                                 duration_s: int = 180) -> bool:
+		"""Keep planner enabled but ignore the next workflow execution reaction window."""
+		ps = self._resolve_planner_state(user_id, session_id)
+		if not ps or not ps.enabled:
+			return False
+		ps.pause_until = time.time() + max(10, int(duration_s))
+		ps.pending.clear()
+		if ps.timer:
+			ps.timer.cancel()
+			ps.timer = None
+		log_print(f"Planner [{ps.key[:20]}] paused for manual run ({duration_s}s)")
+		return True
+
+	def suppress_planner_added_reaction(self, user_id: Optional[str] = None,
+	                                    session_id: Optional[str] = None,
+	                                    duration_s: int = 15) -> bool:
+		"""Ignore manager.workflow_added briefly after planner-driven workflow apply."""
+		ps = self._resolve_planner_state(user_id, session_id)
+		if not ps or not ps.enabled:
+			return False
+		ps.suppress_added_until = time.time() + max(2, int(duration_s))
+		log_print(f"Planner [{ps.key[:20]}] suppressing workflow_added for {duration_s}s")
+		return True
 
 	async def _on_planner_event(self, event):
 		"""EventBus callback — dispatch event to ALL active planners with debounce."""
@@ -735,6 +732,12 @@ class ConsoleAgentManager:
 
 		for ps in list(self._planners.values()):
 			if not ps.enabled or ps.active:
+				continue
+			if evt_type == "manager.workflow_added" and time.time() < ps.suppress_added_until:
+				log_print(f"Planner [{ps.key[:20]}] ignored {evt_type} after planner apply")
+				continue
+			if evt_type in {"workflow.completed", "workflow.failed", "manager.workflow_added"} and time.time() < ps.pause_until:
+				log_print(f"Planner [{ps.key[:20]}] ignored {evt_type} during manual-run pause window")
 				continue
 			ps.pending.append(evt_data)
 			# Cancel existing debounce for this planner
@@ -758,7 +761,8 @@ class ConsoleAgentManager:
 		if ps.turn_count >= ps.max_turns:
 			await self.push_proactive(
 				f"Planner reached max iterations ({ps.max_turns}). Send a message to continue.",
-				"planner_paused"
+				"planner_paused",
+				session_id=ps.browser_session_id,
 			)
 			return
 
@@ -766,15 +770,14 @@ class ConsoleAgentManager:
 		if elapsed >= ps.session_timeout:
 			await self.push_proactive(
 				f"Planner session timed out after {int(elapsed)}s (limit: {ps.session_timeout}s). Disabling.",
-				"planner_error"
+				"planner_error",
+				session_id=ps.browser_session_id,
 			)
-			self.disable_planner(ps.user_id, ps.key.split("_", 1)[-1] if "_" in ps.key else None)
+			self.disable_planner(ps.user_id, ps.browser_session_id)
 			return
 
 		ps.active = True
 		try:
-			await self.push_proactive("", "planner_thinking")
-
 			events = ps.pending[:]
 			ps.pending.clear()
 
@@ -782,6 +785,15 @@ class ConsoleAgentManager:
 				f"- {e['type']}: {json.dumps(e['data'], default=str)[:200]}"
 				for e in events
 			)
+			event_types = [str(e.get("type", "") or "") for e in events]
+			unique_event_types: List[str] = []
+			for event_type in event_types:
+				if event_type and event_type not in unique_event_types:
+					unique_event_types.append(event_type)
+			if unique_event_types:
+				reason = "Planner triggered by " + ", ".join(unique_event_types) + "."
+				await self.push_proactive(reason, "planner_reason", session_id=ps.browser_session_id)
+			await self.push_proactive("", "planner_thinking", session_id=ps.browser_session_id)
 			message = (
 				f"[Planner Event]\n{event_summary}\n\n"
 				"Analyze the results. If the score is below 0.7 or there are workflow logic errors, "
@@ -826,22 +838,23 @@ class ConsoleAgentManager:
 					ps.turn_count += 1
 					response = result.get("response", "")
 					if response:
-						await self.push_proactive(response, "planner_action")
+						await self.push_proactive(response, "planner_action", session_id=ps.browser_session_id)
 					else:
-						await self.push_proactive("Planner turn completed (no output).", "planner_action")
+						await self.push_proactive("Planner turn completed (no output).", "planner_action", session_id=ps.browser_session_id)
 				except asyncio.TimeoutError:
 					log_print(f"Planner [{planner_key[:20]}] timed out after {ps.timeout}s")
 					await self.push_proactive(
 						f"Planner turn timed out after {ps.timeout}s. Disabling.",
-						"planner_error"
+						"planner_error",
+						session_id=ps.browser_session_id,
 					)
-					self.disable_planner(ps.user_id)
+					self.disable_planner(ps.user_id, ps.browser_session_id)
 				except Exception as e:
 					log_print(f"Planner [{planner_key[:20]}] error: {e}")
-					await self.push_proactive(f"Planner error: {e}", "planner_error")
+					await self.push_proactive(f"Planner error: {e}", "planner_error", session_id=ps.browser_session_id)
 		finally:
 			ps.active = False
-			await self.push_proactive("", "planner_done")
+			await self.push_proactive("", "planner_done", session_id=ps.browser_session_id)
 
 	def reset_planner(self, user_id: Optional[str] = None,
 					  session_id: Optional[str] = None):
@@ -940,16 +953,15 @@ class ConsoleAgentManager:
 					"result": None,
 				})
 
-		# Planner fallback: if the model produced JSON instead of calling tools, apply it
+		# Planner responses may include workflow JSON, but web/app clients are responsible
+		# for validating and applying it through the explicit planner-apply route.
 		if self._planner_enabled and assistant_content and not tool_calls:
 			wf_json = self._extract_workflow_json(assistant_content)
 			if wf_json:
-				try:
-					result = await self._apply_workflow_json(wf_json)
-					log_print(f"Planner: auto-applied workflow JSON ({len(wf_json.get('nodes',[]))} nodes) — {result}")
-					tool_calls.append({"name": "replace_workflow", "result": result})
-				except Exception as e:
-					log_print(f"Planner: auto-apply failed: {e}")
+				log_print(
+					f"Planner: workflow JSON prepared for client-side apply "
+					f"({len(wf_json.get('nodes', []))} nodes)"
+				)
 
 		# Save conversation to manual MemoryStore (only when not using backend, every 3 turns)
 		turn_count = self._sessions.get(session_id, 0)
@@ -1005,25 +1017,24 @@ class ConsoleAgentManager:
 				pass
 		return None
 
-	async def _apply_workflow_json(self, wf_json: dict, user_id: Optional[str] = None) -> str:
+	async def _apply_workflow_json(self, wf_json: dict, user_id: Optional[str] = None) -> Dict[str, Any]:
 		"""Apply a workflow JSON dict through the current-workflow HTTP routes."""
 		acting_user_id = user_id or self._current_user_id
-		# Normalize alternate node formats the model may produce
-		for n in wf_json.get("nodes", []):
-			if "extra" not in n:
-				x = n.pop("x", 0)
-				y = n.pop("y", 0)
-				label = n.pop("name", n.get("type", ""))
-				n["extra"] = {"pos": [x, y], "name": label}
-			# Merge "fields" dict into the node body
-			fields = n.pop("fields", None)
-			if fields and isinstance(fields, dict):
-				n.update(fields)
-		wf_json.setdefault("type", "workflow")
-		wf_json.setdefault("edges", [])
-		resp = await self._post_json("/workflow/save", {"workflow": wf_json}, user_id=acting_user_id)
+		validation = validate_workflow_payload(wf_json, apply_repairs=True)
+		if not validation["valid"]:
+			error_msg = "; ".join(validation["errors"])
+			raise ValueError(error_msg or "Workflow validation failed")
+		workflow_doc = validation["workflow"]
+		resp = await self._post_json("/workflow/save", {"workflow": workflow_doc}, user_id=acting_user_id)
 		name = resp.get("name") or "Current Workflow"
-		return f"ok: saved '{name}' ({len(wf_json.get('nodes', []))} nodes)"
+		return {
+			"name": name,
+			"nodes": len(workflow_doc.get("nodes", [])),
+			"repaired": bool(validation["repaired"]),
+			"repairs": list(validation["repairs"]),
+			"warnings": list(validation["warnings"]),
+			"message": f"ok: saved '{name}' ({len(workflow_doc.get('nodes', []))} nodes)",
+		}
 
 	# ── Context ────────────────────────────────────────────────────
 
@@ -1082,20 +1093,24 @@ class ConsoleAgentManager:
 		# Prepend planner generation contract and instructions if active
 		planner_ctx = ""
 		if self._planner_enabled and self._planner_instructions:
+			active_generation_toolkits = [
+				name for name in self._toolkit_names
+				if name not in ("console_toolkit", "channel_toolkit")
+			]
 			# Include generation prompt (node catalog + JSON schema) so the planner can build workflows
 			build_prompt = getattr(getattr(self, '_fastapi_app', None), 'state', None)
 			build_prompt = getattr(build_prompt, 'build_generation_prompt', None) if build_prompt else None
 			if build_prompt:
 				try:
-					gen_prompt = build_prompt()
+					gen_prompt = build_prompt(
+						toolkit_names=active_generation_toolkits if active_generation_toolkits else [],
+					)
 					log_print(f"Planner: injecting node catalog ({len(gen_prompt)} chars)")
 					planner_ctx += f"[Workflow Generation Contract]\n{gen_prompt}\n\n"
 				except Exception as e:
 					log_print(f"Planner: node catalog build failed: {e}")
 			else:
 				log_print(f"Planner: no build_generation_prompt (fastapi_app={self._fastapi_app is not None})")
-			if self._resource_index:
-				planner_ctx += f"[Available Resources]\n{self._resource_index}\n\n"
 			planner_ctx += f"[Planner Instructions]\n{self._planner_instructions}\n\n"
 
 		return {
@@ -1106,16 +1121,20 @@ class ConsoleAgentManager:
 
 	# ── Proactive ──────────────────────────────────────────────────
 
-	async def push_proactive(self, content: str, msg_type: str = "suggestion", severity: str = "info"):
-		"""Push a proactive message to all connected console WebSocket clients."""
-		msg = json.dumps({"type": msg_type, "content": content, "severity": severity})
+	async def push_proactive(self, content: str, msg_type: str = "suggestion", severity: str = "info",
+	                         session_id: Optional[str] = None):
+		"""Push a proactive message to connected console WebSocket clients, optionally scoped to one tab session."""
+		msg = json.dumps({"type": msg_type, "content": content, "severity": severity, "session_id": session_id})
 		disconnected = set()
-		for ws in self._proactive_ws:
+		for ws, ws_session_id in list(self._proactive_ws.items()):
+			if session_id is not None and ws_session_id not in (session_id, None):
+				continue
 			try:
 				await ws.send_text(msg)
 			except Exception:
 				disconnected.add(ws)
-		self._proactive_ws -= disconnected
+		for ws in disconnected:
+			self._proactive_ws.pop(ws, None)
 
 	def setup_proactive_listeners(self):
 		"""Subscribe to EventBus events that trigger proactive suggestions."""
@@ -1597,8 +1616,7 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 		user = getattr(request.state, 'user', None)
 		user_id = user.id if user else None
 		session_id = body.get("session_id")
-		pkey = console_mgr._planner_key(user_id, session_id)
-		ps = console_mgr._planners.get(pkey)
+		ps = console_mgr._resolve_planner_state(user_id, session_id)
 		return {
 			"enabled":    ps.enabled if ps else False,
 			"turn_count": ps.turn_count if ps else 0,
@@ -1607,11 +1625,6 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 			"subscribed_events": ps.subs if ps else [],
 			"active_planners": sum(1 for p in console_mgr._planners.values() if p.enabled),
 		}
-
-	@app.post("/console/planner/refresh-resources")
-	async def console_planner_refresh_resources():
-		index = console_mgr.refresh_resource_index()
-		return {"ok": True, "length": len(index)}
 
 	@app.post("/console/planner/config")
 	async def console_planner_config(request: Request):
@@ -1622,19 +1635,18 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 		user = getattr(request.state, 'user', None)
 		user_id = user.id if user else None
 		session_id = body.get("session_id")
-		pkey = console_mgr._planner_key(user_id, session_id)
-		ps = console_mgr._planners.get(pkey)
+		ps = console_mgr._resolve_planner_state(user_id, session_id)
 		if not ps:
 			return {"error": "No active planner for this session"}
 		if "timeout_s" in body:
 			ps.timeout = max(10, int(body["timeout_s"]))
-			log_print(f"Planner [{pkey[:20]}] per-turn timeout → {ps.timeout}s")
+			log_print(f"Planner [{ps.key[:20]}] per-turn timeout → {ps.timeout}s")
 		if "session_timeout_s" in body:
 			ps.session_timeout = max(30, int(body["session_timeout_s"]))
-			log_print(f"Planner [{pkey[:20]}] session timeout → {ps.session_timeout}s")
+			log_print(f"Planner [{ps.key[:20]}] session timeout → {ps.session_timeout}s")
 		if "max_iterations" in body:
 			ps.max_turns = max(1, int(body["max_iterations"]))
-			log_print(f"Planner [{pkey[:20]}] max iterations → {ps.max_turns}")
+			log_print(f"Planner [{ps.key[:20]}] max iterations → {ps.max_turns}")
 		if "max_autonomous_turns" in body and "max_iterations" not in body:
 			ps.max_turns = max(1, int(body["max_autonomous_turns"]))
 		if "debounce_ms" in body:
@@ -1654,7 +1666,7 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 					log_print(f"Planner: instructions file not found: {instr_path}")
 					return {"error": f"Profile '{profile_name}' instructions file not found: {instr_file}"}
 				ps.profile = profile_name
-				log_print(f"Planner [{pkey[:20]}] profile → {profile_name}")
+				log_print(f"Planner [{ps.key[:20]}] profile → {profile_name}")
 		return {
 			"timeout_s": ps.timeout,
 			"session_timeout_s": ps.session_timeout,
@@ -1675,11 +1687,24 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 		console_mgr.reset_planner(user_id=user_id, session_id=session_id)
 		return {"reset": True}
 
+	@app.post("/console/planner/pause")
+	async def console_planner_pause(request: Request):
+		try:
+			body = await request.json()
+		except Exception:
+			body = {}
+		user = getattr(request.state, 'user', None)
+		user_id = user.id if user else None
+		session_id = body.get("session_id")
+		duration_s = int(body.get("duration_s", 180))
+		paused = console_mgr.pause_planner_for_manual_run(user_id=user_id, session_id=session_id, duration_s=duration_s)
+		return {"paused": paused}
+
 	@app.post("/console/planner/apply")
 	async def console_planner_apply(request: dict, req: Request):
 		wf_json = request.get("workflow")
 		if not wf_json or "nodes" not in wf_json:
-			return {"error": "No valid workflow JSON"}
+			raise HTTPException(status_code=400, detail="No valid workflow JSON")
 		try:
 			user = getattr(req.state, 'user', None)
 			user_id = user.id if user else None
@@ -1687,10 +1712,21 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 			auto_disable = bool(request.get("auto_disable"))
 			if auto_disable:
 				console_mgr.disable_planner(user_id=user_id, session_id=session_id)
+			else:
+				console_mgr.suppress_planner_added_reaction(user_id=user_id, session_id=session_id, duration_s=15)
 			result = await console_mgr._apply_workflow_json(wf_json, user_id=user_id)
-			return {"ok": True, "result": result, "planner_disabled": auto_disable}
+			return {
+				"ok": True,
+				"result": result,
+				"planner_disabled": auto_disable,
+				"validation": {
+					"repaired": result.get("repaired", False),
+					"repairs": result.get("repairs", []),
+					"warnings": result.get("warnings", []),
+				},
+			}
 		except Exception as e:
-			return {"error": str(e)}
+			raise HTTPException(status_code=400, detail=str(e))
 
 	@app.post("/console/toolkits")
 	async def console_list_toolkits():
@@ -1801,9 +1837,10 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 	async def console_ws(websocket: WebSocket):
 		"""WebSocket for proactive messages from console agent to frontend."""
 		await websocket.accept()
-		console_mgr._proactive_ws.add(websocket)
+		session_id = websocket.query_params.get("session_id", "").strip() or None
+		console_mgr._proactive_ws[websocket] = session_id
 		try:
 			while True:
 				await websocket.receive_text()  # keep-alive
 		except WebSocketDisconnect:
-			console_mgr._proactive_ws.discard(websocket)
+			console_mgr._proactive_ws.pop(websocket, None)

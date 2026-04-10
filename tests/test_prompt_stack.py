@@ -1,12 +1,15 @@
 import json
+import sys
 import unittest
 
 from pathlib import Path
 
-from app.prompt_stack import PLANNER_MODE_DIRECTIVE
-
-
 ROOT = Path(__file__).resolve().parents[1]
+APP_DIR = ROOT / "app"
+if str(APP_DIR) not in sys.path:
+    sys.path.insert(0, str(APP_DIR))
+
+from prompt_stack import PLANNER_MODE_DIRECTIVE
 
 
 class PromptStackTests(unittest.TestCase):
@@ -22,13 +25,13 @@ class PromptStackTests(unittest.TestCase):
         self.assertNotIn("Call add_node() for each node, then connect() for each edge.", text)
         self.assertIn("Do not narrate incremental `add_node()` / `connect()` steps", text)
 
-    def test_planner_context_orders_contract_before_resources_and_behavior(self):
+    def test_planner_context_orders_contract_before_behavior(self):
         text = (ROOT / "app" / "console.py").read_text(encoding="utf-8")
         start = text.index('planner_ctx = ""')
         end = text.index('\n\t\treturn {', start)
         block = text[start:end]
-        self.assertLess(block.index("[Workflow Generation Contract]"), block.index("[Available Resources]"))
-        self.assertLess(block.index("[Available Resources]"), block.index("[Planner Instructions]"))
+        self.assertLess(block.index("[Workflow Generation Contract]"), block.index("[Planner Instructions]"))
+        self.assertNotIn("[Available Resources]", block)
 
     def test_generation_prompt_has_compiler_role(self):
         text = (ROOT / "app" / "api.py").read_text(encoding="utf-8")
