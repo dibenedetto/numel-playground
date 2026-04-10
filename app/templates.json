@@ -309,7 +309,7 @@
         "nativeInputs": {
           "0": {
             "type": "dict",
-            "value": "{\"pos\":[100,-275],\"size\":[220,110],\"name\":\"Backend (Agno)\",\"color\":\"#5c7caa\"}",
+            "value": "{\"pos\":[100,-275],\"size\":[220,110],\"name\":\"Backend\",\"color\":\"#5c7caa\"}",
             "optional": true,
             "options": null,
             "optionsSource": null,

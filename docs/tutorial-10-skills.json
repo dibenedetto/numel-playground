@@ -2,13 +2,13 @@
   "options": {
     "type": "workflow_options",
     "name": "Tutorial 10: Skills",
-    "description": "Wire a Skill node to an Agent to inject natural language instructions into its system prompt. The web-search skill teaches the agent to search via DuckDuckGo."
+    "description": "Wire a Skill node to an Agent to attach reusable web-search guidance. The web-search skill teaches the agent to search via DuckDuckGo."
   },
   "nodes": [
     {
       "type": "backend_config",
       "name": "agno",
-      "extra": { "name": "Backend (Agno)" }
+      "extra": { "name": "Backend" }
     },
     {
       "type": "model_config",

@@ -8,7 +8,7 @@
     {
       "type": "backend_config",
       "name": "agno",
-      "extra": {"pos": [0, 140], "name": "Backend (Agno)"}
+      "extra": {"pos": [0, 140], "name": "Backend"}
     },
     {
       "type": "model_config",

@@ -50,6 +50,7 @@ class Skill(BaseModel):
 	path:        str            = ""    # Directory path
 	examples:    List[str]      = []    # Example prompts extracted from body
 	scripts:     List[str]      = []    # Bundled script files (relative paths)
+	references:  List[str]      = []    # Reference files (relative paths)
 	install:     List[dict]     = []    # Install specs [{kind, package/formula, ...}]
 	setup_done:  bool           = False # Whether install/setup has been run
 
@@ -172,6 +173,23 @@ def _extract_examples(body: str) -> List[str]:
 		if m:
 			examples.append(m.group(1))
 	return examples
+
+
+def _discover_relative_files(root_dir: str, subdir: str, exts: Optional[set[str]] = None) -> List[str]:
+	"""Discover non-hidden files under a skill subdirectory and return relative paths."""
+	target_dir = os.path.join(root_dir, subdir)
+	if not os.path.isdir(target_dir):
+		return []
+	paths = []
+	for current_root, _dirs, files in os.walk(target_dir):
+		for fname in sorted(files):
+			if fname.startswith("."):
+				continue
+			if exts is not None and os.path.splitext(fname)[1].lower() not in exts:
+				continue
+			rel = os.path.relpath(os.path.join(current_root, fname), target_dir)
+			paths.append(rel.replace("\\", "/"))
+	return paths
 
 
 # =============================================================================
@@ -299,14 +317,10 @@ class SkillManager:
 				log_print(f"Skills: skipping {name} (os={oc_os}, current={plat})")
 				return
 
-		# Discover bundled scripts (.py, .sh, .js, .ts)
-		scripts = []
+		# Discover bundled scripts and references
 		_script_exts = {".py", ".sh", ".bash", ".js", ".ts"}
-		for root, _dirs, files in os.walk(skill_dir):
-			for fname in sorted(files):
-				if os.path.splitext(fname)[1].lower() in _script_exts:
-					rel = os.path.relpath(os.path.join(root, fname), skill_dir)
-					scripts.append(rel.replace("\\", "/"))
+		scripts = _discover_relative_files(skill_dir, "scripts", exts=_script_exts)
+		references = _discover_relative_files(skill_dir, "references")
 
 		# Install specs — from metadata.openclaw.install or requirements.txt
 		install = oc.get("install", []) if isinstance(oc.get("install"), list) else []
@@ -335,6 +349,7 @@ class SkillManager:
 			path        = skill_dir,
 			examples    = parsed.get("examples", []) or _extract_examples(body),
 			scripts     = scripts,
+			references  = references,
 			install     = install,
 			setup_done  = self._setup_state.get(name, False),
 		)
@@ -526,6 +541,10 @@ class SkillManager:
 			parts.append(f"Scripts in {skill.path}:")
 			for s in skill.scripts:
 				parts.append(f"  - {s}")
+		if skill.references:
+			parts.append(f"References in {skill.path}:")
+			for ref in skill.references:
+				parts.append(f"  - {ref}")
 		parts.append(skill.body)
 		return "\n".join(parts)
 
@@ -535,11 +554,27 @@ class SkillManager:
 		        for s in self._skills.values()
 		        if s.enabled and s.body.strip()]
 
+	def get_active_definitions(self) -> List[dict]:
+		"""Return backend-neutral skill definitions for all enabled skills."""
+		return [skill.model_dump()
+		        for skill in self._skills.values()
+		        if skill.enabled and skill.body.strip()]
+
 	def get_instructions_for(self, names: List[str]) -> List[str]:
 		"""Return instruction bodies for specific skill names."""
 		return [self._format_instruction(self._skills[n])
 		        for n in names
 		        if n in self._skills and self._skills[n].body.strip()]
+
+	def get_definitions_for(self, names: List[str]) -> List[dict]:
+		"""Return backend-neutral skill definitions for the selected names."""
+		result = []
+		for name in names:
+			skill = self._skills.get(name)
+			if not skill or not skill.body.strip():
+				continue
+			result.append(skill.model_dump())
+		return result
 
 	def get_active_requirements(self) -> Dict[str, List[str]]:
 		"""Return aggregated requirements from all enabled skills."""
@@ -599,6 +634,7 @@ class SkillManager:
 			"requires":    skill.requires,
 			"examples":    skill.examples,
 			"scripts":     skill.scripts,
+			"references":  skill.references,
 			"install":     skill.install,
 			"setup_done":  skill.setup_done,
 		}

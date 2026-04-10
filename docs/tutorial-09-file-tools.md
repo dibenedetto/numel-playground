@@ -43,7 +43,7 @@ Two layers:
 
 | # | Node | Type | Purpose |
 |---|------|------|---------|
-| 0 | Backend (Agno) | `backend_config` | Agent framework |
+| 0 | Backend | `backend_config` | Agent backend |
 | 1 | Model (Ollama/Mistral) | `model_config` | LLM provider |
 | 2 | Agent Options | `agent_options_config` | Base instructions |
 | 3 | Tool: Read File | `tool_config` | Declares `tools.read_file` |
@@ -82,7 +82,7 @@ These are two different ways to use tools:
 | **Purpose** | Registers a tool for an **agent** to call | Calls a tool **directly** in the flow |
 | **Who calls it** | The LLM decides when | The workflow always calls it |
 | **Wires to** | `agent_config.tools.<key>` | Standalone flow node |
-| **Use case** | "Agent, here's a tool you can use" | "Read this file before the chat starts" |
+| **Use case** | "Agent, here's a capability you can use" | "Read this file before the chat starts" |
 
 In this tutorial we use **both**:
 - `Tool: Read File` as a **Tool Config** wired to `Tool Flow` — the workflow calls `read_file` directly to load the file

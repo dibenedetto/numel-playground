@@ -289,17 +289,17 @@ DEFAULT_BACKEND_FALLBACK : bool = False
 
 @node_info(
 	title       = "Backend",
-	description = "Holds backend framework reference",
+	description = "Holds agent backend reference",
 	icon        = "⚙️",
 	section     = "Configurations",
 	layer       = 2,
 	visible     = True
 )
 class BackendConfig(ConfigType):
-	"""AI backend engine config. Set name='agno' (default and only supported engine). Wire config→agent_config.backend."""
+	"""Agent backend config. Set name to the backend identifier and wire config→agent_config.backend."""
 	type     : Annotated[Literal["backend_config"], FieldRole.CONSTANT] = "backend_config"
-	name     : Annotated[str                      , FieldRole.INPUT   ] = Field(default=DEFAULT_BACKEND_NAME,     description="Backend engine name; currently only 'agno' is supported")
-	version  : Annotated[Optional[str]            , FieldRole.INPUT   ] = Field(default=DEFAULT_BACKEND_VERSION,  description="Optional engine version string; leave empty for latest")
+	name     : Annotated[str                      , FieldRole.INPUT   ] = Field(default=DEFAULT_BACKEND_NAME,     description="Backend identifier used by the runtime implementation")
+	version  : Annotated[Optional[str]            , FieldRole.INPUT   ] = Field(default=DEFAULT_BACKEND_VERSION,  description="Optional backend version string; leave empty for the default")
 	fallback : Annotated[bool                     , FieldRole.INPUT   ] = Field(default=DEFAULT_BACKEND_FALLBACK, description="If true, skip this backend silently when unavailable instead of raising an error")
 
 	@property
@@ -606,7 +606,7 @@ DEFAULT_AGENT_OPTIONS_MARKDOWN        : bool = True
 	visible     = True
 )
 class ToolkitConfig(ToolBaseConfig):
-	"""Toolkit module providing multiple related tools with shared state. Set name to Python import path (e.g. 'toolkits.file_toolkit'). Each public method becomes a callable tool. Usage: (1) With agents: wire config→agent_config, target_slot='toolkits.<key>'; description is added to prompt, methods become tools. (2) With tool_flow: wire config→tool_flow.config and set tool_flow.method='<method_name>'; multiple tool_flow nodes sharing the same toolkit_config use the same instance (shared state)."""
+	"""Toolkit module providing multiple related tools with shared state. Set name to Python import path (e.g. 'toolkits.file_toolkit'). Each public method becomes a callable tool. Usage: (1) With agents: wire config→agent_config, target_slot='toolkits.<key>'; the active backend exposes the toolkit's methods and descriptive instructions. (2) With tool_flow: wire config→tool_flow.config and set tool_flow.method='<method_name>'; multiple tool_flow nodes sharing the same toolkit_config use the same instance (shared state)."""
 	type     : Annotated[Literal["toolkit_config"], FieldRole.CONSTANT] = "toolkit_config"
 
 	@property
@@ -623,7 +623,7 @@ class ToolkitConfig(ToolBaseConfig):
 	visible     = True
 )
 class SkillConfig(ConfigType):
-	"""Skill providing natural language instructions to agents. Set name to a skill ID (e.g. 'web-search'). The skill's SKILL.md body is injected into the agent's instructions. Wire config→agent_config, target_slot='skills.<key>'."""
+	"""Skill package attached to an agent. Set name to a skill ID (e.g. 'web-search'). Backends may attach it natively or adapt it through backend-specific instruction layers. Wire config→agent_config, target_slot='skills.<key>'."""
 	type : Annotated[Literal["skill_config"], FieldRole.CONSTANT] = "skill_config"
 	name : Annotated[str                    , FieldRole.INPUT   ] = Field(default="", json_schema_extra={"options_source": "skill_names"}, description="Skill name/ID as listed by the skill manager")
 
@@ -644,7 +644,7 @@ class AgentOptionsConfig(OptionsType):
 	"""Agent personality and prompt configuration. Set name, description, instructions (list of strings), or prompt_override (full system prompt). Wire options→agent_config.options."""
 	type            : Annotated[Literal["agent_options_config"], FieldRole.CONSTANT] = "agent_options_config"
 	instructions    : Annotated[Optional[List[str]]            , FieldRole.INPUT   ] = Field(default=DEFAULT_AGENT_OPTIONS_INSTRUCTIONS,    description="List of instruction strings appended to the agent system prompt (one per line)")
-	prompt_override : Annotated[Optional[str]                  , FieldRole.INPUT   ] = Field(default=DEFAULT_AGENT_OPTIONS_PROMPT_OVERRIDE, description="Full system prompt text; when set, replaces all default instructions entirely")
+	prompt_override : Annotated[Optional[str]                  , FieldRole.INPUT   ] = Field(default=DEFAULT_AGENT_OPTIONS_PROMPT_OVERRIDE, description="Full system prompt text; when set, replaces the default instruction body. Backends may still append connected native capability snippets such as skill metadata.")
 	markdown        : Annotated[bool                           , FieldRole.INPUT   ] = Field(default=DEFAULT_AGENT_OPTIONS_MARKDOWN,        description="If true, instruct the agent to format its responses using Markdown")
 
 	@property
@@ -665,7 +665,7 @@ class AgentConfig(ConfigType):
 	type          : Annotated[Literal["agent_config"]           , FieldRole.CONSTANT   ] = "agent_config"
 	port          : Annotated[Optional[int]                     , FieldRole.ANNOTATION ] = None
 	options       : Annotated[Optional[AgentOptionsConfig]      , FieldRole.INPUT      ] = Field(default=None, description="AgentOptionsConfig defining the agent persona, instructions, and system prompt")
-	backend       : Annotated[BackendConfig                     , FieldRole.INPUT      ] = Field(default=None, description="BackendConfig specifying which AI engine to use (e.g. 'agno')")
+	backend       : Annotated[BackendConfig                     , FieldRole.INPUT      ] = Field(default=None, description="BackendConfig specifying which agent backend to use")
 	model         : Annotated[ModelConfig                       , FieldRole.INPUT      ] = Field(default=None, description="ModelConfig specifying the language model provider and name")
 	content_db    : Annotated[Optional[ContentDBConfig]         , FieldRole.INPUT      ] = Field(default=None, description="Optional ContentDBConfig for direct database access (bypasses the knowledge manager)")
 	history_mgr   : Annotated[Optional[HistoryManagerConfig]    , FieldRole.INPUT      ] = Field(default=None, description="Optional HistoryManagerConfig for managing chat history")
@@ -673,8 +673,8 @@ class AgentConfig(ConfigType):
 	session_mgr   : Annotated[Optional[SessionManagerConfig]    , FieldRole.INPUT      ] = Field(default=None, description="Optional SessionManagerConfig for per-conversation history management")
 	knowledge_mgr : Annotated[Optional[KnowledgeManagerConfig]  , FieldRole.INPUT      ] = Field(default=None, description="Optional KnowledgeManagerConfig enabling RAG retrieval from a document store")
 	tools         : Annotated[Optional[Dict[str, ToolConfig]]   , FieldRole.MULTI_INPUT] = Field(default=None, description="Dict of ToolConfig nodes; each key becomes a callable tool name available to the agent")
-	toolkits      : Annotated[Optional[Dict[str, ToolkitConfig]], FieldRole.MULTI_INPUT] = Field(default=None, description="Dict of ToolkitConfig nodes; each toolkit's module docstring is added to the agent prompt and its functions become tools")
-	skills        : Annotated[Optional[Dict[str, SkillConfig]] , FieldRole.MULTI_INPUT] = Field(default=None, description="Dict of SkillConfig nodes; each skill's SKILL.md body is added to the agent instructions")
+	toolkits      : Annotated[Optional[Dict[str, ToolkitConfig]], FieldRole.MULTI_INPUT] = Field(default=None, description="Dict of ToolkitConfig nodes; each toolkit exposes callable methods and backend-specific guidance to the agent")
+	skills        : Annotated[Optional[Dict[str, SkillConfig]] , FieldRole.MULTI_INPUT] = Field(default=None, description="Dict of SkillConfig nodes attached to the agent. Backends may expose them as native skills or equivalent instruction packs.")
 
 	@property
 	def config(self) -> Annotated[AgentConfig, FieldRole.OUTPUT]:

@@ -1110,7 +1110,7 @@ class SchemaGraphApp {
 					<details class="sg-generate-section">
 						<summary>Backend</summary>
 						<div class="sg-generate-fields">
-							<label>Engine <input id="sg-genBackendEngine" type="text" value="agno"></label>
+							<label>Name <input id="sg-genBackendEngine" type="text" value="agno"></label>
 						</div>
 					</details>
 					<details class="sg-generate-section" open>

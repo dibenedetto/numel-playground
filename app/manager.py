@@ -13,10 +13,10 @@ from   typing    import Any, Callable, Dict, List, Optional
 from   event_bus import EventType, EventBus
 from   schema    import Workflow, WorkflowOptions
 from   utils     import serialize_result
+from   backend_factory import build_backend
 
 
 from   nodes     import ImplementedBackend
-from   impl_agno import build_backend_agno
 
 
 class WorkflowManager:
@@ -228,7 +228,7 @@ class WorkflowManager:
 
 
 	def _build_backend(self, workflow: Workflow) -> ImplementedBackend:
-		return build_backend_agno(workflow, skill_mgr=getattr(self, '_skill_mgr', None))
+		return build_backend(workflow, skill_mgr=getattr(self, '_skill_mgr', None))
 
 
 	async def save(self, name: str, filepath: Optional[str] = None) -> bool:

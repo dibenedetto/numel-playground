@@ -1,7 +1,7 @@
 {
 	"id": "skill_agent_demo",
 	"title": "Skill-Enhanced Agent",
-	"description": "Demonstrates wiring a Skill node to an Agent. The web-search skill is injected into the agent's system prompt, teaching it how to search the web via DuckDuckGo API using http_toolkit.",
+	"description": "Demonstrates wiring a Skill node to an Agent. The web-search skill is attached directly as a native skill, teaching the agent how to search the web via DuckDuckGo API using http_toolkit.",
 	"category": "examples",
 	"tags": ["example", "skill", "agent", "search"],
 	"workflow": {

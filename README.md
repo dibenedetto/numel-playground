@@ -6,8 +6,6 @@
 
 > ComfyUI generates images. Numel generates the *best* result — automatically.
 
-[^1]: Currently [Agno](https://www.agno.com) is the supported agent framework.
-
 ![Numel Playground - Teaser 1](docs/teaser-1.jpg)
 ![Numel Playground - Teaser 2](docs/teaser-2.jpg)
 
@@ -39,7 +37,7 @@
 |                 |                              |                   |
 | Canvas Editor   |   POST /schema               | FastAPI Server    |
 | Node Palette    | <-- Python source ---------- | Pydantic Schema   |
-| Event Log       |                              | Agno Framework    |
+| Event Log       |                              | Agent Backend     |
 | Console Agent   |   WS /events                 | Workflow Engine   |
 | Media Overlay   | <-- real-time events ------- | Eval + Planner    |
 +-----------------+                              +-------------------+
@@ -295,7 +293,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 ### Agent Configuration
 | Node | Description |
 |------|-------------|
-| **Backend** | Framework selection (Agno). |
+| **Backend** | Agent backend selection. |
 | **Model** | LLM provider + model name. |
 | **Agent Options** | Name, instructions, system prompt. |
 | **Agent Config** | Master node wiring all config together. |
@@ -448,7 +446,7 @@ Skills can also bundle **scripts** (`.py`, `.sh`, `.js`, `.ts`) and **dependenci
 | **Creation** | Write Python code | Write markdown |
 | **Best for** | Structured, repeatable operations | Multi-step procedures, external CLIs, complex API workflows |
 
-Skills are loaded at startup but **disabled by default**. Toggle them on in the **assistant console settings** (pill buttons below Toolkits) or via `/skills/enable` API. Hovering a skill pill shows its description and a sample prompt. Only enabled skills are injected into the agent's system prompt. State persists in `app/skills/_state.json`.
+Skills are loaded at startup but **disabled by default**. Toggle them on in the **assistant console settings** (pill buttons below Toolkits) or via `/skills/enable` API. Hovering a skill pill shows its description and a sample prompt. Only enabled skills are attached to agents through the active backend's skill support. State persists in `app/skills/_state.json`.
 
 The **Extensions** panel provides GUI management for shared skills:
 - **View** full skill contents
@@ -456,7 +454,7 @@ The **Extensions** panel provides GUI management for shared skills:
 - **Run setup** for installable dependencies
 - **Remove** a skill from the shared skill catalog
 
-**Graph editor integration**: Skills are first-class schema nodes (`skill_config`). In the workflow graph editor, add a **Skill** node, set its `name` to a skill ID (dropdown lists all installed skills), and wire `skill_config.config` → `agent_config` with `target_slot="skills.<key>"`. The skill's instruction body is merged into the agent's system prompt at build time.
+**Graph editor integration**: Skills are first-class schema nodes (`skill_config`). In the workflow graph editor, add a **Skill** node, set its `name` to a skill ID (dropdown lists all installed skills), and wire `skill_config.config` → `agent_config` with `target_slot="skills.<key>"`. At build time, the active backend attaches the skill as a native capability or equivalent guidance layer.
 
 #### Tutorial: Creating Your First Skill
 
@@ -513,7 +511,7 @@ To add a skill to a workflow agent in the graph editor:
 2. Set `name` = `"web-search"` (or any installed skill)
 3. Add an **Agent** node with model, backend, and options wired
 4. Draw an edge from `Skill.config` → `Agent` with target slot `skills.search`
-5. Run the workflow — the agent's system prompt now includes the web-search instructions
+5. Run the workflow — the agent now has the web-search skill attached and can use it during the run
 
 ---
 
@@ -1108,7 +1106,5 @@ All endpoints use **POST** method unless otherwise noted.
 ## License
 
 See [LICENSE](LICENSE) for details.
-
-
 
 

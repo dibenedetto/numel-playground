@@ -18,7 +18,7 @@ from toolkits.http_helpers import ToolkitHttpSession
 
 _NODE_CATALOGUE = """
 CONFIG NODES
-  backend_config          – AI backend (agno). Fields: name, version, fallback
+  backend_config          – Agent backend. Fields: name, version, fallback
   model_config            – LLM model.    Fields: source (ollama/openai/anthropic/…), name
   agent_options_config    – Agent persona. Fields: name, instructions[], markdown, show_tool_calls
   agent_config            – Wires backend+model+options → agent

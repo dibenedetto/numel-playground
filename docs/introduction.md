@@ -1,8 +1,6 @@
 # Numel Playground
 
-Numel Playground is a visual workflow editor for building and running agentic AI workflows. It combines an interactive node graph canvas with a framework-agnostic[^1] Python backend, enabling you to design, test, and execute complex data pipelines and AI agent configurations without writing boilerplate code.
-
-[^1]: Currently [Agno](https://www.agno.com) is supported.
+Numel Playground is a visual workflow editor for building and running agentic AI workflows. It combines an interactive node graph canvas with an extensible Python backend, enabling you to design, test, and execute complex data pipelines and AI agent configurations without writing boilerplate code.
 
 ![Numel Playground - Teaser 1](teaser-1.jpg)
 ![Numel Playground - Teaser 2](teaser-2.jpg)
@@ -16,7 +14,7 @@ Numel Playground is a visual workflow editor for building and running agentic AI
 |                 |                              |                   |
 | Canvas Editor   |   POST /schema               | FastAPI Server    |
 | Node Palette    | <-- Python source ---------- | Pydantic Schema   |
-| Event Log       |                              | Agno Framework    |
+| Event Log       |                              | Agent Backend     |
 | Chat Panel      |   WS /events                 | Workflow Engine   |
 +-----------------+ <-- real-time events -------- +-------------------+
 ```
@@ -138,7 +136,7 @@ These nodes wire together to define an AI agent:
 
 | Node | Purpose |
 |------|---------|
-| **Backend** | Framework selection (default: Agno) |
+| **Backend** | Agent backend selection |
 | **Model** | LLM provider and model name (Ollama, OpenAI, Anthropic, Groq, Google) |
 | **Embedding** | Embedding model for RAG |
 | **Content DB** | Raw content storage (SQLite) |

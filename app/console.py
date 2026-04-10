@@ -3,13 +3,12 @@
 
 import asyncio
 import httpx
+import importlib
 import json
 import os
 import time
 import uuid
 
-from   importlib                       import import_module
-from   inspect                         import getmembers, ismethod
 from   fastapi                         import FastAPI, Request, WebSocket, WebSocketDisconnect
 from   pydantic                        import BaseModel
 from   typing                          import Any, Dict, List, Optional, Set
@@ -39,14 +38,12 @@ def _logger_warning_filtered(msg, *args, **kwargs):
 _agno_log.logger.warning = _logger_warning_filtered
 
 from   event_bus                       import EventBus
+from   backend_factory                 import build_backend_skills, build_backend_toolkit
 from   memory                          import MemoryStore
-from   prompt_stack                    import (
-	ACTIVE_SKILLS_SECTION_INTRO,
-	ACTIVE_SKILLS_SECTION_TITLE,
-	PLANNER_MODE_DIRECTIVE,
-	extend_instruction_block,
-)
+from   prompt_stack                    import PLANNER_MODE_DIRECTIVE, extend_instruction_block
 from   runtime_settings                import get_runtime_settings
+from   schema                          import DEFAULT_BACKEND_NAME
+from   toolkit_runtime                 import build_toolkit_record_from_instance, load_numel_toolkit
 from   toolkits.console_toolkit        import ConsoleToolkit
 from   utils                           import add_middleware, log_print
 
@@ -97,70 +94,31 @@ def _describe_attachments(message: str, attachments: list) -> str:
 	return message
 
 
-def _load_toolkit(module_name: str, args: Optional[Dict[str, Any]] = None):
-	"""Dynamically load a toolkit by module name.
-	Returns list of public methods (tools), or empty list on failure.
-	Uses the same resolution logic as impl_agno._build_toolkit."""
-	module_name = module_name.replace("/", ".").replace("\\", ".")
-	candidates = [module_name]
-	if "." not in module_name:
-		candidates.append(f"toolkits.{module_name}")
-		candidates.append(f"contrib.toolkits.{module_name}")
-	elif module_name.startswith("toolkits.") and not module_name.startswith("contrib."):
-		candidates.append(f"contrib.{module_name}")
-
-	md = None
-	for candidate in candidates:
-		try:
-			md = import_module(candidate)
-			break
-		except (ImportError, ModuleNotFoundError):
-			continue
-
-	if md is None:
-		log_print(f"⚠️  Console toolkit not found: {module_name} (tried: {', '.join(candidates)})")
-		return []
-
-	# Find toolkit class (__toolkit__ = True)
-	toolkit_cls = None
-	for attr_name in dir(md):
-		attr = getattr(md, attr_name)
-		if isinstance(attr, type) and getattr(attr, '__toolkit__', False):
-			toolkit_cls = attr
-			break
-
-	# Fallback: first class with docstring
-	if toolkit_cls is None:
-		for attr_name in dir(md):
-			attr = getattr(md, attr_name)
-			if isinstance(attr, type) and attr.__module__ == md.__name__ and attr.__doc__:
-				toolkit_cls = attr
-				break
-
-	if toolkit_cls is None:
-		log_print(f"⚠️  No toolkit class found in module: {module_name}")
-		return []
-
-	try:
-		import credentials as _creds
-		resolved_args = _creds.resolve_dict(args or {})
-		instance = toolkit_cls(**resolved_args)
-	except Exception as e:
-		log_print(f"⚠️  Toolkit instantiation failed: {toolkit_cls.__name__} ({e})")
-		return []
-
-	tools = []
-	for name, method in getmembers(instance, predicate=ismethod):
-		if not name.startswith('_'):
-			tools.append(method)
-	log_print(f"  Console toolkit loaded: {module_name} ({len(tools)} tools)")
-	return tools
+def _wrap_numel_toolkit_for_backend(instance, *, name: Optional[str] = None, module_name: Optional[str] = None):
+	record = build_toolkit_record_from_instance(instance, name=name, module_name=module_name)
+	return build_backend_toolkit(record, backend_name=DEFAULT_BACKEND_NAME)
 
 
-def _extract_tools(instance) -> list:
-	"""Extract public methods from an already-instantiated toolkit."""
-	return [getattr(instance, n) for n in dir(instance)
-			if not n.startswith('_') and callable(getattr(instance, n))]
+def _load_native_toolkit(module_name: str, args: Optional[Dict[str, Any]] = None, *,
+						 log_prefix: str = "Console toolkit"):
+	record = load_numel_toolkit(module_name, args or None, log_prefix=log_prefix)
+	if record is None:
+		return None
+	return build_backend_toolkit(record, backend_name=DEFAULT_BACKEND_NAME)
+
+
+def _resolve_native_skill_bundle(skill_mgr, skill_names: Optional[List[str]] = None,
+								 backend_name: str = DEFAULT_BACKEND_NAME):
+	"""Resolve selected or enabled skills into the active backend's native skill bundle."""
+	if not skill_mgr:
+		return None
+	if skill_names:
+		skill_definitions = skill_mgr.get_definitions_for(skill_names)
+	else:
+		skill_definitions = skill_mgr.get_active_definitions()
+	if not skill_definitions:
+		return None
+	return build_backend_skills(skill_definitions, backend_name=backend_name)
 
 
 # ── Planner State (per-user) ────────────────────────────────────
@@ -424,11 +382,23 @@ class ConsoleAgentManager:
 					user_id=user_id,
 					local_app=self._fastapi_app,
 				)
-				tools.extend(_extract_tools(toolkit))
+				native_toolkit = _wrap_numel_toolkit_for_backend(
+					toolkit,
+					name="console_toolkit",
+					module_name="toolkits.console_toolkit",
+				)
+				if native_toolkit is not None:
+					tools.append(native_toolkit)
 			elif tk_name == "channel_toolkit":
 				from toolkits.channel_toolkit import ChannelToolkit
 				toolkit = ChannelToolkit(channel_registry=getattr(self, '_channel_reg', None))
-				tools.extend(_extract_tools(toolkit))
+				native_toolkit = _wrap_numel_toolkit_for_backend(
+					toolkit,
+					name="channel_toolkit",
+					module_name="toolkits.channel_toolkit",
+				)
+				if native_toolkit is not None:
+					tools.append(native_toolkit)
 			else:
 				tk_args = dict(_toolkit_args.get(tk_name) or {})
 				if tk_name == "workspace_toolkit":
@@ -438,9 +408,11 @@ class ConsoleAgentManager:
 					tk_args.setdefault("local_app", self._fastapi_app)
 					if getattr(self, '_auth_token', ''):
 						tk_args.setdefault("auth_token", self._auth_token)
-				tools.extend(_load_toolkit(tk_name, tk_args or None))
+				native_toolkit = _load_native_toolkit(tk_name, tk_args or None)
+				if native_toolkit is not None:
+					tools.append(native_toolkit)
 
-		log_print(f"Console agent tools: {[getattr(t, '__name__', str(t)) for t in tools]}")
+		log_print(f"Console agent tools: {[getattr(t, 'name', getattr(t, '__name__', str(t))) for t in tools]}")
 
 		# Memory: backend (SqliteDb) or manual MemoryStore
 		mem_cfg = config.get("memory", {})
@@ -486,20 +458,13 @@ class ConsoleAgentManager:
 		opts = config.get("options", {})
 		instructions = list(opts.get("instructions", []))
 
-		# Inject skill instructions (explicit names from frontend, or all enabled as fallback)
-		if self._skill_mgr:
-			if skill_names:
-				skill_instructions = self._skill_mgr.get_instructions_for(skill_names)
-			else:
-				skill_instructions = self._skill_mgr.get_active_instructions()
-			if skill_instructions:
-				instructions = extend_instruction_block(
-					instructions,
-					ACTIVE_SKILLS_SECTION_TITLE,
-					skill_instructions,
-					ACTIVE_SKILLS_SECTION_INTRO,
-				)
-				log_print(f"Console agent: injected {len(skill_instructions)} skill(s)")
+		native_skills = _resolve_native_skill_bundle(
+			self._skill_mgr,
+			skill_names=skill_names,
+			backend_name=DEFAULT_BACKEND_NAME,
+		)
+		if native_skills is not None:
+			log_print(f"Console agent: attached {len(native_skills.skills)} native skill(s)")
 
 		self._agent = Agent(
 			name                    = opts.get("name", "Numel Assistant"),
@@ -508,6 +473,7 @@ class ConsoleAgentManager:
 			instructions            = instructions,
 			markdown                = opts.get("markdown", True),
 			tools                   = tools,
+			skills                  = native_skills,
 
 			db                      = db,
 			enable_agentic_memory   = enable_agentic_memory,
@@ -1232,11 +1198,23 @@ class ChannelAgentPool:
 					user_id=user_id,
 					local_app=self._fastapi_app,
 				)
-				tools.extend(_extract_tools(toolkit))
+				native_toolkit = _wrap_numel_toolkit_for_backend(
+					toolkit,
+					name="console_toolkit",
+					module_name="toolkits.console_toolkit",
+				)
+				if native_toolkit is not None:
+					tools.append(native_toolkit)
 			elif tk_name == "channel_toolkit" and self._channel_reg:
 				from toolkits.channel_toolkit import ChannelToolkit
 				toolkit = ChannelToolkit(channel_registry=self._channel_reg)
-				tools.extend(_extract_tools(toolkit))
+				native_toolkit = _wrap_numel_toolkit_for_backend(
+					toolkit,
+					name="channel_toolkit",
+					module_name="toolkits.channel_toolkit",
+				)
+				if native_toolkit is not None:
+					tools.append(native_toolkit)
 			elif tk_name not in _INJECTED:
 				tk_args = {}
 				if tk_name == "workspace_toolkit" and auth_token:
@@ -1246,7 +1224,9 @@ class ChannelAgentPool:
 					tk_args.setdefault("internal_token", self._internal_token)
 					tk_args.setdefault("user_id", user_id)
 					tk_args.setdefault("local_app", self._fastapi_app)
-				tools.extend(_load_toolkit(tk_name, tk_args or None))
+				native_toolkit = _load_native_toolkit(tk_name, tk_args or None, log_prefix="Channel toolkit")
+				if native_toolkit is not None:
+					tools.append(native_toolkit)
 
 		# Memory — per-user isolation via UserMemoryDB
 		mem_cfg     = config.get("memory", {})
@@ -1267,16 +1247,10 @@ class ChannelAgentPool:
 		if sender_name:
 			instructions.insert(0, f"You are chatting with {sender_name}.")
 
-		# Inject skill instructions (all enabled — channels don't send explicit skill_names)
-		if self._skill_mgr:
-			skill_instructions = self._skill_mgr.get_active_instructions()
-			if skill_instructions:
-				instructions = extend_instruction_block(
-					instructions,
-					ACTIVE_SKILLS_SECTION_TITLE,
-					skill_instructions,
-					ACTIVE_SKILLS_SECTION_INTRO,
-				)
+		native_skills = _resolve_native_skill_bundle(
+			self._skill_mgr,
+			backend_name=DEFAULT_BACKEND_NAME,
+		)
 
 		# Inject extra instructions (e.g. planner directive)
 		if extra_instructions:
@@ -1289,6 +1263,7 @@ class ChannelAgentPool:
 			instructions            = instructions,
 			markdown                = opts.get("markdown", True),
 			tools                   = tools,
+			skills                  = native_skills,
 			db                      = db,
 			enable_agentic_memory   = bool(db),
 			add_memories_to_context = bool(db),

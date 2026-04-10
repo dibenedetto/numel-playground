@@ -38,7 +38,7 @@ Five config nodes feed into the Agent Config:
 
 | Node | Type | Purpose |
 |------|------|---------|
-| Backend (Agno) | `backend_config` | Selects the agent framework |
+| Backend | `backend_config` | Selects the agent backend |
 | Model (Ollama/Mistral) | `model_config` | Selects the LLM provider and model |
 | Tool: List Dir | `tool_config` | Registers `app.tools.list_directory` |
 | Tool: Read File | `tool_config` | Registers `app.tools.read_file` |

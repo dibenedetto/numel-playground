@@ -183,7 +183,7 @@ Available operations:
 				except Exception:
 					lines.append(f"  [Toolkit] {mod_name} (failed to load)")
 
-		lines.append("\n  Built-in tools (agno):")
+		lines.append("\n  Built-in agent tools:")
 		lines.append("    tools.duckduckgo - Web search")
 		lines.append("    tools.reasoning - Reasoning/chain-of-thought")
 		return "\n".join(lines)

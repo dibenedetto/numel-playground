@@ -15,7 +15,7 @@ The model should see prompt layers in this order:
 In practice, that means:
 
 - the workflow-generation contract and node catalog come before planner instructions
-- skills and toolkit descriptions come after the base role, as reusable capability/context layers
+- skills and connected toolkits come after the base role, as reusable capability/context layers
 - the final user request comes last, after the model already knows what role it is playing and what it is allowed to build
 
 ## Console Assistant Stack
@@ -87,21 +87,21 @@ Files involved:
 Workflow agents created from graph nodes use this stack:
 
 1. `agent_options_config.instructions`
-2. Connected toolkit descriptions
-3. Connected skill packs
+2. Connected toolkits
+3. Connected native skills when the backend supports them
 4. Optional `prompt_override` as the system message
 
 Files involved:
 
-- assembly: [impl_agno.py](/c:/devel/numel-playground/app/impl_agno.py)
+- assembly: [backend_factory.py](/c:/devel/numel-playground/app/backend_factory.py) plus the active backend implementation module
 - skill source: [skills.py](/c:/devel/numel-playground/app/skills.py)
 
 Intended meaning:
 
 - `instructions`: role and task guidance for that specific workflow agent
-- toolkit descriptions: callable capability layer
-- skill packs: reusable know-how layer
-- `prompt_override`: hard system-level override when the workflow author explicitly wants one
+- connected toolkits: callable capability layer, including toolkit-specific guidance exposed by the active backend
+- native skills: reusable know-how layer with backend-native access tools and metadata
+- `prompt_override`: hard system-level override when the workflow author explicitly wants one; native skill metadata may still be appended so connected skills remain usable
 
 ## What Belongs Where
 

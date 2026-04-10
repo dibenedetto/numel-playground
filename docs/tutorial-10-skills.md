@@ -1,6 +1,6 @@
 # Tutorial 10: Skills
 
-Wire a **Skill Config** node to an Agent to inject natural language instructions into its system prompt. Unlike toolkits (Python code), skills are markdown instruction packages that teach the agent *how* to use existing tools for specific tasks.
+Wire a **Skill Config** node to an Agent to attach reusable skill guidance. Unlike toolkits (Python code), skills are markdown instruction packages that teach the agent *how* to use existing tools for specific tasks.
 
 ## What You Will Learn
 
@@ -30,14 +30,14 @@ Start ──────────────────┘
 
 Two layers:
 
-1. **Config layer** (top): Backend, Model, Options, Skill, and Toolkit all feed into Agent Config. The Skill injects web-search instructions into the agent's system prompt. The Toolkit gives the agent the HTTP `get` tool.
+1. **Config layer** (top): Backend, Model, Options, Skill, and Toolkit all feed into Agent Config. The Skill attaches reusable web-search guidance to the agent. The Toolkit gives the agent the HTTP `get` tool.
 2. **Flow layer** (bottom): Start triggers User Input, which prompts "What would you like to research?". The user's answer flows as `request` to Agent Flow, which runs the agent. The agent follows the skill instructions to search DuckDuckGo using the HTTP toolkit's `get` tool. The response is previewed.
 
 ## Node Breakdown
 
 | # | Node | Type | Purpose |
 |---|------|------|---------|
-| 0 | Backend (Agno) | `backend_config` | Agent framework |
+| 0 | Backend | `backend_config` | Agent backend |
 | 1 | Model (Ollama/Mistral) | `model_config` | LLM provider |
 | 2 | Agent Options | `agent_options_config` | Base instructions |
 | 3 | Skill: Web Search | `skill_config` | Injects web search instructions |
@@ -58,7 +58,7 @@ Skills and toolkits serve complementary roles:
 | | Toolkits | Skills |
 |---|---|---|
 | **What they are** | Python classes with callable methods | Markdown instruction packages |
-| **What they provide** | Tools the agent can call (`get`, `read_file`, etc.) | Instructions added to the system prompt |
+| **What they provide** | Tools the agent can call (`get`, `read_file`, etc.) plus toolkit-specific guidance through the active backend | Reusable guidance attached as a native skill or equivalent capability layer |
 | **Who executes** | The backend runs the tool function | The LLM follows the instructions |
 | **Schema node** | `toolkit_config` | `skill_config` |
 | **Wires to** | `agent_config.toolkits.<key>` | `agent_config.skills.<key>` |
@@ -98,7 +98,7 @@ skill_config("git-assistant") → agent_config.skills.git
 skill_config("api-tester")    → agent_config.skills.api
 ```
 
-All skill instructions are merged into the agent's instruction stack under an `## Active Skill Packs` section.
+On backends with native skill support, connected skills are attached directly as native skills for both workflow agents and the assistant console.
 
 ## Steps
 

@@ -8,9 +8,8 @@ import tempfile
 from   importlib                       import import_module
 from   inspect                         import iscoroutinefunction, getmembers, ismethod
 from   fastapi                         import FastAPI
+from   toolkit_runtime                 import load_numel_toolkit
 from   prompt_stack                    import (
-	ACTIVE_SKILLS_SECTION_INTRO,
-	ACTIVE_SKILLS_SECTION_TITLE,
 	CONNECTED_TOOLKITS_SECTION_INTRO,
 	CONNECTED_TOOLKITS_SECTION_TITLE,
 	extend_instruction_block,
@@ -79,6 +78,64 @@ def _patch_agno_tool_call_id():
 _patch_agno_tool_call_id()
 
 
+def build_native_skills_agno(skill_definitions: List[Dict[str, Any]]):
+	"""Convert backend-neutral skill records into native Agno Skills."""
+	from agno.skills import Skills as AgnoSkills
+	from agno.skills.loaders.base import SkillLoader as AgnoSkillLoader
+	from agno.skills.skill import Skill as AgnoSkill
+
+	class _StaticSkillLoader(AgnoSkillLoader):
+		def __init__(self, skills: List[Any]):
+			self._skills = list(skills)
+
+		def load(self):
+			return list(self._skills)
+
+	selected = []
+	for definition in skill_definitions:
+		metadata = {
+			"version": definition.get("version"),
+			"author": definition.get("author"),
+			"tags": definition.get("tags"),
+			"requires": definition.get("requires"),
+			"examples": definition.get("examples"),
+			"install": definition.get("install"),
+			"setup_done": definition.get("setup_done"),
+		}
+		metadata = {k: v for k, v in metadata.items() if v not in ("", [], {}, None, False)}
+		selected.append(AgnoSkill(
+			name=definition.get("name", ""),
+			description=definition.get("description", ""),
+			instructions=definition.get("body", ""),
+			source_path=definition.get("path", ""),
+			scripts=list(definition.get("scripts") or []),
+			references=list(definition.get("references") or []),
+			metadata=metadata or None,
+		))
+
+	if not selected:
+		return None
+	return AgnoSkills(loaders=[_StaticSkillLoader(selected)])
+
+
+def build_native_toolkit_agno(toolkit_record: Dict[str, Any]):
+	"""Wrap a Numel toolkit record as a native Agno Toolkit."""
+	from agno.tools import Toolkit as AgnoToolkit
+
+	tools = list(toolkit_record.get("tools") or [])
+	if not tools:
+		return None
+
+	name = str(toolkit_record.get("name", "") or toolkit_record.get("module_name", "") or "toolkit")
+	description = str(toolkit_record.get("description", "") or "").strip() or None
+	return AgnoToolkit(
+		name=name,
+		tools=tools,
+		instructions=description,
+		add_instructions=bool(description),
+	)
+
+
 def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend:
 
 	def _get_search_type(value: str) -> SearchType:
@@ -89,7 +146,6 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 		if value == "vector":
 			return SearchType.vector
 		raise ValueError(f"Invalid Agno db search type: {value}")
-
 
 	# not needed for now since we don't have any global backend config, but keep the function for future use
 	# def _build_backend(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
@@ -291,68 +347,12 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 		assert item_config is not None and item_config.type == "toolkit_config", "Invalid Agno toolkit"
 		if not item_config.name:
 			raise ValueError("Agno toolkit needs name")
-		import credentials as _creds
-		args = _creds.resolve_dict(item_config.args or {})
-		module_name = item_config.name.replace("/", ".").replace("\\", ".")
-		# Try the exact name first, then fallback paths for convenience:
-		#   "mesh_toolkit"          → try "toolkits.mesh_toolkit", "contrib.toolkits.mesh_toolkit"
-		#   "toolkits.mesh_toolkit" → try "contrib.toolkits.mesh_toolkit"
-		candidates = [module_name]
-		if "." not in module_name:
-			candidates.append(f"toolkits.{module_name}")
-			candidates.append(f"contrib.toolkits.{module_name}")
-		elif module_name.startswith("toolkits.") and not module_name.startswith("contrib."):
-			candidates.append(f"contrib.{module_name}")
-		md = None
-		for candidate in candidates:
-			try:
-				md = import_module(candidate)
-				if candidate != module_name:
-					log_print(f"ℹ️  Resolved toolkit '{module_name}' → '{candidate}'")
-				break
-			except (ImportError, ModuleNotFoundError):
-				continue
-		if md is None:
-			log_print(f"⚠️  Agno toolkit module not found: {module_name} (tried: {', '.join(candidates)})")
+		record = load_numel_toolkit(item_config.name, item_config.args or {}, log_prefix="Toolkit")
+		if record is None:
 			impl[index] = None
 			return
-		# Find the toolkit class: look for a class with __toolkit__ = True, or the first class with __doc__
-		toolkit_cls = None
-		for attr_name in dir(md):
-			attr = getattr(md, attr_name)
-			if isinstance(attr, type) and getattr(attr, '__toolkit__', False):
-				toolkit_cls = attr
-				break
-		if toolkit_cls is None:
-			for attr_name in dir(md):
-				attr = getattr(md, attr_name)
-				if isinstance(attr, type) and attr.__module__ == md.__name__ and attr.__doc__:
-					toolkit_cls = attr
-					break
-		if toolkit_cls is None:
-			log_print(f"⚠️  Agno toolkit class not found in module: {item_config.name}")
-			impl[index] = None
-			return
-		# Instantiate
-		try:
-			instance = toolkit_cls(**args)
-		except Exception as e:
-			log_print(f"⚠️  Agno toolkit instantiation failed: {toolkit_cls.__name__} ({e})")
-			impl[index] = None
-			return
-		# Extract description from class docstring
-		description = toolkit_cls.__doc__ or ""
-		# Extract public methods as tools
-		tools = []
-		for name, method in getmembers(instance, predicate=ismethod):
-			if name.startswith('_'):
-				continue
-			tools.append(method)
-		impl[index] = {
-			"instance"    : instance,
-			"description" : description.strip(),
-			"tools"       : tools,
-		}
+		record["native_toolkit"] = build_native_toolkit_agno(record)
+		impl[index] = record
 
 
 	def _build_skill(workflow: Workflow, links: List[Any], impl: List[Any], index: int):
@@ -391,13 +391,21 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 		if isinstance(tools_links, dict) and tools_links:
 			tools = [impl[src] for src in tools_links.values() if impl[src] is not None]
 
-		# Toolkits: extract descriptions for prompt and merge functions into tools
+		# Toolkits: keep the shared toolkit instance for tool_flow and prefer a native
+		# backend toolkit wrapper for agent execution. If no native wrapper is available,
+		# fall back to the previous behavior of merging toolkit descriptions + methods.
 		toolkit_descriptions = []
 		toolkits_links = node_links.get("toolkits")
 		if isinstance(toolkits_links, dict) and toolkits_links:
 			for src in toolkits_links.values():
 				tk = impl[src]
 				if tk is None:
+					continue
+				native_toolkit = tk.get("native_toolkit")
+				if native_toolkit is not None:
+					if tools is None:
+						tools = []
+					tools.append(native_toolkit)
 					continue
 				if tk["description"]:
 					toolkit_descriptions.append(tk["description"])
@@ -456,7 +464,8 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 				CONNECTED_TOOLKITS_SECTION_INTRO,
 			)
 
-		# Skills: resolve names to instruction text via SkillManager
+		# Skills: attach selected skills as native Agno Skills when available
+		agno_skills = None
 		skills_links = node_links.get("skills")
 		if isinstance(skills_links, dict) and skills_links and skill_mgr:
 			skill_names = []
@@ -465,14 +474,14 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 				if skill_cfg and hasattr(skill_cfg, 'name') and skill_cfg.name:
 					skill_names.append(skill_cfg.name)
 			if skill_names:
-				skill_instructions = skill_mgr.get_instructions_for(skill_names)
-				if skill_instructions:
-					agent_instructions = extend_instruction_block(
-						agent_instructions,
-						ACTIVE_SKILLS_SECTION_TITLE,
-						skill_instructions,
-						ACTIVE_SKILLS_SECTION_INTRO,
-					)
+				skill_definitions = skill_mgr.get_definitions_for(skill_names)
+				agno_skills = build_native_skills_agno(skill_definitions)
+
+		system_message = options.prompt_override
+		if system_message and agno_skills:
+			skills_snippet = agno_skills.get_system_prompt_snippet()
+			if skills_snippet:
+				system_message = f"{system_message.rstrip()}\n\n{skills_snippet}"
 
 		if True:
 			item = Agent(
@@ -482,7 +491,8 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 
 				description             = options.description,
 				instructions            = agent_instructions,
-				system_message          = options.prompt_override,
+				system_message          = system_message,
+				skills                  = agno_skills,
 
 				markdown                = options.markdown,
 				db                      = content_db,

@@ -1,12 +1,5 @@
 from typing import Iterable, List, Optional
 
-
-ACTIVE_SKILLS_SECTION_TITLE = "Active Skill Packs"
-ACTIVE_SKILLS_SECTION_INTRO = (
-    "These are reusable instruction packs connected to the current agent. "
-    "Follow them when they are relevant to the current task."
-)
-
 CONNECTED_TOOLKITS_SECTION_TITLE = "Connected Toolkits"
 CONNECTED_TOOLKITS_SECTION_INTRO = (
     "These toolkit descriptions explain external capabilities available to the current agent."

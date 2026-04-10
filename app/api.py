@@ -19,9 +19,10 @@ from   typing    import Any, Dict, List, Optional
 
 
 from   event_bus import EventType, EventBus
+from   backend_factory import build_backend
 from   platform_client import PlatformRequestError
 from   runtime_settings import get_runtime_settings
-from   schema    import Workflow, WorkflowExecutionOptions
+from   schema    import DEFAULT_BACKEND_NAME, Workflow, WorkflowExecutionOptions
 from   utils     import get_now_str, get_timestamp_str, log_print, serialize_result
 from   events    import (
 	get_event_registry, init_event_registry, shutdown_event_registry,
@@ -1905,7 +1906,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		else:
 			toolkit_modules = _discover_all_toolkit_modules()
 		for mod_name in toolkit_modules:
-			# Try exact name, then fallback paths (same logic as impl_agno)
+			# Try exact name, then fallback paths used by the workflow backend loader.
 			md = None
 			candidates = [mod_name]
 			if "." not in mod_name:
@@ -2231,15 +2232,15 @@ event_listener_flow.event carries the received event payload.
 ### Toolkits (toolkit_config)
 A toolkit provides multiple related tools with shared state (e.g. a sandboxed filesystem).
 **With agents**: wire toolkit_config.config → agent_config, target_slot="toolkits.<key>".
-The toolkit's description is automatically added to the agent prompt; each public method becomes a tool.
+The active backend exposes the toolkit's public methods as tools and may also surface toolkit-specific guidance from its description.
 **With tool_flow (standalone)**: wire toolkit_config.config → tool_flow.config, and set
 tool_flow.method to the public method name (e.g. "read_file"). Multiple tool_flow nodes
 wired to the same toolkit_config share the toolkit instance and its state.
 
 ### Skills (skill_config)
-A skill provides a reusable instruction pack loaded from SKILL.md files.
+A skill provides a reusable capability package loaded from SKILL.md files.
 Wire skill_config.config → agent_config, target_slot="skills.<key>".
-The skill's instruction body is added to the agent's instruction stack.
+When the active backend supports native skills, the skill is attached natively. Other backends may adapt it through equivalent instruction layers.
 Skills do NOT provide callable tools — use toolkit_config for that.
 Set skill_config.name to a skill ID (e.g. "web-search", "git-assistant").
 
@@ -2333,7 +2334,7 @@ Example (mesh processing with toolkit):
 		"""Build an AI agent subgraph from generation request config.
 
 		Constructs a Workflow graph with BackendConfig → ModelConfig → AgentOptionsConfig → AgentConfig
-		(plus optional MemoryManager, SessionManager, Tools, Knowledge) and builds it via build_backend_agno().
+		(plus optional MemoryManager, SessionManager, Tools, Knowledge) and builds it via the active backend adapter.
 		Results are cached and reused when the config hasn't changed.
 		"""
 		from schema import (
@@ -2342,7 +2343,6 @@ Example (mesh processing with toolkit):
 			KnowledgeManagerConfig, ContentDBConfig, IndexDBConfig,
 			EmbeddingConfig, Edge, Workflow
 		)
-		from impl_agno import build_backend_agno
 
 		# Config hash for cache invalidation
 		config_hash = hash(json.dumps({
@@ -2362,7 +2362,7 @@ Example (mesh processing with toolkit):
 
 		# 0: BackendConfig (always present — field is 'name' in schema, 'engine' in frontend)
 		bcfg = request.backend or {}
-		nodes.append(BackendConfig(name=bcfg.get("engine", "agno")))
+		nodes.append(BackendConfig(name=bcfg.get("engine", DEFAULT_BACKEND_NAME)))
 		backend_idx = 0
 
 		# 1: ModelConfig (always present)
@@ -2506,7 +2506,7 @@ Example (mesh processing with toolkit):
 
 		workflow = Workflow(nodes=nodes, edges=edges)
 		workflow.link()
-		backend  = build_backend_agno(workflow, skill_mgr=skill_mgr)
+		backend  = build_backend(workflow, skill_mgr=skill_mgr)
 
 		cache.update({"config_hash": config_hash, "backend": backend, "agent_index": agent_idx})
 		return backend, agent_idx
