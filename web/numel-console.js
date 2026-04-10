@@ -346,7 +346,10 @@ class AgentConsoleManager {
 	}
 
 	async open() {
-		if (this._open) return;
+		if (this._open) {
+			this._panel?.classList.add('open');
+			return;
+		}
 		if (typeof window.closeNumelSidePanels === 'function') {
 			window.closeNumelSidePanels(['console']);
 		}
@@ -411,6 +414,11 @@ class AgentConsoleManager {
 	}
 
 	close() {
+		if (document.body.classList.contains('nw-layout-assistant-dock')) {
+			this._open = true;
+			this._panel?.classList.add('open');
+			return;
+		}
 		if (!this._open) return;
 		this._open = false;
 		this._panel.classList.remove('open');
@@ -734,7 +742,7 @@ class AgentConsoleManager {
 
 		const connected = this.handler.connect(
 			url,
-			'Numel Assistant',
+			'Assistant',
 			null, // onEvent
 			() => { /* onRunStarted */ },
 			() => { this._onRunFinished(); },

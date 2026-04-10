@@ -44,6 +44,7 @@ const PANEL_COLLAPSED_STORAGE_KEY = 'numel_left_panel_collapsed_v1';
 const SECTION_COLLAPSE_STORAGE_KEY = 'numel_left_panel_section_state_v1';
 const ADVANCED_VISIBLE_STORAGE_KEY = 'numel_show_advanced_v1';
 const GLOBAL_LAYOUT_PRESETS = Object.freeze([
+	'workbench',
 	'project-workbench',
 	'project-workbench-assistant',
 	'project-workbench-canvas',
@@ -53,7 +54,7 @@ const GLOBAL_LAYOUT_PRESETS = Object.freeze([
 // Layouts that dock the Numel Assistant below the canvas. These share the
 // 'project-workbench' base class so all existing workbench styling still
 // applies, and add 'nw-layout-assistant-dock' as a modifier.
-const ASSISTANT_DOCK_LAYOUTS = new Set(['project-workbench-assistant', 'project-workbench-studio']);
+const ASSISTANT_DOCK_LAYOUTS = new Set(['workbench', 'project-workbench-assistant', 'project-workbench-studio']);
 
 function _readJsonStorage(key, fallback = {}) {
 	try {
@@ -312,7 +313,7 @@ function _applyGlobalLayoutPreset(preset) {
 		// Project-workbench variants share the base workbench class so the
 		// current shell remains the common structural foundation, while each
 		// preset can layer a stronger visual direction on top.
-		if (normalized.startsWith('project-workbench')) {
+		if (normalized === 'workbench' || normalized.startsWith('project-workbench')) {
 			body.classList.add('nw-layout-project-workbench');
 		}
 		// Assistant-dock variants also add a modifier class used to trigger
@@ -438,7 +439,7 @@ function _showStarterModal() {
 					</button>
 					<button class="nw-starter-action" data-starter-action="assistant" type="button">
 						<span class="nw-starter-action-title">Ask Assistant</span>
-						<span class="nw-starter-action-copy">Open Numel Assistant with a prompt to draft a first workflow.</span>
+						<span class="nw-starter-action-copy">Open Assistant with a prompt to draft a first workflow.</span>
 					</button>
 				</div>
 			</div>
@@ -604,7 +605,7 @@ function _updateWorkbenchOverview() {
 	if (canvasSaveBtn) canvasSaveBtn.disabled = !isReady;
 	if (canvasAskBtn) {
 		canvasAskBtn.title = isReady
-			? (isEmpty ? 'Ask Numel Assistant to draft a first workflow' : 'Ask Numel Assistant to help edit this workflow')
+			? (isEmpty ? 'Ask Assistant to draft a first workflow' : 'Ask Assistant to help edit this workflow')
 			: 'Connect first to use the assistant';
 	}
 	if (canvasGalleryBtn) {
@@ -665,9 +666,12 @@ function _closeSidePanelDom(id) {
 
 window.closeNumelSidePanels = function(except = []) {
 	const keep = new Set(Array.isArray(except) ? except : [except]);
-	if (!keep.has('console')) {
+	const assistantDocked = document.body.classList.contains('nw-layout-assistant-dock');
+	if (!keep.has('console') && !assistantDocked) {
 		try { consoleManager?.close?.(); } catch {}
 		_closeSidePanelDom('consolePanel');
+	} else if (assistantDocked) {
+		document.getElementById('consolePanel')?.classList.add('open');
 	}
 	if (!keep.has('gallery')) {
 		try { galleryManager?.close?.(); } catch {}

@@ -773,6 +773,7 @@ body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel {
 	border-radius: 0 0 var(--nw-radius-shell, 12px) var(--nw-radius-shell, 12px);
 	background: color-mix(in srgb, var(--sg-bg-secondary) 94%, white 6%);
 	display: grid;
+	pointer-events: auto;
 	grid-template-columns: 1fr 360px;
 	grid-template-rows: 6px auto 1fr auto;
 	grid-template-areas:

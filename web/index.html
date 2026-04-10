@@ -15,7 +15,7 @@
 		<!-- Auth Modal — shown when auth is enabled and user is not logged in -->
 		<div id="authModal" class="nw-auth-modal" style="display:none;">
 			<div class="nw-auth-card">
-				<h1 class="nw-auth-title"><span class="nw-brand">Numel</span> Workbench</h1>
+				<h1 class="nw-auth-title"><span class="nw-brand">Numel</span> Playground</h1>
 				<p class="nw-auth-copy">Build visual agent workflows, run them, and ship them as apps — all from one place.</p>
 				<div class="nw-auth-chips">
 					<span class="nw-auth-chip">Spaces as projects</span>
@@ -44,7 +44,7 @@
 		<!-- Left Panel: Controls -->
 		<div class="nw-panel">
 			<h1 class="nw-title">
-				<span class="nw-brand">Numel</span> Workbench
+				<span class="nw-brand">Numel</span> Playground
 				<span id="wsStatus" class="nw-ws-badge disconnected">●</span>
 			</h1>
 			<div class="nw-title-subtitle">Build, run, and refine agent workflows.</div>
@@ -262,6 +262,7 @@
 				<div class="nw-field">
 					<label for="globalLayoutSelect">Layout</label>
 					<select id="globalLayoutSelect" class="nw-select" aria-label="Global layout preset">
+						<option value="workbench">Workbench</option>
 						<option value="project-workbench">Project Workbench</option>
 						<option value="project-workbench-assistant">Project Workbench + Assistant</option>
 						<option value="project-workbench-canvas">Canvas Focus</option>
@@ -286,7 +287,7 @@
 					<div id="canvasHeroSummary" class="nw-canvas-hero-summary">Choose a space, pick a starter or ask the assistant, and get to a first run quickly.</div>
 				</div>
 				<div class="nw-canvas-hero-actions">
-					<button id="canvasAskAssistantBtn" class="nw-btn nw-btn-secondary" type="button" title="Ask Numel Assistant to help build or edit this workflow">Ask Assistant</button>
+					<button id="canvasAskAssistantBtn" class="nw-btn nw-btn-secondary" type="button" title="Ask Assistant to help build or edit this workflow">Ask Assistant</button>
 					<button id="canvasBrowseGalleryBtn" class="nw-btn nw-btn-secondary" type="button" title="Browse example workflows and starters">Browse Gallery</button>
 				</div>
 				<div id="spaceStarterPanel" class="nw-starter-panel" style="display:none;">
@@ -367,7 +368,7 @@
 				</div>
 			</div>
 			<!-- Console Agent FAB -->
-				<button id="consoleToggleBtn" class="nw-console-fab" title="Numel Assistant" style="display:none">
+				<button id="consoleToggleBtn" class="nw-console-fab" title="Assistant" style="display:none">
 					<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
 					<span id="consoleBadge" class="nw-console-badge" style="display:none"></span>
 				</button>
@@ -439,7 +440,7 @@
 		<div id="consolePanel" class="nw-console-panel">
 			<div class="nw-console-header">
 				<div class="nw-console-title-wrap">
-					<span class="nw-console-title">Numel Assistant</span>
+					<span class="nw-console-title">Assistant</span>
 					<span id="consoleStatus" class="nw-console-status"></span>
 					<span id="consolePlannerIndicator" class="nw-console-planner-indicator" style="display:none">Planner on</span>
 				</div>

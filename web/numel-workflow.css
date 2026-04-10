@@ -45,6 +45,10 @@ body.nw-layout-project-workbench {
 		var(--sg-bg-primary);
 }
 
+body.nw-layout-workbench {
+	background: var(--sg-bg-primary);
+}
+
 /* ========================================================================
    LEFT PANEL
    ======================================================================== */
@@ -102,6 +106,17 @@ body.nw-layout-project-workbench .nw-panel {
 	box-shadow: var(--nw-shadow-soft);
 }
 
+body.nw-layout-workbench .nw-panel {
+	width: 280px;
+	min-width: 260px;
+	max-width: 320px;
+	padding: 14px;
+	gap: 10px;
+	border-radius: var(--nw-radius-shell);
+	background: var(--sg-bg-secondary);
+	box-shadow: var(--nw-shadow-soft);
+}
+
 body.nw-layout-project-workbench .nw-panel.nw-panel-collapsed {
 	width: 48px;
 	min-width: 48px;
@@ -151,8 +166,8 @@ body.nw-layout-project-workbench .nw-panel.nw-panel-collapsed .nw-section.nw-sec
 	border-bottom-color: transparent;
 }
 .nw-panel.nw-panel-collapsed .nw-section:hover {
-	background: color-mix(in srgb, var(--sg-bg-tertiary) 72%, transparent);
-	border-color: var(--nw-border-soft);
+	background: transparent;
+	border-color: transparent;
 }
 .nw-panel.nw-panel-collapsed .nw-section-header {
 	margin: 0;
@@ -161,11 +176,21 @@ body.nw-layout-project-workbench .nw-panel.nw-panel-collapsed .nw-section.nw-sec
 	height: 32px;
 	justify-content: center;
 }
+.nw-panel.nw-panel-collapsed .nw-section-header:hover,
+.nw-panel.nw-panel-collapsed .nw-section-header:focus-visible,
+.nw-panel.nw-panel-collapsed .nw-section:hover .nw-section-header {
+	background: transparent;
+	box-shadow: none;
+}
 .nw-panel.nw-panel-collapsed .nw-section-header > *:not(.nw-section-rail-icon) {
 	display: none !important;
 }
 .nw-panel.nw-panel-collapsed .nw-section-rail-icon {
 	display: flex;
+	transition: color 0.15s ease;
+}
+.nw-panel.nw-panel-collapsed .nw-section:hover .nw-section-rail-icon {
+	color: var(--sg-text-primary);
 }
 .nw-panel.nw-panel-collapsed .nw-section-body,
 .nw-panel.nw-panel-collapsed .nw-advanced-toggle,
@@ -284,6 +309,9 @@ body.nw-layout-project-workbench .nw-title {
 .nw-brand {
 	color: var(--sg-accent-orange);
 	font-weight: 700;
+	font-size: 1.14em;
+	line-height: 1;
+	display: inline-block;
 }
 
 .nw-title-subtitle {
@@ -320,6 +348,29 @@ body.nw-layout-project-workbench .nw-section {
 	background: color-mix(in srgb, var(--sg-bg-tertiary) 92%, white 8%);
 }
 
+body.nw-layout-workbench .nw-section {
+	border-radius: var(--nw-radius-control);
+	padding: 10px 12px;
+	background: color-mix(in srgb, var(--sg-bg-tertiary) 92%, white 8%);
+}
+
+body.nw-layout-project-workbench .nw-panel .nw-section,
+body.nw-layout-project-workbench .nw-panel .nw-section-primary,
+body.nw-layout-project-workbench .nw-panel .nw-section-primary-soft,
+body.nw-layout-project-workbench .nw-panel .nw-section-secondary {
+	background:
+		linear-gradient(180deg,
+			color-mix(in srgb, var(--sg-bg-tertiary) 96%, white 4%),
+			color-mix(in srgb, var(--sg-bg-tertiary) 99%, var(--sg-accent-blue, #46a2da) 1%));
+}
+
+body.nw-layout-workbench .nw-panel .nw-section,
+body.nw-layout-workbench .nw-panel .nw-section-primary,
+body.nw-layout-workbench .nw-panel .nw-section-primary-soft,
+body.nw-layout-workbench .nw-panel .nw-section-secondary {
+	background: color-mix(in srgb, var(--sg-bg-tertiary) 97%, white 3%);
+}
+
 /* Hide section ledes — labels are clear enough */
 .nw-section-lede { display: none; }
 
@@ -341,6 +392,11 @@ body.nw-layout-project-workbench .nw-section-primary {
 			color-mix(in srgb, var(--sg-bg-tertiary) 96%, var(--sg-accent-blue, #46a2da) 4%));
 }
 
+body.nw-layout-workbench .nw-section-primary {
+	padding: 12px;
+	background: color-mix(in srgb, var(--sg-bg-tertiary) 88%, white 12%);
+}
+
 body.nw-layout-project-workbench .nw-section-primary-soft {
 	padding: 10px 12px;
 	background:
@@ -349,11 +405,20 @@ body.nw-layout-project-workbench .nw-section-primary-soft {
 			color-mix(in srgb, var(--sg-bg-tertiary) 97%, var(--sg-accent-orange, #f5a623) 3%));
 }
 
+body.nw-layout-workbench .nw-section-primary-soft {
+	padding: 10px 12px;
+	background: color-mix(in srgb, var(--sg-bg-tertiary) 91%, white 9%);
+}
+
 body.nw-layout-project-workbench .nw-section-secondary {
 	background:
 		linear-gradient(180deg,
 			color-mix(in srgb, var(--sg-bg-tertiary) 96%, white 4%),
 			color-mix(in srgb, var(--sg-bg-tertiary) 99%, var(--sg-accent-blue, #46a2da) 1%));
+}
+
+body.nw-layout-workbench .nw-section-secondary {
+	background: color-mix(in srgb, var(--sg-bg-tertiary) 96%, white 4%);
 }
 
 .nw-section-grow {
@@ -379,14 +444,27 @@ body.nw-layout-project-workbench .nw-section-secondary {
 	margin-left: auto;
 }
 
-.nw-section-header:hover {
-	background: color-mix(in srgb, var(--sg-bg-quaternary) 56%, transparent);
+.nw-panel .nw-section-header:hover {
+	background: transparent;
 }
 
 .nw-section-header:focus-visible {
 	outline: none;
 	background: color-mix(in srgb, var(--sg-bg-quaternary) 62%, transparent);
 	box-shadow: 0 0 0 2px color-mix(in srgb, var(--sg-accent-blue, #46a2da) 16%, transparent);
+}
+
+.nw-panel .nw-section:hover .nw-section-title,
+.nw-panel .nw-section:hover .nw-section-title svg,
+.nw-panel .nw-section-header:hover .nw-section-title,
+.nw-panel .nw-section-header:hover .nw-section-title svg {
+	color: var(--sg-text-primary);
+}
+
+.nw-panel .nw-section:hover .nw-section-collapse-icon::before,
+.nw-panel .nw-section-header:hover .nw-section-collapse-icon::before {
+	border-right-color: var(--sg-text-primary);
+	border-bottom-color: var(--sg-text-primary);
 }
 
 .nw-section-collapse-icon {
@@ -442,6 +520,10 @@ body.nw-layout-project-workbench .nw-section-secondary {
 	background: color-mix(in srgb, var(--sg-bg-tertiary) 60%, transparent);
 }
 
+.nw-panel .nw-section.nw-section-collapsed:hover {
+	background: transparent;
+}
+
 /* Same flat treatment in the workbench layout (its rule has higher specificity) */
 body.nw-layout-project-workbench .nw-section.nw-section-collapsed {
 	background: transparent;
@@ -451,6 +533,11 @@ body.nw-layout-project-workbench .nw-section.nw-section-collapsed {
 }
 body.nw-layout-project-workbench .nw-section.nw-section-collapsed:hover {
 	background: color-mix(in srgb, var(--sg-bg-tertiary) 60%, transparent);
+}
+
+body.nw-layout-project-workbench .nw-panel .nw-section.nw-section-collapsed:hover,
+body.nw-layout-workbench .nw-panel .nw-section.nw-section-collapsed:hover {
+	background: transparent;
 }
 
 .nw-section-body {
@@ -749,6 +836,10 @@ body.nw-layout-project-workbench #executionSection .nw-btn-row .nw-btn {
 			color-mix(in srgb, var(--sg-bg-tertiary) 96%, var(--sg-accent-orange, #f5a623) 4%));
 }
 
+body.nw-layout-workbench .nw-workbench-hero {
+	background: color-mix(in srgb, var(--sg-bg-secondary) 88%, var(--sg-accent-blue, #46a2da) 12%);
+}
+
 .nw-workbench-hero .nw-section-header {
 	display: flex;
 	align-items: center;
@@ -849,6 +940,10 @@ body.nw-layout-project-workbench #executionSection .nw-btn-row .nw-btn {
 			color-mix(in srgb, var(--sg-bg-primary) 56%, var(--sg-accent-orange, #f5a623) 12%),
 			color-mix(in srgb, var(--sg-bg-primary) 74%, var(--sg-accent-blue, #46a2da) 6%));
 	box-shadow: 0 12px 22px color-mix(in srgb, var(--sg-node-shadow, rgba(0,0,0,0.35)) 34%, transparent);
+}
+
+body.nw-layout-workbench .nw-space-pill.is-active {
+	background: color-mix(in srgb, var(--sg-bg-primary) 72%, var(--sg-accent-orange, #f5a623) 8%);
 }
 
 .nw-space-pill-bullet {
@@ -2687,6 +2782,10 @@ body.nw-auth-pending.nw-layout-project-workbench {
 		var(--sg-bg-primary, #1a1a2e);
 }
 
+body.nw-auth-pending.nw-layout-workbench {
+	background: var(--sg-bg-primary, #1a1a2e);
+}
+
 .nw-auth-modal {
 	position: fixed;
 	top: 0; left: 0; right: 0; bottom: 0;
@@ -2702,6 +2801,10 @@ body.nw-layout-project-workbench .nw-auth-modal {
 		radial-gradient(circle at 14% 14%, rgba(245, 166, 35, 0.14), transparent 26%),
 		radial-gradient(circle at 82% 18%, rgba(70, 162, 218, 0.16), transparent 28%),
 		var(--sg-bg-primary, #1a1a1a);
+}
+
+body.nw-layout-workbench .nw-auth-modal {
+	background: var(--sg-bg-primary, #1a1a1a);
 }
 .nw-auth-card {
 	background: var(--sg-bg-secondary, #252525);
@@ -2721,6 +2824,14 @@ body.nw-layout-project-workbench .nw-auth-card {
 		linear-gradient(180deg,
 			color-mix(in srgb, var(--sg-bg-secondary) 90%, white 10%),
 			color-mix(in srgb, var(--sg-bg-secondary) 98%, var(--sg-accent-blue, #46a2da) 2%));
+	box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+}
+
+body.nw-layout-workbench .nw-auth-card {
+	width: 460px;
+	padding: 34px;
+	border-radius: 24px;
+	background: var(--sg-bg-secondary, #252525);
 	box-shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
 }
 .nw-auth-title {

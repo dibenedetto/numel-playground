@@ -196,12 +196,10 @@ const NumelUserPanel = (() => {
 
 		const closeBtn  = document.getElementById('userPanelClose');
 		const openBtn   = document.getElementById('userPanelBtn');
-		const nameEl    = document.getElementById('authUserName');
 		const pwBtn     = document.getElementById('userPwSaveBtn');
 
 		if (closeBtn) closeBtn.onclick = close;
 		if (openBtn)  openBtn.onclick  = toggle;
-		if (nameEl)   nameEl.onclick   = toggle;
 		if (pwBtn)    pwBtn.onclick    = _changePassword;
 	}
 
