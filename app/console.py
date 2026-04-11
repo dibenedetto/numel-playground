@@ -1030,6 +1030,7 @@ class ConsoleAgentManager:
 		return {
 			"name": name,
 			"nodes": len(workflow_doc.get("nodes", [])),
+			"workflow": workflow_doc,
 			"repaired": bool(validation["repaired"]),
 			"repairs": list(validation["repairs"]),
 			"warnings": list(validation["warnings"]),
@@ -1511,12 +1512,8 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 						"tool_calls": [],
 					}
 
-			# Check if this user has an active planner (any session)
-			ps = None
-			for _ps in console_mgr._planners.values():
-				if _ps.enabled and _ps.user_id == (user_id or "anon"):
-					ps = _ps
-					break
+			# Check if this browser-tab session has an active planner.
+			ps = console_mgr._resolve_planner_state(user_id, request.session_id)
 			if ps:
 				ps.session_start = time.time()
 				ps.turn_count = 0

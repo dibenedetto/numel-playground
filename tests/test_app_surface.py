@@ -671,6 +671,8 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         data = response.json()
         self.assertTrue(data["ok"])
         self.assertTrue(data["validation"]["repaired"])
+        self.assertIn("workflow", data["result"])
+        self.assertIsInstance(data["result"]["workflow"]["nodes"], list)
         self.assertTrue(
             any("removed invalid flow edge into non-flow node" in item for item in data["validation"]["repairs"])
         )

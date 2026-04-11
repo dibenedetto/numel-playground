@@ -1191,15 +1191,23 @@ class AgentConsoleManager {
 					this._syncPlannerUi();
 				}
 			}
-			const appliedNodes = result?.result?.nodes ?? wf.nodes?.length ?? 0;
+			const appliedWorkflow = result?.result?.workflow || wf;
+			const appliedNodes = result?.result?.nodes ?? appliedWorkflow?.nodes?.length ?? 0;
 			const repairs = result?.validation?.repairs || [];
 			const warnings = result?.validation?.warnings || [];
-			this._addMessage('planner', this._plannerAppliedSummary(wf, appliedNodes));
+			this._addMessage('planner', this._plannerAppliedSummary(appliedWorkflow, appliedNodes));
 			if (repairs.length) {
 				this._addMessage('system', this._summarizeValidationItems(repairs, 'Workflow repaired before apply'));
 			}
 			if (warnings.length) {
 				this._addMessage('system', this._summarizeValidationItems(warnings, 'Workflow warnings'));
+			}
+			if (typeof window.loadWorkflowFromServer === 'function' && appliedWorkflow?.nodes) {
+				await window.loadWorkflowFromServer(
+					appliedWorkflow,
+					appliedWorkflow?.options?.name || appliedWorkflow?.name || 'Workflow',
+					{ source: 'planner' },
+				);
 			}
 			return true;
 		} catch (err) {
@@ -1325,16 +1333,33 @@ class AgentConsoleManager {
 
 	_extractWorkflowJson(text) {
 		if (!text) return null;
+		const toWorkflow = (candidate) => {
+			if (!candidate || typeof candidate !== 'object') return null;
+			if (Array.isArray(candidate.nodes)) return candidate;
+			if (candidate.workflow && typeof candidate.workflow === 'object' && Array.isArray(candidate.workflow.nodes)) {
+				return candidate.workflow;
+			}
+			return null;
+		};
 		text = text.trim();
-		try { return JSON.parse(text); } catch { /* not raw JSON */ }
+		try {
+			const direct = toWorkflow(JSON.parse(text));
+			if (direct) return direct;
+		} catch { /* not raw JSON */ }
 		const blockMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
 		if (blockMatch) {
-			try { return JSON.parse(blockMatch[1].trim()); } catch { /* bad block */ }
+			try {
+				const block = toWorkflow(JSON.parse(blockMatch[1].trim()));
+				if (block) return block;
+			} catch { /* bad block */ }
 		}
 		const start = text.indexOf('{');
 		const end = text.lastIndexOf('}');
 		if (start !== -1 && end > start) {
-			try { return JSON.parse(text.substring(start, end + 1)); } catch { /* no luck */ }
+			try {
+				const sliced = toWorkflow(JSON.parse(text.substring(start, end + 1)));
+				if (sliced) return sliced;
+			} catch { /* no luck */ }
 		}
 		return null;
 	}

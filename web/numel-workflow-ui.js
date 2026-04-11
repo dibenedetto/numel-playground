@@ -2251,6 +2251,23 @@ window.loadAndSyncWorkflow = async function(workflow, name) {
 	}
 };
 
+window.loadWorkflowFromServer = async function(workflow, name, { source = 'assistant' } = {}) {
+	if (!visualizer || !schemaGraph || !workflow) return false;
+	const chatState = saveChatState();
+	schemaGraph.closeAllPreviewTextOverlays?.();
+	agentChatManager?.disconnectAll();
+	const workflowName = name || workflow?.options?.name || visualizer.currentWorkflowName || 'Workflow';
+	const loaded = visualizer.loadWorkflow(workflow, workflowName, visualizer.defaultLayout, true);
+	if (!loaded) return false;
+	restoreChatState(chatState);
+	currentWorkflowHasContent = _hasWorkflowContent(workflow);
+	workflowDirty = false;
+	enableStart(true);
+	_updateStarterExperience(false);
+	addLog('info', `🔄 Current workflow updated by ${source}`);
+	return true;
+};
+
 function saveChatState() {
 	const state = new Map();
 	
