@@ -43,6 +43,38 @@ def build_backend_toolkit(toolkit_record, backend_name: Optional[str] = None):
 	raise ValueError(f"Unsupported backend: {name}")
 
 
+def get_text_generation_sources(name: Optional[str] = None) -> list[str]:
+	backend_name = normalize_backend_name(name)
+	if backend_name == "agno":
+		from impl_agno import get_text_generation_sources_agno
+		return get_text_generation_sources_agno()
+	raise ValueError(f"Unsupported backend: {backend_name}")
+
+
+async def generate_text(
+	*,
+	system_message: str,
+	user_message: str,
+	model_source: str,
+	model_name: str,
+	temperature: Optional[float] = None,
+	max_tokens: Optional[int] = None,
+	backend_name: Optional[str] = None,
+) -> str:
+	name = normalize_backend_name(backend_name)
+	if name == "agno":
+		from impl_agno import generate_text_agno
+		return await generate_text_agno(
+			system_message=system_message,
+			user_message=user_message,
+			model_source=model_source,
+			model_name=model_name,
+			temperature=temperature,
+			max_tokens=max_tokens,
+		)
+	raise ValueError(f"Unsupported backend: {name}")
+
+
 def build_backend(workflow: Workflow, skill_mgr=None) -> ImplementedBackend:
 	builder = get_backend_builder(get_workflow_backend_name(workflow))
 	return builder(workflow, skill_mgr=skill_mgr)

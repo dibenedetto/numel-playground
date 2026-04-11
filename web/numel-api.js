@@ -149,6 +149,7 @@ class NumelAPI {
 	// ── Generation ───────────────────────────────────────────────
 
 	generationPrompt(body = {})   { return this.json('/generation-prompt', body); }
+	options(providerKey)          { return this.json(`/options/${encodeURIComponent(providerKey)}`); }
 
 	// ── Console API ──────────────────────────────────────────────
 

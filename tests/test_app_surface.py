@@ -208,6 +208,49 @@ def _planner_slot_workflow_payload() -> dict:
     }
 
 
+async def _fake_published_app_bundle(**kwargs) -> dict:
+    app_name = kwargs.get("app_name", "Published App")
+    return {
+        "summary": "Generated app shell for the selected workflow.",
+        "workflow_summary": {
+            "name": app_name,
+            "node_count": len((kwargs.get("workflow") or {}).get("nodes", [])),
+            "edge_count": len((kwargs.get("workflow") or {}).get("edges", [])),
+            "inputs": list(kwargs.get("inputs") or []),
+        },
+        "files": [
+            {
+                "path": "index.html",
+                "content": f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{app_name}</title>
+</head>
+<body>
+  <main class="generated-shell">
+    <section class="hero">
+      <h1>{app_name}</h1>
+      <p class="lede">AI-generated published app shell.</p>
+    </section>
+    <!-- NUMEL_APP_RUNTIME -->
+  </main>
+</body>
+</html>""",
+            },
+            {
+                "path": "styles.css",
+                "content": ".generated-shell{padding:24px}.hero{margin-bottom:18px}",
+            },
+            {
+                "path": "app.js",
+                "content": "window.__publishedAppCustomLoaded = true;",
+            },
+        ],
+    }
+
+
 class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self._root = PROJECT_ROOT / "storage" / "_test_runs" / f"app_{uuid.uuid4().hex[:8]}"
@@ -249,6 +292,7 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self._app = await self._app_module.build_app(
             SimpleNamespace(port=18700, seed=0, tunnel=False)
         )
+        self._app.state.published_app_page_generator = _fake_published_app_bundle
         self._client = httpx.AsyncClient(
             transport=httpx.ASGITransport(app=self._app),
             base_url="http://numel.test",
@@ -651,6 +695,101 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Only the following toolkits are enabled for this turn: mesh_toolkit.", prompt)
         self.assertNotIn("toolkits.file_toolkit", prompt)
         self.assertNotIn("toolkits.workspace_toolkit", prompt)
+
+    async def test_published_apps_are_user_owned_and_store_generated_assets(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "alice", "email": "alice@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        payload = register.json()
+        headers = self._auth_headers(payload["token"])
+
+        publish = await self._client.post(
+            "/apps/publish",
+            json={
+                "title": "Alice Demo App",
+                "slug": "alice-demo-app",
+                "description": "Published from a workflow",
+                "workflow": _minimal_workflow_payload(),
+                "page_generation": {
+                    "model_source": "ollama",
+                    "model_name": "qwen3.5:cloud",
+                    "temperature": 0.3,
+                    "max_tokens": 2048,
+                    "page_prompt": "Make it clean and focused.",
+                },
+            },
+            headers=headers,
+        )
+        self.assertEqual(publish.status_code, 200, publish.text)
+        self.assertEqual(publish.json()["url"], "/apps/alice/alice-demo-app")
+
+        listing = await self._client.post("/apps/list", json={}, headers=headers)
+        self.assertEqual(listing.status_code, 200, listing.text)
+        apps = listing.json()
+        self.assertEqual(len(apps), 1)
+        self.assertEqual(apps[0]["owner_username"], "alice")
+        self.assertEqual(apps[0]["url"], "/apps/alice/alice-demo-app")
+        self.assertEqual(apps[0]["generation"]["model_name"], "qwen3.5:cloud")
+
+        public_page = await self._client.get("/apps/alice/alice-demo-app")
+        self.assertEqual(public_page.status_code, 200, public_page.text)
+        self.assertIn("numel-runtime-root", public_page.text)
+        self.assertIn("./assets/runtime.js", public_page.text)
+
+        css_asset = await self._client.get("/apps/alice/alice-demo-app/assets/styles.css")
+        self.assertEqual(css_asset.status_code, 200, css_asset.text)
+        self.assertIn("generated-shell", css_asset.text)
+
+        asset_dir = self._runtime_root / "published_apps" / payload["user"]["id"] / "alice-demo-app"
+        self.assertTrue((asset_dir / "index.html").exists())
+        self.assertTrue((asset_dir / "workflow.json").exists())
+
+        second_user = await self._client.post(
+            "/auth/register",
+            json={"username": "bob", "email": "bob@local", "password": "pass1234"},
+        )
+        self.assertEqual(second_user.status_code, 200, second_user.text)
+        second_headers = self._auth_headers(second_user.json()["token"])
+        second_listing = await self._client.post("/apps/list", json={}, headers=second_headers)
+        self.assertEqual(second_listing.status_code, 200, second_listing.text)
+        self.assertEqual(second_listing.json(), [])
+
+    async def test_public_published_app_can_run_saved_workflow_snapshot(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "alice", "email": "alice@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        publish = await self._client.post(
+            "/apps/publish",
+            json={
+                "title": "Public Runner",
+                "slug": "public-runner",
+                "workflow": _minimal_workflow_payload(),
+            },
+            headers=headers,
+        )
+        self.assertEqual(publish.status_code, 200, publish.text)
+
+        start = await self._client.post("/apps/alice/public-runner/start", json={})
+        self.assertEqual(start.status_code, 200, start.text)
+        execution_id = start.json()["execution_id"]
+        self.assertTrue(execution_id)
+
+        final_status = None
+        for _ in range(60):
+            state = await self._client.post(f"/apps/alice/public-runner/executions/{execution_id}", json={})
+            self.assertEqual(state.status_code, 200, state.text)
+            final_status = state.json()["state"]["status"]
+            if final_status in {"completed", "failed"}:
+                break
+            await asyncio.sleep(0.1)
+
+        self.assertEqual(final_status, "completed")
 
 
 

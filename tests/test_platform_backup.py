@@ -59,6 +59,8 @@ class PlatformBackupTests(unittest.TestCase):
         (self.settings.user_memory_dir / "user-memory.txt").write_text("user-memory", encoding="utf-8")
         (self.settings.gallery_dir / "gallery.txt").write_text("gallery", encoding="utf-8")
         (self.settings.user_skills_dir / "skill.md").write_text("# skill", encoding="utf-8")
+        (self.settings.published_apps_dir / "user_1" / "demo").mkdir(parents=True, exist_ok=True)
+        (self.settings.published_apps_dir / "user_1" / "demo" / "index.html").write_text("<html></html>", encoding="utf-8")
         self.settings.process_credentials_path.write_text('{"API_KEY":"abc"}', encoding="utf-8")
         self.settings.channel_users_path.write_text("{}", encoding="utf-8")
         self.settings.channels_config_path.write_text("{}", encoding="utf-8")
@@ -94,6 +96,7 @@ class PlatformBackupTests(unittest.TestCase):
         self.assertIn("config/platform_backend.json", names)
         self.assertIn("data/platform.db", names)
         self.assertIn("data/spaces/space_demo/workflow.json", names)
+        self.assertIn("data/runtime/published_apps/user_1/demo/index.html", names)
 
         shutil.rmtree(self.spaces_root, ignore_errors=True)
         shutil.rmtree(self.artifacts_root, ignore_errors=True)
@@ -102,6 +105,7 @@ class PlatformBackupTests(unittest.TestCase):
         shutil.rmtree(self.settings.user_memory_dir, ignore_errors=True)
         shutil.rmtree(self.settings.gallery_dir, ignore_errors=True)
         shutil.rmtree(self.settings.user_skills_dir, ignore_errors=True)
+        shutil.rmtree(self.settings.published_apps_dir, ignore_errors=True)
         if self.db_path.exists():
             self.db_path.unlink()
         for file_path in (
@@ -120,6 +124,7 @@ class PlatformBackupTests(unittest.TestCase):
         self.assertTrue(self.db_path.exists())
         self.assertEqual((self.spaces_root / "space_demo" / "workflow.json").read_text(encoding="utf-8"), '{"name":"demo"}')
         self.assertEqual((self.artifacts_root / "executions" / "exec1" / "result.txt").read_text(encoding="utf-8"), "artifact")
+        self.assertEqual((self.settings.published_apps_dir / "user_1" / "demo" / "index.html").read_text(encoding="utf-8"), "<html></html>")
         self.assertEqual(self.settings.process_credentials_path.read_text(encoding="utf-8"), '{"API_KEY":"abc"}')
 
     def test_local_backup_rejects_prod_backend(self) -> None:

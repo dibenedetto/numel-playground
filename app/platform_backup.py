@@ -84,6 +84,7 @@ def _runtime_entries() -> list[BackupEntry]:
 		BackupEntry("user_memory", settings.user_memory_dir.resolve(), "data/runtime/user_memory", "dir"),
 		BackupEntry("gallery", settings.gallery_dir.resolve(), "data/runtime/gallery", "dir"),
 		BackupEntry("skills", settings.user_skills_dir.resolve(), "data/runtime/skills", "dir"),
+		BackupEntry("published_apps", settings.published_apps_dir.resolve(), "data/runtime/published_apps", "dir"),
 		BackupEntry("credentials_file", settings.process_credentials_path.resolve(), "data/runtime/credentials.json", "file"),
 		BackupEntry("channel_users_file", settings.channel_users_path.resolve(), "data/runtime/channel_users.json", "file"),
 		BackupEntry("channels_config_file", settings.channels_config_path.resolve(), "data/runtime/channels.json", "file"),

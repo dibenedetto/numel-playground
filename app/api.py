@@ -19,7 +19,7 @@ from   typing    import Any, Dict, List, Optional
 
 
 from   event_bus import EventType, EventBus
-from   backend_factory import build_backend
+from   backend_factory import build_backend, get_text_generation_sources
 from   platform_client import PlatformRequestError
 from   runtime_settings import get_runtime_settings
 from   schema    import DEFAULT_BACKEND_NAME, Workflow, WorkflowExecutionOptions
@@ -1460,6 +1460,8 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 
 	register_options_provider("model_sources", _get_model_sources)
 	register_options_provider("model_names", _get_model_names)
+	register_options_provider("published_app_model_sources", lambda context=None: get_text_generation_sources())
+	register_options_provider("published_app_model_names", _get_model_names)
 
 	@app.post("/options/{provider_key}")
 	async def get_options(provider_key: str):

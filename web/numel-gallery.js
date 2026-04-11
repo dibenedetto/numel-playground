@@ -182,7 +182,15 @@ class AppsManager {
 		this._publishBtn = document.getElementById('appsPublishBtn');
 		this._slugInput  = document.getElementById('appsSlugInput');
 		this._titleInput = document.getElementById('appsTitleInput');
+		this._descriptionInput = document.getElementById('appsDescriptionInput');
+		this._modelSourceSelect = document.getElementById('appsModelSourceSelect');
+		this._modelNameInput = document.getElementById('appsModelNameInput');
+		this._temperatureInput = document.getElementById('appsTemperatureInput');
+		this._maxTokensInput = document.getElementById('appsMaxTokensInput');
+		this._pagePromptInput = document.getElementById('appsPagePromptInput');
 		this._list       = document.getElementById('appsList');
+		this._modelNames = [];
+		this._modelSourcesLoaded = false;
 
 		this._setupUI();
 	}
@@ -202,6 +210,11 @@ class AppsManager {
 		this._slugInput.addEventListener('input', () => {
 			this._slugInput.dataset.manuallyEdited = '1';
 		});
+		this._modelSourceSelect?.addEventListener('change', () => {
+			if (!this._modelNameInput.value && this._modelNames.length) {
+				this._modelNameInput.value = this._modelNames[0];
+			}
+		});
 	}
 
 	toggle() { this._open ? this.close() : this.open(); }
@@ -215,6 +228,7 @@ class AppsManager {
 		}
 		this._open = true;
 		this._panel.classList.add('open');
+		await this._ensureGenerationOptions();
 		this._prefillFromCurrentWorkflow();
 		await this._loadList();
 	}
@@ -236,13 +250,49 @@ class AppsManager {
 		} catch { /* no workflow loaded */ }
 	}
 
+	async _ensureGenerationOptions() {
+		if (this._modelSourcesLoaded) return;
+		try {
+			const [sourcesResp, namesResp] = await Promise.all([
+				this.api.options('published_app_model_sources'),
+				this.api.options('published_app_model_names'),
+			]);
+			const sources = Array.isArray(sourcesResp?.options) ? sourcesResp.options : [];
+			this._modelNames = Array.isArray(namesResp?.options) ? namesResp.options : [];
+			this._modelSourceSelect.innerHTML = '';
+			this._modelNameInput.innerHTML = '';
+			for (const source of sources) {
+				const opt = document.createElement('option');
+				opt.value = source;
+				opt.textContent = source;
+				this._modelSourceSelect.appendChild(opt);
+			}
+			for (const modelName of this._modelNames) {
+				const opt = document.createElement('option');
+				opt.value = modelName;
+				opt.textContent = modelName;
+				this._modelNameInput.appendChild(opt);
+			}
+			if (!this._modelSourceSelect.value && sources.length) {
+				this._modelSourceSelect.value = sources[0];
+			}
+			if (!this._modelNameInput.value && this._modelNames.length) {
+				this._modelNameInput.value = this._modelNames[0];
+			}
+			this._modelSourcesLoaded = true;
+		} catch (err) {
+			this._setStatus(`Model options unavailable: ${err.message}`, 'error');
+		}
+	}
+
 	async _publish() {
 		const slug  = this._slugInput.value.trim();
 		const title = this._titleInput.value.trim();
+		const description = this._descriptionInput.value.trim();
 		if (!slug) { this._slugInput.focus(); return; }
 
 		this._publishBtn.disabled = true;
-		this._publishBtn.textContent = 'Publishing...';
+		this._publishBtn.textContent = 'Generating...';
 		try {
 			let workflowName = null;
 			let workflow = null;
@@ -251,16 +301,32 @@ class AppsManager {
 				workflowName = current?.name || null;
 				workflow = current?.workflow || null;
 			} catch {}
-			await this.api.appsPublish({ slug, title: title || slug, workflow_name: workflowName, workflow });
+			await this.api.appsPublish({
+				slug,
+				title: title || slug,
+				description,
+				workflow_name: workflowName,
+				workflow,
+				page_generation: {
+					model_source: this._modelSourceSelect.value || 'ollama',
+					model_name: this._modelNameInput.value.trim() || 'qwen3.5:cloud',
+					temperature: Number(this._temperatureInput.value || 0.3),
+					max_tokens: Number(this._maxTokensInput.value || 4096),
+					page_prompt: this._pagePromptInput.value.trim(),
+				},
+			});
 			this._slugInput.value = '';
 			this._titleInput.value = '';
+			this._descriptionInput.value = '';
+			this._pagePromptInput.value = '';
 			delete this._slugInput.dataset.manuallyEdited;
 			await this._loadList();
+			this._setStatus('Published app generated.', 'info');
 		} catch (err) {
 			this._setStatus(`Error: ${err.message}`, 'error');
 		}
 		this._publishBtn.disabled = false;
-		this._publishBtn.textContent = 'Publish';
+		this._publishBtn.textContent = 'Generate and Publish Current Workflow';
 	}
 
 	async _loadList() {
@@ -299,12 +365,17 @@ class AppsManager {
 
 		const url = document.createElement('a');
 		url.className = 'nw-apps-url';
-		url.href = `${base}/apps/${app.slug}`;
+		url.href = `${base}/apps/${app.owner_username}/${app.slug}`;
 		url.target = '_blank';
-		url.textContent = `/apps/${app.slug}`;
+		url.textContent = `/apps/${app.owner_username}/${app.slug}`;
+
+		const meta = document.createElement('div');
+		meta.className = 'nw-apps-meta';
+		meta.textContent = app.generated_summary || app.description || 'Generated published app';
 
 		info.appendChild(name);
 		info.appendChild(url);
+		info.appendChild(meta);
 
 		const actions = document.createElement('div');
 		actions.className = 'nw-apps-actions';
@@ -313,7 +384,7 @@ class AppsManager {
 		openBtn.className = 'nw-apps-btn';
 		openBtn.title = 'Open app';
 		openBtn.innerHTML = '<svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>';
-		openBtn.addEventListener('click', () => window.open(`${base}/apps/${app.slug}`, '_blank'));
+		openBtn.addEventListener('click', () => window.open(`${base}/apps/${app.owner_username}/${app.slug}`, '_blank'));
 
 		const removeBtn = document.createElement('button');
 		removeBtn.className = 'nw-apps-btn danger';

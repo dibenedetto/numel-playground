@@ -73,6 +73,73 @@ def _patch_agno_tool_call_id():
 _patch_agno_tool_call_id()
 
 
+def get_text_generation_sources_agno() -> List[str]:
+	return ["ollama", "openai", "anthropic"]
+
+
+def _build_model_for_generation_agno(
+	*,
+	model_source: str,
+	model_name: str,
+	temperature: float | None = None,
+	max_tokens: int | None = None,
+):
+	source = str(model_source or "").strip().lower()
+	name = str(model_name or "").strip()
+	if not name:
+		raise ValueError("Model name is required for text generation")
+
+	if source == "ollama":
+		options = {}
+		if temperature is not None:
+			options["temperature"] = float(temperature)
+		if max_tokens is not None:
+			options["num_predict"] = int(max_tokens)
+		return Ollama(id=name, options=options or None)
+	if source == "openai":
+		return OpenAIChat(
+			id=name,
+			temperature=None if temperature is None else float(temperature),
+			max_tokens=None if max_tokens is None else int(max_tokens),
+		)
+	if source == "anthropic":
+		from agno.models.anthropic import Claude
+		return Claude(
+			id=name,
+			temperature=None if temperature is None else float(temperature),
+			max_tokens=None if max_tokens is None else int(max_tokens),
+		)
+	raise ValueError(f"Unsupported model source for text generation: {model_source}")
+
+
+async def generate_text_agno(
+	*,
+	system_message: str,
+	user_message: str,
+	model_source: str,
+	model_name: str,
+	temperature: float | None = None,
+	max_tokens: int | None = None,
+) -> str:
+	model = _build_model_for_generation_agno(
+		model_source=model_source,
+		model_name=model_name,
+		temperature=temperature,
+		max_tokens=max_tokens,
+	)
+	agent = Agent(
+		name="Generator",
+		model=model,
+		instructions=system_message,
+		markdown=False,
+	)
+	raw = await agent.arun(input=user_message)
+	content = getattr(raw, "content", raw)
+	if isinstance(content, list):
+		return "\n".join(str(item) for item in content)
+	return str(content)
+
+
 def build_native_skills_agno(skill_definitions: List[Dict[str, Any]]):
 	"""Convert backend-neutral skill records into native Agno Skills."""
 	from agno.skills import Skills as AgnoSkills

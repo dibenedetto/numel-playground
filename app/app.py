@@ -1156,7 +1156,12 @@ async def run_server(
 	task_mgr.initialize(event_bus)
 
 	# ── Published Apps ────────────────────────────────────────
-	pub_app_mgr = PublishedAppManager(workspace_mgr, config_path=str(_runtime_settings.published_apps_path))
+	pub_app_mgr = PublishedAppManager(
+		workspace_mgr,
+		config_path=str(_runtime_settings.published_apps_path),
+		assets_root=str(_runtime_settings.published_apps_dir),
+		backend_name=schema.DEFAULT_BACKEND_NAME,
+	)
 	pub_app_mgr.initialize()
 
 	# ── Execution History ─────────────────────────────────────

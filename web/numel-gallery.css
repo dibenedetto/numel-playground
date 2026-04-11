@@ -269,10 +269,14 @@
 	gap: 8px;
 	align-items: center;
 }
+.nw-apps-form-row-stack {
+	align-items: flex-start;
+}
 .nw-apps-form-row label {
 	font-size: 11px;
 	color: var(--sg-text-secondary);
 	min-width: 38px;
+	padding-top: 6px;
 }
 .nw-apps-input {
 	flex: 1;
@@ -290,6 +294,13 @@
 }
 .nw-apps-input::placeholder {
 	color: var(--sg-text-quaternary);
+}
+.nw-apps-textarea {
+	min-height: 68px;
+	resize: vertical;
+}
+.nw-apps-select {
+	appearance: none;
 }
 .nw-apps-publish-btn {
 	font-size: 12px;
@@ -359,7 +370,7 @@
 .nw-apps-info {
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
+	gap: 4px;
 	overflow: hidden;
 }
 .nw-apps-name {
@@ -379,6 +390,11 @@
 	text-overflow: ellipsis;
 }
 .nw-apps-url:hover { text-decoration: underline; }
+.nw-apps-meta {
+	font-size: 11px;
+	color: var(--sg-text-tertiary);
+	line-height: 1.45;
+}
 .nw-apps-actions {
 	display: flex;
 	gap: 4px;

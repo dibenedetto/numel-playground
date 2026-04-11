@@ -56,6 +56,8 @@ class PlatformProdBackupTests(unittest.TestCase):
         (self.artifacts_root / "executions" / "exec1").mkdir(parents=True, exist_ok=True)
         (self.artifacts_root / "executions" / "exec1" / "result.txt").write_text("artifact", encoding="utf-8")
         (self.settings.workspace_storage_dir / "workspace.txt").write_text("workspace", encoding="utf-8")
+        (self.settings.published_apps_dir / "user_1" / "demo").mkdir(parents=True, exist_ok=True)
+        (self.settings.published_apps_dir / "user_1" / "demo" / "index.html").write_text("<html></html>", encoding="utf-8")
         self.settings.process_credentials_path.write_text('{"API_KEY":"abc"}', encoding="utf-8")
         self.settings.channel_users_path.write_text("{}", encoding="utf-8")
         self.settings.channels_config_path.write_text("{}", encoding="utf-8")
@@ -103,10 +105,12 @@ class PlatformProdBackupTests(unittest.TestCase):
         self.assertIn("config/platform_backend.json", names)
         self.assertIn("data/postgresql.sql", names)
         self.assertIn("data/spaces/space_demo/workflow.json", names)
+        self.assertIn("data/runtime/published_apps/user_1/demo/index.html", names)
 
         shutil.rmtree(self.spaces_root, ignore_errors=True)
         shutil.rmtree(self.artifacts_root, ignore_errors=True)
         shutil.rmtree(self.settings.workspace_storage_dir, ignore_errors=True)
+        shutil.rmtree(self.settings.published_apps_dir, ignore_errors=True)
         for file_path in (
             self.settings.process_credentials_path,
             self.settings.channel_users_path,
@@ -124,6 +128,7 @@ class PlatformProdBackupTests(unittest.TestCase):
         self.assertTrue(any(call[0] == "psql" for call in self._calls))
         self.assertEqual((self.spaces_root / "space_demo" / "workflow.json").read_text(encoding="utf-8"), '{"name":"prod"}')
         self.assertEqual((self.artifacts_root / "executions" / "exec1" / "result.txt").read_text(encoding="utf-8"), "artifact")
+        self.assertEqual((self.settings.published_apps_dir / "user_1" / "demo" / "index.html").read_text(encoding="utf-8"), "<html></html>")
         self.assertEqual(self.settings.process_credentials_path.read_text(encoding="utf-8"), '{"API_KEY":"abc"}')
 
     def test_prod_restore_requires_overwrite(self) -> None:

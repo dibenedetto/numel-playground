@@ -206,23 +206,12 @@ Planner options (space-separated `key=value`): `profile=workflow`, `max_iter=10`
 Web console users authenticated via the login modal are auto-linked — no explicit `/login` needed.
 
 ### Published Apps
-- Export any workflow as a **standalone web endpoint** with auto-generated UI
-- Access via `/apps/{slug}` — anyone with the URL can run it
-- **Publish current work** — publish the current workflow directly from the editor, or publish a gallery item by loading it into a space first
-- **User input modals** — workflows with `user_input_flow` nodes pause and prompt the user inline
-- **Live event log** — real-time WebSocket updates (node progress, errors) with REST polling fallback
-- **Event history replay** — events that fire before WebSocket connects are replayed on connection, so fast-completing nodes are never missed
-- **Preview rendering** — workflows containing `preview_flow` nodes render outputs inline:
-  - Auto-detects content type from data URLs, file extensions, and structure
-  - Supports **image**, **audio**, **video**, **text**, **JSON**, and **3D model** previews
-  - **Interactive 3D viewer** — Three.js loaded from CDN when `model3d` hint is detected; supports GLTF/GLB, OBJ, STL with OrbitControls, auto-fit camera, grid, and download link; falls back to download-only when Three.js is unavailable
-- **Browser source capture** — workflows with `browser_source_flow` nodes show webcam/mic/screen capture panels with Start/Stop controls; frames stream to backend via `/ws/stream/{source_id}`
-  - **Webcam** — mirrored video preview
-  - **Microphone** — real-time audio frequency visualizer (Web Audio API AnalyserNode)
-  - **Screen** — display capture with optional audio track
-- **Frontend CV inference** — workflows with `computer_vision_flow` nodes (inference_location=frontend) load MediaPipe Tasks Vision from CDN and run pose/face/hands detection directly in the browser at 30fps, with skeleton overlay on the video feed and composite output to the preview panel
-- **Stream display overlays** — pose landmarks, text, and annotated images rendered on a canvas overlay above the video feed
-- Cancel running executions from the UI
+- Publish any workflow as a **user-owned standalone web app**
+- Access via `/apps/{owner_username}/{slug}` — anyone with the URL can run it
+- The published page bundle is **generated at publish time** from the workflow analysis, using the selected model and generation settings
+- Generated app files are stored under the owner’s runtime storage, alongside the published app registry
+- Publish current work directly from the editor, or publish a gallery item by loading it into a space first
+- Public apps can start workflows, poll execution state, cancel runs, and handle inline `user_input_flow` prompts
 
 ### Assistant Console
 - **AI chat panel** with streaming (AGUI) and REST fallback
@@ -617,6 +606,7 @@ Default writable layout:
 | `storage/channels.json` | Saved channel adapter configs |
 | `storage/agent_tasks.json` | Scheduled background agent tasks |
 | `storage/published_apps.json` | Published app definitions |
+| `storage/published_apps/` | User-owned generated app bundles and workflow snapshots |
 | `storage/credentials.json` | Legacy process-level `${VAR_NAME}` substitution store |
 
 Read-mostly bundled files remain in the source tree by default:
@@ -1090,9 +1080,10 @@ All endpoints use **POST** method unless otherwise noted.
 | `/apps/list` | List published apps |
 | `/apps/publish` | Publish workflow as app |
 | `/apps/unpublish` | Unpublish an app |
-| `GET /apps/{slug}` | Serve auto-generated HTML form (public) |
-| `/apps/{slug}/start` | Start app execution, returns execution_id |
-| `/apps/{slug}/run` | Run app synchronously (blocks until complete) |
+| `GET /apps/{owner_username}/{slug}` | Serve a generated published app page (public) |
+| `GET /apps/{owner_username}/{slug}/assets/{path}` | Serve generated published app assets (public) |
+| `/apps/{owner_username}/{slug}/start` | Start app execution, returns execution_id |
+| `/apps/{owner_username}/{slug}/run` | Run app synchronously (blocks until complete) |
 
 ### WebSocket Streams
 | Endpoint | Events |
@@ -1106,5 +1097,3 @@ All endpoints use **POST** method unless otherwise noted.
 ## License
 
 See [LICENSE](LICENSE) for details.
-
-
