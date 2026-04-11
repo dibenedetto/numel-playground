@@ -714,6 +714,31 @@ class PublishedAppManager:
 			target.write_text(content, encoding="utf-8")
 
 	def _prepare_index_html(self, app: PublishedApp, raw_html: str) -> str:
+		asset_base = f"/apps/{app.owner_username}/{app.slug}/assets/"
+
+		def _normalize_asset_ref(value: str) -> str:
+			normalized = str(value or "").strip()
+			normalized = re.sub(r"^(?:\./)+", "", normalized)
+			if normalized.startswith("assets/"):
+				normalized = normalized[len("assets/") :]
+			return normalized
+
+		def _rewrite_relative_asset_urls(html: str) -> str:
+			def _replace(match: re.Match[str]) -> str:
+				attr = match.group(1)
+				quote = match.group(2)
+				raw_value = match.group(3).strip()
+				lower = raw_value.lower()
+				if (
+					not raw_value
+					or raw_value.startswith(("/", "#"))
+					or lower.startswith(("http://", "https://", "data:", "mailto:", "tel:", "javascript:"))
+				):
+					return match.group(0)
+				return f'{attr}={quote}{asset_base}{_normalize_asset_ref(raw_value)}{quote}'
+
+			return re.sub(r'(?i)\b(href|src)=([\"\'])([^\"\']+)\2', _replace, html)
+
 		config = {
 			"name": app.name,
 			"slug": app.slug,
@@ -730,22 +755,39 @@ class PublishedAppManager:
 			f"<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>"
 			f"<title>{app.name}</title></head><body><main><!-- NUMEL_APP_RUNTIME --></main></body></html>"
 		)
+		html = _rewrite_relative_asset_urls(html)
 		if "<!-- NUMEL_APP_RUNTIME -->" not in html:
 			html = html.replace("</body>", "<!-- NUMEL_APP_RUNTIME --></body>")
 			if "<!-- NUMEL_APP_RUNTIME -->" not in html:
 				html += "<!-- NUMEL_APP_RUNTIME -->"
 		html = html.replace("<!-- NUMEL_APP_RUNTIME -->", '<div id="numel-runtime-root"></div>', 1)
-		if "styles.css" not in html:
-			html = html.replace("</head>", '<link rel="stylesheet" href="./assets/runtime.css"><link rel="stylesheet" href="./assets/styles.css"></head>')
-		else:
-			html = html.replace("</head>", '<link rel="stylesheet" href="./assets/runtime.css"></head>')
+		runtime_css_href = f"{asset_base}runtime.css"
+		styles_css_href = f"{asset_base}styles.css"
+		runtime_js_src = f"{asset_base}runtime.js"
+		app_js_src = f"{asset_base}app.js"
+		head_additions: list[str] = []
+		if "rel=\"icon\"" not in html and "rel='icon'" not in html:
+			head_additions.append('<link rel="icon" href="data:,">')
+		if runtime_css_href not in html:
+			head_additions.append(f'<link rel="stylesheet" href="{runtime_css_href}">')
+		if styles_css_href not in html:
+			head_additions.append(f'<link rel="stylesheet" href="{styles_css_href}">')
+		if head_additions:
+			if "</head>" in html:
+				html = html.replace("</head>", "".join(head_additions) + "</head>")
+			else:
+				html = "".join(head_additions) + html
 		config_block = (
 			"<script>window.__NUMEL_PUBLISHED_APP__ = "
 			+ json.dumps(config, ensure_ascii=False)
 			+ ";</script>"
-			+ '<script src="./assets/runtime.js"></script>'
-			+ '<script src="./assets/app.js"></script>'
 		)
+		script_tags: list[str] = []
+		if runtime_js_src not in html:
+			script_tags.append(f'<script src="{runtime_js_src}"></script>')
+		if app_js_src not in html:
+			script_tags.append(f'<script src="{app_js_src}"></script>')
+		config_block += "".join(script_tags)
 		if "</body>" in html:
 			html = html.replace("</body>", config_block + "</body>")
 		else:

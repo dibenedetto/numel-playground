@@ -51,6 +51,17 @@ def get_text_generation_sources(name: Optional[str] = None) -> list[str]:
 	raise ValueError(f"Unsupported backend: {backend_name}")
 
 
+def get_text_generation_models(
+	model_source: Optional[str] = None,
+	backend_name: Optional[str] = None,
+) -> list[str]:
+	name = normalize_backend_name(backend_name)
+	if name == "agno":
+		from impl_agno import get_text_generation_models_agno
+		return get_text_generation_models_agno(model_source=model_source)
+	raise ValueError(f"Unsupported backend: {name}")
+
+
 async def generate_text(
 	*,
 	system_message: str,

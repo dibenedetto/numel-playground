@@ -77,6 +77,23 @@ def get_text_generation_sources_agno() -> List[str]:
 	return ["ollama", "openai", "anthropic"]
 
 
+def get_text_generation_models_agno(model_source: str | None = None) -> List[str]:
+	by_source = {
+		"ollama": ["qwen3.5:cloud", "mistral", "llama3", "qwen2.5"],
+		"openai": ["gpt-4o-mini", "gpt-4o"],
+		"anthropic": ["claude-sonnet-4-20250514"],
+	}
+	source = str(model_source or "").strip().lower()
+	if source:
+		return list(by_source.get(source, []))
+	merged: List[str] = []
+	for names in by_source.values():
+		for item in names:
+			if item not in merged:
+				merged.append(item)
+	return merged
+
+
 def _build_model_for_generation_agno(
 	*,
 	model_source: str,

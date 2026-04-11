@@ -227,6 +227,7 @@ async def _fake_published_app_bundle(**kwargs) -> dict:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{app_name}</title>
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <main class="generated-shell">
@@ -236,6 +237,7 @@ async def _fake_published_app_bundle(**kwargs) -> dict:
     </section>
     <!-- NUMEL_APP_RUNTIME -->
   </main>
+  <script src="app.js"></script>
 </body>
 </html>""",
             },
@@ -696,6 +698,23 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("toolkits.file_toolkit", prompt)
         self.assertNotIn("toolkits.workspace_toolkit", prompt)
 
+    async def test_published_app_model_options_are_available(self) -> None:
+        source_response = await self._client.post("/options/published_app_model_sources", json={})
+        self.assertEqual(source_response.status_code, 200, source_response.text)
+        source_options = source_response.json()["options"]
+        self.assertTrue(source_options)
+        self.assertIn("ollama", source_options)
+
+        name_response = await self._client.post("/options/published_app_model_names", json={"source": "ollama"})
+        self.assertEqual(name_response.status_code, 200, name_response.text)
+        name_options = name_response.json()["options"]
+        self.assertTrue(name_options)
+        self.assertIn("qwen3.5:cloud", name_options)
+
+        openai_names = await self._client.post("/options/published_app_model_names", json={"source": "openai"})
+        self.assertEqual(openai_names.status_code, 200, openai_names.text)
+        self.assertIn("gpt-4o", openai_names.json()["options"])
+
     async def test_published_apps_are_user_owned_and_store_generated_assets(self) -> None:
         register = await self._client.post(
             "/auth/register",
@@ -736,7 +755,11 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         public_page = await self._client.get("/apps/alice/alice-demo-app")
         self.assertEqual(public_page.status_code, 200, public_page.text)
         self.assertIn("numel-runtime-root", public_page.text)
-        self.assertIn("./assets/runtime.js", public_page.text)
+        self.assertIn('/apps/alice/alice-demo-app/assets/runtime.js', public_page.text)
+        self.assertIn('/apps/alice/alice-demo-app/assets/runtime.css', public_page.text)
+        self.assertIn('/apps/alice/alice-demo-app/assets/styles.css', public_page.text)
+        self.assertIn('/apps/alice/alice-demo-app/assets/app.js', public_page.text)
+        self.assertNotIn("./assets/runtime.js", public_page.text)
 
         css_asset = await self._client.get("/apps/alice/alice-demo-app/assets/styles.css")
         self.assertEqual(css_asset.status_code, 200, css_asset.text)

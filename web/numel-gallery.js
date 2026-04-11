@@ -190,6 +190,12 @@ class AppsManager {
 		this._pagePromptInput = document.getElementById('appsPagePromptInput');
 		this._list       = document.getElementById('appsList');
 		this._modelNames = [];
+		this._fallbackModelSources = ['ollama', 'openai', 'anthropic'];
+		this._fallbackModelNamesBySource = {
+			ollama: ['qwen3.5:cloud', 'mistral', 'llama3', 'qwen2.5'],
+			openai: ['gpt-4o-mini', 'gpt-4o'],
+			anthropic: ['claude-sonnet-4-20250514'],
+		};
 		this._modelSourcesLoaded = false;
 
 		this._setupUI();
@@ -211,10 +217,59 @@ class AppsManager {
 			this._slugInput.dataset.manuallyEdited = '1';
 		});
 		this._modelSourceSelect?.addEventListener('change', () => {
-			if (!this._modelNameInput.value && this._modelNames.length) {
-				this._modelNameInput.value = this._modelNames[0];
-			}
+			this._loadModelNamesForSource(this._modelSourceSelect.value);
 		});
+	}
+
+	_normalizeOptionValues(items) {
+		if (!Array.isArray(items)) return [];
+		return items
+			.map((item) => {
+				if (typeof item === 'string') return item.trim();
+				if (item && typeof item === 'object') {
+					return String(item.value ?? item.name ?? item.id ?? '').trim();
+				}
+				return '';
+			})
+			.filter(Boolean);
+	}
+
+	_setSelectOptions(selectEl, values) {
+		if (!selectEl) return;
+		const previous = String(selectEl.value || '').trim();
+		selectEl.innerHTML = '';
+		for (const value of values) {
+			const opt = document.createElement('option');
+			opt.value = value;
+			opt.textContent = value;
+			selectEl.appendChild(opt);
+		}
+		if (previous && values.includes(previous)) {
+			selectEl.value = previous;
+		} else if (values.length) {
+			selectEl.value = values[0];
+		}
+	}
+
+	_fallbackModelNames(source) {
+		return [...(this._fallbackModelNamesBySource[source] || this._fallbackModelNamesBySource.ollama)];
+	}
+
+	async _loadModelNamesForSource(source) {
+		const normalizedSource = String(source || '').trim().toLowerCase() || 'ollama';
+		try {
+			const response = await this.api.options('published_app_model_names', { source: normalizedSource });
+			const names = this._normalizeOptionValues(response?.options);
+			this._modelNames = names.length ? names : this._fallbackModelNames(normalizedSource);
+			this._setSelectOptions(this._modelNameInput, this._modelNames);
+			if (!names.length) {
+				this._setStatus(`Model names for ${normalizedSource} were empty, using defaults.`, 'info');
+			}
+		} catch (err) {
+			this._modelNames = this._fallbackModelNames(normalizedSource);
+			this._setSelectOptions(this._modelNameInput, this._modelNames);
+			this._setStatus(`Model names unavailable for ${normalizedSource}, using defaults: ${err.message}`, 'error');
+		}
 	}
 
 	toggle() { this._open ? this.close() : this.open(); }
@@ -253,35 +308,19 @@ class AppsManager {
 	async _ensureGenerationOptions() {
 		if (this._modelSourcesLoaded) return;
 		try {
-			const [sourcesResp, namesResp] = await Promise.all([
-				this.api.options('published_app_model_sources'),
-				this.api.options('published_app_model_names'),
-			]);
-			const sources = Array.isArray(sourcesResp?.options) ? sourcesResp.options : [];
-			this._modelNames = Array.isArray(namesResp?.options) ? namesResp.options : [];
-			this._modelSourceSelect.innerHTML = '';
-			this._modelNameInput.innerHTML = '';
-			for (const source of sources) {
-				const opt = document.createElement('option');
-				opt.value = source;
-				opt.textContent = source;
-				this._modelSourceSelect.appendChild(opt);
+			const sourcesResp = await this.api.options('published_app_model_sources');
+			const sources = this._normalizeOptionValues(sourcesResp?.options);
+			if (!sources.length) {
+				this._setStatus('Model sources were empty, using defaults.', 'info');
 			}
-			for (const modelName of this._modelNames) {
-				const opt = document.createElement('option');
-				opt.value = modelName;
-				opt.textContent = modelName;
-				this._modelNameInput.appendChild(opt);
-			}
-			if (!this._modelSourceSelect.value && sources.length) {
-				this._modelSourceSelect.value = sources[0];
-			}
-			if (!this._modelNameInput.value && this._modelNames.length) {
-				this._modelNameInput.value = this._modelNames[0];
-			}
+			this._setSelectOptions(this._modelSourceSelect, sources.length ? sources : this._fallbackModelSources);
+			await this._loadModelNamesForSource(this._modelSourceSelect.value);
 			this._modelSourcesLoaded = true;
 		} catch (err) {
-			this._setStatus(`Model options unavailable: ${err.message}`, 'error');
+			this._setSelectOptions(this._modelSourceSelect, this._fallbackModelSources);
+			await this._loadModelNamesForSource(this._modelSourceSelect.value || 'ollama');
+			this._modelSourcesLoaded = true;
+			this._setStatus(`Model options unavailable, using defaults: ${err.message}`, 'error');
 		}
 	}
 
@@ -294,22 +333,22 @@ class AppsManager {
 		this._publishBtn.disabled = true;
 		this._publishBtn.textContent = 'Generating...';
 		try {
-			let workflowName = null;
 			let workflow = null;
 			try {
 				const current = this._getWorkflow();
-				workflowName = current?.name || null;
 				workflow = current?.workflow || null;
 			} catch {}
+			if (!workflow) {
+				throw new Error('No current workflow is available to publish');
+			}
 			await this.api.appsPublish({
 				slug,
 				title: title || slug,
 				description,
-				workflow_name: workflowName,
 				workflow,
 				page_generation: {
 					model_source: this._modelSourceSelect.value || 'ollama',
-					model_name: this._modelNameInput.value.trim() || 'qwen3.5:cloud',
+					model_name: this._modelNameInput.value || 'qwen3.5:cloud',
 					temperature: Number(this._temperatureInput.value || 0.3),
 					max_tokens: Number(this._maxTokensInput.value || 4096),
 					page_prompt: this._pagePromptInput.value.trim(),

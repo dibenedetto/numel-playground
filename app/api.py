@@ -19,7 +19,7 @@ from   typing    import Any, Dict, List, Optional
 
 
 from   event_bus import EventType, EventBus
-from   backend_factory import build_backend, get_text_generation_sources
+from   backend_factory import build_backend, get_text_generation_models, get_text_generation_sources
 from   platform_client import PlatformRequestError
 from   runtime_settings import get_runtime_settings
 from   schema    import DEFAULT_BACKEND_NAME, Workflow, WorkflowExecutionOptions
@@ -1453,22 +1453,26 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		_options_providers[key] = fn
 
 	def _get_model_sources(context=None):
-		return ["ollama", "openai", "anthropic", "groq", "google"]
+		return get_text_generation_sources()
 
 	def _get_model_names(context=None):
-		return ["qwen3.5:cloud", "mistral", "llama3", "gpt-4o", "claude-sonnet", "gemini-pro"]
+		context = context or {}
+		source = None
+		if isinstance(context, dict):
+			source = context.get("source") or context.get("model_source")
+		return get_text_generation_models(model_source=source)
 
 	register_options_provider("model_sources", _get_model_sources)
 	register_options_provider("model_names", _get_model_names)
-	register_options_provider("published_app_model_sources", lambda context=None: get_text_generation_sources())
+	register_options_provider("published_app_model_sources", _get_model_sources)
 	register_options_provider("published_app_model_names", _get_model_names)
 
 	@app.post("/options/{provider_key}")
-	async def get_options(provider_key: str):
+	async def get_options(provider_key: str, context: Optional[Dict[str, Any]] = None):
 		if provider_key not in _options_providers:
 			raise HTTPException(status_code=404, detail=f"Unknown options provider: {provider_key}")
 		fn = _options_providers[provider_key]
-		options = await fn() if iscoroutinefunction(fn) else fn()
+		options = await fn(context) if iscoroutinefunction(fn) else fn(context)
 		return {"options": options}
 
 
