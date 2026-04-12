@@ -1,7 +1,5 @@
 # Numel Playground
 
-![Numel Playground - /gen](docs/gen.png)
-
 **Numel Playground** is a visual editor and runtime for building autonomous AI agent workflows. It combines a node-based graph canvas with a Python backend, enabling you to design, execute, and self-optimize complex AI pipelines — without writing boilerplate code.
 
 > ComfyUI generates images. Numel generates the *best* result — automatically.
