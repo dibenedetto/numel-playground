@@ -152,7 +152,7 @@ class GalleryManager {
 				}
 			} catch (err) {
 				loadBtn.textContent = 'Error';
-				setTimeout(() => { loadBtn.disabled = false; loadBtn.textContent = 'Load'; }, 2000);
+				setTimeout(() => { loadBtn.disabled = false; loadBtn.textContent = 'Load into Space'; }, 2000);
 			}
 		});
 
