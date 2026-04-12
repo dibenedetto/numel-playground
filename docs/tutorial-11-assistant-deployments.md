@@ -25,6 +25,16 @@ The easiest mental model is:
 - **assistant deployment** = runtime product object
 - **channel** = where users interact with it
 
+This is different from plain user memory:
+
+- **user memory** makes an assistant remember a person over time
+- **assistant deployment** makes an assistant become a stable, named, channel-facing service
+
+In practice:
+
+- memory says: `this assistant remembers Marco`
+- deployment says: `this is Support Front Door, it runs on these channels, uses these tools, and follows these approval rules`
+
 ## Part 1: Load The Linked Workbench
 
 1. Create or select a space.

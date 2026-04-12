@@ -31,6 +31,38 @@ Instead of wiring channels ad hoc, you can now create named assistants such as:
 
 Each one can have its own model, tools, skills, safety posture, and routing behavior.
 
+## User Memory vs Assistant Deployments
+
+These two ideas are related, but they solve different problems.
+
+- **User memory** answers:
+  what does this assistant remember about a person?
+- **Assistant deployment** answers:
+  what assistant is this, where does it run, and how is it operated?
+
+So:
+
+- memory gives an assistant **personal continuity**
+- deployment gives an assistant **runtime identity and operator control**
+
+### Practical Comparison
+
+| Case | User Memory Only | Assistant Deployment Only | Both Together |
+|---|---|---|---|
+| Personal helper in the web console | Remembers your preferences, habits, and previous chats | Gives the assistant a fixed identity, but may be more than you need for a private helper | A named personal assistant that remembers you across sessions |
+| Customer support assistant | Can remember returning customers | Can be `Support Front Door`, bound to channels, linked to a workbench, supervised by operators | A real support assistant that also remembers each customer |
+| Same user talking to multiple assistants | The user can be remembered, but the assistants may still feel generic | `Support`, `Billing`, and `Ops` can exist as distinct assistant identities | Different specialist assistants that each keep useful user continuity |
+| Specialist routing | Memory helps with context, but not with assistant organization | A front door can route to `Billing Specialist` or another specialist | Routed specialists that also retain per-user continuity |
+| Proactive summaries and alerts | Memory does not define schedules or delivery behavior | A deployment can own recurring jobs, delivery channels, recipients, and approval rules | A scheduled assistant that also remembers operator or user context |
+| Risky tool usage | Memory may remember preferences, but it does not supervise runtime actions | A deployment can require approval before tool execution | A supervised assistant that still adapts to user history |
+| Shared knowledge use | Remembers what one user asked before | Carries shared channels, shared workbench context, knowledge, tools, and skills | Shared assistant role plus personalized interaction history |
+
+### Short Version
+
+- **Memory only**: a remembering assistant
+- **Deployment only**: an operable assistant service
+- **Both together**: an operable assistant service that also remembers people
+
 ## Current Capabilities
 
 ### Channel Binding
