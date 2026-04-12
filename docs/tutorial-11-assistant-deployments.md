@@ -1,4 +1,4 @@
-Build a real channel-facing assistant by combining a linked workbench with an Assistant Deployment.
+Turn a Numel workbench into a real channel-facing AI service by combining it with an Assistant Deployment.
 
 ## What You Will Learn
 
@@ -28,12 +28,19 @@ The easiest mental model is:
 This is different from plain user memory:
 
 - **user memory** makes an assistant remember a person over time
-- **assistant deployment** makes an assistant become a stable, named, channel-facing service
+- **assistant deployment** makes that AI behavior become a stable, named, channel-facing service
 
 In practice:
 
 - memory says: `this assistant remembers Marco`
 - deployment says: `this is Support Front Door, it runs on these channels, uses these tools, and follows these approval rules`
+
+If you are less technical, this is the important part:
+
+- you do not need to redesign the workflow graph every time
+- you can start from an existing workbench
+- then operate the named deployment from one panel
+- and only go back into the workbench when you want to improve it
 
 ## Part 1: Load The Linked Workbench
 
@@ -73,7 +80,7 @@ Recommended starter values:
 - **Channels**: select your test channel
 - **Tool Execution**: `Require approval before each tool call`
 
-That last setting is important when you want an operator to stay in the loop before the assistant runs tools in a live channel.
+That last setting is important when you want an operator to stay in the loop before the deployment runs tools in a live channel.
 
 ## Part 4: Add A Specialist
 
@@ -151,4 +158,4 @@ At the end of this tutorial, you have:
 - optional proactive jobs
 - operator-visible approvals and runtime supervision
 
-That is the foundation of Numel’s assistant-deployment model.
+That is the foundation of Numel’s assistant-deployment model: workflows remain the place where you build the intelligence, while deployments are the place where you run it for real users.

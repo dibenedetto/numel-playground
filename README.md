@@ -207,11 +207,12 @@ Planner options (space-separated `key=value`): `profile=workflow`, `max_iter=10`
 Web console users authenticated via the login modal are auto-linked — no explicit `/login` needed.
 
 ### Assistant Deployments
-- Create named assistants with their own model, instructions, toolkits, skills, channels, and linked workbench
+- Create named AI services with their own model, instructions, toolkits, skills, channels, and linked workbench
 - Route from a front-door deployment to specialist deployments
 - Add proactive jobs that run on a schedule
 - Require approval before proactive delivery and/or before tool execution
 - Operate everything from the Assistant Deployments panel with activity, failures, pending approvals, and linked-workbench navigation
+- Let less technical users operate a prepared deployment from one panel, while more technical users keep refining the underlying workbench
 
 ### Published Apps
 - Publish any workflow as a **user-owned standalone web app**
