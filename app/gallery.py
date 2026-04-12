@@ -44,6 +44,8 @@ class GalleryManager:
 		self._load()
 		if not self._items:
 			self._seed_from_sources()
+		else:
+			self._sync_builtin_items()
 
 	# ── Persistence ───────────────────────────────────────────
 
@@ -88,6 +90,31 @@ class GalleryManager:
 							author      = "system",
 							created_at  = time.time(),
 						)
+					self._items[item.id] = item
+					self._save_item(item)
+				except Exception:
+					pass
+
+	def _sync_builtin_items(self):
+		"""Import missing built-in gallery items without duplicating older raw examples.
+
+		This keeps existing runtime galleries up to date when we add a new built-in
+		template file with an explicit stable id, while avoiding repeated imports for
+		seed files that rely on auto-generated ids."""
+		for source_dir in self._seed_dirs:
+			if not os.path.isdir(source_dir):
+				continue
+			for fname in sorted(os.listdir(source_dir)):
+				if not fname.endswith(".json"):
+					continue
+				try:
+					with open(os.path.join(source_dir, fname), encoding="utf-8") as f:
+						data = json.load(f)
+					if not (isinstance(data, dict) and "workflow" in data and "id" in data):
+						continue
+					item = GalleryItem(**data)
+					if item.id in self._items:
+						continue
 					self._items[item.id] = item
 					self._save_item(item)
 				except Exception:

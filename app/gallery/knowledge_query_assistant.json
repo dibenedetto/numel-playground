@@ -1,0 +1,105 @@
+{
+  "id": "knowledge_query_assistant",
+  "title": "Shared Knowledge: Ask Your Docs",
+  "description": "Queries the same shared knowledge base used by the ingestor workflow and answers with an agent grounded in the stored documents.",
+  "category": "knowledge",
+  "tags": ["knowledge", "rag", "assistant", "query", "agent"],
+  "author": "system",
+  "created_at": 1775952000.0,
+  "workflow": {
+    "type": "workflow",
+    "options": {
+      "name": "Ask Shared Knowledge",
+      "description": "Ask questions against the shared knowledge base created by the ingestor workflow."
+    },
+    "nodes": [
+      {
+        "type": "start_flow",
+        "extra": {"pos": [40, 220], "name": "Start"}
+      },
+      {
+        "type": "backend_config",
+        "name": "agno",
+        "extra": {"pos": [40, 60], "name": "Backend"}
+      },
+      {
+        "type": "model_config",
+        "source": "ollama",
+        "name": "mistral",
+        "extra": {"pos": [240, 60], "name": "Model"}
+      },
+      {
+        "type": "agent_options_config",
+        "instructions": [
+          "Answer using the connected shared knowledge base.",
+          "Stay grounded in retrieved documents and say when the answer is not present in the knowledge base.",
+          "Prefer concise, practical answers and mention likely source documents when useful."
+        ],
+        "extra": {"pos": [440, 60], "name": "Answering Instructions"}
+      },
+      {
+        "type": "content_db_config",
+        "url": "storage/shared_knowledge/content",
+        "extra": {"pos": [640, 60], "name": "Content DB"}
+      },
+      {
+        "type": "embedding_config",
+        "source": "ollama",
+        "name": "mistral",
+        "extra": {"pos": [840, 60], "name": "Embedding"}
+      },
+      {
+        "type": "index_db_config",
+        "url": "storage/shared_knowledge/index",
+        "table_name": "documents",
+        "search_type": "hybrid",
+        "extra": {"pos": [1040, 60], "name": "Index DB"}
+      },
+      {
+        "type": "knowledge_manager_config",
+        "query": true,
+        "update": false,
+        "description": "Shared knowledge base populated by the file ingestor workflow.",
+        "max_results": 8,
+        "extra": {"pos": [1240, 120], "name": "Shared Knowledge"}
+      },
+      {
+        "type": "agent_config",
+        "extra": {"pos": [1440, 120], "name": "Knowledge Assistant"}
+      },
+      {
+        "type": "user_input_flow",
+        "query": "What do you want to ask your shared knowledge base?",
+        "extra": {"pos": [360, 220], "name": "Question"}
+      },
+      {
+        "type": "agent_flow",
+        "extra": {"pos": [720, 220], "name": "Answer from Knowledge"}
+      },
+      {
+        "type": "preview_flow",
+        "hint": "text",
+        "extra": {"pos": [980, 220], "name": "Answer Preview"}
+      },
+      {
+        "type": "end_flow",
+        "extra": {"pos": [1240, 220], "name": "End"}
+      }
+    ],
+    "edges": [
+      {"source": 0, "target": 9, "source_slot": "flow_out", "target_slot": "flow_in"},
+      {"source": 1, "target": 8, "source_slot": "config", "target_slot": "backend"},
+      {"source": 2, "target": 8, "source_slot": "config", "target_slot": "model"},
+      {"source": 3, "target": 8, "source_slot": "options", "target_slot": "options"},
+      {"source": 4, "target": 7, "source_slot": "config", "target_slot": "content_db"},
+      {"source": 5, "target": 6, "source_slot": "config", "target_slot": "embedding"},
+      {"source": 6, "target": 7, "source_slot": "config", "target_slot": "index_db"},
+      {"source": 7, "target": 8, "source_slot": "config", "target_slot": "knowledge_mgr"},
+      {"source": 8, "target": 10, "source_slot": "config", "target_slot": "config"},
+      {"source": 9, "target": 10, "source_slot": "message", "target_slot": "request"},
+      {"source": 9, "target": 10, "source_slot": "flow_out", "target_slot": "flow_in"},
+      {"source": 10, "target": 11, "source_slot": "response", "target_slot": "flow_in"},
+      {"source": 11, "target": 12, "source_slot": "flow_out", "target_slot": "flow_in"}
+    ]
+  }
+}

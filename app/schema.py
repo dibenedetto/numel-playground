@@ -1667,6 +1667,8 @@ WorkflowNodeUnion = Union[
 	UserInputFlow,
 	ToolFlow,
 	AgentFlow,
+	KnowledgeIngestFlow,
+	KnowledgeSearchFlow,
 
 	# Loop nodes
 	LoopStartFlow,
