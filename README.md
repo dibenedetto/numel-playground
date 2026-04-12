@@ -6,8 +6,7 @@
 
 > ComfyUI generates images. Numel generates the *best* result — automatically.
 
-![Numel Playground - Teaser 1](docs/teaser-1.jpg)
-![Numel Playground - Teaser 2](docs/teaser-2.jpg)
+![Numel Playground - Teaser](docs/teaser.jpg)
 
 ---
 
