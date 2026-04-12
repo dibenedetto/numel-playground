@@ -500,6 +500,61 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(detail_data["asset_path"], "workflow.json")
         self.assertEqual(detail_data["status"], "completed")
 
+    async def test_admin_execution_list_can_filter_by_status_local(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "admin", "email": "admin@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        save = await self._client.post(
+            "/workflow/save",
+            json={"workflow": _minimal_workflow_payload()},
+            headers=headers,
+        )
+        self.assertEqual(save.status_code, 200, save.text)
+
+        start = await self._client.post("/workflow/start", json={}, headers=headers)
+        self.assertEqual(start.status_code, 200, start.text)
+        execution_id = start.json()["execution_id"]
+        self.assertTrue(execution_id)
+
+        final_status = start.json()["status"]
+        for _ in range(60):
+            state = await self._client.post(f"/executions/{execution_id}", json={}, headers=headers)
+            self.assertEqual(state.status_code, 200, state.text)
+            final_status = state.json()["state"]["status"]
+            if final_status in {"completed", "failed", "cancelled"}:
+                break
+            await asyncio.sleep(0.2)
+
+        self.assertEqual(final_status, "completed")
+
+        completed_items = []
+        for _ in range(20):
+            completed = await self._client.post(
+                "/admin/executions",
+                json={"status": "completed"},
+                headers=headers,
+            )
+            self.assertEqual(completed.status_code, 200, completed.text)
+            completed_items = completed.json()["executions"]
+            if any(item["execution_id"] == execution_id for item in completed_items):
+                break
+            await asyncio.sleep(0.1)
+        self.assertTrue(any(item["display_name"] == "Surface Workflow" for item in completed_items))
+        self.assertTrue(all(item["status"] == "completed" for item in completed_items))
+
+        running = await self._client.post(
+            "/admin/executions",
+            json={"status": "running"},
+            headers=headers,
+        )
+        self.assertEqual(running.status_code, 200, running.text)
+        running_items = running.json()["executions"]
+        self.assertFalse(any(item["display_name"] == "Surface Workflow" for item in running_items))
+
     async def test_first_run_space_accepts_hello_starter_and_completes(self) -> None:
         register = await self._client.post(
             "/auth/register",

@@ -9,6 +9,7 @@ const NumelAdmin = (() => {
 	let _panel, _closeBtn, _openBtn;
 	let _tabs;
 	let _selectedExecutionId = '';
+	let _executionJumpTimer = 0;
 
 	// ── Helpers ──────────────────────────────────────────────────
 
@@ -198,6 +199,56 @@ const NumelAdmin = (() => {
 		return status === 'running' || status === 'pending';
 	}
 
+	function _clearExecutionSelection() {
+		document.querySelectorAll('#adminExecList [data-execution-id]').forEach((card) => {
+			card.classList.remove('is-selected', 'nw-admin-card-jump');
+		});
+		if (_executionJumpTimer) {
+			window.clearTimeout(_executionJumpTimer);
+			_executionJumpTimer = 0;
+		}
+	}
+
+	function _setSelectedExecutionCard(executionId) {
+		document.querySelectorAll('#adminExecList [data-execution-id]').forEach((card) => {
+			card.classList.toggle('is-selected', !!executionId && card.dataset.executionId === executionId);
+		});
+	}
+
+	function _scrollExecutionCardIntoView(executionId) {
+		if (!executionId) return false;
+		const cards = Array.from(document.querySelectorAll('#adminExecList [data-execution-id]'));
+		const card = cards.find((item) => item.dataset.executionId === executionId);
+		if (!card) return false;
+		_setSelectedExecutionCard(executionId);
+		card.classList.add('nw-admin-card-jump');
+		card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		if (_executionJumpTimer) window.clearTimeout(_executionJumpTimer);
+		_executionJumpTimer = window.setTimeout(() => {
+			card.classList.remove('nw-admin-card-jump');
+			_executionJumpTimer = 0;
+		}, 1800);
+		return true;
+	}
+
+	async function _jumpToExecutionList(executionId) {
+		if (!executionId) return;
+		_closeExecutionDrawer();
+		if (_scrollExecutionCardIntoView(executionId)) return;
+		const filterInput = document.getElementById('adminExecFilter');
+		const statusFilter = document.getElementById('adminExecStatusFilter');
+		if (statusFilter) {
+			const value = String(statusFilter.value || '').trim().toLowerCase();
+			if (value && value !== 'running' && value !== 'pending') {
+				statusFilter.value = '';
+			}
+		}
+		if (filterInput && filterInput.value.trim()) {
+			filterInput.value = '';
+		}
+		await _loadExecutions(executionId);
+	}
+
 	function _closeExecutionDrawer() {
 		_selectedExecutionId = '';
 		const drawer = document.getElementById('adminExecDrawer');
@@ -213,6 +264,7 @@ const NumelAdmin = (() => {
 		if (title) title.textContent = 'Execution Details';
 		if (subtitle) subtitle.textContent = '';
 		if (cancelBtn) cancelBtn.style.display = 'none';
+		_clearExecutionSelection();
 	}
 
 	async function _openExecutionDrawer(executionId) {
@@ -227,6 +279,7 @@ const NumelAdmin = (() => {
 		if (content) {
 			content.innerHTML = '<div style="color:var(--sg-text-tertiary);font-size:12px;">Loading execution details...</div>';
 		}
+		_setSelectedExecutionCard(executionId);
 		await _loadExecutionDetail(executionId);
 	}
 
@@ -304,15 +357,17 @@ const NumelAdmin = (() => {
 		}
 	}
 
-	async function _loadExecutions() {
+	async function _loadExecutions(jumpToId = '') {
 		const activeList = document.getElementById('adminExecActive');
 		const list       = document.getElementById('adminExecList');
 		if (!list) return;
 		const filter = (document.getElementById('adminExecFilter')?.value || '').trim();
+		const status = (document.getElementById('adminExecStatusFilter')?.value || '').trim().toLowerCase();
 		list.innerHTML = '<div style="color:var(--sg-text-tertiary);font-size:12px;">Loading...</div>';
 		try {
 			const body = { limit: 100 };
 			if (filter) body.workflow_name = filter;
+			if (status) body.status = status;
 			const data = await _post('/admin/executions', body);
 			const active = data.active_execution_ids || [];
 			const items  = data.executions || [];
@@ -320,8 +375,18 @@ const NumelAdmin = (() => {
 			// Active executions
 			if (activeList) {
 				if (active.length) {
-					activeList.innerHTML = '<div style="font-size:11px;color:var(--sg-text-secondary);margin-bottom:4px;">Running:</div>' +
-						active.map(id => `<span class="nw-admin-active-tag">${_esc(id.slice(0,8))}...</span>`).join(' ');
+					activeList.innerHTML = '<div style="font-size:11px;color:var(--sg-text-secondary);margin-bottom:4px;">Active:</div>' +
+						active.map(id => `
+							<button type="button" class="nw-admin-active-tag nw-admin-active-link" data-active-exec-id="${_esc(id)}" title="Show this execution in the list">
+								${_esc(id.slice(0,8))}...
+							</button>
+						`).join(' ');
+					activeList.querySelectorAll('[data-active-exec-id]').forEach((btn) => {
+						btn.addEventListener('click', async (event) => {
+							event.preventDefault();
+							await _jumpToExecutionList(btn.dataset.activeExecId || '');
+						});
+					});
 				} else {
 					activeList.innerHTML = '';
 				}
@@ -337,6 +402,7 @@ const NumelAdmin = (() => {
 				const card = document.createElement('div');
 				card.className = 'nw-admin-card nw-admin-card-clickable';
 				card.dataset.executionId = ex.execution_id || '';
+				card.tabIndex = 0;
 				card.innerHTML = `
 					<div class="nw-admin-card-header">
 						<span class="nw-admin-card-title">${_esc(ex.display_name || ex.workflow_name || ex.asset_path || '?')}</span>
@@ -367,6 +433,8 @@ const NumelAdmin = (() => {
 				});
 				list.appendChild(card);
 			}
+			if (_selectedExecutionId) _setSelectedExecutionCard(_selectedExecutionId);
+			if (jumpToId) _scrollExecutionCardIntoView(jumpToId);
 			if (_selectedExecutionId) {
 				const stillExists = items.some((item) => item.execution_id === _selectedExecutionId);
 				if (stillExists) await _loadExecutionDetail(_selectedExecutionId);
@@ -653,6 +721,7 @@ const NumelAdmin = (() => {
 		const rs = document.getElementById('adminRefreshStats');
 		const rd = document.getElementById('adminRefreshDiagnostics');
 		const rexClose = document.getElementById('adminExecDrawerClose');
+		const rexBack = document.getElementById('adminExecDrawerBack');
 		const rexRefresh = document.getElementById('adminExecDrawerRefresh');
 		const rexCancel = document.getElementById('adminExecDrawerCancel');
 		if (ru) ru.onclick = _loadUsers;
@@ -660,6 +729,7 @@ const NumelAdmin = (() => {
 		if (rs) rs.onclick = _loadStats;
 		if (rd) rd.onclick = _loadDiagnostics;
 		if (rexClose) rexClose.onclick = _closeExecutionDrawer;
+		if (rexBack) rexBack.onclick = _closeExecutionDrawer;
 		if (rexRefresh) rexRefresh.onclick = () => _loadExecutionDetail();
 		if (rexCancel) rexCancel.onclick = () => _cancelExecutionFromAdmin(_selectedExecutionId);
 
@@ -670,6 +740,8 @@ const NumelAdmin = (() => {
 		// Filter keyup
 		const ef = document.getElementById('adminExecFilter');
 		if (ef) ef.addEventListener('keydown', (e) => { if (e.key === 'Enter') _loadExecutions(); });
+		const esf = document.getElementById('adminExecStatusFilter');
+		if (esf) esf.addEventListener('change', _loadExecutions);
 	}
 
 	/** Call after login to show admin button if user is admin. */

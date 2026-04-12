@@ -690,6 +690,14 @@
 				<div id="adminTabExec" class="nw-admin-tab-content">
 					<div class="nw-admin-toolbar">
 						<button id="adminRefreshExec" class="nw-btn nw-btn-sm">Refresh</button>
+						<select id="adminExecStatusFilter" class="nw-select nw-admin-status-filter" aria-label="Filter executions by status">
+							<option value="">All statuses</option>
+							<option value="running">Running</option>
+							<option value="pending">Pending</option>
+							<option value="completed">Completed</option>
+							<option value="failed">Failed</option>
+							<option value="cancelled">Cancelled</option>
+						</select>
 						<input id="adminExecFilter" type="text" class="nw-input nw-admin-filter" placeholder="Filter by workflow..." autocomplete="off" aria-label="Filter executions">
 					</div>
 					<div id="adminExecActive" class="nw-admin-active-list"></div>
@@ -703,6 +711,7 @@
 							<button id="adminExecDrawerClose" class="nw-console-close" type="button" aria-label="Close execution details">&times;</button>
 						</div>
 						<div class="nw-admin-exec-drawer-toolbar">
+							<button id="adminExecDrawerBack" class="nw-btn nw-btn-sm nw-btn-secondary">← Back to list</button>
 							<button id="adminExecDrawerRefresh" class="nw-btn nw-btn-sm">Refresh</button>
 							<button id="adminExecDrawerCancel" class="nw-btn nw-btn-sm nw-btn-danger">Cancel</button>
 						</div>

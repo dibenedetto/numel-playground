@@ -576,6 +576,15 @@ async def run_server(
 			end = time.time()
 		return max(0, int(round((end - start) * 1000)))
 
+	def _coerce_execution_state_filter(value: Any) -> Optional[ExecutionState]:
+		raw = str(value or "").strip().casefold()
+		if not raw or raw == "all":
+			return None
+		for state in ExecutionState:
+			if str(state.value).casefold() == raw:
+				return state
+		return None
+
 	def _serialize_admin_execution_summary(record: Any, *, source: str = "platform") -> dict[str, Any]:
 		status_obj = _execution_record_value(record, "status", "unknown")
 		status_value = getattr(status_obj, "value", str(status_obj))
@@ -634,17 +643,23 @@ async def run_server(
 	async def _list_admin_execution_summaries(
 		*,
 		workflow_name: Optional[str] = None,
+		status: Optional[str] = None,
 		limit: int = 100,
 		offset: int = 0,
 	) -> dict[str, Any]:
 		runtime = getattr(_platform_stack, "runtime", None)
 		filter_text = str(workflow_name or "").strip().casefold()
+		status_filter = _coerce_execution_state_filter(status)
+		status_filter_text = str(status or "").strip().casefold()
 		if runtime is not None:
 			try:
 				fetch_limit = max(50, int(limit or 100) + int(offset or 0))
 				if filter_text:
 					fetch_limit = max(fetch_limit, 300)
-				records = await runtime.list_executions(limit=fetch_limit)
+				records = await runtime.list_executions(
+					status=status_filter,
+					limit=fetch_limit,
+				)
 				items = [_serialize_admin_execution_summary(record) for record in records]
 				if filter_text:
 					items = [
@@ -662,20 +677,27 @@ async def run_server(
 						).casefold()
 					]
 				active_exec_ids = await _list_active_platform_execution_ids()
-				return {
-					"executions": items[offset : offset + limit],
-					"active_execution_ids": active_exec_ids,
-					"source": "platform",
-				}
+				if items or (not filter_text and not status_filter_text):
+					return {
+						"executions": items[offset : offset + limit],
+						"active_execution_ids": active_exec_ids,
+						"source": "platform",
+					}
 			except Exception:
 				pass
 
-		items = exec_history.list(workflow_name=workflow_name, limit=limit, offset=offset)
+		history_limit = max(500, int(limit or 100) + int(offset or 0)) if status_filter_text else int(limit or 100)
+		items = exec_history.list(workflow_name=workflow_name, limit=history_limit, offset=0 if status_filter_text else offset)
+		if status_filter_text:
+			items = [
+				item for item in items
+				if str(item.get("status", "") or "").strip().casefold() == status_filter_text
+			]
 		return {
 			"executions": [
 				_serialize_admin_execution_summary(item, source="history")
-				for item in items
-			],
+			for item in items
+			][offset : offset + limit],
 			"active_execution_ids": [],
 			"source": "history",
 		}
@@ -944,10 +966,12 @@ async def run_server(
 		try: body = await request.json()
 		except Exception: pass
 		wf_name = body.get("workflow_name")
+		status  = body.get("status")
 		limit   = int(body.get("limit", 100) or 100)
 		offset  = int(body.get("offset", 0) or 0)
 		return await _list_admin_execution_summaries(
 			workflow_name=wf_name,
+			status=status,
 			limit=limit,
 			offset=offset,
 		)

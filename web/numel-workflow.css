@@ -3244,13 +3244,18 @@ body.nw-layout-project-workbench .nw-auth-title {
 .nw-admin-toolbar {
 	display: flex;
 	align-items: center;
+	flex-wrap: wrap;
 	gap: 8px;
 	margin-bottom: 10px;
+}
+.nw-admin-status-filter {
+	min-width: 136px;
 }
 .nw-admin-filter {
 	flex: 1;
 	padding: 4px 8px;
 	font-size: 12px;
+	min-width: 180px;
 }
 .nw-admin-check {
 	font-size: 11px;
@@ -3280,6 +3285,24 @@ body.nw-layout-project-workbench .nw-auth-title {
 	border-color: color-mix(in srgb, var(--sg-accent-blue, #4a9eff) 45%, var(--nw-border-soft));
 	background: color-mix(in srgb, var(--sg-bg-secondary) 88%, var(--sg-accent-blue, #4a9eff) 12%);
 	transform: translateY(-1px);
+}
+.nw-admin-card-clickable.is-selected {
+	border-color: color-mix(in srgb, var(--sg-accent-blue, #4a9eff) 58%, var(--nw-border-soft));
+	box-shadow: 0 0 0 1px color-mix(in srgb, var(--sg-accent-blue, #4a9eff) 35%, transparent);
+}
+.nw-admin-card-jump {
+	animation: nw-admin-card-jump-flash 1.6s ease;
+}
+@keyframes nw-admin-card-jump-flash {
+	0%,
+	100% {
+		box-shadow: 0 0 0 1px color-mix(in srgb, var(--sg-accent-blue, #4a9eff) 28%, transparent);
+	}
+	35% {
+		box-shadow:
+			0 0 0 1px color-mix(in srgb, var(--sg-accent-blue, #4a9eff) 52%, transparent),
+			0 0 0 8px color-mix(in srgb, var(--sg-accent-blue, #4a9eff) 14%, transparent);
+	}
 }
 .nw-admin-card-header {
 	display: flex;
@@ -3438,6 +3461,17 @@ body.nw-layout-project-workbench .nw-auth-title {
 	border-radius: 8px;
 	margin: 2px;
 }
+.nw-admin-active-link {
+	border: none;
+	cursor: pointer;
+	transition: filter 0.16s ease, transform 0.16s ease;
+}
+.nw-admin-active-link:hover,
+.nw-admin-active-link:focus-visible {
+	filter: brightness(1.08);
+	transform: translateY(-1px);
+	outline: none;
+}
 .nw-admin-exec-status {
 	display: inline-block;
 	font-size: 10px;
@@ -3486,6 +3520,7 @@ body.nw-layout-project-workbench .nw-auth-title {
 }
 .nw-admin-exec-drawer-toolbar {
 	display: flex;
+	flex-wrap: wrap;
 	gap: 8px;
 }
 .nw-admin-exec-drawer-content {
