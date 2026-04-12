@@ -1,0 +1,35 @@
+{
+  "type": "assistant_deployment_example",
+  "name": "Operations Pulse",
+  "profile": "ops",
+  "description": "Sends recurring operational updates and keeps operator approval in the loop for outgoing messages.",
+  "instructions": "Produce concise operational updates, call out risks early, and keep the tone practical.",
+  "linked_space_title": "Operations Workbench",
+  "linked_workflow_name": "Operations Workbench",
+  "model_source": "anthropic",
+  "model_name": "claude-sonnet-4-20250514",
+  "toolkit_names": ["workspace_toolkit", "file_toolkit"],
+  "skill_names": [],
+  "channel_ids": ["replace_with_channel_id"],
+  "routing_rules": [],
+  "proactive_tasks": [
+    {
+      "name": "Morning Summary",
+      "prompt": "Summarize the most important operational events and surface the top follow-ups.",
+      "interval_sec": 900,
+      "channel_id": "replace_with_channel_id",
+      "recipient_id": "replace_with_recipient_id",
+      "enabled": true,
+      "send_response": true
+    }
+  ],
+  "safety": {
+    "proactive_delivery_mode": "approval",
+    "tool_execution_mode": "approval"
+  },
+  "auto_start": true,
+  "notes": [
+    "Use this as an API-oriented example for a proactive operator assistant.",
+    "The proactive delivery approval and tool-call approval modes can be enabled independently."
+  ]
+}

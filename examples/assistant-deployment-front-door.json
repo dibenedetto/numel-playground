@@ -1,0 +1,32 @@
+{
+  "type": "assistant_deployment_example",
+  "name": "Support Front Door",
+  "profile": "triage",
+  "description": "Routes support traffic to specialists and stays linked to the support workbench.",
+  "instructions": "Be the first point of contact. Route to a specialist when the request clearly matches a configured domain.",
+  "linked_space_title": "Support Workbench",
+  "linked_workflow_name": "Support Knowledge Workbench",
+  "model_source": "openai",
+  "model_name": "gpt-4o-mini",
+  "toolkit_names": ["channel_toolkit", "knowledge_toolkit"],
+  "skill_names": [],
+  "channel_ids": ["replace_with_channel_id"],
+  "routing_rules": [
+    {
+      "name": "billing",
+      "target_deployment_id": "replace_with_billing_specialist_id",
+      "keywords": ["invoice", "billing", "refund", "chargeback"],
+      "enabled": true
+    }
+  ],
+  "proactive_tasks": [],
+  "safety": {
+    "proactive_delivery_mode": "auto",
+    "tool_execution_mode": "approval"
+  },
+  "auto_start": false,
+  "notes": [
+    "Use this as an API-oriented example for a front-door deployment.",
+    "Replace the channel and target deployment IDs before creating it through the API."
+  ]
+}

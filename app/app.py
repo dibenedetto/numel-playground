@@ -53,6 +53,7 @@ import subprocess
 import threading
 
 from   agent_tasks   import AgentTaskManager, setup_agent_tasks_api
+from   assistant_deployments import AssistantDeploymentManager, setup_assistant_deployments_api
 from   exec_history  import ExecHistoryManager
 from   api       import setup_api
 import credentials as _creds
@@ -184,6 +185,7 @@ async def run_server(
 	console_mgr = None
 	channel_registry = None
 	task_mgr = None
+	assistant_deployment_mgr = None
 	_shutdown_started = False
 	_channels_started = False
 	_browser_opened = False
@@ -206,6 +208,8 @@ async def run_server(
 		_shutdown_started = True
 		if task_mgr is not None:
 			await task_mgr.stop_all()
+		if assistant_deployment_mgr is not None:
+			await assistant_deployment_mgr.shutdown()
 		if channel_registry is not None:
 			await channel_registry.stop_all()
 		if console_mgr is not None:
@@ -1120,22 +1124,88 @@ async def run_server(
 					await channel_pool.evict(session_id)
 				return cmd_response
 
-			session_id = msg.metadata.get("session_id") or f"ch_{msg.channel_type}_{msg.sender_id}"
+			primary_deployment = None
+			deployment = None
+			handoff = None
+			if assistant_deployment_mgr:
+				primary_deployment, deployment, handoff = assistant_deployment_mgr.resolve_for_message(
+					msg.channel_id,
+					msg.content,
+				)
+			session_id = msg.metadata.get("session_id")
+			if not session_id:
+				if deployment is not None:
+					session_id = f"deploy_{deployment.id}_{msg.channel_type}_{msg.sender_id}"
+				else:
+					session_id = f"ch_{msg.channel_type}_{msg.sender_id}"
 			# Resolve per-user identity and toolkits
 			numel_user_id = channel_cmd.get_linked_user_id(msg.channel_type, msg.sender_id)
 			toolkits = channel_cmd.get_enabled_toolkits(msg.channel_type, msg.sender_id)
+			deployment_toolkits = list(deployment.toolkit_names) if deployment and deployment.toolkit_names else None
+			deployment_skills = list(deployment.skill_names) if deployment and deployment.skill_names else None
+			extra_instructions = []
+			if deployment and deployment.instructions.strip():
+				extra_instructions.append(
+					f"[Assistant Deployment]\nDeployment: {deployment.name}\nProfile: {deployment.profile}\n{deployment.instructions.strip()}"
+				)
+			if handoff and primary_deployment and deployment and primary_deployment.id != deployment.id:
+				extra_instructions.append(
+					f"[Assistant Handoff]\nSource deployment: {primary_deployment.name}\nTarget deployment: {deployment.name}\nReason: {handoff.get('reason', 'routing rule matched')}"
+				)
+			if not extra_instructions:
+				extra_instructions = None
 			sender   = channel_cmd.get_linked_username(msg.channel_type, msg.sender_id) \
 				or msg.sender_name or msg.sender_id
 			mem_user_id = numel_user_id or f"anon_{msg.channel_type}_{msg.sender_id}"
 			result = await channel_pool.chat(
 				msg.content, session_id,
-				toolkits=toolkits or None,
+				toolkits=deployment_toolkits if deployment_toolkits is not None else (toolkits or None),
 				sender_name=sender,
 				user_id=mem_user_id,
 				attachments=msg.attachments if msg.attachments else None,
+				model_source=deployment.model_source if deployment else None,
+				model_name=deployment.model_name if deployment else None,
+				skill_names=deployment_skills,
+				deployment_id=deployment.id if deployment else None,
+				tool_confirmation_mode=deployment.safety.tool_execution_mode if deployment else None,
+				assistant_name=deployment.name if deployment else None,
+				assistant_description=deployment.description if deployment else None,
+				extra_instructions=extra_instructions,
 			)
+			if result.get("pending_tool_approval"):
+				if assistant_deployment_mgr and deployment:
+					assistant_deployment_mgr.record_tool_approval_request(
+						deployment.id,
+						channel_id=msg.channel_id,
+						sender_id=msg.sender_id,
+						approval=dict(result.get("pending_tool_approval") or {}),
+						preview=str(result.get("response", "") or ""),
+						routed_from=primary_deployment.id if primary_deployment and deployment and primary_deployment.id != deployment.id else None,
+						handoff=handoff,
+					)
+				return result.get("response", "") or "Approval requested before running a tool."
 			if result.get("error"):
+				if assistant_deployment_mgr and deployment:
+					assistant_deployment_mgr.record_message(
+						deployment.id,
+						channel_id=msg.channel_id,
+						sender_id=msg.sender_id,
+						status="error",
+						preview=str(result.get("error", "")),
+						routed_from=primary_deployment.id if primary_deployment and deployment and primary_deployment.id != deployment.id else None,
+						handoff=handoff,
+					)
 				return f"⚠ {result['error']}"
+			if assistant_deployment_mgr and deployment:
+				assistant_deployment_mgr.record_message(
+					deployment.id,
+					channel_id=msg.channel_id,
+					sender_id=msg.sender_id,
+					status="ok",
+					preview=str(result.get("response", "") or ""),
+					routed_from=primary_deployment.id if primary_deployment and deployment and primary_deployment.id != deployment.id else None,
+					handoff=handoff,
+				)
 			return result.get("response", "") or "(no response from agent)"
 		except Exception as e:
 			log_print(f"Channel message handler error: {e}")
@@ -1154,6 +1224,10 @@ async def run_server(
 	ChannelRegistry.register_type("webhook",  WebhookChannelAdapter)
 	ChannelRegistry.register_type("web",      WebChannelAdapter)
 	channel_registry.load()
+	assistant_deployment_mgr = AssistantDeploymentManager(
+		config_path=str(_runtime_settings.assistant_deployments_path)
+	)
+	assistant_deployment_mgr.initialize(channel_registry=channel_registry, channel_pool=channel_pool)
 	# Make channel registry available to workspace engines and agent pool
 	workspace_mgr._channel_registry = channel_registry
 	for _ws in workspace_mgr._workspaces.values():
@@ -1205,6 +1279,7 @@ async def run_server(
 	setup_api(app, event_bus, schema_code, workspace_mgr, skill_mgr=skill_mgr)
 	setup_console_api(app, console_mgr, channel_pool=channel_pool, channel_cmd=channel_cmd)
 	setup_channel_api(app, channel_registry, pool=channel_pool)
+	setup_assistant_deployments_api(app, assistant_deployment_mgr, channel_registry=channel_registry)
 	setup_gallery_api(app, gallery_mgr)
 	setup_skills_api(app, skill_mgr)
 	setup_agent_tasks_api(app, task_mgr)
@@ -1325,6 +1400,8 @@ async def run_server(
 			_browser_opened = True
 		if start_channels_now and not _channels_started:
 			await channel_registry.start_all()
+			if assistant_deployment_mgr is not None:
+				await assistant_deployment_mgr.start_auto()
 			_channels_started = True
 		if start_tunnel_now and not _tunnel_started:
 			t = threading.Thread(target=_start_tunnel, args=(port,), daemon=True)
@@ -1338,6 +1415,7 @@ async def run_server(
 	app.state.console_mgr = console_mgr
 	app.state.channel_registry = channel_registry
 	app.state.task_mgr = task_mgr
+	app.state.assistant_deployment_mgr = assistant_deployment_mgr
 	app.state.gallery_mgr = gallery_mgr
 	app.state.skill_mgr = skill_mgr
 	app.state.published_app_mgr = pub_app_mgr

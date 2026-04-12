@@ -41,6 +41,7 @@ class RuntimeSettings:
     channel_users_path: Path
     channels_config_path: Path
     agent_tasks_path: Path
+    assistant_deployments_path: Path
     published_apps_path: Path
     published_apps_dir: Path
     gallery_dir: Path
@@ -74,6 +75,7 @@ class RuntimeSettings:
             self.channel_users_path,
             self.channels_config_path,
             self.agent_tasks_path,
+            self.assistant_deployments_path,
             self.published_apps_path,
             self.skills_state_path,
         ]
@@ -98,6 +100,7 @@ def get_runtime_settings() -> RuntimeSettings:
         channel_users_path=_path_from_env("NUMEL_CHANNEL_USERS_FILE", data_root / "channel_users.json"),
         channels_config_path=_path_from_env("NUMEL_CHANNELS_CONFIG", data_root / "channels.json"),
         agent_tasks_path=_path_from_env("NUMEL_AGENT_TASKS_FILE", data_root / "agent_tasks.json"),
+        assistant_deployments_path=_path_from_env("NUMEL_ASSISTANT_DEPLOYMENTS_FILE", data_root / "assistant_deployments.json"),
         published_apps_path=_path_from_env("NUMEL_PUBLISHED_APPS_FILE", data_root / "published_apps.json"),
         published_apps_dir=_path_from_env("NUMEL_PUBLISHED_APPS_DIR", data_root / "published_apps"),
         gallery_dir=_path_from_env("NUMEL_GALLERY_DIR", data_root / "gallery"),

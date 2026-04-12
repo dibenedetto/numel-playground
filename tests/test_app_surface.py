@@ -755,6 +755,739 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("toolkits.file_toolkit", prompt)
         self.assertNotIn("toolkits.workspace_toolkit", prompt)
 
+    async def test_assistant_deployments_are_user_owned_and_bind_channels(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "deploy", "email": "deploy@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        channel = await self._client.post(
+            "/channels/add",
+            json={"name": "Support Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel.status_code, 200, channel.text)
+        channel_id = channel.json()["id"]
+
+        created = await self._client.post(
+            "/assistant-deployments/create",
+            json={
+                "name": "Support Assistant",
+                "description": "Handles inbound support requests.",
+                "instructions": "Be concise and helpful.",
+                "model_source": "openai",
+                "model_name": "gpt-4o-mini",
+                "toolkit_names": ["file_toolkit", "channel_toolkit"],
+                "skill_names": [],
+                "channel_ids": [channel_id],
+            },
+            headers=headers,
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        deployment = created.json()
+        self.assertEqual(deployment["name"], "Support Assistant")
+        self.assertEqual(deployment["created_by"], register.json()["user"]["id"])
+        self.assertEqual(deployment["channel_ids"], [channel_id])
+        self.assertEqual(deployment["toolkit_names"], ["file_toolkit", "channel_toolkit"])
+        self.assertEqual(deployment["status"], "stopped")
+        self.assertEqual(deployment["channels"][0]["id"], channel_id)
+
+        listing = await self._client.post("/assistant-deployments/list", json={}, headers=headers)
+        self.assertEqual(listing.status_code, 200, listing.text)
+        self.assertEqual(len(listing.json()["deployments"]), 1)
+
+        second = await self._client.post(
+            "/auth/register",
+            json={"username": "deploy2", "email": "deploy2@local", "password": "pass1234"},
+        )
+        self.assertEqual(second.status_code, 200, second.text)
+        second_headers = self._auth_headers(second.json()["token"])
+        second_listing = await self._client.post("/assistant-deployments/list", json={}, headers=second_headers)
+        self.assertEqual(second_listing.status_code, 200, second_listing.text)
+        self.assertEqual(second_listing.json()["deployments"], [])
+
+    async def test_assistant_deployment_can_link_workbench_metadata(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "deployctx", "email": "deployctx@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        current_space = await self._client.post("/spaces/current", json={}, headers=headers)
+        self.assertEqual(current_space.status_code, 200, current_space.text)
+        space = current_space.json()["space"]
+
+        created = await self._client.post(
+            "/assistant-deployments/create",
+            json={
+                "name": "Knowledge Assistant",
+                "linked_space_id": space["id"],
+                "linked_space_title": space["title"],
+                "linked_workflow_name": "Ask Your Docs",
+            },
+            headers=headers,
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        deployment = created.json()
+        self.assertEqual(deployment["linked_space_id"], space["id"])
+        self.assertEqual(deployment["linked_space_title"], space["title"])
+        self.assertEqual(deployment["linked_workflow_name"], "Ask Your Docs")
+
+    async def test_assistant_deployment_start_stop_controls_bound_channels(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "deployrun", "email": "deployrun@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        channel = await self._client.post(
+            "/channels/add",
+            json={"name": "Ops Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel.status_code, 200, channel.text)
+        channel_id = channel.json()["id"]
+
+        created = await self._client.post(
+            "/assistant-deployments/create",
+            json={"name": "Ops Assistant", "channel_ids": [channel_id]},
+            headers=headers,
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        deployment_id = created.json()["id"]
+
+        started = await self._client.post(
+            "/assistant-deployments/start",
+            json={"id": deployment_id},
+            headers=headers,
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        self.assertEqual(started.json()["status"], "running")
+
+        channel_status = await self._client.post("/channels/status", json={"channel_id": channel_id}, headers=headers)
+        self.assertEqual(channel_status.status_code, 200, channel_status.text)
+        self.assertEqual(channel_status.json()["status"], "running")
+
+        stopped = await self._client.post(
+            "/assistant-deployments/stop",
+            json={"id": deployment_id},
+            headers=headers,
+        )
+        self.assertEqual(stopped.status_code, 200, stopped.text)
+        self.assertEqual(stopped.json()["status"], "disabled")
+
+        channel_status = await self._client.post("/channels/status", json={"channel_id": channel_id}, headers=headers)
+        self.assertEqual(channel_status.status_code, 200, channel_status.text)
+        self.assertEqual(channel_status.json()["status"], "stopped")
+
+    async def test_assistant_deployment_proactive_tasks_start_and_stop_with_deployment(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "deployjobs", "email": "deployjobs@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        channel = await self._client.post(
+            "/channels/add",
+            json={"name": "Jobs Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel.status_code, 200, channel.text)
+        channel_id = channel.json()["id"]
+
+        created = await self._client.post(
+            "/assistant-deployments/create",
+            json={
+                "name": "Operations Assistant",
+                "channel_ids": [channel_id],
+                "proactive_tasks": [
+                    {
+                        "name": "Morning Summary",
+                        "prompt": "Summarize the important overnight items.",
+                        "interval_sec": 300,
+                        "channel_id": channel_id,
+                        "enabled": True,
+                        "send_response": False,
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        deployment_id = created.json()["id"]
+
+        started = await self._client.post(
+            "/assistant-deployments/start",
+            json={"id": deployment_id},
+            headers=headers,
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        started_task = started.json()["proactive_tasks"][0]
+        self.assertEqual(started_task["runtime"]["status"], "scheduled")
+        self.assertTrue(started_task["runtime"]["next_run_at"])
+
+        stopped = await self._client.post(
+            "/assistant-deployments/stop",
+            json={"id": deployment_id},
+            headers=headers,
+        )
+        self.assertEqual(stopped.status_code, 200, stopped.text)
+        stopped_task = stopped.json()["proactive_tasks"][0]
+        self.assertEqual(stopped_task["runtime"]["status"], "stopped")
+        self.assertIsNone(stopped_task["runtime"]["next_run_at"])
+
+    async def test_assistant_deployment_run_proactive_tasks_records_runtime_and_delivery(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "deploypulse", "email": "deploypulse@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        channel = await self._client.post(
+            "/channels/add",
+            json={"name": "Pulse Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel.status_code, 200, channel.text)
+        channel_id = channel.json()["id"]
+
+        created = await self._client.post(
+            "/assistant-deployments/create",
+            json={
+                "name": "Pulse Assistant",
+                "profile": "ops",
+                "description": "Sends a concise operational pulse.",
+                "instructions": "Keep updates short and concrete.",
+                "model_source": "openai",
+                "model_name": "gpt-4o-mini",
+                "toolkit_names": ["file_toolkit"],
+                "channel_ids": [channel_id],
+                "proactive_tasks": [
+                    {
+                        "name": "Pulse",
+                        "prompt": "Summarize the current state in one short message.",
+                        "interval_sec": 300,
+                        "channel_id": channel_id,
+                        "recipient_id": "ops_room",
+                        "enabled": True,
+                        "send_response": True,
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        deployment_id = created.json()["id"]
+        task_id = created.json()["proactive_tasks"][0]["id"]
+
+        start = await self._client.post(
+            "/assistant-deployments/start",
+            json={"id": deployment_id},
+            headers=headers,
+        )
+        self.assertEqual(start.status_code, 200, start.text)
+
+        captured: dict[str, object] = {}
+        deliveries: list[tuple[str, str]] = []
+
+        async def _fake_chat(message, session_id, **kwargs):
+            captured["message"] = message
+            captured["session_id"] = session_id
+            captured.update(kwargs)
+            return {"response": "Pulse: all quiet", "tool_calls": []}
+
+        async def _fake_send(recipient_id, text, **kwargs):
+            deliveries.append((recipient_id, text))
+            return True
+
+        channel_pool = self._app.state.console_mgr._channel_pool
+        adapter = self._app.state.channel_registry.get(channel_id)
+        original_chat = channel_pool.chat
+        original_send = adapter.send
+        channel_pool.chat = _fake_chat
+        adapter.send = _fake_send
+        try:
+            run_now = await self._client.post(
+                "/assistant-deployments/run-proactive",
+                json={"id": deployment_id, "task_id": task_id},
+                headers=headers,
+            )
+        finally:
+            channel_pool.chat = original_chat
+            adapter.send = original_send
+            await self._client.post(
+                "/assistant-deployments/stop",
+                json={"id": deployment_id},
+                headers=headers,
+            )
+
+        self.assertEqual(run_now.status_code, 200, run_now.text)
+        payload = run_now.json()
+        self.assertEqual(len(payload["results"]), 1)
+        self.assertEqual(payload["results"][0]["status"], "ok")
+        self.assertTrue(payload["results"][0]["delivered"])
+        self.assertEqual(captured["assistant_name"], "Pulse Assistant")
+        self.assertEqual(captured["model_source"], "openai")
+        self.assertEqual(captured["model_name"], "gpt-4o-mini")
+        self.assertEqual(captured["toolkits"], ["file_toolkit"])
+        self.assertTrue(str(captured["session_id"]).startswith(f"deploytask_{deployment_id}_{task_id}"))
+        extra_instructions = captured.get("extra_instructions") or []
+        self.assertTrue(any("[Proactive Task]" in str(item) for item in extra_instructions))
+        self.assertEqual(deliveries, [("ops_room", "Pulse: all quiet")])
+
+        fetched = await self._client.post(
+            "/assistant-deployments/get",
+            json={"id": deployment_id},
+            headers=headers,
+        )
+        self.assertEqual(fetched.status_code, 200, fetched.text)
+        deployment = fetched.json()
+        self.assertEqual(deployment["runtime"]["proactive_run_count"], 1)
+        self.assertEqual(deployment["runtime"]["last_proactive_task_name"], "Pulse")
+        self.assertEqual(len(deployment["recent_proactive_runs"]), 1)
+        self.assertTrue(any(row["kind"] == "proactive_run" for row in deployment["recent_activity"]))
+        task_runtime = deployment["proactive_tasks"][0]["runtime"]
+        self.assertEqual(task_runtime["run_count"], 1)
+        self.assertEqual(task_runtime["last_status"], "ok")
+        self.assertEqual(task_runtime["last_delivery_recipient_id"], "ops_room")
+
+    async def test_assistant_deployment_proactive_approval_queue_and_approve(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "deployapprove", "email": "deployapprove@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        channel = await self._client.post(
+            "/channels/add",
+            json={"name": "Approval Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel.status_code, 200, channel.text)
+        channel_id = channel.json()["id"]
+
+        created = await self._client.post(
+            "/assistant-deployments/create",
+            json={
+                "name": "Approval Assistant",
+                "channel_ids": [channel_id],
+                "safety": {"proactive_delivery_mode": "approval"},
+                "proactive_tasks": [
+                    {
+                        "name": "Approval Pulse",
+                        "prompt": "Draft the pulse update.",
+                        "interval_sec": 300,
+                        "channel_id": channel_id,
+                        "recipient_id": "ops_room",
+                        "enabled": True,
+                        "send_response": True,
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        deployment_id = created.json()["id"]
+        task_id = created.json()["proactive_tasks"][0]["id"]
+
+        started = await self._client.post(
+            "/assistant-deployments/start",
+            json={"id": deployment_id},
+            headers=headers,
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+
+        captured: dict[str, object] = {}
+        deliveries: list[tuple[str, str]] = []
+
+        async def _fake_chat(message, session_id, **kwargs):
+            captured["message"] = message
+            captured["session_id"] = session_id
+            captured.update(kwargs)
+            return {"response": "Approval pulse ready", "tool_calls": []}
+
+        async def _fake_send(recipient_id, text, **kwargs):
+            deliveries.append((recipient_id, text))
+            return True
+
+        channel_pool = self._app.state.console_mgr._channel_pool
+        adapter = self._app.state.channel_registry.get(channel_id)
+        original_chat = channel_pool.chat
+        original_send = adapter.send
+        channel_pool.chat = _fake_chat
+        adapter.send = _fake_send
+        try:
+            run_now = await self._client.post(
+                "/assistant-deployments/run-proactive",
+                json={"id": deployment_id, "task_id": task_id},
+                headers=headers,
+            )
+            self.assertEqual(run_now.status_code, 200, run_now.text)
+            payload = run_now.json()
+            self.assertEqual(payload["results"][0]["status"], "pending_approval")
+            self.assertFalse(payload["results"][0]["delivered"])
+            approval_id = payload["results"][0]["approval_id"]
+            self.assertTrue(approval_id)
+            self.assertEqual(deliveries, [])
+
+            fetched = await self._client.post(
+                "/assistant-deployments/get",
+                json={"id": deployment_id},
+                headers=headers,
+            )
+            self.assertEqual(fetched.status_code, 200, fetched.text)
+            deployment = fetched.json()
+            self.assertEqual(deployment["runtime"]["pending_approval_count"], 1)
+            self.assertEqual(len(deployment["pending_proactive_approvals"]), 1)
+            self.assertEqual(deployment["proactive_tasks"][0]["runtime"]["last_status"], "pending_approval")
+
+            approved = await self._client.post(
+                "/assistant-deployments/approve-proactive",
+                json={"id": approval_id},
+                headers=headers,
+            )
+            self.assertEqual(approved.status_code, 200, approved.text)
+            self.assertEqual(approved.json()["status"], "approved")
+            self.assertEqual(deliveries, [("ops_room", "Approval pulse ready")])
+        finally:
+            channel_pool.chat = original_chat
+            adapter.send = original_send
+            await self._client.post(
+                "/assistant-deployments/stop",
+                json={"id": deployment_id},
+                headers=headers,
+            )
+
+        fetched_after = await self._client.post(
+            "/assistant-deployments/get",
+            json={"id": deployment_id},
+            headers=headers,
+        )
+        self.assertEqual(fetched_after.status_code, 200, fetched_after.text)
+        deployment_after = fetched_after.json()
+        self.assertEqual(deployment_after["runtime"]["pending_approval_count"], 0)
+        self.assertEqual(deployment_after["runtime"]["last_approval_status"], "approved")
+        self.assertEqual(len(deployment_after["pending_proactive_approvals"]), 0)
+        self.assertTrue(any(row["status"] == "approved" for row in deployment_after["recent_approvals"]))
+        self.assertTrue(any(row["kind"] == "approval" for row in deployment_after["recent_activity"]))
+
+    async def test_assistant_deployment_tool_approval_queue_and_approve(self) -> None:
+        from agno.models.response import ToolExecution
+        from agno.run.requirement import RunRequirement
+
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "deploytoolapprove", "email": "deploytoolapprove@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        channel = await self._client.post(
+            "/channels/add",
+            json={"name": "Tool Approval Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel.status_code, 200, channel.text)
+        channel_id = channel.json()["id"]
+
+        created = await self._client.post(
+            "/assistant-deployments/create",
+            json={
+                "name": "Tool Approval Assistant",
+                "channel_ids": [channel_id],
+                "safety": {"tool_execution_mode": "approval"},
+            },
+            headers=headers,
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        deployment_id = created.json()["id"]
+        self.assertEqual(created.json()["safety"]["tool_execution_mode"], "approval")
+
+        started = await self._client.post(
+            "/assistant-deployments/start",
+            json={"id": deployment_id},
+            headers=headers,
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+
+        class _FakeRunResponse:
+            def __init__(self, *, content: str = "", requirements=None):
+                self.content = content
+                self.messages = []
+                self.requirements = list(requirements or [])
+
+            @property
+            def active_requirements(self):
+                return [requirement for requirement in self.requirements if not requirement.is_resolved()]
+
+            @property
+            def is_paused(self):
+                return bool(self.active_requirements)
+
+        class _FakeAgent:
+            async def arun(self, message, **kwargs):
+                tool_execution = ToolExecution(
+                    tool_name="delete_file",
+                    tool_args={"path": "secret.txt"},
+                    requires_confirmation=True,
+                    approval_type="required",
+                )
+                requirement = RunRequirement(tool_execution)
+                return _FakeRunResponse(requirements=[requirement])
+
+            async def acontinue_run(self, *, requirements=None, **kwargs):
+                requirement = list(requirements or [])[0]
+                if requirement.confirmation is True:
+                    return _FakeRunResponse(content="Tool approved and completed.")
+                return _FakeRunResponse(content="Tool request was rejected.")
+
+        captured: dict[str, object] = {}
+        deliveries: list[tuple[str, str]] = []
+
+        async def _fake_get_or_create(session_id, **kwargs):
+            captured["session_id"] = session_id
+            captured.update(kwargs)
+            agent = _FakeAgent()
+            channel_pool._agents[session_id] = agent
+            return agent
+
+        async def _fake_send(recipient_id, text, **kwargs):
+            deliveries.append((recipient_id, text))
+            return True
+
+        channel_pool = self._app.state.console_mgr._channel_pool
+        adapter = self._app.state.channel_registry.get(channel_id)
+        original_get_or_create = channel_pool._get_or_create
+        original_send = adapter.send
+        channel_pool._get_or_create = _fake_get_or_create
+        adapter.send = _fake_send
+        try:
+            response = await self._client.post(
+                f"/channels/webhook/{channel_id}",
+                json={"text": "please clean up the uploaded file", "sender_id": "external_user", "sender_name": "External User"},
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertIn("Approval requested before running tool", response.text)
+
+            fetched = await self._client.post(
+                "/assistant-deployments/get",
+                json={"id": deployment_id},
+                headers=headers,
+            )
+            self.assertEqual(fetched.status_code, 200, fetched.text)
+            deployment = fetched.json()
+            self.assertEqual(deployment["runtime"]["pending_tool_approval_count"], 1)
+            self.assertEqual(deployment["runtime"]["pending_approval_count"], 1)
+            self.assertEqual(len(deployment["pending_tool_approvals"]), 1)
+            self.assertTrue(any(row["kind"] == "tool_approval_pending" for row in deployment["recent_activity"]))
+            approval_id = deployment["pending_tool_approvals"][0]["id"]
+
+            approved = await self._client.post(
+                "/assistant-deployments/approve-tool-call",
+                json={"id": approval_id},
+                headers=headers,
+            )
+            self.assertEqual(approved.status_code, 200, approved.text)
+            self.assertEqual(approved.json()["status"], "approved")
+            self.assertEqual(approved.json()["response_text"], "Tool approved and completed.")
+            self.assertEqual(deliveries, [("external_user", "Tool approved and completed.")])
+        finally:
+            channel_pool._get_or_create = original_get_or_create
+            adapter.send = original_send
+            await self._client.post(
+                "/assistant-deployments/stop",
+                json={"id": deployment_id},
+                headers=headers,
+            )
+
+        self.assertEqual(captured["tool_confirmation_mode"], "approval")
+        fetched_after = await self._client.post(
+            "/assistant-deployments/get",
+            json={"id": deployment_id},
+            headers=headers,
+        )
+        self.assertEqual(fetched_after.status_code, 200, fetched_after.text)
+        deployment_after = fetched_after.json()
+        self.assertEqual(deployment_after["runtime"]["pending_tool_approval_count"], 0)
+        self.assertEqual(deployment_after["runtime"]["pending_approval_count"], 0)
+        self.assertEqual(deployment_after["runtime"]["last_approval_kind"], "tool")
+        self.assertEqual(len(deployment_after["pending_tool_approvals"]), 0)
+        self.assertTrue(any(row["status"] == "approved" for row in deployment_after["recent_tool_approvals"]))
+        self.assertTrue(any(row["kind"] == "tool_approval" for row in deployment_after["recent_activity"]))
+
+    async def test_channel_messages_use_assistant_deployment_overrides(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "deploymsg", "email": "deploymsg@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        channel = await self._client.post(
+            "/channels/add",
+            json={"name": "Inbound Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel.status_code, 200, channel.text)
+        channel_id = channel.json()["id"]
+
+        created = await self._client.post(
+            "/assistant-deployments/create",
+            json={
+                "name": "Finance Assistant",
+                "description": "Keeps answers tied to the finance deployment.",
+                "instructions": "Stay focused on finance operations.",
+                "model_source": "anthropic",
+                "model_name": "claude-sonnet-4-20250514",
+                "toolkit_names": ["file_toolkit"],
+                "skill_names": ["finance_review"],
+                "channel_ids": [channel_id],
+            },
+            headers=headers,
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+
+        captured: dict[str, object] = {}
+
+        async def _fake_chat(message, session_id, **kwargs):
+            captured["message"] = message
+            captured["session_id"] = session_id
+            captured.update(kwargs)
+            return {"response": "ok", "tool_calls": []}
+
+        channel_pool = self._app.state.console_mgr._channel_pool
+        original_chat = channel_pool.chat
+        channel_pool.chat = _fake_chat
+        try:
+            response = await self._client.post(
+                f"/channels/webhook/{channel_id}",
+                json={"text": "hello", "sender_id": "external_user", "sender_name": "External User"},
+            )
+        finally:
+            channel_pool.chat = original_chat
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(captured["toolkits"], ["file_toolkit"])
+        self.assertEqual(captured["model_source"], "anthropic")
+        self.assertEqual(captured["model_name"], "claude-sonnet-4-20250514")
+        self.assertEqual(captured["skill_names"], ["finance_review"])
+        self.assertEqual(captured["assistant_name"], "Finance Assistant")
+        self.assertTrue(str(captured["session_id"]).startswith("deploy_"))
+        extra_instructions = captured.get("extra_instructions") or []
+        self.assertTrue(any("Stay focused on finance operations." in str(item) for item in extra_instructions))
+
+    async def test_assistant_deployment_routes_messages_to_specialist(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "routeuser", "email": "routeuser@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        channel = await self._client.post(
+            "/channels/add",
+            json={"name": "Routing Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel.status_code, 200, channel.text)
+        channel_id = channel.json()["id"]
+
+        specialist = await self._client.post(
+            "/assistant-deployments/create",
+            json={
+                "name": "Billing Specialist",
+                "profile": "billing",
+                "description": "Handles invoices and billing issues.",
+                "model_source": "openai",
+                "model_name": "gpt-4o-mini",
+                "toolkit_names": ["file_toolkit"],
+            },
+            headers=headers,
+        )
+        self.assertEqual(specialist.status_code, 200, specialist.text)
+        specialist_id = specialist.json()["id"]
+
+        front_door = await self._client.post(
+            "/assistant-deployments/create",
+            json={
+                "name": "Support Front Door",
+                "profile": "triage",
+                "description": "Routes support traffic to specialists.",
+                "instructions": "Route to specialists when needed.",
+                "channel_ids": [channel_id],
+                "routing_rules": [
+                    {
+                        "name": "billing",
+                        "target_deployment_id": specialist_id,
+                        "keywords": ["invoice", "billing"],
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        self.assertEqual(front_door.status_code, 200, front_door.text)
+        front_door_id = front_door.json()["id"]
+
+        captured: dict[str, object] = {}
+
+        async def _fake_chat(message, session_id, **kwargs):
+            captured["message"] = message
+            captured["session_id"] = session_id
+            captured.update(kwargs)
+            return {"response": "handled by specialist", "tool_calls": []}
+
+        channel_pool = self._app.state.console_mgr._channel_pool
+        original_chat = channel_pool.chat
+        channel_pool.chat = _fake_chat
+        try:
+            response = await self._client.post(
+                f"/channels/webhook/{channel_id}",
+                json={"text": "Can you help with an invoice discrepancy?", "sender_id": "customer_1", "sender_name": "Customer"},
+            )
+        finally:
+            channel_pool.chat = original_chat
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(captured["assistant_name"], "Billing Specialist")
+        self.assertEqual(captured["model_source"], "openai")
+        self.assertEqual(captured["model_name"], "gpt-4o-mini")
+        self.assertEqual(captured["toolkits"], ["file_toolkit"])
+        self.assertTrue(str(captured["session_id"]).startswith(f"deploy_{specialist_id}"))
+        extra_instructions = captured.get("extra_instructions") or []
+        self.assertTrue(any("[Assistant Handoff]" in str(item) for item in extra_instructions))
+        self.assertTrue(any("invoice" in str(item).lower() for item in extra_instructions))
+
+        front_door_get = await self._client.post(
+            "/assistant-deployments/get",
+            json={"id": front_door_id},
+            headers=headers,
+        )
+        self.assertEqual(front_door_get.status_code, 200, front_door_get.text)
+        front_data = front_door_get.json()
+        self.assertEqual(front_data["runtime"]["message_count"], 1)
+        self.assertEqual(front_data["runtime"]["last_handoff_target"], specialist_id)
+        self.assertEqual(len(front_data["recent_handoffs"]), 1)
+        self.assertTrue(any(row["kind"] == "handoff" for row in front_data["recent_activity"]))
+
+        specialist_get = await self._client.post(
+            "/assistant-deployments/get",
+            json={"id": specialist_id},
+            headers=headers,
+        )
+        self.assertEqual(specialist_get.status_code, 200, specialist_get.text)
+        specialist_data = specialist_get.json()
+        self.assertEqual(specialist_data["runtime"]["message_count"], 1)
+        self.assertEqual(specialist_data["runtime"]["last_handoff_from"], front_door_id)
+        self.assertEqual(len(specialist_data["recent_handoffs"]), 1)
+        self.assertTrue(any(row["kind"] == "routed_message" for row in specialist_data["recent_activity"]))
+
     async def test_published_app_model_options_are_available(self) -> None:
         source_response = await self._client.post("/options/published_app_model_sources", json={})
         self.assertEqual(source_response.status_code, 200, source_response.text)

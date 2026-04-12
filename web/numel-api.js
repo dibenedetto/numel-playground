@@ -227,6 +227,17 @@ class NumelAPI {
 	channelSend(channelId, recipientId, text)  { return this.json('/channels/send', { channel_id: channelId, recipient_id: recipientId, text }); }
 	channelStatus(channelId)                   { return this.json('/channels/status', { channel_id: channelId }); }
 
+	// ── Assistant Deployments API ────────────────────────────────
+
+	assistantDeploymentList()                  { return this.json('/assistant-deployments/list'); }
+	assistantDeploymentGet(id)                 { return this.json('/assistant-deployments/get', { id }); }
+	assistantDeploymentCreate(opts)            { return this.json('/assistant-deployments/create', opts); }
+	assistantDeploymentUpdate(opts)            { return this.json('/assistant-deployments/update', opts); }
+	assistantDeploymentRemove(id)              { return this.json('/assistant-deployments/remove', { id }); }
+	assistantDeploymentStart(id)               { return this.json('/assistant-deployments/start', { id }); }
+	assistantDeploymentStop(id)                { return this.json('/assistant-deployments/stop', { id }); }
+	assistantDeploymentRefreshRuntime(id)      { return this.json('/assistant-deployments/refresh-runtime', { id }); }
+
 	// ── Gallery API ──────────────────────────────────────────────
 
 	galleryList(opts = {})                     { return this.json('/gallery/list', opts); }

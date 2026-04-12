@@ -10,6 +10,7 @@ import sqlite3
 import time
 import uuid
 
+from   datetime                        import datetime
 from   fastapi                         import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from   pydantic                        import BaseModel
 from   typing                          import Any, Dict, List, Optional, Set
@@ -96,17 +97,32 @@ def _describe_attachments(message: str, attachments: list) -> str:
 	return message
 
 
-def _wrap_numel_toolkit_for_backend(instance, *, name: Optional[str] = None, module_name: Optional[str] = None):
+def _wrap_numel_toolkit_for_backend(
+	instance,
+	*,
+	name: Optional[str] = None,
+	module_name: Optional[str] = None,
+	confirm_all_tools: bool = False,
+):
 	record = build_toolkit_record_from_instance(instance, name=name, module_name=module_name)
-	return build_backend_toolkit(record, backend_name=DEFAULT_BACKEND_NAME)
+	return build_backend_toolkit(
+		record,
+		backend_name=DEFAULT_BACKEND_NAME,
+		confirm_all_tools=confirm_all_tools,
+	)
 
 
 def _load_native_toolkit(module_name: str, args: Optional[Dict[str, Any]] = None, *,
-						 log_prefix: str = "Console toolkit"):
+						 log_prefix: str = "Console toolkit",
+						 confirm_all_tools: bool = False):
 	record = load_numel_toolkit(module_name, args or None, log_prefix=log_prefix)
 	if record is None:
 		return None
-	return build_backend_toolkit(record, backend_name=DEFAULT_BACKEND_NAME)
+	return build_backend_toolkit(
+		record,
+		backend_name=DEFAULT_BACKEND_NAME,
+		confirm_all_tools=confirm_all_tools,
+	)
 
 
 def _resolve_native_skill_bundle(skill_mgr, skill_names: Optional[List[str]] = None,
@@ -114,7 +130,7 @@ def _resolve_native_skill_bundle(skill_mgr, skill_names: Optional[List[str]] = N
 	"""Resolve selected or enabled skills into the active backend's native skill bundle."""
 	if not skill_mgr:
 		return None
-	if skill_names:
+	if skill_names is not None:
 		skill_definitions = skill_mgr.get_definitions_for(skill_names)
 	else:
 		skill_definitions = skill_mgr.get_active_definitions()
@@ -1179,8 +1195,10 @@ class ChannelAgentPool:
 		self._agents: Dict[str, Agent]      = {}    # session_id → Agent
 		self._agent_tks: Dict[str, List[str]] = {}  # session_id → toolkit names used at build
 		self._agent_uids: Dict[str, str]    = {}    # session_id → user_id used at build
+		self._agent_specs: Dict[str, Dict[str, Any]] = {}  # session_id → build overrides
 		self._agent_tokens: Dict[str, str]  = {}    # session_id → auth token
 		self._last_used: Dict[str, float]   = {}    # session_id → timestamp
+		self._pending_tool_approvals: Dict[str, Dict[str, Any]] = {}
 		self._lock = asyncio.Lock()
 		self._cleanup_task: Optional[asyncio.Task] = None
 
@@ -1194,21 +1212,38 @@ class ChannelAgentPool:
 							 user_id: Optional[str] = None,
 							 is_guest: bool = False,
 							 auth_token: Optional[str] = None,
-							 extra_instructions: Optional[List[str]] = None) -> Agent:
+							 extra_instructions: Optional[List[str]] = None,
+							 model_source: Optional[str] = None,
+							 model_name: Optional[str] = None,
+							 skill_names: Optional[List[str]] = None,
+							 tool_confirmation_mode: Optional[str] = None,
+							 assistant_name: Optional[str] = None,
+							 assistant_description: Optional[str] = None) -> Agent:
 		"""Return (or lazily build) the Agent for this session."""
 		async with self._lock:
 			# Update stored token if a fresh one is provided
 			if auth_token:
 				self._agent_tokens[session_id] = auth_token
 
+			spec = {
+				"toolkits": list(toolkits) if toolkits is not None else None,
+				"user_id": user_id or session_id,
+				"model_source": model_source or "",
+				"model_name": model_name or "",
+				"skill_names": list(skill_names) if skill_names is not None else None,
+				"tool_confirmation_mode": tool_confirmation_mode or "",
+				"assistant_name": assistant_name or "",
+				"assistant_description": assistant_description or "",
+				"extra_instructions": list(extra_instructions) if extra_instructions else [],
+			}
+
 			if session_id in self._agents:
 				# Rebuild if toolkit list or user identity changed
-				tk_changed = toolkits is not None and sorted(toolkits) != sorted(self._agent_tks.get(session_id, []))
-				uid_changed = user_id is not None and user_id != self._agent_uids.get(session_id)
-				if tk_changed or uid_changed:
+				if spec != self._agent_specs.get(session_id):
 					self._agents.pop(session_id, None)
 					self._agent_tks.pop(session_id, None)
 					self._agent_uids.pop(session_id, None)
+					self._agent_specs.pop(session_id, None)
 				else:
 					self._last_used[session_id] = time.time()
 					return self._agents[session_id]
@@ -1217,10 +1252,18 @@ class ChannelAgentPool:
 			agent = await self._build_agent(
 				toolkits=toolkits, sender_name=sender_name,
 				user_id=user_id, is_guest=is_guest, auth_token=token,
-				extra_instructions=extra_instructions)
+				extra_instructions=extra_instructions,
+				model_source=model_source,
+				model_name=model_name,
+				skill_names=skill_names,
+				tool_confirmation_mode=tool_confirmation_mode,
+				assistant_name=assistant_name,
+				assistant_description=assistant_description,
+			)
 			self._agents[session_id]   = agent
 			self._agent_tks[session_id] = list(toolkits) if toolkits else []
 			self._agent_uids[session_id] = user_id or session_id
+			self._agent_specs[session_id] = spec
 			self._last_used[session_id] = time.time()
 
 			# Start periodic cleanup if not running
@@ -1237,22 +1280,34 @@ class ChannelAgentPool:
 			self._agents.pop(session_id, None)
 			self._agent_tks.pop(session_id, None)
 			self._agent_uids.pop(session_id, None)
+			self._agent_specs.pop(session_id, None)
 			self._agent_tokens.pop(session_id, None)
 			self._last_used.pop(session_id, None)
+			self._pending_tool_approvals = {
+				approval_id: row
+				for approval_id, row in self._pending_tool_approvals.items()
+				if row.get("session_id") != session_id
+			}
 
 	async def _build_agent(self, toolkits: Optional[List[str]] = None,
 						   sender_name: Optional[str] = None,
 						   user_id: Optional[str] = None,
 						   is_guest: bool = False,
 						   auth_token: str = "",
-						   extra_instructions: Optional[List[str]] = None) -> Agent:
+						   extra_instructions: Optional[List[str]] = None,
+						   model_source: Optional[str] = None,
+						   model_name: Optional[str] = None,
+						   skill_names: Optional[List[str]] = None,
+						   tool_confirmation_mode: Optional[str] = None,
+						   assistant_name: Optional[str] = None,
+						   assistant_description: Optional[str] = None) -> Agent:
 		"""Build a lightweight Agent from console_agent.json defaults."""
 		import credentials as _creds
 		config = _creds.load_json(self._config_path)
 
 		model_cfg = config.get("model", {})
-		source    = model_cfg.get("source", "ollama")
-		name      = model_cfg.get("name", "mistral")
+		source    = model_source or model_cfg.get("source", "ollama")
+		name      = model_name or model_cfg.get("name", "mistral")
 		model     = _build_model(source, name)
 
 		# Build tools — use per-user toolkit list if provided, else config defaults
@@ -1260,6 +1315,7 @@ class ChannelAgentPool:
 		# Always include console_toolkit if workspace is available
 		if self._ws_mgr and "console_toolkit" not in tk_names:
 			tk_names = ["console_toolkit"] + list(tk_names)
+		confirm_all_tools = str(tool_confirmation_mode or "auto").strip().lower() == "approval"
 
 		tools = []
 		_INJECTED = {"console_toolkit", "channel_toolkit"}
@@ -1276,6 +1332,7 @@ class ChannelAgentPool:
 					toolkit,
 					name="console_toolkit",
 					module_name="toolkits.console_toolkit",
+					confirm_all_tools=confirm_all_tools,
 				)
 				if native_toolkit is not None:
 					tools.append(native_toolkit)
@@ -1286,6 +1343,7 @@ class ChannelAgentPool:
 					toolkit,
 					name="channel_toolkit",
 					module_name="toolkits.channel_toolkit",
+					confirm_all_tools=confirm_all_tools,
 				)
 				if native_toolkit is not None:
 					tools.append(native_toolkit)
@@ -1298,7 +1356,12 @@ class ChannelAgentPool:
 					tk_args.setdefault("internal_token", self._internal_token)
 					tk_args.setdefault("user_id", user_id)
 					tk_args.setdefault("local_app", self._fastapi_app)
-				native_toolkit = _load_native_toolkit(tk_name, tk_args or None, log_prefix="Channel toolkit")
+				native_toolkit = _load_native_toolkit(
+					tk_name,
+					tk_args or None,
+					log_prefix="Channel toolkit",
+					confirm_all_tools=confirm_all_tools,
+				)
 				if native_toolkit is not None:
 					tools.append(native_toolkit)
 
@@ -1324,6 +1387,7 @@ class ChannelAgentPool:
 
 		native_skills = _resolve_native_skill_bundle(
 			self._skill_mgr,
+			skill_names=skill_names,
 			backend_name=DEFAULT_BACKEND_NAME,
 		)
 
@@ -1332,9 +1396,9 @@ class ChannelAgentPool:
 			instructions.extend(extra_instructions)
 
 		return Agent(
-			name                    = opts.get("name", "Numel Assistant"),
+			name                    = assistant_name or opts.get("name", "Numel Assistant"),
 			model                   = model,
-			description             = opts.get("description", ""),
+			description             = assistant_description if assistant_description is not None else opts.get("description", ""),
 			instructions            = instructions,
 			markdown                = opts.get("markdown", True),
 			tools                   = tools,
@@ -1353,14 +1417,28 @@ class ChannelAgentPool:
 				   is_guest: bool = False,
 				   auth_token: Optional[str] = None,
 				   attachments: Optional[list] = None,
-				   extra_instructions: Optional[List[str]] = None) -> dict:
+				   extra_instructions: Optional[List[str]] = None,
+				   model_source: Optional[str] = None,
+				   model_name: Optional[str] = None,
+				   skill_names: Optional[List[str]] = None,
+				   deployment_id: Optional[str] = None,
+				   tool_confirmation_mode: Optional[str] = None,
+				   assistant_name: Optional[str] = None,
+				   assistant_description: Optional[str] = None) -> dict:
 		"""Send a message to the per-session agent. Returns {session_id, response, tool_calls}.
 		attachments: list of Attachment objects from ChannelMessage (described in prompt)."""
 		try:
 			agent = await self._get_or_create(
 				session_id, toolkits=toolkits, sender_name=sender_name,
 				user_id=user_id, is_guest=is_guest, auth_token=auth_token,
-				extra_instructions=extra_instructions)
+				extra_instructions=extra_instructions,
+				model_source=model_source,
+				model_name=model_name,
+				skill_names=skill_names,
+				tool_confirmation_mode=tool_confirmation_mode,
+				assistant_name=assistant_name,
+				assistant_description=assistant_description,
+			)
 		except Exception as e:
 			log_print(f"ChannelAgentPool: agent creation failed for {session_id[:16]}: {e}")
 			return {"session_id": session_id, "error": f"Failed to create agent: {e}", "tool_calls": []}
@@ -1375,24 +1453,30 @@ class ChannelAgentPool:
 			log_print(f"ChannelAgentPool: agent run failed for {session_id[:16]}: {e}")
 			return {"session_id": session_id, "error": str(e), "tool_calls": []}
 
-		# Extract response text
-		content = ""
-		if response and response.content:
-			content = response.get_content_as_string() if hasattr(response, 'get_content_as_string') else str(response.content)
-		if not content and response and response.messages:
-			for msg in reversed(response.messages):
-				if getattr(msg, 'role', None) == "assistant" and getattr(msg, 'content', None):
-					content = msg.content
-					break
+		content = self._extract_response_text(response)
+		tool_calls = self._extract_tool_calls(response)
 
-		tool_calls = []
-		if response and response.messages:
-			for msg in response.messages:
-				if getattr(msg, 'role', None) == "tool":
-					tool_calls.append({
-						"name":   getattr(msg, 'tool_name', None) or getattr(msg, 'tool_call_id', None),
-						"result": (msg.content[:200] if msg.content else None) if hasattr(msg, 'content') else None,
-					})
+		if getattr(response, "is_paused", False):
+			pending_tool_approval = self._register_pending_tool_approval(
+				session_id=session_id,
+				deployment_id=deployment_id,
+				user_id=user_id,
+				message=message,
+				run_response=response,
+			)
+			tool_name = pending_tool_approval.get("tool_name") or "the requested tool"
+			notice = (
+				f"Approval requested before running tool '{tool_name}'. "
+				"An operator can approve or reject it from Assistant Deployments."
+			)
+			self._last_used[session_id] = time.time()
+			return {
+				"session_id": session_id,
+				"response": notice,
+				"tool_calls": tool_calls,
+				"paused": True,
+				"pending_tool_approval": pending_tool_approval,
+			}
 
 		# Detect model/infra errors returned as assistant content by agno
 		_ERROR_PATTERNS = ("not found", "status code:", "connection refused", "timed out", "unreachable")
@@ -1401,6 +1485,149 @@ class ChannelAgentPool:
 
 		self._last_used[session_id] = time.time()
 		return {"session_id": session_id, "response": content, "tool_calls": tool_calls}
+
+	def _extract_response_text(self, response) -> str:
+		content = ""
+		if response and getattr(response, "content", None):
+			content = response.get_content_as_string() if hasattr(response, "get_content_as_string") else str(response.content)
+		if not content and response and getattr(response, "messages", None):
+			for msg in reversed(response.messages):
+				if getattr(msg, "role", None) == "assistant" and getattr(msg, "content", None):
+					content = msg.content
+					break
+		return content
+
+	def _extract_tool_calls(self, response) -> List[Dict[str, Any]]:
+		tool_calls: List[Dict[str, Any]] = []
+		if response and getattr(response, "messages", None):
+			for msg in response.messages:
+				if getattr(msg, "role", None) == "tool":
+					tool_calls.append({
+						"name": getattr(msg, "tool_name", None) or getattr(msg, "tool_call_id", None),
+						"result": (msg.content[:200] if msg.content else None) if hasattr(msg, "content") else None,
+					})
+		return tool_calls
+
+	def _find_pending_requirement(self, run_response) -> Optional[Any]:
+		for requirement in list(getattr(run_response, "active_requirements", []) or []):
+			tool_execution = getattr(requirement, "tool_execution", None)
+			if tool_execution is not None:
+				return requirement
+		for requirement in list(getattr(run_response, "requirements", []) or []):
+			tool_execution = getattr(requirement, "tool_execution", None)
+			if tool_execution is not None:
+				return requirement
+		return None
+
+	def _register_pending_tool_approval(
+		self,
+		*,
+		session_id: str,
+		deployment_id: Optional[str],
+		user_id: Optional[str],
+		message: str,
+		run_response,
+	) -> Dict[str, Any]:
+		requirement = self._find_pending_requirement(run_response)
+		tool_execution = getattr(requirement, "tool_execution", None) if requirement is not None else None
+		approval_id = str(getattr(tool_execution, "approval_id", None) or f"tool_approval_{uuid.uuid4().hex[:10]}")
+		if tool_execution is not None:
+			tool_execution.approval_id = approval_id
+		args = getattr(tool_execution, "tool_args", None)
+		row = {
+			"id": approval_id,
+			"deployment_id": deployment_id,
+			"session_id": session_id,
+			"user_id": user_id,
+			"message": message,
+			"created_at": datetime.now().isoformat(),
+			"tool_name": str(getattr(tool_execution, "tool_name", None) or "tool"),
+			"tool_args": args if isinstance(args, dict) else None,
+			"approval_type": getattr(tool_execution, "approval_type", None) or "required",
+			"pause_type": "confirmation",
+			"run_response": run_response,
+		}
+		self._pending_tool_approvals[approval_id] = row
+		return {k: v for k, v in row.items() if k not in {"run_response", "message"}}
+
+	def get_pending_tool_approval(self, approval_id: str) -> Optional[Dict[str, Any]]:
+		row = self._pending_tool_approvals.get(approval_id)
+		if row is None:
+			return None
+		return {k: v for k, v in row.items() if k not in {"run_response", "message"}}
+
+	async def resolve_pending_tool_approval(
+		self,
+		approval_id: str,
+		*,
+		approved: bool,
+		note: Optional[str] = None,
+	) -> Optional[Dict[str, Any]]:
+		pending = self._pending_tool_approvals.get(approval_id)
+		if pending is None:
+			return None
+
+		session_id = str(pending.get("session_id") or "")
+		agent = self._agents.get(session_id)
+		run_response = pending.get("run_response")
+		user_id = pending.get("user_id")
+		if agent is None:
+			return {
+				"approval_id": approval_id,
+				"error": "The assistant session is no longer available.",
+			}
+		if run_response is None:
+			return {
+				"approval_id": approval_id,
+				"error": "The paused tool approval is no longer available.",
+			}
+
+		requirements = list(getattr(run_response, "requirements", []) or [])
+		for requirement in requirements:
+			if not getattr(requirement, "needs_confirmation", False):
+				continue
+			if approved:
+				requirement.confirm()
+			else:
+				requirement.reject(note)
+
+		try:
+			continued = await agent.acontinue_run(
+				run_response=run_response,
+				requirements=requirements,
+				user_id=user_id,
+				session_id=session_id,
+			)
+		except Exception as exc:
+			log_print(f"ChannelAgentPool: continue_run failed for {session_id[:16]}: {exc}")
+			return {
+				"approval_id": approval_id,
+				"error": str(exc),
+			}
+
+		self._pending_tool_approvals.pop(approval_id, None)
+		self._last_used[session_id] = time.time()
+
+		content = self._extract_response_text(continued)
+		tool_calls = self._extract_tool_calls(continued)
+		result = {
+			"approval_id": approval_id,
+			"approved": approved,
+			"session_id": session_id,
+			"response": content,
+			"tool_calls": tool_calls,
+		}
+		if getattr(continued, "is_paused", False):
+			next_pending = self._register_pending_tool_approval(
+				session_id=session_id,
+				deployment_id=str(pending.get("deployment_id") or "") or None,
+				user_id=str(user_id or "") or None,
+				message=str(pending.get("message") or ""),
+				run_response=continued,
+			)
+			result["paused"] = True
+			result["pending_tool_approval"] = next_pending
+		return result
 
 	async def _cleanup_loop(self):
 		"""Periodically evict agents that haven't been used recently."""
@@ -1414,8 +1641,14 @@ class ChannelAgentPool:
 					self._agents.pop(sid, None)
 					self._agent_tks.pop(sid, None)
 					self._agent_uids.pop(sid, None)
+					self._agent_specs.pop(sid, None)
 					self._agent_tokens.pop(sid, None)
 					self._last_used.pop(sid, None)
+					self._pending_tool_approvals = {
+						approval_id: row
+						for approval_id, row in self._pending_tool_approvals.items()
+						if row.get("session_id") != sid
+					}
 				if expired:
 					log_print(f"ChannelAgentPool: evicted {len(expired)} idle agents (pool size: {len(self._agents)})")
 			# Clean up expired guest memory databases and workspaces

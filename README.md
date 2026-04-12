@@ -81,6 +81,8 @@ Optional flags:
 For the current product-facing design direction, see
 [docs/ui-exploration-plan.md](docs/ui-exploration-plan.md) and
 [docs/product-roadmap.md](docs/product-roadmap.md).
+For the assistant deployment model, including routing, proactive jobs, approvals,
+and operator flows, see [docs/assistant-deployments.md](docs/assistant-deployments.md).
 For a market and positioning comparison against LangChain, n8n, and OpenClaw,
 see [docs/competitive-landscape.md](docs/competitive-landscape.md).
 Concrete UI concepts for review live in
@@ -203,6 +205,13 @@ All channels (including the web console) support `/` commands:
 Planner options (space-separated `key=value`): `profile=workflow`, `max_iter=10`, `timeout=120`, `session_timeout=600`.
 
 Web console users authenticated via the login modal are auto-linked — no explicit `/login` needed.
+
+### Assistant Deployments
+- Create named assistants with their own model, instructions, toolkits, skills, channels, and linked workbench
+- Route from a front-door deployment to specialist deployments
+- Add proactive jobs that run on a schedule
+- Require approval before proactive delivery and/or before tool execution
+- Operate everything from the Assistant Deployments panel with activity, failures, pending approvals, and linked-workbench navigation
 
 ### Published Apps
 - Publish any workflow as a **user-owned standalone web app**

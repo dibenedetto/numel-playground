@@ -198,7 +198,11 @@ def build_native_skills_agno(skill_definitions: List[Dict[str, Any]]):
 	return AgnoSkills(loaders=[_StaticSkillLoader(selected)])
 
 
-def build_native_toolkit_agno(toolkit_record: Dict[str, Any]):
+def build_native_toolkit_agno(
+	toolkit_record: Dict[str, Any],
+	*,
+	confirm_all_tools: bool = False,
+):
 	"""Wrap a Numel toolkit record as a native Agno Toolkit."""
 	from agno.tools import Toolkit as AgnoToolkit
 
@@ -208,11 +212,19 @@ def build_native_toolkit_agno(toolkit_record: Dict[str, Any]):
 
 	name = str(toolkit_record.get("name", "") or toolkit_record.get("module_name", "") or "toolkit")
 	description = str(toolkit_record.get("description", "") or "").strip() or None
+	tool_names = [
+		str(tool_name).strip()
+		for tool_name in (toolkit_record.get("tool_names") or [])
+		if str(tool_name).strip()
+	]
+	if not tool_names:
+		tool_names = [getattr(tool, "__name__", "") for tool in tools if getattr(tool, "__name__", "")]
 	return AgnoToolkit(
 		name=name,
 		tools=tools,
 		instructions=description,
 		add_instructions=bool(description),
+		requires_confirmation_tools=tool_names if confirm_all_tools else None,
 	)
 
 

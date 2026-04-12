@@ -1,0 +1,57 @@
+{
+  "type": "workflow",
+  "options": {
+    "type": "workflow_options",
+    "name": "Tutorial 11: Assistant Deployments",
+    "description": "A linked support workbench you can pair with an assistant deployment, then bind to channels, routing rules, proactive jobs, and operator approvals."
+  },
+  "nodes": [
+    { "type": "backend_config", "name": "agno", "extra": { "name": "Backend" } },
+    { "type": "model_config", "source": "ollama", "name": "mistral", "extra": { "name": "Model" } },
+    {
+      "type": "agent_options_config",
+      "instructions": [
+        "You are the linked workbench for a support deployment.",
+        "Use the connected knowledge base and files when they help.",
+        "Keep answers concise and practical for operators."
+      ],
+      "extra": { "name": "Support Instructions" }
+    },
+    { "type": "content_db_config", "url": "storage/support_knowledge/content", "extra": { "name": "Content DB" } },
+    { "type": "embedding_config", "source": "ollama", "name": "mistral", "extra": { "name": "Embedding" } },
+    { "type": "index_db_config", "url": "storage/support_knowledge/index", "table_name": "documents", "search_type": "hybrid", "extra": { "name": "Index DB" } },
+    {
+      "type": "knowledge_manager_config",
+      "query": true,
+      "update": false,
+      "description": "Knowledge available to the deployment-linked support assistant.",
+      "max_results": 8,
+      "extra": { "name": "Support Knowledge" }
+    },
+    { "type": "toolkit_config", "name": "toolkits.knowledge_toolkit", "extra": { "name": "Knowledge Toolkit" } },
+    { "type": "toolkit_config", "name": "toolkits.file_toolkit", "extra": { "name": "File Toolkit" } },
+    { "type": "agent_config", "extra": { "name": "Support Assistant" } },
+    { "type": "start_flow", "extra": { "name": "Start" } },
+    { "type": "user_input_flow", "query": "What support issue do you want to investigate?", "extra": { "name": "Support Question" } },
+    { "type": "agent_flow", "extra": { "name": "Answer Support Issue" } },
+    { "type": "preview_flow", "hint": "text", "extra": { "name": "Answer Preview" } },
+    { "type": "end_flow", "extra": { "name": "End" } }
+  ],
+  "edges": [
+    { "source": 0, "target": 9, "source_slot": "config", "target_slot": "backend" },
+    { "source": 1, "target": 9, "source_slot": "config", "target_slot": "model" },
+    { "source": 2, "target": 9, "source_slot": "options", "target_slot": "options" },
+    { "source": 3, "target": 6, "source_slot": "config", "target_slot": "content_db" },
+    { "source": 4, "target": 5, "source_slot": "config", "target_slot": "embedding" },
+    { "source": 5, "target": 6, "source_slot": "config", "target_slot": "index_db" },
+    { "source": 6, "target": 9, "source_slot": "config", "target_slot": "knowledge_mgr" },
+    { "source": 7, "target": 9, "source_slot": "config", "target_slot": "toolkits.knowledge" },
+    { "source": 8, "target": 9, "source_slot": "config", "target_slot": "toolkits.files" },
+    { "source": 9, "target": 12, "source_slot": "config", "target_slot": "config" },
+    { "source": 10, "target": 11, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 11, "target": 12, "source_slot": "message", "target_slot": "request" },
+    { "source": 11, "target": 12, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 12, "target": 13, "source_slot": "response", "target_slot": "flow_in" },
+    { "source": 13, "target": 14, "source_slot": "flow_out", "target_slot": "flow_in" }
+  ]
+}

@@ -45,16 +45,19 @@ def build_toolkit_record_from_instance(instance, *, name: Optional[str] = None, 
 	toolkit_name = str(name or instance.__class__.__name__)
 	description = str(instance.__class__.__doc__ or "").strip()
 	tools = []
+	tool_names = []
 	for method_name, method in getmembers(instance, predicate=ismethod):
 		if method_name.startswith("_"):
 			continue
 		tools.append(method)
+		tool_names.append(method_name)
 	return {
 		"name": toolkit_name,
 		"module_name": module_name or instance.__class__.__module__,
 		"instance": instance,
 		"description": description,
 		"tools": tools,
+		"tool_names": tool_names,
 	}
 
 

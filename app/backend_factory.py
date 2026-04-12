@@ -45,11 +45,11 @@ def build_backend_skills(skill_definitions, backend_name: Optional[str] = None):
 	raise ValueError(f"Unsupported backend: {name}")
 
 
-def build_backend_toolkit(toolkit_record, backend_name: Optional[str] = None):
+def build_backend_toolkit(toolkit_record, backend_name: Optional[str] = None, **kwargs):
 	name = normalize_backend_name(backend_name)
 	if name == "agno":
 		from impl_agno import build_native_toolkit_agno
-		return build_native_toolkit_agno(toolkit_record)
+		return build_native_toolkit_agno(toolkit_record, **kwargs)
 	raise ValueError(f"Unsupported backend: {name}")
 
 

@@ -54,9 +54,9 @@ body.nw-layout-workbench {
    ======================================================================== */
 
 .nw-panel {
-	width: 340px;
-	min-width: 300px;
-	max-width: 400px;
+	width: 372px;
+	min-width: 328px;
+	max-width: 432px;
 	background: var(--sg-bg-secondary);
 	border: 1px solid var(--nw-border-soft);
 	border-radius: var(--nw-radius-shell);
@@ -93,9 +93,9 @@ body.nw-layout-workbench {
 }
 
 body.nw-layout-project-workbench .nw-panel {
-	width: 304px;
-	min-width: 284px;
-	max-width: 344px;
+	width: 344px;
+	min-width: 320px;
+	max-width: 392px;
 	padding: 14px;
 	gap: 10px;
 	border-radius: var(--nw-radius-shell);
@@ -107,9 +107,9 @@ body.nw-layout-project-workbench .nw-panel {
 }
 
 body.nw-layout-workbench .nw-panel {
-	width: 304px;
-	min-width: 284px;
-	max-width: 344px;
+	width: 344px;
+	min-width: 320px;
+	max-width: 392px;
 	padding: 14px;
 	gap: 10px;
 	border-radius: var(--nw-radius-shell);
@@ -3098,6 +3098,9 @@ body.nw-layout-project-workbench .nw-auth-title {
 	line-height: 1.5;
 	margin-bottom: 10px;
 }
+.nw-ext-note-pre {
+	white-space: pre-wrap;
+}
 
 .nw-ext-card-badges {
 	display: flex;
@@ -3652,6 +3655,184 @@ body.nw-layout-project-workbench .nw-auth-title {
 	margin-top: 16px;
 	justify-content: flex-end;
 }
+.nw-assist-task-stack {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin-top: 6px;
+}
+.nw-assist-task-card {
+	border: 1px solid var(--nw-border-soft);
+	border-radius: 10px;
+	padding: 10px;
+	background: color-mix(in srgb, var(--sg-bg-secondary) 88%, var(--sg-accent-blue, #4a9eff) 12%);
+}
+.nw-assist-task-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin-bottom: 6px;
+	color: var(--sg-text-primary);
+	font-size: 12px;
+	font-weight: 600;
+}
+.nw-assist-task-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 10px;
+}
+.nw-assist-approval-stack {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	margin-top: 10px;
+}
+.nw-assist-approval-title {
+	font-size: 11px;
+	font-weight: 700;
+	color: var(--sg-text-primary);
+}
+.nw-assist-approval-card {
+	border: 1px solid var(--nw-border-soft);
+	border-radius: 10px;
+	padding: 8px 10px;
+	background: color-mix(in srgb, var(--sg-bg-secondary) 86%, var(--sg-accent-yellow, #f0ad4e) 14%);
+}
+.nw-assist-approval-meta {
+	display: flex;
+	justify-content: space-between;
+	gap: 8px;
+	font-size: 11px;
+	color: var(--sg-text-secondary);
+	margin-bottom: 6px;
+}
+.nw-assist-approval-preview {
+	font-size: 12px;
+	line-height: 1.45;
+	color: var(--sg-text-primary);
+	white-space: pre-wrap;
+}
+.nw-assist-approval-actions {
+	display: flex;
+	gap: 8px;
+	margin-top: 8px;
+}
+.nw-assist-link-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 10px;
+}
+.nw-assist-ops-summary {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin: 0 0 10px;
+}
+.nw-assist-ops-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 5px 10px;
+	border-radius: 999px;
+	border: 1px solid var(--nw-border-soft);
+	background: color-mix(in srgb, var(--sg-bg-secondary) 90%, white 10%);
+	color: var(--sg-text-secondary);
+	font-size: 11px;
+}
+.nw-assist-ops-chip strong {
+	color: var(--sg-text-primary);
+	font-weight: 700;
+}
+.nw-assist-ops-chip.is-alert {
+	border-color: color-mix(in srgb, var(--sg-accent-yellow, #f0ad4e) 44%, var(--nw-border-soft));
+	background: color-mix(in srgb, var(--sg-bg-secondary) 84%, var(--sg-accent-yellow, #f0ad4e) 16%);
+}
+.nw-assist-activity-block,
+.nw-assist-failure-stack {
+	margin-top: 10px;
+}
+.nw-assist-activity-block-title,
+.nw-assist-failure-title {
+	font-size: 11px;
+	font-weight: 700;
+	color: var(--sg-text-primary);
+	margin-bottom: 6px;
+}
+.nw-assist-activity-stack {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.nw-assist-activity-row,
+.nw-assist-failure-row {
+	border: 1px solid var(--nw-border-soft);
+	border-radius: 9px;
+	padding: 8px 10px;
+	background: color-mix(in srgb, var(--sg-bg-secondary) 92%, white 8%);
+}
+.nw-assist-activity-row.is-error,
+.nw-assist-failure-row {
+	border-color: color-mix(in srgb, var(--sg-accent-red, #d9534f) 36%, var(--nw-border-soft));
+	background: color-mix(in srgb, var(--sg-bg-secondary) 88%, var(--sg-accent-red, #d9534f) 12%);
+}
+.nw-assist-activity-row {
+	display: flex;
+	justify-content: space-between;
+	gap: 10px;
+}
+.nw-assist-activity-main {
+	min-width: 0;
+}
+.nw-assist-activity-title,
+.nw-assist-failure-row-title {
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--sg-text-primary);
+}
+.nw-assist-activity-detail,
+.nw-assist-failure-row-detail {
+	margin-top: 2px;
+	font-size: 11px;
+	color: var(--sg-text-secondary);
+	line-height: 1.45;
+}
+.nw-assist-activity-preview,
+.nw-assist-failure-row-preview {
+	margin-top: 4px;
+	font-size: 11px;
+	line-height: 1.45;
+	color: var(--sg-text-primary);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+.nw-assist-activity-meta {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 4px;
+	font-size: 10px;
+	color: var(--sg-text-tertiary);
+	white-space: nowrap;
+}
+.nw-assist-activity-empty {
+	font-size: 11px;
+	color: var(--sg-text-tertiary);
+}
+@media (max-width: 700px) {
+	.nw-assist-task-grid {
+		grid-template-columns: 1fr;
+	}
+	.nw-assist-link-grid {
+		grid-template-columns: 1fr;
+	}
+	.nw-assist-activity-row {
+		flex-direction: column;
+	}
+	.nw-assist-activity-meta {
+		align-items: flex-start;
+	}
+}
 .nw-channel-pool-field {
 	margin-top: auto;
 	padding-top: 10px;
@@ -3689,6 +3870,10 @@ body.nw-layout-project-workbench .nw-auth-title {
 .nw-ch-badge-error    { background: var(--sg-accent-red, #d9534f); color: #fff; }
 .nw-ch-badge-starting { background: var(--sg-accent-yellow, #f0ad4e); color: #fff; }
 .nw-ch-badge-stopping { background: var(--sg-accent-yellow, #f0ad4e); color: #fff; }
+.nw-ch-badge-disabled { background: #6b7280; color: #fff; }
+.nw-ch-badge-partial  { background: #3b82f6; color: #fff; }
+.nw-ch-badge-unbound  { background: #475569; color: #fff; }
+.nw-ch-badge-missing  { background: var(--sg-accent-red, #d9534f); color: #fff; }
 
 @media (max-width: 700px) {
 	body.nw-layout-project-workbench .nw-panel {

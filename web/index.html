@@ -134,9 +134,14 @@
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
 						<span>Channels</span>
 					</h3>
-					<button id="channelPanelBtn" class="nw-btn-icon" title="Manage channels">
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-					</button>
+					<div class="nw-user-actions">
+						<button id="assistantDeploymentPanelBtn" class="nw-btn-icon" title="Manage assistant deployments">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M8 8a4 4 0 0 1 8 0"/><circle cx="9" cy="14" r="1"/><circle cx="15" cy="14" r="1"/><path d="M9 18h6"/></svg>
+						</button>
+						<button id="channelPanelBtn" class="nw-btn-icon" title="Manage channels">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+						</button>
+					</div>
 				</div>
 				<div class="nw-section-lede">Send this space to Telegram, Discord, Slack, email, and other channels.</div>
 				<div id="channelSummary" class="nw-channel-summary">No channels configured</div>
@@ -754,6 +759,7 @@
 			<div class="nw-admin-body">
 				<div class="nw-admin-toolbar">
 					<button id="channelRefreshBtn" class="nw-btn nw-btn-sm">Refresh</button>
+					<button id="assistantDeploymentPanelBtnInline" class="nw-btn nw-btn-sm nw-btn-secondary">Assistant Deployments</button>
 					<button id="channelAddBtn" class="nw-btn nw-btn-sm nw-btn-success">+ Add Channel</button>
 				</div>
 				<div id="channelList" class="nw-admin-list"></div>
@@ -767,6 +773,35 @@
 						<option value="7200">2 hours</option>
 					</select>
 				</div>
+			</div>
+		</div>
+
+		<div id="assistantDeploymentPanel" class="nw-admin-panel">
+			<div class="nw-admin-header">
+				<span class="nw-admin-title">Assistant Deployments</span>
+				<button id="assistantDeploymentCloseBtn" class="nw-console-close">&times;</button>
+			</div>
+			<div class="nw-admin-body">
+				<div class="nw-admin-toolbar">
+					<button id="assistantDeploymentRefreshBtn" class="nw-btn nw-btn-sm">Refresh</button>
+					<button id="assistantDeploymentAddBtn" class="nw-btn nw-btn-sm nw-btn-success">+ Add Deployment</button>
+					<select id="assistantDeploymentStatusFilter" class="nw-select nw-admin-status-filter">
+						<option value="all">All statuses</option>
+						<option value="running">Running</option>
+						<option value="stopped">Stopped</option>
+						<option value="disabled">Disabled</option>
+						<option value="error">Error</option>
+						<option value="needs-attention">Needs attention</option>
+					</select>
+					<input id="assistantDeploymentSearch" class="nw-input nw-admin-filter" type="text" placeholder="Search deployments, profiles, toolkits, spaces..." autocomplete="off">
+					<label class="nw-admin-check">
+						<input id="assistantDeploymentPendingOnly" type="checkbox">
+						Pending approvals only
+					</label>
+				</div>
+				<div class="nw-ext-note">Deploy named assistants to one or more channels with their own model, instructions, toolkits, skills, routing rules, proactive jobs, and linked workbench context.</div>
+				<div id="assistantDeploymentSummary" class="nw-assist-ops-summary"></div>
+				<div id="assistantDeploymentList" class="nw-admin-list"></div>
 			</div>
 		</div>
 
@@ -858,6 +893,7 @@
 		<script src="numel-file-upload.js"></script>
 		<script src="numel-user-panel.js"></script>
 		<script src="numel-admin.js"></script>
+		<script src="numel-assistant-deployments.js"></script>
 		<script src="numel-channels.js"></script>
 		<script src="numel-extensions.js"></script>
 		<script src="numel-workflow.js"></script>

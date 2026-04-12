@@ -56,6 +56,10 @@ const GLOBAL_LAYOUT_PRESETS = Object.freeze([
 // applies, and add 'nw-layout-assistant-dock' as a modifier.
 const ASSISTANT_DOCK_LAYOUTS = new Set(['workbench', 'project-workbench-assistant', 'project-workbench-studio']);
 
+function _currentWorkflowLabel() {
+	return visualizer?.currentWorkflowName || $('singleWorkflowName')?.textContent || 'Workflow';
+}
+
 function _readJsonStorage(key, fallback = {}) {
 	try {
 		const raw = localStorage.getItem(key);
@@ -716,6 +720,10 @@ window.closeNumelSidePanels = function(except = []) {
 	if (!keep.has('channels')) {
 		try { if (typeof NumelChannels !== 'undefined') NumelChannels.close(); } catch {}
 		_closeSidePanelDom('channelPanel');
+	}
+	if (!keep.has('assistantDeployments')) {
+		try { if (typeof NumelAssistantDeployments !== 'undefined') NumelAssistantDeployments.close(); } catch {}
+		_closeSidePanelDom('assistantDeploymentPanel');
 	}
 	if (!keep.has('extensions')) {
 		try { if (typeof NumelExtensions !== 'undefined') NumelExtensions.close(); } catch {}
@@ -2112,6 +2120,32 @@ async function loadCurrentWorkflow() {
 		_updateWorkbenchOverview();
 	}
 }
+
+window.getNumelWorkbenchContext = function() {
+	return {
+		space_id: currentSpaceId || '',
+		space_title: currentSpaceInfo?.title || currentSpaceInfo?.slug || '',
+		workflow_name: _currentWorkflowLabel(),
+	};
+};
+
+window.openLinkedWorkbench = async function(spaceId, workflowName = '') {
+	if (!api || !spaceId) return false;
+	try {
+		if (workflowDirty && visualizer?.currentWorkflow) {
+			await syncWorkflow();
+		}
+		const response = await api.selectSpace(spaceId);
+		currentSpaceInfo = response.space || null;
+		currentSpaceId = currentSpaceInfo?.id || spaceId;
+		await refreshSpaceList(true);
+		addLog('info', `🧭 Opened linked workbench "${currentSpaceInfo?.title || currentSpaceId}"${workflowName ? ` for "${workflowName}"` : ''}`);
+		return true;
+	} catch (error) {
+		addLog('error', `❌ Failed to open linked workbench: ${error.message}`);
+		return false;
+	}
+};
 
 async function createSpace() {
 	if (!api) return;

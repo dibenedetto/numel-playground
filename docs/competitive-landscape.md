@@ -362,6 +362,9 @@ That means the strongest product priorities remain:
 - stronger knowledge and multimodal workflows
 - clear local-to-prod continuity
 
+For the concrete roadmap slice focused on the OpenClaw-adjacent opportunity,
+see [assistant-deployment-roadmap.md](assistant-deployment-roadmap.md).
+
 ## References
 
 Internal Numel docs:
