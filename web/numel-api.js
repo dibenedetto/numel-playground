@@ -44,10 +44,13 @@ class NumelAPI {
 	 * POST request returning the raw Response object.
 	 * Use this when you need access to headers, status, or streaming.
 	 */
-	async post(endpoint, body = null) {
+	async post(endpoint, body = null, requestOpts = {}) {
 		const opts = { method: 'POST', headers: this._authHeaders(body != null) };
 		if (body != null) {
 			opts.body = JSON.stringify(body);
+		}
+		if (requestOpts && requestOpts.signal) {
+			opts.signal = requestOpts.signal;
 		}
 
 		const resp = await fetch(`${this.baseUrl}${endpoint}`, opts);
@@ -60,8 +63,8 @@ class NumelAPI {
 	}
 
 	/** POST and parse response as JSON. */
-	async json(endpoint, body = null) {
-		return (await this.post(endpoint, body)).json();
+	async json(endpoint, body = null, requestOpts = {}) {
+		return (await this.post(endpoint, body, requestOpts)).json();
 	}
 
 	/** POST and return response as Blob. */
@@ -246,7 +249,7 @@ class NumelAPI {
 	// ── Published Apps API ───────────────────────────────────────
 
 	appsList()                                 { return this.json('/apps/list'); }
-	appsPublish(opts)                          { return this.json('/apps/publish', opts); }
+	appsPublish(opts, requestOpts = {})        { return this.json('/apps/publish', opts, requestOpts); }
 	appsUnpublish(slug)                        { return this.json('/apps/unpublish', { slug }); }
 
 }

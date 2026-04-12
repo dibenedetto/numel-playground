@@ -434,19 +434,31 @@
 					<option value="gemini-pro">gemini-pro</option>
 				</select>
 			</div>
-			<div class="nw-apps-form-row">
-				<label for="appsTemperatureInput">Temp</label>
-				<input id="appsTemperatureInput" class="nw-apps-input" type="number" min="0" max="2" step="0.1" value="0.3" autocomplete="off">
-			</div>
-			<div class="nw-apps-form-row">
-				<label for="appsMaxTokensInput">Tokens</label>
-				<input id="appsMaxTokensInput" class="nw-apps-input" type="number" min="256" max="32000" step="256" value="4096" autocomplete="off">
-			</div>
 			<div class="nw-apps-form-row nw-apps-form-row-stack">
 				<label for="appsPagePromptInput">Page Brief</label>
 				<textarea id="appsPagePromptInput" class="nw-apps-input nw-apps-textarea" placeholder="Describe the kind of page to generate for this workflow"></textarea>
 			</div>
-			<button id="appsPublishBtn" class="nw-apps-publish-btn">Generate and Publish Current Workflow</button>
+			<div class="nw-apps-advanced">
+				<button id="appsAdvancedToggle" class="nw-apps-advanced-toggle" type="button" aria-expanded="false">
+					<span class="nw-apps-advanced-label">Advanced</span>
+					<svg class="nw-apps-advanced-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+				</button>
+				<div id="appsAdvancedBody" class="nw-apps-advanced-body" style="display:none;">
+					<div class="nw-apps-form-row">
+						<label for="appsTemperatureInput">Temperature</label>
+						<input id="appsTemperatureInput" class="nw-apps-input" type="number" min="0" max="2" step="0.1" value="" placeholder="Backend default" autocomplete="off">
+					</div>
+					<div class="nw-apps-form-row">
+						<label for="appsMaxTokensInput">Max Output Tokens</label>
+						<input id="appsMaxTokensInput" class="nw-apps-input" type="number" min="256" max="32000" step="256" value="" placeholder="Backend default" autocomplete="off">
+					</div>
+				</div>
+			</div>
+			<div class="nw-apps-publish-row">
+				<button id="appsPublishBtn" class="nw-apps-publish-btn">Generate and Publish Current Workflow</button>
+				<button id="appsCancelBtn" class="nw-apps-cancel-btn" type="button" style="display:none;">Cancel</button>
+			</div>
+			<div id="appsStatus" class="nw-apps-status" aria-live="polite"></div>
 		</div>
 		<div id="appsList" class="nw-apps-list">
 			<div class="nw-apps-empty">No published apps yet.</div>

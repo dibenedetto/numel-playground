@@ -188,6 +188,10 @@ class AppsManager {
 		this._temperatureInput = document.getElementById('appsTemperatureInput');
 		this._maxTokensInput = document.getElementById('appsMaxTokensInput');
 		this._pagePromptInput = document.getElementById('appsPagePromptInput');
+		this._advancedToggle = document.getElementById('appsAdvancedToggle');
+		this._advancedBody = document.getElementById('appsAdvancedBody');
+		this._cancelBtn = document.getElementById('appsCancelBtn');
+		this._statusEl = document.getElementById('appsStatus');
 		this._list       = document.getElementById('appsList');
 		this._modelNames = [];
 		this._fallbackModelSources = ['ollama', 'openai', 'anthropic'];
@@ -197,6 +201,8 @@ class AppsManager {
 			anthropic: ['claude-sonnet-4-20250514'],
 		};
 		this._modelSourcesLoaded = false;
+		this._publishAbortController = null;
+		this._publishing = false;
 
 		this._setupUI();
 	}
@@ -205,6 +211,8 @@ class AppsManager {
 		this._fab.addEventListener('click', () => this.toggle());
 		this._closeBtn.addEventListener('click', () => this.close());
 		this._publishBtn.addEventListener('click', () => this._publish());
+		this._cancelBtn?.addEventListener('click', () => this._cancelPublish());
+		this._advancedToggle?.addEventListener('click', () => this._toggleAdvanced());
 
 		// Auto-fill slug from title
 		this._titleInput.addEventListener('input', () => {
@@ -219,6 +227,15 @@ class AppsManager {
 		this._modelSourceSelect?.addEventListener('change', () => {
 			this._loadModelNamesForSource(this._modelSourceSelect.value);
 		});
+	}
+
+	_toggleAdvanced(forceExpanded = null) {
+		if (!this._advancedToggle || !this._advancedBody) return;
+		const nextExpanded = typeof forceExpanded === 'boolean'
+			? forceExpanded
+			: this._advancedToggle.getAttribute('aria-expanded') !== 'true';
+		this._advancedToggle.setAttribute('aria-expanded', nextExpanded ? 'true' : 'false');
+		this._advancedBody.style.display = nextExpanded ? '' : 'none';
 	}
 
 	_normalizeOptionValues(items) {
@@ -290,6 +307,7 @@ class AppsManager {
 
 	close() {
 		if (!this._open) return;
+		if (this._publishing) this._cancelPublish();
 		this._open = false;
 		this._panel.classList.remove('open');
 	}
@@ -330,8 +348,19 @@ class AppsManager {
 		const description = this._descriptionInput.value.trim();
 		if (!slug) { this._slugInput.focus(); return; }
 
-		this._publishBtn.disabled = true;
-		this._publishBtn.textContent = 'Generating...';
+		const temperatureRaw = this._temperatureInput.value.trim();
+		const maxTokensRaw = this._maxTokensInput.value.trim();
+		const pageGeneration = {
+			model_source: this._modelSourceSelect.value || 'ollama',
+			model_name: this._modelNameInput.value || 'qwen3.5:cloud',
+			page_prompt: this._pagePromptInput.value.trim(),
+		};
+		if (temperatureRaw !== '') pageGeneration.temperature = Number(temperatureRaw);
+		if (maxTokensRaw !== '') pageGeneration.max_tokens = Number(maxTokensRaw);
+
+		this._publishAbortController = new AbortController();
+		this._setPublishingState(true);
+		this._setStatus('Generating published app…', 'thinking', { sticky: true });
 		try {
 			let workflow = null;
 			try {
@@ -346,26 +375,31 @@ class AppsManager {
 				title: title || slug,
 				description,
 				workflow,
-				page_generation: {
-					model_source: this._modelSourceSelect.value || 'ollama',
-					model_name: this._modelNameInput.value || 'qwen3.5:cloud',
-					temperature: Number(this._temperatureInput.value || 0.3),
-					max_tokens: Number(this._maxTokensInput.value || 4096),
-					page_prompt: this._pagePromptInput.value.trim(),
-				},
-			});
+				page_generation: pageGeneration,
+			}, { signal: this._publishAbortController.signal });
 			this._slugInput.value = '';
 			this._titleInput.value = '';
 			this._descriptionInput.value = '';
+			this._temperatureInput.value = '';
+			this._maxTokensInput.value = '';
 			this._pagePromptInput.value = '';
 			delete this._slugInput.dataset.manuallyEdited;
 			await this._loadList();
-			this._setStatus('Published app generated.', 'info');
+			this._setStatus('Published app generated.', 'success');
 		} catch (err) {
-			this._setStatus(`Error: ${err.message}`, 'error');
+			if (err?.name === 'AbortError') {
+				this._setStatus('Generation cancelled.', 'info');
+			} else {
+				this._setStatus(`Error: ${err.message}`, 'error');
+			}
 		}
-		this._publishBtn.disabled = false;
-		this._publishBtn.textContent = 'Generate and Publish Current Workflow';
+		this._publishAbortController = null;
+		this._setPublishingState(false);
+	}
+
+	_cancelPublish() {
+		if (!this._publishAbortController) return;
+		this._publishAbortController.abort();
 	}
 
 	async _loadList() {
@@ -449,19 +483,28 @@ class AppsManager {
 		return row;
 	}
 
-	_setStatus(msg, type = 'info') {
-		// Briefly show a status line below the publish form
-		let el = document.getElementById('appsStatus');
-		if (!el) {
-			el = document.createElement('div');
-			el.id = 'appsStatus';
-			el.className = 'nw-apps-status';
-			this._publishBtn.parentElement.after(el);
-		}
+	_setPublishingState(isPublishing) {
+		this._publishing = !!isPublishing;
+		this._publishBtn.disabled = this._publishing;
+		this._publishBtn.textContent = this._publishing
+			? 'Generating Published App...'
+			: 'Generate and Publish Current Workflow';
+		if (this._cancelBtn) this._cancelBtn.style.display = this._publishing ? '' : 'none';
+	}
+
+	_setStatus(msg, type = 'info', options = {}) {
+		const el = this._statusEl;
+		if (!el) return;
+		const sticky = !!options.sticky;
 		el.textContent = msg;
-		el.className = `nw-apps-status ${type}`;
+		el.className = `nw-apps-status ${type === 'thinking' ? 'info is-thinking' : type}`;
 		clearTimeout(this._statusTimer);
-		this._statusTimer = setTimeout(() => { el.textContent = ''; }, 3000);
+		if (!sticky) {
+			this._statusTimer = setTimeout(() => {
+				el.textContent = '';
+				el.className = 'nw-apps-status';
+			}, 3000);
+		}
 	}
 }
 

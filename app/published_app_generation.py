@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 import json
 import re
 from dataclasses import dataclass
@@ -37,6 +38,22 @@ Rules:
 - Use only relative asset references.
 - Keep the generated page static and frontend-only. The execution runtime will be injected separately.
 - The generated content must reflect the workflow purpose, inputs, and likely outputs.
+- The main page must feel user-facing, not like an internal debug tool.
+- If you include dates, copyright, or "updated" text, use the generation timestamp supplied in the user prompt. Do not invent stale years.
+- Prefer not to show technical identifiers by default. Hide advanced technical details and low-level operations behind a clearly labeled "Details" button, disclosure, or drawer.
+- Technical details include items like workflow id, execution id, raw workflow JSON, debug payloads, and maintenance-style operations.
+- Keep the main interaction surface focused on the user goal and the likely happy path.
+- Audit inputs and outputs before rendering them:
+  - include only inputs that are necessary or genuinely useful for the workflow
+  - do not expose internal ids, derived values, or hardcoded configuration as editable inputs
+  - do not create decorative or redundant output panels with no user value
+  - if a needed input or output seems missing, unclear, or suspicious from the workflow, mention that limitation in the Details area instead of cluttering the main UI
+- Use one coherent visual system on the page:
+  - choose one palette and accent direction
+  - keep colors, borders, radii, and shadows consistent
+  - avoid conflicting accent colors on the same page unless they clearly encode state
+- Include clear idle, running, success, and error states.
+- Keep the page responsive and accessible.
 """
 
 
@@ -44,8 +61,8 @@ Rules:
 class PublishedAppGenerationConfig:
 	model_source: str = "ollama"
 	model_name: str = "qwen3.5:cloud"
-	temperature: float = 0.3
-	max_tokens: int = 4096
+	temperature: Optional[float] = None
+	max_tokens: Optional[int] = None
 	page_prompt: str = _DEFAULT_PAGE_PROMPT
 
 	def to_dict(self) -> Dict[str, Any]:
@@ -90,6 +107,8 @@ def summarize_workflow_for_published_app(workflow: Dict[str, Any], inputs: Optio
 	node_types: Dict[str, int] = {}
 	toolkits: List[str] = []
 	skills: List[str] = []
+	interactive_prompts: List[str] = []
+	output_hints: List[str] = []
 	for node in nodes:
 		if not isinstance(node, dict):
 			continue
@@ -105,7 +124,14 @@ def summarize_workflow_for_published_app(workflow: Dict[str, Any], inputs: Optio
 			name = str(node.get("name") or "").strip()
 			if name:
 				skills.append(name)
+		if node_type == "user_input_flow":
+			query = str(node.get("query", "") or "").strip()
+			if query:
+				interactive_prompts.append(query)
+		if any(token in node_type for token in ("preview", "save", "download", "export", "publish", "end_flow")):
+			output_hints.append(node_type)
 	return {
+		"id": str(workflow.get("id", "") or ""),
 		"name": str(options.get("name", "") or ""),
 		"description": str(options.get("description", "") or ""),
 		"node_count": len(nodes),
@@ -114,6 +140,8 @@ def summarize_workflow_for_published_app(workflow: Dict[str, Any], inputs: Optio
 		"node_types": node_types,
 		"toolkits": sorted(set(toolkits)),
 		"skills": sorted(set(skills)),
+		"interactive_prompts": interactive_prompts,
+		"output_hints": sorted(set(output_hints)),
 	}
 
 
@@ -175,7 +203,19 @@ def _build_user_prompt(
 	generation_config: PublishedAppGenerationConfig,
 ) -> str:
 	page_prompt = (generation_config.page_prompt or _DEFAULT_PAGE_PROMPT).strip()
+	generated_at = datetime.now().astimezone()
+	generated_at_label = generated_at.strftime("%Y-%m-%d %H:%M:%S %Z")
 	return (
+		"Generation context:\n"
+		f"- Current date and time: {generated_at_label}\n"
+		f"- Current timestamp (ISO): {generated_at.isoformat()}\n"
+		f"- Current year: {generated_at.year}\n\n"
+		"Page requirements:\n"
+		"- Keep the primary UI simple and task-focused.\n"
+		"- Put workflow ids, run ids, raw JSON, and other technical details behind a Details button or disclosure.\n"
+		"- Check whether proposed inputs and outputs are actually useful before you render them.\n"
+		"- If an input or output is missing, unclear, or redundant, handle that gracefully and explain it only in Details.\n"
+		"- Keep the visual style coherent across the full page.\n\n"
 		f"App title: {app_name}\n"
 		f"App slug: {app_slug}\n"
 		f"App description: {description or '(none)'}\n"
