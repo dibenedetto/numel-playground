@@ -1125,7 +1125,7 @@ class WorkflowEngine:
 		with_reference = []
 
 		for i, (node, impl) in enumerate(zip(nodes, backend.handles)):
-			if node.type in ("agent_node", "agent_flow", "tool_node", "tool_flow"):
+			if node.type in ("agent_node", "agent_flow", "tool_node", "tool_flow", "knowledge_ingest_flow", "knowledge_search_flow"):
 				with_reference.append(i)
 				continue
 			instances[i] = create_node(node, impl)
@@ -1153,6 +1153,10 @@ class WorkflowEngine:
 
 			if node.type in ("agent_node", "agent_flow"):
 				ref = partial(backend.run_agent, config_impl)
+			elif node.type == "knowledge_ingest_flow":
+				ref = partial(backend.add_contents, config_impl)
+			elif node.type == "knowledge_search_flow":
+				ref = partial(backend.search_contents, config_impl)
 			elif isinstance(config_impl, dict) and "instance" in config_impl:
 				# Toolkit-backed tool_flow: resolve the method on the toolkit instance
 				method_name = getattr(node, 'method', None)

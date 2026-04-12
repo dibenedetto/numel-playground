@@ -505,6 +505,7 @@ class SessionManagerConfig(ConfigType):
 
 
 DEFAULT_KNOWLEDGE_MANAGER_QUERY       : bool = True
+DEFAULT_KNOWLEDGE_MANAGER_UPDATE      : bool = False
 DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS : int  = 10
 
 
@@ -544,8 +545,8 @@ class KnowledgeManagerConfig(ConfigType):
 	"""RAG knowledge store combining content_db and index_db. Requires both DBs wired. Set query=true to enable retrieval. Wire config→agent_config.knowledge_mgr."""
 	type        : Annotated[Literal["knowledge_manager_config"], FieldRole.CONSTANT] = "knowledge_manager_config"
 	query       : Annotated[bool                               , FieldRole.INPUT   ] = Field(default=DEFAULT_KNOWLEDGE_MANAGER_QUERY,       description="If true, perform RAG retrieval to augment the agent's context on each request")
+	update      : Annotated[bool                               , FieldRole.INPUT   ] = Field(default=DEFAULT_KNOWLEDGE_MANAGER_UPDATE,      description="If true, store new information as knowledge after each agent exchange")
 	description : Annotated[Optional[str]                      , FieldRole.INPUT   ] = Field(default=None,                                  description="Short description of this knowledge base, used to guide the agent's retrieval")
-	# content_db  : Annotated[Optional[ContentDBConfig]          , FieldRole.INPUT   ] = None
 	content_db  : Annotated[ContentDBConfig                    , FieldRole.INPUT   ] = Field(default=None,                                  description="ContentDBConfig providing the raw document storage backend")
 	index_db    : Annotated[IndexDBConfig                      , FieldRole.INPUT   ] = Field(default=None,                                  description="IndexDBConfig providing the vector index for semantic search")
 	max_results : Annotated[int                                , FieldRole.INPUT   ] = Field(default=DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS, description="Maximum number of documents to retrieve per query")
@@ -857,6 +858,63 @@ class AgentFlow(FlowType):
 	request  : Annotated[Any                  , FieldRole.INPUT   ] = Field(default=None, description="Text or dict sent as the user message to the agent for this turn")
 	image    : Annotated[Optional[str]         , FieldRole.INPUT   ] = Field(default=None, description="Optional base64-encoded image to include in the agent request (multimodal)")
 	response : Annotated[Any                  , FieldRole.OUTPUT  ] = Field(default=None, description="Dict containing the agent's response content and metadata")
+
+
+DEFAULT_KNOWLEDGE_SEARCH_RESULTS : int = 5
+
+
+@node_info(
+	title       = "Knowledge Ingest",
+	description = "Adds documents or text into a knowledge base programmatically",
+	icon        = "📥",
+	section     = "Knowledge",
+	layer       = 2,
+	visible     = True
+)
+class KnowledgeIngestFlow(FlowType):
+	"""Programmatically ingest text/documents into a Knowledge Manager.
+
+	Wire knowledge_manager_config→config. The `input` can be:
+	- a plain string/bytes value
+	- a dict with fields like {content|text|body, filename, metadata}
+	- a dict with {path, filename?, metadata?}
+	- a list of any of the above
+
+	The node normalizes each item and writes it into the connected knowledge base."""
+	type     : Annotated[Literal["knowledge_ingest_flow"], FieldRole.CONSTANT] = "knowledge_ingest_flow"
+	config   : Annotated[Optional[KnowledgeManagerConfig] , FieldRole.INPUT   ] = Field(default=None, description="KnowledgeManagerConfig describing the target knowledge base; wire from a knowledge_manager_config node")
+	input    : Annotated[Optional[Any]                    , FieldRole.INPUT   ] = Field(default=None, description="Document content or document items to ingest. Accepts strings, bytes, dicts, file paths, or lists of those values")
+	filename : Annotated[Optional[str]                    , FieldRole.INPUT   ] = Field(default=None, description="Optional fallback filename used when the incoming item does not provide one")
+	metadata : Annotated[Optional[Dict[str, Any]]         , FieldRole.INPUT   ] = Field(default=None, description="Optional metadata merged into every ingested item")
+	output   : Annotated[Any                              , FieldRole.OUTPUT  ] = Field(default=None, description="Structured result with inserted ids, count, and normalized item summaries")
+	ids      : Annotated[Optional[List[str]]              , FieldRole.OUTPUT  ] = Field(default=None, description="Inserted knowledge content ids")
+	count    : Annotated[int                              , FieldRole.OUTPUT  ] = Field(default=0,    description="Number of ingested items")
+	added    : Annotated[Optional[List[Dict[str, Any]]]   , FieldRole.OUTPUT  ] = Field(default=None, description="Summary of items added to the knowledge base")
+
+
+@node_info(
+	title       = "Knowledge Search",
+	description = "Searches a knowledge base and returns matching documents",
+	icon        = "📚",
+	section     = "Knowledge",
+	layer       = 2,
+	visible     = True
+)
+class KnowledgeSearchFlow(FlowType):
+	"""Search a connected Knowledge Manager explicitly from the workflow graph.
+
+	Wire knowledge_manager_config→config and send the search text on `query` (or `input`).
+	Use this when you want deterministic RAG retrieval as a visible workflow step instead of
+	only relying on agent-managed retrieval."""
+	type        : Annotated[Literal["knowledge_search_flow"], FieldRole.CONSTANT] = "knowledge_search_flow"
+	config      : Annotated[Optional[KnowledgeManagerConfig] , FieldRole.INPUT   ] = Field(default=None, description="KnowledgeManagerConfig describing the target knowledge base; wire from a knowledge_manager_config node")
+	query       : Annotated[Optional[Any]                    , FieldRole.INPUT   ] = Field(default=None, description="Search query text. Dict inputs may use keys like query/text/message/value")
+	max_results : Annotated[int                              , FieldRole.INPUT   ] = Field(default=DEFAULT_KNOWLEDGE_SEARCH_RESULTS, description="Maximum number of documents to return")
+	search_type : Annotated[Optional[str]                    , FieldRole.INPUT   ] = Field(default=None, description="Optional search strategy override such as 'hybrid', 'keyword', or 'vector'")
+	filters     : Annotated[Optional[Dict[str, Any]]         , FieldRole.INPUT   ] = Field(default=None, description="Optional metadata filter dict applied to the search")
+	output      : Annotated[Any                              , FieldRole.OUTPUT  ] = Field(default=None, description="Search results as a list of document dicts")
+	results     : Annotated[Optional[List[Dict[str, Any]]]   , FieldRole.OUTPUT  ] = Field(default=None, description="Matching documents including content and metadata")
+	count       : Annotated[int                              , FieldRole.OUTPUT  ] = Field(default=0,    description="Number of matching documents returned")
 
 
 # =============================================================================

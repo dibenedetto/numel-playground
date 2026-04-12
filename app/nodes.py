@@ -1,6 +1,7 @@
 # nodes
 
 import copy
+import json
 import os
 
 
@@ -11,6 +12,7 @@ from   typing   import Any, Callable, Dict, List, Optional
 
 
 from   events   import get_event_registry, TimerSourceConfig, FSWatchSourceConfig, WebhookSourceConfig, BrowserSourceConfig, ChannelSourceConfig
+from   knowledge_runtime import normalize_knowledge_inputs
 from   schema   import DEFAULT_TRANSFORM_NODE_LANG, DEFAULT_TRANSFORM_NODE_SCRIPT, BaseType
 from   utils	import log_print
 
@@ -378,6 +380,106 @@ class WFAgentFlow(WFFlowType):
 		except Exception as e:
 			result.success = False
 			result.error   = str(e)
+
+		return result
+
+
+class WFKnowledgeIngestFlow(WFFlowType):
+	def __init__(self, config: Dict[str, Any], impl: Any = None, **kwargs):
+		assert "ref" in kwargs, "WFKnowledgeIngestFlow requires 'ref' argument"
+		super().__init__(config, impl, **kwargs)
+		self.ref = kwargs["ref"]
+
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		result.outputs["output"] = None
+		result.outputs["ids"] = []
+		result.outputs["count"] = 0
+		result.outputs["added"] = []
+
+		try:
+			items = normalize_knowledge_inputs(
+				context.inputs.get("input"),
+				filename=context.inputs.get("filename"),
+				metadata=context.inputs.get("metadata"),
+			)
+			if not items:
+				payload = {"ids": [], "count": 0, "items": []}
+				result.outputs["output"] = payload
+				return result
+
+			ids = await self.ref(items)
+			added = []
+			for knowledge_id, item in zip(ids, items):
+				added.append(
+					{
+						"id": knowledge_id,
+						"filename": item.get("filename"),
+						"metadata": item.get("metadata") or {},
+					}
+				)
+
+			payload = {"ids": ids, "count": len(ids), "items": added}
+			result.outputs["output"] = payload
+			result.outputs["ids"] = ids
+			result.outputs["count"] = len(ids)
+			result.outputs["added"] = added
+		except Exception as e:
+			result.success = False
+			result.error = str(e)
+
+		return result
+
+
+class WFKnowledgeSearchFlow(WFFlowType):
+	def __init__(self, config: Dict[str, Any], impl: Any = None, **kwargs):
+		assert "ref" in kwargs, "WFKnowledgeSearchFlow requires 'ref' argument"
+		super().__init__(config, impl, **kwargs)
+		self.ref = kwargs["ref"]
+
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		result.outputs["output"] = []
+		result.outputs["results"] = []
+		result.outputs["count"] = 0
+
+		try:
+			query_value = context.inputs.get("query")
+			if query_value is None:
+				query_value = context.inputs.get("input")
+			if isinstance(query_value, dict):
+				query = (
+					query_value.get("query")
+					or query_value.get("text")
+					or query_value.get("message")
+					or query_value.get("value")
+					or query_value.get("input")
+					or json.dumps(query_value, ensure_ascii=False)
+				)
+			else:
+				query = "" if query_value is None else str(query_value)
+			if not query.strip():
+				raise ValueError("query is required")
+
+			filters = context.inputs.get("filters")
+			if isinstance(filters, str):
+				try:
+					filters = json.loads(filters)
+				except Exception:
+					pass
+
+			results = await self.ref(
+				query=query,
+				max_results=int(context.inputs.get("max_results", 5)),
+				filters=filters,
+				search_type=context.inputs.get("search_type"),
+			)
+			result.outputs["output"] = results
+			result.outputs["results"] = results
+			result.outputs["count"] = len(results or [])
+		except Exception as e:
+			result.success = False
+			result.error = str(e)
 
 		return result
 
@@ -1594,6 +1696,7 @@ class ImplementedBackend(BaseModel):
 	run_agent       : Callable
 	get_agent_app   : Callable
 	add_contents    : Callable
+	search_contents : Callable
 	remove_contents : Callable
 	list_contents   : Callable
 
@@ -1635,6 +1738,8 @@ _NODE_TYPES = {
 	"user_input_flow"          : WFUserInputFlow,
 	"tool_flow"                : WFToolFlow,
 	"agent_flow"               : WFAgentFlow,
+	"knowledge_ingest_flow"    : WFKnowledgeIngestFlow,
+	"knowledge_search_flow"    : WFKnowledgeSearchFlow,
 
 	# Loop nodes
 	"loop_start_flow"          : WFLoopStartFlow,

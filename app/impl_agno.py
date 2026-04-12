@@ -33,6 +33,7 @@ from   agno.vectordb.pgvector          import PgVector
 from   agno.vectordb.search            import SearchType
 
 
+from   knowledge_runtime               import serialize_knowledge_documents
 from   schema                          import *
 from   nodes                           import ImplementedBackend
 from   utils                           import add_middleware
@@ -550,6 +551,19 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 						session_summary_prompt = session_mgr_config.prompt,
 					)
 
+		if True:
+			search_knowledge                  = False
+			add_search_knowledge_instructions = False
+			update_knowledge                  = False
+			knowledge_mgr                     = None
+			if "knowledge_mgr" in node_links:
+				knowledge_mgr_index               = node_links["knowledge_mgr"]
+				knowledge_mgr_config              = workflow.nodes[knowledge_mgr_index]
+				search_knowledge                  = knowledge_mgr_config.query
+				add_search_knowledge_instructions = knowledge_mgr_config.query
+				update_knowledge                  = knowledge_mgr_config.update
+				knowledge_mgr                     = impl[knowledge_mgr_index]
+
 		# Skills: attach selected skills as native Agno Skills when available
 		agno_skills = None
 		skills_links = node_links.get("skills")
@@ -565,31 +579,36 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 
 		if True:
 			item = Agent(
-				name                    = options.name or "Agent",
+				name                              = options.name or "Agent",
 
-				model                   = model,
+				model                             = model,
 
-				description             = options.description,
-				instructions            = options.instructions,
-				system_message          = options.prompt_override,
-				skills                  = agno_skills,
+				description                       = options.description,
+				instructions                      = options.instructions,
+				system_message                    = options.prompt_override,
+				skills                            = agno_skills,
 
-				markdown                = options.markdown,
-				db                      = content_db,
-				tools                   = tools,
+				markdown                          = options.markdown,
+				db                                = content_db,
+				tools                             = tools,
 
-				add_history_to_context  = add_history_to_context,
-				num_history_runs        = num_history_runs,
+				add_history_to_context            = add_history_to_context,
+				num_history_runs                  = num_history_runs,
 
-				enable_agentic_memory   = enable_agentic_memory,
-				enable_user_memories    = enable_user_memories,
-				add_memories_to_context = add_memories_to_context,
-				update_memory_on_run    = update_memory_on_run,
-				memory_manager          = memory_mgr,
+				enable_agentic_memory             = enable_agentic_memory,
+				enable_user_memories              = enable_user_memories,
+				add_memories_to_context           = add_memories_to_context,
+				update_memory_on_run              = update_memory_on_run,
+				memory_manager                    = memory_mgr,
 
-				search_session_history  = search_session_history,
-				num_history_sessions    = num_history_sessions,
-				session_summary_manager = session_summary_manager,
+				search_session_history            = search_session_history,
+				num_history_sessions              = num_history_sessions,
+				session_summary_manager           = session_summary_manager,
+
+				search_knowledge                  = search_knowledge,
+				add_search_knowledge_instructions = add_search_knowledge_instructions,
+				update_knowledge                  = update_knowledge,
+				knowledge                         = knowledge_mgr,
 			)
 
 		if True:
@@ -719,9 +738,9 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 
 	async def add_contents(knowledge: Any, files: List[Any]) -> List[str]:
 		if not isinstance(knowledge, Knowledge):
-			raise "Invalid Agno Knowledge instance"
+			raise ValueError("Invalid Agno Knowledge instance")
 		if not knowledge.contents_db or not knowledge.vector_db:
-			raise "No content or index db present in Agno Knowledge instance"
+			raise ValueError("No content or index db present in Agno Knowledge instance")
 		p_res = []
 		for i, info in enumerate(files):
 			content = info["content"]
@@ -733,6 +752,7 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 			filename  = info["filename"]
 			extension = os.path.splitext(filename)[1]
 			metadata  = {"source": filename}
+			metadata.update(info.get("metadata") or {})
 			with tempfile.NamedTemporaryFile(suffix=extension, delete=True, delete_on_close=False) as temp_file:
 				temp_file.write(content)
 				temp_file.flush()
@@ -753,9 +773,29 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 		return result
 
 
+	async def search_contents(
+		knowledge: Any,
+		query: str,
+		max_results: int | None = None,
+		filters: Dict[str, Any] | None = None,
+		search_type: str | None = None,
+	) -> List[Dict[str, Any]]:
+		if not isinstance(knowledge, Knowledge):
+			raise ValueError("Invalid Agno Knowledge instance")
+		if not query:
+			return []
+		documents = await knowledge.asearch(
+			query=query,
+			max_results=max_results,
+			filters=filters,
+			search_type=search_type,
+		)
+		return serialize_knowledge_documents(documents)
+
+
 	async def remove_contents(knowledge: Any, ids: List[str]) -> List[bool]:
 		if not isinstance(knowledge, Knowledge):
-			raise "Invalid Agno Knowledge instance"
+			raise ValueError("Invalid Agno Knowledge instance")
 		result = [False] * len(ids)
 		for i, id in enumerate(ids):
 			if not id:
@@ -767,7 +807,7 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 
 	async def list_contents(knowledge: Any) -> List[Tuple[str, Dict[str, Any]]]:
 		if not isinstance(knowledge, Knowledge):
-			raise "Invalid Agno Knowledge instance"
+			raise ValueError("Invalid Agno Knowledge instance")
 		contents, _ = knowledge.get_content()
 		result = [(content.id, content.metadata) for content in contents]
 		return result
@@ -779,6 +819,7 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 		run_agent       = run_agent,
 		get_agent_app   = get_agent_app,
 		add_contents    = add_contents,
+		search_contents = search_contents,
 		remove_contents = remove_contents,
 		list_contents   = list_contents,
 	)
