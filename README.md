@@ -81,6 +81,8 @@ Optional flags:
 For the current product-facing design direction, see
 [docs/ui-exploration-plan.md](docs/ui-exploration-plan.md) and
 [docs/product-roadmap.md](docs/product-roadmap.md).
+For a market and positioning comparison against LangChain, n8n, and OpenClaw,
+see [docs/competitive-landscape.md](docs/competitive-landscape.md).
 Concrete UI concepts for review live in
 [`web/prototypes/ui-exploration/`](web/prototypes/ui-exploration/).
 
