@@ -1658,6 +1658,11 @@ async function connect() {
 		await client.ping();
 		addLog('success', '✅ Server reachable');
 
+		// Hook WebSocket events before opening the socket so we do not miss a
+		// very fast onopen during local first-load startup.
+		setupClientEvents();
+		client.connectWebSocket();
+
 		// Fetch and register schema
 		const schemaResponse = await client.getSchema();
 		if (!schemaResponse.schema) {
@@ -1726,25 +1731,24 @@ async function connect() {
 		const credMgr = new CredentialManager(serverUrl);
 		credMgr.init();
 
-		// Connect WebSocket
-		client.connectWebSocket();
-		setupClientEvents();
-
-		// Initialize workflow surface and current space
+		// Initialize the local workflow surface immediately, then load the
+		// current space/workflow in the background so the UI is usable sooner.
 		visualizer.initEmptyWorkflow();
-		await refreshSpaceList(true);
-
-		_syncSpaceControls();
+		currentWorkflowHasContent = false;
+		updateClearButtonState();
+		_updateStarterExperience(true);
+		_updateWorkbenchOverview();
 		$('singleImportBtn').disabled = false;
 		$('singlePasteBtn').disabled = false;
-		$('singleDownloadBtn').disabled = false;
-		$('singleCopyBtn').disabled = false;
-		enableStart(true);
+		_syncSpaceControls();
+
+		addLog('info', '🧭 Loading current space...');
+		void refreshSpaceList(true).finally(() => {
+			// Refresh channel summary once the initial space bootstrap settles.
+			if (typeof NumelChannels !== 'undefined') NumelChannels.refreshSummary();
+		});
 
 		addLog('success', `✅ Connected to ${serverUrl}`);
-
-		// Refresh channel summary in left panel
-		if (typeof NumelChannels !== 'undefined') NumelChannels.refreshSummary();
 	} catch (error) {
 		console.error('Connection error:', error);
 		addLog('error', `❌ Connection failed: ${error.message}`);
@@ -2047,8 +2051,12 @@ async function refreshSpaceList(loadWorkflow = false) {
 	if (!api) return;
 
 	try {
-		const currentResp = await api.getCurrentSpace();
-		const listResp = await api.listSpaces();
+		const activeApi = api;
+		const [currentResp, listResp] = await Promise.all([
+			activeApi.getCurrentSpace(),
+			activeApi.listSpaces(),
+		]);
+		if (!api || api !== activeApi) return;
 		const spaces = listResp.spaces || [];
 		availableSpaces = spaces;
 		currentSpaceInfo = currentResp.space || spaces.find(space => space.id === listResp.current_space_id) || null;
@@ -2080,7 +2088,9 @@ async function loadCurrentWorkflow() {
 	if (!api) return;
 
 	try {
-		const response = await api.getWorkflow();
+		const activeApi = api;
+		const response = await activeApi.getWorkflow();
+		if (!api || api !== activeApi) return;
 		const workflow = response?.workflow || null;
 		const name = response?.name || 'Untitled';
 

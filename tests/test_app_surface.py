@@ -208,6 +208,78 @@ def _planner_slot_workflow_payload() -> dict:
     }
 
 
+def _agent_edge_workflow_payload() -> dict:
+    return {
+        "type": "workflow",
+        "options": {
+            "name": "Agent Edge Workflow",
+            "description": "Uses backend_config and model_config wired into agent_config via edges only.",
+        },
+        "nodes": [
+            {
+                "type": "backend_config",
+                "name": "agno",
+                "extra": {"pos": [40, 100], "name": "Backend"},
+            },
+            {
+                "type": "model_config",
+                "source": "ollama",
+                "name": "mistral",
+                "extra": {"pos": [40, 260], "name": "Model"},
+            },
+            {
+                "type": "agent_config",
+                "extra": {"pos": [340, 180], "name": "Agent"},
+            },
+            {
+                "type": "start_flow",
+                "extra": {"pos": [40, 420], "name": "Start"},
+            },
+            {
+                "type": "agent_flow",
+                "request": "Say hello in one short sentence.",
+                "extra": {"pos": [640, 420], "name": "Ask Agent"},
+            },
+            {
+                "type": "end_flow",
+                "extra": {"pos": [940, 420], "name": "End"},
+            },
+        ],
+        "edges": [
+            {
+                "source": 0,
+                "target": 2,
+                "source_slot": "config",
+                "target_slot": "backend",
+            },
+            {
+                "source": 1,
+                "target": 2,
+                "source_slot": "config",
+                "target_slot": "model",
+            },
+            {
+                "source": 2,
+                "target": 4,
+                "source_slot": "config",
+                "target_slot": "config",
+            },
+            {
+                "source": 3,
+                "target": 4,
+                "source_slot": "flow_out",
+                "target_slot": "flow_in",
+            },
+            {
+                "source": 4,
+                "target": 5,
+                "source_slot": "flow_out",
+                "target_slot": "flow_in",
+            },
+        ],
+    }
+
+
 async def _fake_published_app_bundle(**kwargs) -> dict:
     app_name = kwargs.get("app_name", "Published App")
     return {
@@ -667,6 +739,22 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(final_status, "completed")
 
+    async def test_agent_edge_config_workflow_saves_with_wired_backend_and_model(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "agentedge", "email": "agentedge@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        save = await self._client.post(
+            "/workflow/save",
+            json={"workflow": _agent_edge_workflow_payload()},
+            headers=headers,
+        )
+        self.assertEqual(save.status_code, 200, save.text)
+        self.assertEqual(save.json()["status"], "saved")
+
     async def test_workflow_validate_repairs_planner_style_toolkit_name(self) -> None:
         register = await self._client.post(
             "/auth/register",
@@ -791,7 +879,8 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(deployment["created_by"], register.json()["user"]["id"])
         self.assertEqual(deployment["channel_ids"], [channel_id])
         self.assertEqual(deployment["toolkit_names"], ["file_toolkit", "channel_toolkit"])
-        self.assertEqual(deployment["status"], "stopped")
+        self.assertEqual(deployment["status"], "disabled")
+        self.assertFalse(deployment["enabled"])
         self.assertEqual(deployment["channels"][0]["id"], channel_id)
 
         listing = await self._client.post("/assistant-deployments/list", json={}, headers=headers)
@@ -836,7 +925,7 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(deployment["linked_space_title"], space["title"])
         self.assertEqual(deployment["linked_workflow_name"], "Ask Your Docs")
 
-    async def test_assistant_deployment_start_stop_controls_bound_channels(self) -> None:
+    async def test_assistant_deployment_lifecycle_does_not_control_bound_channels(self) -> None:
         register = await self._client.post(
             "/auth/register",
             json={"username": "deployrun", "email": "deployrun@local", "password": "pass1234"},
@@ -866,11 +955,11 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
             headers=headers,
         )
         self.assertEqual(started.status_code, 200, started.text)
-        self.assertEqual(started.json()["status"], "running")
+        self.assertEqual(started.json()["status"], "stopped")
 
         channel_status = await self._client.post("/channels/status", json={"channel_id": channel_id}, headers=headers)
         self.assertEqual(channel_status.status_code, 200, channel_status.text)
-        self.assertEqual(channel_status.json()["status"], "running")
+        self.assertEqual(channel_status.json()["status"], "stopped")
 
         stopped = await self._client.post(
             "/assistant-deployments/stop",
@@ -883,6 +972,118 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         channel_status = await self._client.post("/channels/status", json={"channel_id": channel_id}, headers=headers)
         self.assertEqual(channel_status.status_code, 200, channel_status.text)
         self.assertEqual(channel_status.json()["status"], "stopped")
+
+    async def test_stopping_deployment_does_not_stop_channel_already_running(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "deploykeep", "email": "deploykeep@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        channel = await self._client.post(
+            "/channels/add",
+            json={"name": "Already Running Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel.status_code, 200, channel.text)
+        channel_id = channel.json()["id"]
+
+        channel_started = await self._client.post(
+            "/channels/start",
+            json={"channel_id": channel_id},
+            headers=headers,
+        )
+        self.assertEqual(channel_started.status_code, 200, channel_started.text)
+        self.assertEqual(channel_started.json()["status"], "running")
+
+        created = await self._client.post(
+            "/assistant-deployments/create",
+            json={"name": "Keep Channel Alive", "channel_ids": [channel_id]},
+            headers=headers,
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        deployment_id = created.json()["id"]
+
+        started = await self._client.post(
+            "/assistant-deployments/start",
+            json={"id": deployment_id},
+            headers=headers,
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        self.assertEqual(started.json()["status"], "running")
+
+        stopped = await self._client.post(
+            "/assistant-deployments/stop",
+            json={"id": deployment_id},
+            headers=headers,
+        )
+        self.assertEqual(stopped.status_code, 200, stopped.text)
+        self.assertEqual(stopped.json()["status"], "disabled")
+
+        channel_status = await self._client.post("/channels/status", json={"channel_id": channel_id}, headers=headers)
+        self.assertEqual(channel_status.status_code, 200, channel_status.text)
+        self.assertEqual(channel_status.json()["status"], "running")
+
+    async def test_assistant_deployment_channel_conflict_requires_explicit_rebind(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "deploybind", "email": "deploybind@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        channel = await self._client.post(
+            "/channels/add",
+            json={"name": "Shared Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel.status_code, 200, channel.text)
+        channel_id = channel.json()["id"]
+
+        first = await self._client.post(
+            "/assistant-deployments/create",
+            json={"name": "First Owner", "channel_ids": [channel_id]},
+            headers=headers,
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        first_id = first.json()["id"]
+
+        conflict = await self._client.post(
+            "/assistant-deployments/create",
+            json={"name": "Second Owner", "channel_ids": [channel_id]},
+            headers=headers,
+        )
+        self.assertEqual(conflict.status_code, 409, conflict.text)
+        detail = conflict.json()["detail"]
+        self.assertEqual(detail["code"], "channel_conflict")
+        self.assertEqual(detail["conflicts"][0]["channel_id"], channel_id)
+        self.assertEqual(detail["conflicts"][0]["existing_deployment_id"], first_id)
+
+        rebound = await self._client.post(
+            "/assistant-deployments/create",
+            json={"name": "Second Owner", "channel_ids": [channel_id], "force_rebind_channels": True},
+            headers=headers,
+        )
+        self.assertEqual(rebound.status_code, 200, rebound.text)
+        rebound_id = rebound.json()["id"]
+        self.assertEqual(rebound.json()["channel_ids"], [channel_id])
+
+        first_get = await self._client.post(
+            "/assistant-deployments/get",
+            json={"id": first_id},
+            headers=headers,
+        )
+        self.assertEqual(first_get.status_code, 200, first_get.text)
+        self.assertEqual(first_get.json()["channel_ids"], [])
+
+        rebound_get = await self._client.post(
+            "/assistant-deployments/get",
+            json={"id": rebound_id},
+            headers=headers,
+        )
+        self.assertEqual(rebound_get.status_code, 200, rebound_get.text)
+        self.assertEqual(rebound_get.json()["channel_ids"], [channel_id])
 
     async def test_assistant_deployment_proactive_tasks_start_and_stop_with_deployment(self) -> None:
         register = await self._client.post(
@@ -1353,6 +1554,14 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
             headers=headers,
         )
         self.assertEqual(created.status_code, 200, created.text)
+        deployment_id = created.json()["id"]
+
+        started = await self._client.post(
+            "/assistant-deployments/start",
+            json={"id": deployment_id},
+            headers=headers,
+        )
+        self.assertEqual(started.status_code, 200, started.text)
 
         captured: dict[str, object] = {}
 
@@ -1414,6 +1623,13 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(specialist.status_code, 200, specialist.text)
         specialist_id = specialist.json()["id"]
 
+        specialist_started = await self._client.post(
+            "/assistant-deployments/start",
+            json={"id": specialist_id},
+            headers=headers,
+        )
+        self.assertEqual(specialist_started.status_code, 200, specialist_started.text)
+
         front_door = await self._client.post(
             "/assistant-deployments/create",
             json={
@@ -1434,6 +1650,13 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(front_door.status_code, 200, front_door.text)
         front_door_id = front_door.json()["id"]
+
+        front_started = await self._client.post(
+            "/assistant-deployments/start",
+            json={"id": front_door_id},
+            headers=headers,
+        )
+        self.assertEqual(front_started.status_code, 200, front_started.text)
 
         captured: dict[str, object] = {}
 

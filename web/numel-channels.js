@@ -8,6 +8,8 @@ const NumelChannels = (() => {
 
 	let _panel, _closeBtn, _openBtn, _refreshBtn, _addBtn, _listEl, _summaryEl;
 	let _availableTypes = [];
+	let _lastChannels = [];
+	const _pendingOps = new Map();
 
 	// ── Helpers ──────────────────────────────────────────────────
 
@@ -68,6 +70,7 @@ const NumelChannels = (() => {
 		try {
 			const data = await _post('/channels/list');
 			const channels = Array.isArray(data) ? data : (data.channels || []);
+			_lastChannels = channels;
 			_renderList(channels);
 			_updateSummary(channels);
 			// Sync pool idle timeout
@@ -101,9 +104,20 @@ const NumelChannels = (() => {
 			return;
 		}
 		for (const ch of channels) {
-			const status = (ch.status || 'stopped').toLowerCase();
+			const pendingAction = _pendingOps.get(ch.id) || '';
+			const status = (pendingAction === 'start'
+				? 'starting'
+				: pendingAction === 'stop'
+					? 'stopping'
+					: (ch.status || 'stopped')).toLowerCase();
 			const badgeCls = `nw-channel-status-badge nw-ch-badge-${status}`;
-			const isRunning = status === 'running';
+			const isRunning = pendingAction ? pendingAction !== 'start' : status === 'running';
+			const isBusy = !!pendingAction;
+			const actionBtn = isBusy
+				? `<button class="nw-btn nw-btn-sm ${pendingAction === 'stop' ? 'nw-btn-danger' : 'nw-btn-success'} nw-btn-busy" disabled><span class="nw-btn-spinner" aria-hidden="true"></span>${pendingAction === 'stop' ? 'Stopping...' : 'Starting...'}</button>`
+				: isRunning
+					? `<button class="nw-btn nw-btn-sm nw-btn-danger" data-action="stop" data-cid="${ch.id}">Stop</button>`
+					: `<button class="nw-btn nw-btn-sm nw-btn-success" data-action="start" data-cid="${ch.id}">Start</button>`;
 			const card = document.createElement('div');
 			card.className = 'nw-admin-card';
 			card.innerHTML = `
@@ -117,10 +131,7 @@ const NumelChannels = (() => {
 					${ch.error ? `<br><span style="color:var(--sg-accent-red)">${_esc(ch.error)}</span>` : ''}
 				</div>
 				<div class="nw-admin-card-actions">
-					${isRunning
-						? `<button class="nw-btn nw-btn-sm nw-btn-secondary" data-action="stop" data-cid="${ch.id}">Stop</button>`
-						: `<button class="nw-btn nw-btn-sm nw-btn-success" data-action="start" data-cid="${ch.id}">Start</button>`
-					}
+					${actionBtn}
 					<button class="nw-btn nw-btn-sm nw-btn-secondary" data-action="edit" data-cid="${ch.id}">Edit</button>
 					<button class="nw-btn nw-btn-sm nw-btn-danger" data-action="remove" data-cid="${ch.id}" data-cname="${_esc(ch.name || ch.id)}">Remove</button>
 				</div>`;
@@ -138,11 +149,17 @@ const NumelChannels = (() => {
 		const action = btn.dataset.action;
 		try {
 			if (action === 'start') {
+				_pendingOps.set(cid, 'start');
+				_renderList(_lastChannels);
 				await _post('/channels/start', { channel_id: cid });
-				refresh();
+				_pendingOps.delete(cid);
+				await refresh();
 			} else if (action === 'stop') {
+				_pendingOps.set(cid, 'stop');
+				_renderList(_lastChannels);
 				await _post('/channels/stop', { channel_id: cid });
-				refresh();
+				_pendingOps.delete(cid);
+				await refresh();
 			} else if (action === 'remove') {
 				const ok = await NumelConfirm(
 					'Remove Channel',
@@ -151,11 +168,15 @@ const NumelChannels = (() => {
 				);
 				if (!ok) return;
 				await _post('/channels/remove', { channel_id: cid });
-				refresh();
+				await refresh();
 			} else if (action === 'edit') {
 				_showEditDialog(cid);
 			}
 		} catch (err) {
+			if (cid) {
+				_pendingOps.delete(cid);
+				_renderList(_lastChannels);
+			}
 			await NumelAlert('Channel Error', `Error: ${err.message}`);
 		}
 	}

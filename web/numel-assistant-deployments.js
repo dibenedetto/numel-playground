@@ -6,6 +6,7 @@ const NumelAssistantDeployments = (() => {
 	let _panel, _closeBtn, _openBtn, _openInlineBtn, _refreshBtn, _addBtn, _listEl, _summaryEl;
 	let _statusFilterEl, _searchEl, _pendingOnlyEl;
 	let _lastItems = [];
+	const _pendingOps = new Map();
 	const _filters = {
 		status: 'all',
 		search: '',
@@ -17,21 +18,33 @@ const NumelAssistantDeployments = (() => {
 		return (el && el.value) || window.location.origin;
 	}
 
-	async function _post(path, body = {}) {
-		const token = window._numelToken || localStorage.getItem('numel_token');
-		const headers = { 'Content-Type': 'application/json' };
-		if (token) headers.Authorization = `Bearer ${token}`;
-		const resp = await fetch(`${_baseUrl()}${path}`, {
+async function _post(path, body = {}) {
+	const token = window._numelToken || localStorage.getItem('numel_token');
+	const headers = { 'Content-Type': 'application/json' };
+	if (token) headers.Authorization = `Bearer ${token}`;
+	const resp = await fetch(`${_baseUrl()}${path}`, {
 			method: 'POST',
 			headers,
-			body: JSON.stringify(body),
-		});
-		if (!resp.ok) {
-			const detail = await resp.text();
-			throw new Error(`${resp.status}: ${detail}`);
+		body: JSON.stringify(body),
+	});
+	if (!resp.ok) {
+		let parsed = null;
+		let raw = '';
+		try {
+			raw = await resp.text();
+			parsed = raw ? JSON.parse(raw) : null;
+		} catch {
+			parsed = null;
 		}
-		return resp.json();
+		const detail = (parsed?.detail ?? parsed ?? raw) || resp.statusText;
+		const message = typeof detail === 'string' ? detail : JSON.stringify(detail);
+		const error = new Error(`${resp.status}: ${message}`);
+		error.status = resp.status;
+		error.detail = detail;
+		throw error;
 	}
+	return resp.json();
+}
 
 	function _esc(s) {
 		if (s == null) return '';
@@ -399,6 +412,7 @@ const NumelAssistantDeployments = (() => {
 			return;
 		}
 		for (const item of visibleItems) {
+			const pendingAction = _pendingOps.get(item.id) || '';
 			const channels = Array.isArray(item.channels) ? item.channels : [];
 			const runtime = item.runtime || {};
 			const handoffs = Array.isArray(item.recent_handoffs) ? item.recent_handoffs : [];
@@ -424,6 +438,17 @@ const NumelAssistantDeployments = (() => {
 			const toolSafetyLabel = item.safety?.tool_execution_mode === 'approval'
 				? 'Approve tool calls before execution'
 				: 'Run tool calls automatically';
+			const lifecycleState = pendingAction === 'start'
+				? 'starting'
+				: pendingAction === 'stop'
+					? 'stopping'
+					: item.enabled ? 'active' : 'inactive';
+			const effectiveStatus = pendingAction === 'start'
+				? 'starting'
+				: pendingAction === 'stop'
+					? 'stopping'
+					: String(item.status || 'stopped').toLowerCase();
+			const isBusy = !!pendingAction;
 			const workbenchSummary = item.linked_space_title || item.linked_workflow_name
 				? `${item.linked_space_title || item.linked_space_id || 'Unlinked space'}${item.linked_workflow_name ? ` → ${item.linked_workflow_name}` : ''}`
 				: 'Not linked to a workbench yet';
@@ -432,12 +457,16 @@ const NumelAssistantDeployments = (() => {
 			card.innerHTML = `
 				<div class="nw-admin-card-header">
 					<span class="nw-admin-card-title">${_esc(item.name || item.id)}</span>
-					<span class="nw-channel-status-badge nw-ch-badge-${_esc(String(item.status || 'stopped').toLowerCase())}">${_esc(item.status || 'stopped')}</span>
+					<div class="nw-assist-deploy-badges">
+						<span class="nw-channel-status-badge nw-assist-lifecycle-badge nw-assist-lifecycle-${_esc(lifecycleState)}">${_esc(lifecycleState)}</span>
+						<span class="nw-channel-status-badge nw-ch-badge-${_esc(effectiveStatus)}">${_esc(effectiveStatus)}</span>
+					</div>
 				</div>
 				<div class="nw-admin-card-detail">
 					${item.description ? `${_esc(item.description)}<br>` : ''}
 					Profile: ${_esc(item.profile || 'general')}<br>
 					Model: ${_esc(item.model_source || 'default')}${item.model_name ? ` / ${_esc(item.model_name)}` : ''}<br>
+					Deployment: ${_esc(lifecycleState)}<br>
 					Channels: ${_esc(channelSummary)}<br>
 					Toolkits: ${_esc((item.toolkit_names || []).join(', ') || 'default')}<br>
 					Skills: ${_esc((item.skill_names || []).join(', ') || 'active defaults')}<br>
@@ -457,9 +486,11 @@ const NumelAssistantDeployments = (() => {
 				${_renderPendingApprovals(pendingApprovals)}
 				${_renderPendingToolApprovals(pendingToolApprovals)}
 				<div class="nw-admin-card-actions">
-					${String(item.status || '').toLowerCase() === 'running'
-						? `<button class="nw-btn nw-btn-sm nw-btn-secondary" data-action="stop" data-id="${_esc(item.id)}">Stop</button>`
-						: `<button class="nw-btn nw-btn-sm nw-btn-success" data-action="start" data-id="${_esc(item.id)}">Start</button>`
+					${isBusy
+						? `<button class="nw-btn nw-btn-sm ${pendingAction === 'stop' ? 'nw-btn-danger' : 'nw-btn-success'} nw-btn-busy" disabled><span class="nw-btn-spinner" aria-hidden="true"></span>${pendingAction === 'stop' ? 'Stopping...' : 'Starting...'}</button>`
+						: item.enabled
+							? `<button class="nw-btn nw-btn-sm nw-btn-danger" data-action="stop" data-id="${_esc(item.id)}">Stop</button>`
+							: `<button class="nw-btn nw-btn-sm nw-btn-success" data-action="start" data-id="${_esc(item.id)}">Start</button>`
 					}
 					<button class="nw-btn nw-btn-sm nw-btn-secondary" data-action="refresh-runtime" data-id="${_esc(item.id)}">Refresh State</button>
 					${Array.isArray(item.proactive_tasks) && item.proactive_tasks.length
@@ -486,13 +517,19 @@ const NumelAssistantDeployments = (() => {
 		const action = btn.dataset.action;
 		try {
 			if (action === 'start') {
+				_pendingOps.set(deploymentId, 'start');
+				_renderList(_lastItems);
 				await _post('/assistant-deployments/start', { id: deploymentId });
+				_pendingOps.delete(deploymentId);
 				await refresh();
 				_tryRefreshChannels();
 				return;
 			}
 			if (action === 'stop') {
+				_pendingOps.set(deploymentId, 'stop');
+				_renderList(_lastItems);
 				await _post('/assistant-deployments/stop', { id: deploymentId });
+				_pendingOps.delete(deploymentId);
 				await refresh();
 				_tryRefreshChannels();
 				return;
@@ -551,6 +588,10 @@ const NumelAssistantDeployments = (() => {
 				_tryRefreshChannels();
 			}
 		} catch (err) {
+			if (deploymentId) {
+				_pendingOps.delete(deploymentId);
+				_renderList(_lastItems);
+			}
 			await NumelAlert('Assistant Deployment Error', `Error: ${_esc(err.message)}`);
 		}
 	}
@@ -571,17 +612,71 @@ const NumelAssistantDeployments = (() => {
 		return Array.isArray(data?.deployments) ? data.deployments : [];
 	}
 
-	function _renderChannelCheckboxes(channels, selectedIds = []) {
+	function _buildChannelBindings(deployments = [], currentDeploymentId = '') {
+		const bindings = new Map();
+		for (const deployment of Array.isArray(deployments) ? deployments : []) {
+			for (const channelId of Array.isArray(deployment?.channel_ids) ? deployment.channel_ids : []) {
+				if (!channelId) continue;
+				if (currentDeploymentId && deployment?.id === currentDeploymentId) continue;
+				bindings.set(channelId, {
+					id: deployment?.id || '',
+					name: deployment?.name || deployment?.id || 'deployment',
+					enabled: !!deployment?.enabled,
+				});
+			}
+		}
+		return bindings;
+	}
+
+	function _renderChannelCheckboxes(channels, selectedIds = [], deployments = [], currentDeploymentId = '') {
 		if (!channels.length) {
 			return '<div style="color:var(--sg-text-tertiary);font-size:12px;">No channels available yet. Create a channel first, then bind it here.</div>';
 		}
 		const selected = new Set(selectedIds);
+		const bindings = _buildChannelBindings(deployments, currentDeploymentId);
 		return channels.map((channel) => `
 			<label class="nw-checkbox-row">
 				<input type="checkbox" value="${_esc(channel.id)}" ${selected.has(channel.id) ? 'checked' : ''}>
-				<span>${_esc(channel.name || channel.id)} <span style="color:var(--sg-text-tertiary)">(${_esc(channel.channel_type || 'channel')})</span></span>
+				<span>${_esc(channel.name || channel.id)} <span style="color:var(--sg-text-tertiary)">(${_esc(channel.channel_type || 'channel')})</span>${
+					bindings.has(channel.id)
+						? ` <span style="color:var(--sg-warning);font-size:11px;">bound to ${_esc(bindings.get(channel.id)?.name || 'another deployment')}</span>`
+						: ''
+				}</span>
 			</label>
 		`).join('');
+	}
+
+	function _formatChannelConflictMessage(conflicts = []) {
+		if (!Array.isArray(conflicts) || !conflicts.length) {
+			return 'One or more selected channels are already bound to another assistant deployment.';
+		}
+		const lines = conflicts.map((item) => {
+			const deploymentName = _esc(item?.existing_deployment_name || item?.existing_deployment_id || 'another deployment');
+			const channelId = _esc(item?.channel_id || 'channel');
+			return `Channel <strong>${channelId}</strong> is currently bound to <strong>${deploymentName}</strong>.`;
+		});
+		return `${lines.join('<br>')}<br><br>Do you want to unbind the existing deployment and continue?`;
+	}
+
+	async function _saveDeploymentRequest(path, payload) {
+		try {
+			await _post(path, payload);
+			return true;
+		} catch (err) {
+			const detail = err?.detail;
+			if (Number(err?.status) === 409 && detail?.code === 'channel_conflict' && !payload.force_rebind_channels) {
+				const ok = await NumelConfirm(
+					'Rebind Channel',
+					_formatChannelConflictMessage(detail.conflicts || []),
+					'Unbind and Continue',
+					true,
+				);
+				if (!ok) return false;
+				await _post(path, { ...payload, force_rebind_channels: true });
+				return true;
+			}
+			throw err;
+		}
 	}
 
 	function _collectDialogData(dialog) {
@@ -671,18 +766,20 @@ const NumelAssistantDeployments = (() => {
 			<div class="nw-ext-note"><div class="nw-ext-note-pre">Target deployment IDs for routing:
 ${_esc(deploymentHint)}</div></div>
 			<label>Channels</label>
-			<div data-role="channel-list">${_renderChannelCheckboxes(channels)}</div>
+			<div class="nw-ext-note">A channel can be bound to only one deployment at a time. If you choose a channel already in use, Numel will ask before reassigning it.</div>
+			<div data-role="channel-list">${_renderChannelCheckboxes(channels, [], deployments)}</div>
 			<label>Proactive Tasks</label>
 			<div class="nw-ext-note">Attach recurring jobs to this deployment. Starting or stopping the deployment pauses and resumes them.</div>
 			<div data-role="proactive-tasks" class="nw-assist-task-stack"></div>
 			<button type="button" class="nw-btn nw-btn-sm nw-btn-secondary" data-role="add-proactive-task">+ Add Proactive Task</button>
 			<label class="nw-checkbox-row">
-				<input id="_assist_autostart" type="checkbox"> Start bound channels automatically on server startup
+				<input id="_assist_autostart" type="checkbox"> Start this deployment automatically on server startup
 			</label>
 		`, async (overlay) => {
 			const payload = _collectDialogData(overlay);
 			if (!payload.name) throw new Error('Name is required');
-			await _post('/assistant-deployments/create', payload);
+			const saved = await _saveDeploymentRequest('/assistant-deployments/create', payload);
+			if (!saved) return false;
 			await refresh();
 		}, (overlay) => {
 			_mountProactiveTaskEditor(overlay, channels, []);
@@ -753,18 +850,20 @@ ${_esc(deploymentHint)}</div></div>
 			<div class="nw-ext-note"><div class="nw-ext-note-pre">Target deployment IDs for routing:
 ${_esc(deploymentHint)}</div></div>
 			<label>Channels</label>
-			<div data-role="channel-list">${_renderChannelCheckboxes(channels, deployment.channel_ids || [])}</div>
+			<div class="nw-ext-note">A channel can be bound to only one deployment at a time. Choosing a channel already used elsewhere will ask before reassigning it.</div>
+			<div data-role="channel-list">${_renderChannelCheckboxes(channels, deployment.channel_ids || [], deployments, deploymentId)}</div>
 			<label>Proactive Tasks</label>
 			<div class="nw-ext-note">Attach recurring jobs to this deployment. Starting or stopping the deployment pauses and resumes them.</div>
 			<div data-role="proactive-tasks" class="nw-assist-task-stack"></div>
 			<button type="button" class="nw-btn nw-btn-sm nw-btn-secondary" data-role="add-proactive-task">+ Add Proactive Task</button>
 			<label class="nw-checkbox-row">
-				<input id="_assist_autostart" type="checkbox" ${deployment.auto_start ? 'checked' : ''}> Start bound channels automatically on server startup
+				<input id="_assist_autostart" type="checkbox" ${deployment.auto_start ? 'checked' : ''}> Start this deployment automatically on server startup
 			</label>
 		`, async (overlay) => {
 			const payload = _collectDialogData(overlay);
 			if (!payload.name) throw new Error('Name is required');
-			await _post('/assistant-deployments/update', { id: deploymentId, ...payload });
+			const saved = await _saveDeploymentRequest('/assistant-deployments/update', { id: deploymentId, ...payload });
+			if (!saved) return false;
 			await refresh();
 		}, (overlay) => {
 			_mountProactiveTaskEditor(overlay, channels, deployment.proactive_tasks || []);
@@ -792,7 +891,8 @@ ${_esc(deploymentHint)}</div></div>
 		overlay.querySelector('[data-role="cancel"]').onclick = () => overlay.remove();
 		overlay.querySelector('[data-role="save"]').onclick = async () => {
 			try {
-				await onSave(overlay);
+				const result = await onSave(overlay);
+				if (result === false) return;
 				overlay.remove();
 				_tryRefreshChannels();
 			} catch (err) {

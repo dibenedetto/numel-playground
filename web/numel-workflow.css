@@ -1365,6 +1365,27 @@ body.nw-layout-workbench .nw-btn-secondary {
 	color: #fff;
 }
 
+.nw-btn-busy {
+	position: relative;
+	pointer-events: none;
+}
+
+.nw-btn-spinner {
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	border: 2px solid rgba(255, 255, 255, 0.35);
+	border-top-color: rgba(255, 255, 255, 0.95);
+	display: inline-block;
+	animation: nwSpin 0.8s linear infinite;
+	flex: 0 0 auto;
+}
+
+@keyframes nwSpin {
+	from { transform: rotate(0deg); }
+	to { transform: rotate(360deg); }
+}
+
 .nw-btn-row {
 	display: flex;
 	gap: 8px;
@@ -3864,6 +3885,24 @@ body.nw-layout-project-workbench .nw-auth-title {
 	padding: 1px 6px;
 	border-radius: 8px;
 	font-weight: 600;
+}
+.nw-assist-deploy-badges {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+}
+.nw-assist-lifecycle-badge {
+	border: 1px solid color-mix(in srgb, var(--sg-border-color, rgba(255,255,255,0.1)) 84%, transparent);
+}
+.nw-assist-lifecycle-active {
+	background: color-mix(in srgb, var(--sg-accent-green, #5cb85c) 18%, var(--sg-bg-tertiary, #2a2a2a));
+	color: color-mix(in srgb, var(--sg-accent-green, #5cb85c) 76%, white);
+}
+.nw-assist-lifecycle-inactive {
+	background: color-mix(in srgb, var(--sg-text-tertiary, #888) 22%, var(--sg-bg-tertiary, #2a2a2a));
+	color: var(--sg-text-secondary, #bbb);
 }
 .nw-ch-badge-running  { background: var(--sg-accent-green, #5cb85c); color: #fff; }
 .nw-ch-badge-stopped  { background: var(--sg-text-tertiary, #888); color: #fff; }

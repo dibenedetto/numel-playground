@@ -4,7 +4,6 @@
 # Requires a bot token from @BotFather.
 
 import asyncio
-import json
 
 from   typing   import Optional
 from   utils    import log_print
@@ -19,6 +18,8 @@ class TelegramAdapter(ChannelAdapter):
 		super().__init__(config, message_handler)
 		self._app       = None   # telegram.ext.Application
 		self._poll_task = None
+		self._error_stop_task = None
+		self._poll_conflict_reported = False
 
 	@property
 	def type(self) -> str:
@@ -26,6 +27,8 @@ class TelegramAdapter(ChannelAdapter):
 
 	async def start(self):
 		"""Start the Telegram bot polling loop."""
+		if self._app is not None and self.status in {ChannelStatus.RUNNING, ChannelStatus.STARTING}:
+			return
 		token = self.config.token
 		if not token:
 			raise ValueError("Telegram bot token is required. Get one from @BotFather.")
@@ -157,10 +160,13 @@ class TelegramAdapter(ChannelAdapter):
 		from telegram.ext import CommandHandler
 		self._app.add_handler(CommandHandler("start", handle_start))
 
+		self._error = None
+		self._poll_conflict_reported = False
+
 		# Start polling in background
 		await self._app.initialize()
 		await self._app.start()
-		self._poll_task = asyncio.create_task(self._app.updater.start_polling())
+		self._poll_task = asyncio.create_task(self._app.updater.start_polling(error_callback=self._handle_polling_error))
 
 		self.status = ChannelStatus.RUNNING
 		log_print(f"Telegram bot started (polling)")
@@ -175,8 +181,49 @@ class TelegramAdapter(ChannelAdapter):
 				await self._app.shutdown()
 			except Exception as e:
 				log_print(f"Telegram stop error: {e}")
+			if self._poll_task:
+				self._poll_task.cancel()
+				self._poll_task = None
 			self._app = None
+		self._error_stop_task = None
 		self.status = ChannelStatus.STOPPED
+
+	def _handle_polling_error(self, exc):
+		"""Handle polling errors without letting the Telegram library spam stack traces."""
+		try:
+			from telegram.error import Conflict
+		except Exception:
+			Conflict = None
+
+		is_conflict = Conflict is not None and isinstance(exc, Conflict)
+		if is_conflict:
+			self._error = "Telegram polling conflict: another bot instance is already using this bot token."
+			self.status = ChannelStatus.ERROR
+			if not self._poll_conflict_reported:
+				self._poll_conflict_reported = True
+				log_print(self._error)
+			if self._error_stop_task is None or self._error_stop_task.done():
+				self._error_stop_task = asyncio.create_task(self._shutdown_after_polling_error())
+			return
+
+		self._error = str(exc)
+		self.status = ChannelStatus.ERROR
+		log_print(f"Telegram polling error: {exc}")
+
+	async def _shutdown_after_polling_error(self):
+		"""Stop Telegram resources after an asynchronous polling failure."""
+		if self._app:
+			try:
+				if self._app.updater and self._app.updater.running:
+					await self._app.updater.stop()
+				await self._app.stop()
+				await self._app.shutdown()
+			except Exception as e:
+				log_print(f"Telegram shutdown after polling error failed: {e}")
+			if self._poll_task:
+				self._poll_task.cancel()
+				self._poll_task = None
+			self._app = None
 
 	async def send(self, recipient_id: str, text: str, **kwargs) -> bool:
 		"""Send a message to a Telegram chat.

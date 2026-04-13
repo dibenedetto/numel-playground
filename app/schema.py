@@ -413,7 +413,7 @@ class IndexDBConfig(ConfigType):
 	type        : Annotated[Literal["index_db_config"], FieldRole.CONSTANT] = "index_db_config"
 	engine      : Annotated[str                       , FieldRole.INPUT   ] = Field(default=DEFAULT_INDEX_DB_ENGINE,      description="Vector database engine; currently 'lancedb' is supported")
 	url         : Annotated[str                       , FieldRole.INPUT   ] = Field(default=DEFAULT_INDEX_DB_URL,         description="File path or connection URL for the vector database (e.g. 'storage/index')")
-	embedding   : Annotated[EmbeddingConfig           , FieldRole.INPUT   ] = Field(default=None,                        description="EmbeddingConfig providing the model used to vectorize documents and queries")
+	embedding   : Annotated[Optional[EmbeddingConfig] , FieldRole.INPUT   ] = Field(default=None,                        description="EmbeddingConfig providing the model used to vectorize documents and queries")
 	search_type : Annotated[str                       , FieldRole.INPUT   ] = Field(default=DEFAULT_INDEX_DB_SEARCH_TYPE, description="Search strategy — 'hybrid' combines vector similarity with keyword search")
 	table_name  : Annotated[str                       , FieldRole.INPUT   ] = Field(default=DEFAULT_INDEX_DB_TABLE_NAME,  description="Table (collection) name within the vector database")
 	fallback    : Annotated[bool                      , FieldRole.INPUT   ] = Field(default=DEFAULT_INDEX_DB_FALLBACK,    description="If true, skip this DB config silently when unavailable")
@@ -547,8 +547,8 @@ class KnowledgeManagerConfig(ConfigType):
 	query       : Annotated[bool                               , FieldRole.INPUT   ] = Field(default=DEFAULT_KNOWLEDGE_MANAGER_QUERY,       description="If true, perform RAG retrieval to augment the agent's context on each request")
 	update      : Annotated[bool                               , FieldRole.INPUT   ] = Field(default=DEFAULT_KNOWLEDGE_MANAGER_UPDATE,      description="If true, store new information as knowledge after each agent exchange")
 	description : Annotated[Optional[str]                      , FieldRole.INPUT   ] = Field(default=None,                                  description="Short description of this knowledge base, used to guide the agent's retrieval")
-	content_db  : Annotated[ContentDBConfig                    , FieldRole.INPUT   ] = Field(default=None,                                  description="ContentDBConfig providing the raw document storage backend")
-	index_db    : Annotated[IndexDBConfig                      , FieldRole.INPUT   ] = Field(default=None,                                  description="IndexDBConfig providing the vector index for semantic search")
+	content_db  : Annotated[Optional[ContentDBConfig]          , FieldRole.INPUT   ] = Field(default=None,                                  description="ContentDBConfig providing the raw document storage backend")
+	index_db    : Annotated[Optional[IndexDBConfig]            , FieldRole.INPUT   ] = Field(default=None,                                  description="IndexDBConfig providing the vector index for semantic search")
 	max_results : Annotated[int                                , FieldRole.INPUT   ] = Field(default=DEFAULT_KNOWLEDGE_MANAGER_MAX_RESULTS, description="Maximum number of documents to retrieve per query")
 	urls        : Annotated[Optional[List[str]]                , FieldRole.INPUT   ] = Field(default=None,                                  description="Optional list of URLs to seed the knowledge base with on startup")
 
@@ -666,8 +666,8 @@ class AgentConfig(ConfigType):
 	type          : Annotated[Literal["agent_config"]           , FieldRole.CONSTANT   ] = "agent_config"
 	port          : Annotated[Optional[int]                     , FieldRole.ANNOTATION ] = None
 	options       : Annotated[Optional[AgentOptionsConfig]      , FieldRole.INPUT      ] = Field(default=None, description="AgentOptionsConfig defining the agent persona, instructions, and system prompt")
-	backend       : Annotated[BackendConfig                     , FieldRole.INPUT      ] = Field(default=None, description="BackendConfig specifying which agent backend to use")
-	model         : Annotated[ModelConfig                       , FieldRole.INPUT      ] = Field(default=None, description="ModelConfig specifying the language model provider and name")
+	backend       : Annotated[Optional[BackendConfig]           , FieldRole.INPUT      ] = Field(default=None, description="BackendConfig specifying which agent backend to use")
+	model         : Annotated[Optional[ModelConfig]             , FieldRole.INPUT      ] = Field(default=None, description="ModelConfig specifying the language model provider and name")
 	content_db    : Annotated[Optional[ContentDBConfig]         , FieldRole.INPUT      ] = Field(default=None, description="Optional ContentDBConfig for direct database access (bypasses the knowledge manager)")
 	history_mgr   : Annotated[Optional[HistoryManagerConfig]    , FieldRole.INPUT      ] = Field(default=None, description="Optional HistoryManagerConfig for managing chat history")
 	memory_mgr    : Annotated[Optional[MemoryManagerConfig]     , FieldRole.INPUT      ] = Field(default=None, description="Optional MemoryManagerConfig for long-term memory persistence across sessions")

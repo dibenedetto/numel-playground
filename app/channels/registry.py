@@ -81,6 +81,8 @@ class ChannelRegistry:
 		adapter = self._adapters.get(channel_id)
 		if not adapter:
 			return False
+		if adapter.status in {ChannelStatus.RUNNING, ChannelStatus.STARTING}:
+			return True
 
 		try:
 			adapter.status = ChannelStatus.STARTING
@@ -99,6 +101,8 @@ class ChannelRegistry:
 		adapter = self._adapters.get(channel_id)
 		if not adapter:
 			return False
+		if adapter.status in {ChannelStatus.STOPPED, ChannelStatus.STOPPING}:
+			return True
 
 		try:
 			adapter.status = ChannelStatus.STOPPING

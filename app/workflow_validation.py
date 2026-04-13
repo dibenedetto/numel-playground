@@ -425,6 +425,31 @@ def _semantic_validation(workflow: Workflow, workflow_doc: Dict[str, Any]) -> tu
 				f"Available methods: {preview or '(none)'}."
 			)
 
+	def _agent_slot_present(agent_idx: int, agent_node: Any, slot_name: str) -> bool:
+		inline_value = getattr(agent_node, slot_name, None)
+		if inline_value is not None:
+			return True
+		return bool(incoming_edges(agent_idx, slot_name))
+
+	for idx, node in enumerate(nodes):
+		node_type = str(getattr(node, "type", "") or "")
+		if node_type not in {"agent_flow", "agent_chat"}:
+			continue
+		slot_edges = incoming_edges(idx, "config")
+		if len(slot_edges) != 1:
+			continue
+		source_idx = int(slot_edges[0].source)
+		if not (0 <= source_idx < len(nodes)):
+			continue
+		agent_node = nodes[source_idx]
+		if str(getattr(agent_node, "type", "") or "") != "agent_config":
+			continue
+		label = _node_label(source_idx, agent_node)
+		if not _agent_slot_present(source_idx, agent_node, "backend"):
+			errors.append(f"{label} has no backend. Connect a backend_config node to agent_config.backend.")
+		if not _agent_slot_present(source_idx, agent_node, "model"):
+			errors.append(f"{label} has no model. Connect a model_config node to agent_config.model.")
+
 	return errors, warnings
 
 

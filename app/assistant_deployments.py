@@ -68,7 +68,7 @@ class AssistantDeploymentConfig(BaseModel):
     routing_rules: List[AssistantRoutingRule] = Field(default_factory=list)
     proactive_tasks: List[AssistantProactiveTask] = Field(default_factory=list)
     safety: AssistantSafetyConfig = Field(default_factory=AssistantSafetyConfig)
-    enabled: bool = True
+    enabled: bool = False
     auto_start: bool = False
     created_by: Optional[str] = None
     created_at: str = Field(default_factory=_now_iso)
@@ -142,6 +142,37 @@ class AssistantDeploymentManager:
         handoff["source_name"] = primary.name
         return primary, target, handoff
 
+    def find_channel_conflicts(
+        self,
+        channel_ids: List[str],
+        *,
+        exclude_deployment_id: Optional[str] = None,
+        created_by: Optional[str] = None,
+        is_admin: bool = False,
+    ) -> List[Dict[str, Any]]:
+        selected = {str(channel_id).strip() for channel_id in channel_ids if str(channel_id).strip()}
+        if not selected:
+            return []
+        conflicts: List[Dict[str, Any]] = []
+        for deployment in self._deployments.values():
+            if exclude_deployment_id and deployment.id == exclude_deployment_id:
+                continue
+            if not is_admin and created_by and deployment.created_by and deployment.created_by != created_by:
+                continue
+            for channel_id in deployment.channel_ids:
+                if channel_id not in selected:
+                    continue
+                conflicts.append(
+                    {
+                        "channel_id": channel_id,
+                        "existing_deployment_id": deployment.id,
+                        "existing_deployment_name": deployment.name or deployment.id,
+                        "existing_deployment_enabled": bool(deployment.enabled),
+                    }
+                )
+        conflicts.sort(key=lambda row: (str(row.get("existing_deployment_name") or "").lower(), str(row.get("channel_id") or "")))
+        return conflicts
+
     def add(self, config: AssistantDeploymentConfig) -> AssistantDeploymentConfig:
         config.channel_ids = self._normalize_channel_ids(config.channel_ids)
         config.toolkit_names = self._normalize_name_list(config.toolkit_names)
@@ -202,7 +233,6 @@ class AssistantDeploymentManager:
         deployment = self._deployments.pop(deployment_id, None)
         if deployment is None:
             return False
-        await self._stop_channels(deployment.channel_ids)
         await self._stop_proactive_tasks(deployment_id)
         self._runtime_stats.pop(deployment_id, None)
         self._handoff_history = [
@@ -246,7 +276,6 @@ class AssistantDeploymentManager:
             return None
         deployment.enabled = True
         self._touch(deployment)
-        await self._start_channels(deployment.channel_ids)
         await self._sync_proactive_tasks(deployment)
         self._save()
         return self._serialize(deployment)
@@ -257,7 +286,6 @@ class AssistantDeploymentManager:
             return None
         deployment.enabled = False
         self._touch(deployment)
-        await self._stop_channels(deployment.channel_ids)
         await self._stop_proactive_tasks(deployment_id)
         self._save()
         return self._serialize(deployment)
@@ -265,7 +293,6 @@ class AssistantDeploymentManager:
     async def start_auto(self) -> None:
         for deployment in self._deployments.values():
             if deployment.enabled and deployment.auto_start:
-                await self._start_channels(deployment.channel_ids)
                 await self._sync_proactive_tasks(deployment)
 
     async def refresh_runtime(self, deployment_id: str) -> Optional[dict]:
@@ -989,32 +1016,6 @@ class AssistantDeploymentManager:
         rows.sort(key=lambda item: str(item.get("timestamp") or ""))
         return rows[-16:]
 
-    async def _start_channels(self, channel_ids: List[str]) -> None:
-        registry = self._channel_registry
-        if registry is None:
-            return
-        for channel_id in channel_ids:
-            adapter = registry.get(channel_id)
-            if adapter is None:
-                continue
-            try:
-                await registry.start(channel_id)
-            except Exception as exc:
-                log_print(f"Assistant deployment channel start failed: {channel_id} — {exc}")
-
-    async def _stop_channels(self, channel_ids: List[str]) -> None:
-        registry = self._channel_registry
-        if registry is None:
-            return
-        for channel_id in channel_ids:
-            adapter = registry.get(channel_id)
-            if adapter is None:
-                continue
-            try:
-                await registry.stop(channel_id)
-            except Exception as exc:
-                log_print(f"Assistant deployment channel stop failed: {channel_id} — {exc}")
-
     async def _sync_proactive_tasks(self, deployment: AssistantDeploymentConfig) -> None:
         await self._stop_proactive_tasks(
             deployment.id,
@@ -1449,8 +1450,9 @@ class AssistantDeploymentCreateRequest(BaseModel):
     routing_rules: List[AssistantRoutingRule] = Field(default_factory=list)
     proactive_tasks: List[AssistantProactiveTask] = Field(default_factory=list)
     safety: AssistantSafetyConfig = Field(default_factory=AssistantSafetyConfig)
-    enabled: bool = True
+    enabled: bool = False
     auto_start: bool = False
+    force_rebind_channels: bool = False
 
 
 class AssistantDeploymentUpdateRequest(BaseModel):
@@ -1472,6 +1474,7 @@ class AssistantDeploymentUpdateRequest(BaseModel):
     safety: Optional[AssistantSafetyConfig] = None
     enabled: Optional[bool] = None
     auto_start: Optional[bool] = None
+    force_rebind_channels: bool = False
 
 
 def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeploymentManager, channel_registry=None) -> None:
@@ -1506,6 +1509,30 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
             owner = adapter.config.created_by
             if owner and owner != user_id:
                 raise HTTPException(403, f"Channel '{channel_id}' belongs to another user")
+
+    def _validate_channel_bindings(
+        request: Request,
+        channel_ids: List[str],
+        *,
+        current_id: Optional[str] = None,
+        force_rebind: bool = False,
+    ) -> None:
+        user_id, is_admin = _get_user(request)
+        conflicts = deployment_mgr.find_channel_conflicts(
+            channel_ids,
+            exclude_deployment_id=current_id,
+            created_by=user_id,
+            is_admin=is_admin,
+        )
+        if conflicts and not force_rebind:
+            raise HTTPException(
+                409,
+                {
+                    "code": "channel_conflict",
+                    "message": "One or more selected channels are already bound to another assistant deployment.",
+                    "conflicts": conflicts,
+                },
+            )
 
     def _validate_routing(request: Request, routing_rules: List[AssistantRoutingRule], *, current_id: Optional[str] = None) -> None:
         user_id, is_admin = _get_user(request)
@@ -1563,6 +1590,7 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
     async def assistant_deployment_create(request: Request, payload: AssistantDeploymentCreateRequest):
         user = _require_auth(request)
         _validate_channels(request, payload.channel_ids)
+        _validate_channel_bindings(request, payload.channel_ids, force_rebind=payload.force_rebind_channels)
         config = AssistantDeploymentConfig(
             name=payload.name,
             profile=payload.profile,
@@ -1599,6 +1627,12 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
         merged_channel_ids = updates.get("channel_ids", current.channel_ids)
         if "channel_ids" in updates:
             _validate_channels(request, updates["channel_ids"] or [])
+            _validate_channel_bindings(
+                request,
+                updates["channel_ids"] or [],
+                current_id=payload.id,
+                force_rebind=payload.force_rebind_channels,
+            )
         if "routing_rules" in updates:
             _validate_routing(request, updates["routing_rules"] or [], current_id=payload.id)
         if "proactive_tasks" in updates:
