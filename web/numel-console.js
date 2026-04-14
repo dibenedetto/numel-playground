@@ -32,6 +32,7 @@ class AgentConsoleManager {
 		this._sendBtn     = document.getElementById('consoleSendBtn');
 		this._closeBtn    = document.getElementById('consoleCloseBtn');
 		this._clearMemBtn = document.getElementById('consoleClearMemoryBtn');
+		this._openWorkflowBtn = document.getElementById('consoleOpenWorkflowBtn');
 		this._fab         = document.getElementById('consoleToggleBtn');
 		this._badge       = document.getElementById('consoleBadge');
 		this._status      = document.getElementById('consoleStatus');
@@ -94,6 +95,7 @@ class AgentConsoleManager {
 		this._fab.addEventListener('click', () => this.toggle());
 		this._closeBtn.addEventListener('click', () => this.close());
 		this._clearMemBtn?.addEventListener('click', () => this._clearMemory());
+		this._openWorkflowBtn?.addEventListener('click', () => this._openConsoleWorkflowInWorkbench());
 		this._sendBtn.addEventListener('click', () => this._send());
 		this._input.addEventListener('keydown', (e) => {
 			if (e.key === 'Enter' && !e.shiftKey) {
@@ -784,6 +786,40 @@ class AgentConsoleManager {
 		this._history = [];
 		this._sessionId = this.api?.sessionId || this._sessionId;
 		await this._startAgent();
+	}
+
+	async _openConsoleWorkflowInWorkbench() {
+		if (!this.api?.consoleWorkflow) return;
+		const btn = this._openWorkflowBtn;
+		const originalLabel = btn?.textContent || 'Open In Workbench';
+		if (btn) {
+			btn.disabled = true;
+			btn.textContent = 'Loading...';
+		}
+		try {
+			const data = await this.api.consoleWorkflow();
+			const workflow = data?.workflow;
+			const name = data?.name || 'Assistant Console';
+			if (!workflow?.nodes) throw new Error('Console workflow export is empty.');
+			if (typeof window.loadWorkflowFromServer !== 'function') {
+				throw new Error('Workbench loader is not available.');
+			}
+			await window.loadWorkflowFromServer(workflow, name, { source: 'assistant' });
+			const omitted = Array.isArray(data?.omitted_toolkits)
+				? data.omitted_toolkits.filter(Boolean)
+				: [];
+			const suffix = omitted.length
+				? ` Runtime-only toolkits omitted: ${omitted.join(', ')}.`
+				: '';
+			this._addMessage('system', `Loaded "${name}" into the current workbench.${suffix}`);
+		} catch (err) {
+			this._addMessage('error', `Failed to open console workflow: ${err.message}`);
+		} finally {
+			if (btn) {
+				btn.disabled = false;
+				btn.textContent = originalLabel;
+			}
+		}
 	}
 
 	// ── Agent Lifecycle ──────────────────────────────────────────

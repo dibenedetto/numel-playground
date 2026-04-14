@@ -159,6 +159,7 @@ class NumelAPI {
 	consoleStart(opts = {})       { return this.json('/console/start', opts); }
 	consoleStop()                 { return this.json('/console/stop'); }
 	consoleContext()              { return this.json('/console/context'); }
+	consoleWorkflow()             { return this.json('/console/workflow'); }
 	consoleStatus()               { return this.json('/console/status'); }
 	consoleToolkits()             { return this.json('/console/toolkits'); }
 	consoleChat(message, sessionId = null, includeContext = true) {

@@ -42,6 +42,7 @@ _agno_log.logger.warning = _logger_warning_filtered
 
 from   event_bus                       import EventBus
 from   backend_factory                 import build_backend_skills, build_backend_toolkit
+from   console_workflow               import build_console_workflow_export
 from   memory                          import MemoryStore
 from   prompt_stack                    import PLANNER_MODE_DIRECTIVE, extend_instruction_block
 from   runtime_settings                import get_runtime_settings
@@ -283,6 +284,7 @@ class ConsoleAgentManager:
 		self._model_source  = None
 		self._model_name    = None
 		self._toolkit_names = []      # e.g. ["console_toolkit", "file_toolkit"]
+		self._toolkit_args  = {}
 		self._skill_names   = None    # e.g. ["web-search", "git-assistant"]
 		self._skill_mgr     = None    # set via set_skill_mgr()
 		self._proactive_ws       : Dict[WebSocket, Optional[str]] = {}
@@ -430,6 +432,7 @@ class ConsoleAgentManager:
 		self._model_source  = source
 		self._model_name    = name
 		self._toolkit_names = toolkits
+		self._toolkit_args  = dict(_toolkit_args)
 		self._skill_names   = skill_names
 		self._agent_user_id = user_id
 
@@ -614,6 +617,34 @@ class ConsoleAgentManager:
 		# 3. Clear in-memory session history
 		self._sessions.clear()
 		log_print("Console memory cleared")
+
+	def build_workflow_export(self) -> Dict[str, Any]:
+		"""Materialize the current console assistant configuration as a workflow payload."""
+		import credentials as _creds
+
+		config = getattr(self, "_config", None) or _creds.load_json(self._config_path)
+		model_cfg = dict(config.get("model") or {})
+		source = self._model_source or model_cfg.get("source", "ollama")
+		name = self._model_name or model_cfg.get("name", "mistral")
+		toolkit_names = list(self._toolkit_names or config.get("toolkits", ["console_toolkit"]))
+		if "console_toolkit" not in toolkit_names:
+			toolkit_names = ["console_toolkit"] + list(toolkit_names)
+		skill_names = list(self._skill_names or [])
+		use_backend_memory = bool(
+			self._use_backend_memory
+			if self._started
+			else bool((config.get("memory") or {}).get("backend", True))
+		)
+		return build_console_workflow_export(
+			config=config,
+			model_source=source,
+			model_name=name,
+			toolkit_names=toolkit_names,
+			toolkit_args=dict(self._toolkit_args or {}),
+			skill_names=skill_names,
+			use_backend_memory=use_backend_memory,
+			backend_name=DEFAULT_BACKEND_NAME,
+		)
 
 	# ── Planner Mode (per-session) ────────────────────────────────
 
@@ -2029,6 +2060,16 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 	async def console_context(req: Request):
 		user = getattr(req.state, 'user', None)
 		return await console_mgr.get_context(user_id=user.id if user else None)
+
+	@app.post("/console/workflow")
+	async def console_workflow():
+		payload = console_mgr.build_workflow_export()
+		payload["started"] = console_mgr._started
+		payload["model_source"] = console_mgr._model_source
+		payload["model_name"] = console_mgr._model_name
+		payload["toolkit_names"] = list(console_mgr._toolkit_names or [])
+		payload["skill_names"] = list(console_mgr._skill_names or [])
+		return payload
 
 	@app.post("/console/status")
 	async def console_status():

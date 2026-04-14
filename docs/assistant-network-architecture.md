@@ -306,6 +306,12 @@ So the current assistant console should eventually stop feeling like a separate 
 
 This is one reason the general `agent_endpoint_flow` matters: it is not just a deployment feature. It is a reusable workflow primitive that can participate in that broader convergence.
 
+Current status:
+
+- the assistant console can now materialize its current configuration as a real workflow and load it into the workbench
+- this is still a bridge, not full convergence
+- but it gives Numel a concrete workflow-backed starting point for the console instead of treating it as a permanently separate runtime
+
 ## Recommended Implementation Order
 
 1. Add `AgentEndpointConfig` as a Numel abstraction.

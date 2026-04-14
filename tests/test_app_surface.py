@@ -1807,6 +1807,19 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(remote_targets.status_code, 200, remote_targets.text)
         self.assertEqual(remote_targets.json()["options"], [])
 
+    async def test_console_workflow_endpoint_exports_current_console_shape(self) -> None:
+        response = await self._client.post("/console/workflow", json={})
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        workflow = data["workflow"]
+        node_types = [node["type"] for node in workflow["nodes"]]
+        self.assertIn("backend_config", node_types)
+        self.assertIn("model_config", node_types)
+        self.assertIn("agent_options_config", node_types)
+        self.assertIn("agent_config", node_types)
+        self.assertIn("agent_chat", node_types)
+        self.assertIn("console_toolkit", data["omitted_toolkits"])
+
     async def test_published_apps_are_user_owned_and_store_generated_assets(self) -> None:
         register = await self._client.post(
             "/auth/register",
