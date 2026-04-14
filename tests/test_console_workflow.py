@@ -16,6 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 from console import ConsoleAgentManager
+from console_workflow import parse_console_workflow_import
 from event_bus import EventBus
 
 
@@ -77,6 +78,58 @@ class ConsoleWorkflowExportTests(unittest.TestCase):
 		self.assertNotIn("memory_manager_config", node_types)
 		self.assertNotIn("session_manager_config", node_types)
 		self.assertIn("code_toolkit", [node["name"] for node in exported["workflow"]["nodes"] if node["type"] == "toolkit_config"])
+
+	def test_parse_console_workflow_import_round_trips_console_shape(self) -> None:
+		manager = self._manager()
+		manager._started = True
+		manager._model_source = "openai"
+		manager._model_name = "gpt-4o"
+		manager._toolkit_names = ["console_toolkit", "file_toolkit"]
+		manager._toolkit_args = {"file_toolkit": {"root": "."}}
+		manager._skill_names = ["web-search"]
+		manager._use_backend_memory = True
+		manager._options_override = {
+			"name": "Workflow Assistant",
+			"description": "Imported from workflow",
+			"instructions": ["Stay grounded in the graph."],
+			"markdown": True,
+		}
+		manager._memory_override = {"session_history": 8}
+
+		exported = manager.build_workflow_export()
+		parsed = parse_console_workflow_import(exported["workflow"])
+
+		self.assertEqual(parsed["backend_name"], "agno")
+		self.assertEqual(parsed["model_source"], "openai")
+		self.assertEqual(parsed["model_name"], "gpt-4o")
+		self.assertEqual(parsed["toolkit_names"], ["file_toolkit"])
+		self.assertEqual(parsed["toolkit_args"], {"file_toolkit": {"root": "."}})
+		self.assertEqual(parsed["skill_names"], ["web-search"])
+		self.assertTrue(parsed["use_backend_memory"])
+		self.assertEqual(parsed["memory_override"], {"session_history": 8})
+		self.assertEqual(parsed["options_override"]["name"], "Workflow Assistant")
+		self.assertEqual(parsed["options_override"]["description"], "Imported from workflow")
+		self.assertEqual(parsed["options_override"]["instructions"], ["Stay grounded in the graph."])
+		self.assertEqual(parsed["warnings"], [])
+
+	def test_parse_console_workflow_import_rejects_non_console_backend(self) -> None:
+		manager = self._manager()
+		manager._started = True
+		manager._model_source = "ollama"
+		manager._model_name = "qwen3.5:cloud"
+		manager._toolkit_names = ["console_toolkit"]
+		manager._toolkit_args = {}
+		manager._skill_names = []
+		manager._use_backend_memory = False
+
+		exported = manager.build_workflow_export()
+		for node in exported["workflow"]["nodes"]:
+			if node.get("type") == "backend_config":
+				node["name"] = "other_backend"
+				break
+
+		with self.assertRaises(ValueError):
+			parse_console_workflow_import(exported["workflow"])
 
 
 if __name__ == "__main__":

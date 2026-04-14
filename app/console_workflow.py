@@ -229,3 +229,278 @@ def build_console_workflow_export(
 		"omitted_toolkits": omitted_toolkits,
 		"runtime_only_toolkits": sorted(_RUNTIME_ONLY_TOOLKITS),
 	}
+
+
+def _node_name(node: Dict[str, Any], index: Optional[int] = None) -> str:
+	extra = node.get("extra") if isinstance(node, dict) else None
+	label = None
+	if isinstance(extra, dict):
+		label = extra.get("name")
+	if not label:
+		label = node.get("name") if isinstance(node, dict) else None
+	if label:
+		return str(label)
+	return f"node {index}" if index is not None else "node"
+
+
+def _incoming_edges(edges: List[Dict[str, Any]], target_index: int) -> List[Dict[str, Any]]:
+	return [edge for edge in edges if int(edge.get("target", -1)) == target_index]
+
+
+def _validate_node_type(
+	nodes: List[Dict[str, Any]],
+	index: int,
+	expected_type: str,
+	*,
+	context: str,
+) -> Dict[str, Any]:
+	try:
+		node = nodes[index]
+	except IndexError as exc:
+		raise ValueError(f"{context} points to missing node index {index}.") from exc
+	node_type = str(node.get("type") or "")
+	if node_type != expected_type:
+		raise ValueError(
+			f"{context} must point to {expected_type}, got {node_type or 'unknown'} ({_node_name(node, index)})."
+		)
+	return node
+
+
+def _resolve_single_linked_or_inline(
+	nodes: List[Dict[str, Any]],
+	edges: List[Dict[str, Any]],
+	target_index: int,
+	slot_name: str,
+	expected_type: str,
+) -> Tuple[Optional[Dict[str, Any]], Optional[int]]:
+	matches = [edge for edge in _incoming_edges(edges, target_index) if str(edge.get("target_slot") or "") == slot_name]
+	if len(matches) > 1:
+		raise ValueError(f"{_node_name(nodes[target_index], target_index)} has multiple '{slot_name}' connections; expected exactly one.")
+	if matches:
+		source_index = int(matches[0].get("source", -1))
+		node = _validate_node_type(
+			nodes,
+			source_index,
+			expected_type,
+			context=f"{_node_name(nodes[target_index], target_index)}.{slot_name}",
+		)
+		return node, source_index
+	inline_value = nodes[target_index].get(slot_name)
+	if inline_value is None:
+		return None, None
+	if not isinstance(inline_value, dict):
+		raise ValueError(f"{_node_name(nodes[target_index], target_index)}.{slot_name} must be a {expected_type} object.")
+	inline_type = str(inline_value.get("type") or expected_type)
+	if inline_type != expected_type:
+		raise ValueError(
+			f"{_node_name(nodes[target_index], target_index)}.{slot_name} must be {expected_type}, got {inline_type}."
+		)
+	return inline_value, None
+
+
+def _resolve_multi_linked_or_inline(
+	nodes: List[Dict[str, Any]],
+	edges: List[Dict[str, Any]],
+	target_index: int,
+	slot_prefix: str,
+	expected_type: str,
+) -> List[Tuple[str, Dict[str, Any], Optional[int]]]:
+	results: List[Tuple[str, Dict[str, Any], Optional[int]]] = []
+	prefix = slot_prefix + "."
+	linked = [
+		edge for edge in _incoming_edges(edges, target_index)
+		if str(edge.get("target_slot") or "").startswith(prefix)
+	]
+	if linked:
+		for edge in linked:
+			target_slot = str(edge.get("target_slot") or "")
+			key = target_slot.split(".", 1)[1] if "." in target_slot else ""
+			source_index = int(edge.get("source", -1))
+			node = _validate_node_type(
+				nodes,
+				source_index,
+				expected_type,
+				context=f"{_node_name(nodes[target_index], target_index)}.{target_slot}",
+			)
+			results.append((key, node, source_index))
+		return results
+
+	inline_value = nodes[target_index].get(slot_prefix)
+	if inline_value is None:
+		return results
+	if not isinstance(inline_value, dict):
+		raise ValueError(f"{_node_name(nodes[target_index], target_index)}.{slot_prefix} must be a mapping of {expected_type} nodes.")
+	for key, raw_node in inline_value.items():
+		if not isinstance(raw_node, dict):
+			raise ValueError(f"{_node_name(nodes[target_index], target_index)}.{slot_prefix}.{key} must be a {expected_type} object.")
+		inline_type = str(raw_node.get("type") or expected_type)
+		if inline_type != expected_type:
+			raise ValueError(
+				f"{_node_name(nodes[target_index], target_index)}.{slot_prefix}.{key} must be {expected_type}, got {inline_type}."
+			)
+		results.append((str(key), raw_node, None))
+	return results
+
+
+def _clean_string(value: Any) -> str:
+	return str(value or "").strip()
+
+
+def _clean_string_list(value: Any) -> List[str]:
+	if value is None:
+		return []
+	if isinstance(value, list):
+		return [item for item in (_clean_string(v) for v in value) if item]
+	if isinstance(value, str):
+		text = value.strip()
+		return [text] if text else []
+	return []
+
+
+def parse_console_workflow_import(
+	workflow: Dict[str, Any],
+	*,
+	backend_name: str = DEFAULT_BACKEND_NAME,
+) -> Dict[str, Any]:
+	"""Parse a console-shaped workflow back into live console settings."""
+	if not isinstance(workflow, dict):
+		raise ValueError("Workflow payload must be a dictionary.")
+	nodes = workflow.get("nodes") or []
+	edges = workflow.get("edges") or []
+	if not isinstance(nodes, list) or not nodes:
+		raise ValueError("Workflow must contain nodes.")
+	if not isinstance(edges, list):
+		raise ValueError("Workflow edges must be a list.")
+
+	chat_indexes = [index for index, node in enumerate(nodes) if str(node.get("type") or "") == "agent_chat"]
+	if not chat_indexes:
+		raise ValueError("A console workflow must contain one agent_chat node.")
+	if len(chat_indexes) > 1:
+		raise ValueError("A console workflow import currently supports exactly one agent_chat node.")
+	chat_index = chat_indexes[0]
+
+	agent_node, agent_index = _resolve_single_linked_or_inline(nodes, edges, chat_index, "config", "agent_config")
+	if agent_node is None:
+		raise ValueError("The agent_chat node has no connected agent_config.")
+
+	backend_node, _ = _resolve_single_linked_or_inline(
+		nodes if agent_index is not None else [agent_node],
+		edges if agent_index is not None else [],
+		agent_index if agent_index is not None else 0,
+		"backend",
+		"backend_config",
+	)
+	model_node, _ = _resolve_single_linked_or_inline(
+		nodes if agent_index is not None else [agent_node],
+		edges if agent_index is not None else [],
+		agent_index if agent_index is not None else 0,
+		"model",
+		"model_config",
+	)
+	options_node, _ = _resolve_single_linked_or_inline(
+		nodes if agent_index is not None else [agent_node],
+		edges if agent_index is not None else [],
+		agent_index if agent_index is not None else 0,
+		"options",
+		"agent_options_config",
+	)
+	memory_node, _ = _resolve_single_linked_or_inline(
+		nodes if agent_index is not None else [agent_node],
+		edges if agent_index is not None else [],
+		agent_index if agent_index is not None else 0,
+		"memory_mgr",
+		"memory_manager_config",
+	)
+	session_node, _ = _resolve_single_linked_or_inline(
+		nodes if agent_index is not None else [agent_node],
+		edges if agent_index is not None else [],
+		agent_index if agent_index is not None else 0,
+		"session_mgr",
+		"session_manager_config",
+	)
+
+	if backend_node is None:
+		raise ValueError("The agent_config has no connected backend_config.")
+	if model_node is None:
+		raise ValueError("The agent_config has no connected model_config.")
+
+	parsed_backend = _clean_string(backend_node.get("name") or backend_name) or backend_name
+	if parsed_backend != backend_name:
+		raise ValueError(f"Console workflow import currently supports only backend '{backend_name}', got '{parsed_backend}'.")
+
+	toolkit_entries = _resolve_multi_linked_or_inline(
+		nodes if agent_index is not None else [agent_node],
+		edges if agent_index is not None else [],
+		agent_index if agent_index is not None else 0,
+		"toolkits",
+		"toolkit_config",
+	)
+	skill_entries = _resolve_multi_linked_or_inline(
+		nodes if agent_index is not None else [agent_node],
+		edges if agent_index is not None else [],
+		agent_index if agent_index is not None else 0,
+		"skills",
+		"skill_config",
+	)
+
+	toolkit_names: List[str] = []
+	toolkit_args: Dict[str, Dict[str, Any]] = {}
+	for _, toolkit_node, _ in toolkit_entries:
+		tk_name = _clean_string(toolkit_node.get("name"))
+		if not tk_name:
+			raise ValueError(f"Toolkit node {_node_name(toolkit_node)} is missing its name.")
+		toolkit_names.append(tk_name)
+		args = toolkit_node.get("args")
+		if isinstance(args, dict) and args:
+			toolkit_args[tk_name] = dict(args)
+
+	skill_names = [name for name in (_clean_string(node.get("name")) for _, node, _ in skill_entries) if name]
+
+	workflow_options = workflow.get("options") if isinstance(workflow.get("options"), dict) else {}
+	options_payload = options_node or {}
+	assistant_name = _clean_string(options_payload.get("name")) or _clean_string(workflow_options.get("name")) or "Numel Assistant"
+	assistant_description = _clean_string(options_payload.get("description"))
+	assistant_instructions = _clean_string_list(options_payload.get("instructions"))
+	options_override = {
+		"name": assistant_name,
+		"description": assistant_description,
+		"instructions": assistant_instructions,
+		"markdown": bool(options_payload.get("markdown", True)),
+	}
+
+	warnings: List[str] = []
+	if options_payload.get("prompt_override"):
+		warnings.append("agent_options_config.prompt_override is not currently applied by the console bridge and was ignored.")
+
+	use_backend_memory = memory_node is not None or session_node is not None
+	memory_override: Dict[str, Any] = {}
+	if session_node is not None:
+		history_size = session_node.get("history_size")
+		if isinstance(history_size, int) and history_size > 0:
+			memory_override["session_history"] = history_size
+	if (memory_node is None) != (session_node is None):
+		warnings.append("Console import maps workflow memory/session managers to a single console memory toggle; partial memory wiring was imported as memory enabled.")
+
+	unsupported_agent_fields = [
+		field_name
+		for field_name in ("content_db", "history_mgr", "knowledge_mgr", "tools")
+		if agent_node.get(field_name)
+	]
+	if unsupported_agent_fields:
+		warnings.append(
+			"Console import ignored unsupported agent_config fields: " + ", ".join(unsupported_agent_fields) + "."
+		)
+
+	return {
+		"workflow_name": _clean_string(workflow_options.get("name")) or assistant_name,
+		"backend_name": parsed_backend,
+		"model_source": _clean_string(model_node.get("source")) or "ollama",
+		"model_name": _clean_string(model_node.get("name")) or "mistral",
+		"toolkit_names": toolkit_names,
+		"toolkit_args": toolkit_args,
+		"skill_names": skill_names,
+		"use_backend_memory": use_backend_memory,
+		"memory_override": memory_override,
+		"options_override": options_override,
+		"warnings": warnings,
+	}

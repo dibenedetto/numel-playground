@@ -2312,6 +2312,11 @@ window.loadWorkflowFromServer = async function(workflow, name, { source = 'assis
 	return true;
 };
 
+window.exportCurrentWorkflowForAssistant = function() {
+	if (!visualizer?.exportWorkflow) return null;
+	return visualizer.exportWorkflow();
+};
+
 function saveChatState() {
 	const state = new Map();
 	

@@ -1820,6 +1820,40 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("agent_chat", node_types)
         self.assertIn("console_toolkit", data["omitted_toolkits"])
 
+    async def test_console_workflow_apply_endpoint_reconfigures_console(self) -> None:
+        exported = await self._client.post("/console/workflow", json={})
+        self.assertEqual(exported.status_code, 200, exported.text)
+        workflow = exported.json()["workflow"]
+
+        for node in workflow["nodes"]:
+            if node.get("type") == "model_config":
+                node["source"] = "openai"
+                node["name"] = "gpt-4o-mini"
+            elif node.get("type") == "agent_options_config":
+                node["name"] = "Workbench Assistant"
+                node["description"] = "Imported from a workflow-backed console."
+                node["instructions"] = ["Stay focused on the current workbench."]
+            elif node.get("type") == "session_manager_config":
+                node["history_size"] = 9
+
+        apply_response = await self._client.post("/console/workflow/apply", json={"workflow": workflow})
+        self.assertEqual(apply_response.status_code, 200, apply_response.text)
+        payload = apply_response.json()
+        self.assertTrue(payload["started"])
+        self.assertEqual(payload["model_source"], "openai")
+        self.assertEqual(payload["model_name"], "gpt-4o-mini")
+        self.assertEqual(payload["options"]["name"], "Workbench Assistant")
+        self.assertEqual(payload["options"]["description"], "Imported from a workflow-backed console.")
+        self.assertEqual(payload["options"]["instructions"], ["Stay focused on the current workbench."])
+        self.assertEqual(payload["memory_override"], {"session_history": 9})
+
+        exported_again = await self._client.post("/console/workflow", json={})
+        self.assertEqual(exported_again.status_code, 200, exported_again.text)
+        roundtrip = exported_again.json()["workflow"]
+        option_nodes = [node for node in roundtrip["nodes"] if node.get("type") == "agent_options_config"]
+        self.assertEqual(len(option_nodes), 1)
+        self.assertEqual(option_nodes[0]["name"], "Workbench Assistant")
+
     async def test_published_apps_are_user_owned_and_store_generated_assets(self) -> None:
         register = await self._client.post(
             "/auth/register",

@@ -309,6 +309,7 @@ This is one reason the general `agent_endpoint_flow` matters: it is not just a d
 Current status:
 
 - the assistant console can now materialize its current configuration as a real workflow and load it into the workbench
+- the same bridge now also works in reverse: a console-shaped workflow in the workbench can be applied back to the live Assistant
 - this is still a bridge, not full convergence
 - but it gives Numel a concrete workflow-backed starting point for the console instead of treating it as a permanently separate runtime
 

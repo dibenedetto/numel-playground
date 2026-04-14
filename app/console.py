@@ -42,7 +42,7 @@ _agno_log.logger.warning = _logger_warning_filtered
 
 from   event_bus                       import EventBus
 from   backend_factory                 import build_backend_skills, build_backend_toolkit
-from   console_workflow               import build_console_workflow_export
+from   console_workflow               import build_console_workflow_export, parse_console_workflow_import
 from   memory                          import MemoryStore
 from   prompt_stack                    import PLANNER_MODE_DIRECTIVE, extend_instruction_block
 from   runtime_settings                import get_runtime_settings
@@ -286,6 +286,8 @@ class ConsoleAgentManager:
 		self._toolkit_names = []      # e.g. ["console_toolkit", "file_toolkit"]
 		self._toolkit_args  = {}
 		self._skill_names   = None    # e.g. ["web-search", "git-assistant"]
+		self._options_override = None
+		self._memory_override  = None
 		self._skill_mgr     = None    # set via set_skill_mgr()
 		self._proactive_ws       : Dict[WebSocket, Optional[str]] = {}
 		self._sessions           : Dict[str, List[dict]] = {}  # session_id → message history
@@ -382,12 +384,24 @@ class ConsoleAgentManager:
 					use_backend_memory: Optional[bool] = None,
 					toolkit_args: Optional[Dict[str, Dict[str, Any]]] = None,
 					skill_names: Optional[List[str]] = None,
+					options_override: Optional[Dict[str, Any]] = None,
+					memory_override: Optional[Dict[str, Any]] = None,
 					user_id: Optional[str] = None) -> int:
 		"""Start (or restart) the console agent server. Returns the port.
 		Concurrent calls are serialized — a second call waits for the first to finish."""
 
 		async with self._start_lock:
-			return await self._start_impl(model_source, model_name, toolkit_names, use_backend_memory, toolkit_args, skill_names=skill_names, user_id=user_id)
+			return await self._start_impl(
+				model_source,
+				model_name,
+				toolkit_names,
+				use_backend_memory,
+				toolkit_args,
+				skill_names=skill_names,
+				options_override=options_override,
+				memory_override=memory_override,
+				user_id=user_id,
+			)
 
 	async def _start_impl(self, model_source: Optional[str] = None,
 						  model_name: Optional[str] = None,
@@ -395,20 +409,34 @@ class ConsoleAgentManager:
 						  use_backend_memory: Optional[bool] = None,
 						  toolkit_args: Optional[Dict[str, Dict[str, Any]]] = None,
 						  skill_names: Optional[List[str]] = None,
+						  options_override: Optional[Dict[str, Any]] = None,
+						  memory_override: Optional[Dict[str, Any]] = None,
 						  user_id: Optional[str] = None) -> int:
 		self._current_user_id = user_id
 		_toolkit_args = toolkit_args or {}
+		_options_override = dict(options_override) if options_override is not None else dict(self._options_override or {})
+		_memory_override = dict(memory_override) if memory_override is not None else dict(self._memory_override or {})
 		# Load config for defaults and instructions
 		import credentials as _creds
 		config = _creds.load_json(self._config_path)
 		self._config = config
+		effective_config = self._build_effective_console_config(
+			config=config,
+			options_override=_options_override or None,
+			memory_override=_memory_override or None,
+		)
+		requested_use_backend = (
+			use_backend_memory
+			if use_backend_memory is not None
+			else bool((effective_config.get("memory") or {}).get("backend", True))
+		)
 
-		model_cfg = config.get("model", {})
+		model_cfg = effective_config.get("model", {})
 		source = model_source or model_cfg.get("source", "ollama")
 		name   = model_name   or model_cfg.get("name", "mistral")
 
 		# Default toolkits: console_toolkit is always included
-		cfg_toolkits = config.get("toolkits", ["console_toolkit"])
+		cfg_toolkits = effective_config.get("toolkits", ["console_toolkit"])
 		toolkits = toolkit_names if toolkit_names is not None else cfg_toolkits
 
 		# Ensure console_toolkit is always present
@@ -421,6 +449,9 @@ class ConsoleAgentManager:
 			and name == self._model_name
 			and toolkits == self._toolkit_names
 			and skill_names == self._skill_names
+			and requested_use_backend == self._use_backend_memory
+			and _options_override == dict(self._options_override or {})
+			and _memory_override == dict(self._memory_override or {})
 			and user_id == self._agent_user_id):
 			return self._port
 
@@ -434,6 +465,8 @@ class ConsoleAgentManager:
 		self._toolkit_names = toolkits
 		self._toolkit_args  = dict(_toolkit_args)
 		self._skill_names   = skill_names
+		self._options_override = _options_override or None
+		self._memory_override = _memory_override or None
 		self._agent_user_id = user_id
 
 		# Build tools from all configured toolkits
@@ -482,9 +515,9 @@ class ConsoleAgentManager:
 		log_print(f"Console agent tools: {[getattr(t, 'name', getattr(t, '__name__', str(t))) for t in tools]}")
 
 		# Memory: backend (SqliteDb) or manual MemoryStore
-		mem_cfg = config.get("memory", {})
+		mem_cfg = effective_config.get("memory", {})
 		# use_backend_memory param overrides the config file value
-		use_backend = use_backend_memory if use_backend_memory is not None else mem_cfg.get("backend", True)
+		use_backend = requested_use_backend
 		self._use_backend_memory = use_backend
 
 		db                      = None
@@ -618,11 +651,56 @@ class ConsoleAgentManager:
 		self._sessions.clear()
 		log_print("Console memory cleared")
 
+	@staticmethod
+	def _build_effective_console_config(
+		*,
+		config: Dict[str, Any],
+		options_override: Optional[Dict[str, Any]] = None,
+		memory_override: Optional[Dict[str, Any]] = None,
+	) -> Dict[str, Any]:
+		effective = dict(config or {})
+		options = dict(effective.get("options") or {})
+		memory = dict(effective.get("memory") or {})
+
+		if options_override:
+			for key in ("name", "description", "prompt_override"):
+				if key in options_override and options_override.get(key) is not None:
+					options[key] = options_override.get(key)
+			if "instructions" in options_override:
+				options["instructions"] = list(options_override.get("instructions") or [])
+			if "markdown" in options_override and options_override.get("markdown") is not None:
+				options["markdown"] = bool(options_override.get("markdown"))
+
+		if memory_override:
+			for key, value in dict(memory_override).items():
+				if value is not None:
+					memory[key] = value
+
+		effective["options"] = options
+		effective["memory"] = memory
+		return effective
+
+	def current_console_options(self) -> Dict[str, Any]:
+		import credentials as _creds
+
+		config = getattr(self, "_config", None) or _creds.load_json(self._config_path)
+		effective_config = self._build_effective_console_config(
+			config=config,
+			options_override=self._options_override,
+			memory_override=self._memory_override,
+		)
+		return dict(effective_config.get("options") or {})
+
 	def build_workflow_export(self) -> Dict[str, Any]:
 		"""Materialize the current console assistant configuration as a workflow payload."""
 		import credentials as _creds
 
 		config = getattr(self, "_config", None) or _creds.load_json(self._config_path)
+		effective_config = self._build_effective_console_config(
+			config=config,
+			options_override=self._options_override,
+			memory_override=self._memory_override,
+		)
 		model_cfg = dict(config.get("model") or {})
 		source = self._model_source or model_cfg.get("source", "ollama")
 		name = self._model_name or model_cfg.get("name", "mistral")
@@ -636,7 +714,7 @@ class ConsoleAgentManager:
 			else bool((config.get("memory") or {}).get("backend", True))
 		)
 		return build_console_workflow_export(
-			config=config,
+			config=effective_config,
 			model_source=source,
 			model_name=name,
 			toolkit_names=toolkit_names,
@@ -645,6 +723,35 @@ class ConsoleAgentManager:
 			use_backend_memory=use_backend_memory,
 			backend_name=DEFAULT_BACKEND_NAME,
 		)
+
+	async def apply_workflow_import(self, workflow: Dict[str, Any], *, user_id: Optional[str] = None) -> Dict[str, Any]:
+		parsed = parse_console_workflow_import(workflow, backend_name=DEFAULT_BACKEND_NAME)
+		port = await self.start(
+			model_source=parsed["model_source"],
+			model_name=parsed["model_name"],
+			toolkit_names=parsed["toolkit_names"],
+			use_backend_memory=parsed["use_backend_memory"],
+			toolkit_args=parsed["toolkit_args"],
+			skill_names=parsed["skill_names"],
+			options_override=parsed["options_override"],
+			memory_override=parsed.get("memory_override"),
+			user_id=user_id,
+		)
+		return {
+			"applied": True,
+			"started": self._started,
+			"port": port,
+			"workflow_name": parsed["workflow_name"],
+			"model_source": self._model_source,
+			"model_name": self._model_name,
+			"toolkit_names": list(self._toolkit_names or []),
+			"toolkit_args": dict(self._toolkit_args or {}),
+			"skill_names": list(self._skill_names or []),
+			"use_backend_memory": bool(self._use_backend_memory),
+			"memory_override": dict(self._memory_override or {}),
+			"options": self.current_console_options(),
+			"warnings": list(parsed.get("warnings") or []),
+		}
 
 	# ── Planner Mode (per-session) ────────────────────────────────
 
@@ -1444,7 +1551,7 @@ class ChannelAgentPool:
 			db = SqliteDb(db_file=db_path)
 			log_print(f"ChannelAgentPool: memory db → {os.path.basename(db_path)}")
 
-		opts = config.get("options", {})
+		opts = effective_config.get("options", {})
 		instructions = list(opts.get("instructions", []))
 		if sender_name:
 			instructions.insert(0, f"You are chatting with {sender_name}.")
@@ -2070,6 +2177,21 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 		payload["toolkit_names"] = list(console_mgr._toolkit_names or [])
 		payload["skill_names"] = list(console_mgr._skill_names or [])
 		return payload
+
+	@app.post("/console/workflow/apply")
+	async def console_workflow_apply(request: dict, req: Request):
+		workflow = request.get("workflow")
+		if not isinstance(workflow, dict):
+			raise HTTPException(status_code=400, detail="No valid workflow JSON")
+		user = getattr(req.state, 'user', None)
+		user_id = user.id if user else None
+		token = req.headers.get("authorization", "").removeprefix("Bearer ").strip()
+		console_mgr._auth_token = token
+		try:
+			payload = await console_mgr.apply_workflow_import(workflow, user_id=user_id)
+			return payload
+		except ValueError as exc:
+			raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 	@app.post("/console/status")
 	async def console_status():

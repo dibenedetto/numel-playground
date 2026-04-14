@@ -33,6 +33,7 @@ class AgentConsoleManager {
 		this._closeBtn    = document.getElementById('consoleCloseBtn');
 		this._clearMemBtn = document.getElementById('consoleClearMemoryBtn');
 		this._openWorkflowBtn = document.getElementById('consoleOpenWorkflowBtn');
+		this._applyWorkflowBtn = document.getElementById('consoleApplyWorkflowBtn');
 		this._fab         = document.getElementById('consoleToggleBtn');
 		this._badge       = document.getElementById('consoleBadge');
 		this._status      = document.getElementById('consoleStatus');
@@ -96,6 +97,7 @@ class AgentConsoleManager {
 		this._closeBtn.addEventListener('click', () => this.close());
 		this._clearMemBtn?.addEventListener('click', () => this._clearMemory());
 		this._openWorkflowBtn?.addEventListener('click', () => this._openConsoleWorkflowInWorkbench());
+		this._applyWorkflowBtn?.addEventListener('click', () => this._applyWorkbenchWorkflowToConsole());
 		this._sendBtn.addEventListener('click', () => this._send());
 		this._input.addEventListener('keydown', (e) => {
 			if (e.key === 'Enter' && !e.shiftKey) {
@@ -814,6 +816,82 @@ class AgentConsoleManager {
 			this._addMessage('system', `Loaded "${name}" into the current workbench.${suffix}`);
 		} catch (err) {
 			this._addMessage('error', `Failed to open console workflow: ${err.message}`);
+		} finally {
+			if (btn) {
+				btn.disabled = false;
+				btn.textContent = originalLabel;
+			}
+		}
+	}
+
+	_ensureModelOption(source, name) {
+		if (!this._modelSelect || !source || !name) return;
+		const value = `${source}:${name}`;
+		const exists = [...this._modelSelect.options].some((opt) => opt.value === value);
+		if (exists) {
+			this._modelSelect.value = value;
+			return;
+		}
+		const opt = document.createElement('option');
+		opt.value = value;
+		opt.textContent = `${source} / ${name}`;
+		this._modelSelect.appendChild(opt);
+		this._modelSelect.value = value;
+	}
+
+	async _applyConsoleWorkflowState(data) {
+		if (!data) return;
+		this._toolkitArgs = data.toolkit_args || {};
+		this._ensureModelOption(data.model_source, data.model_name);
+		if (this._memoryToggle) {
+			this._memoryToggle.checked = !!data.use_backend_memory;
+		}
+		await this._fetchToolkits();
+		await this._fetchSkills();
+		const selectedSkills = new Set(data.skill_names || []);
+		if (this._skillList) {
+			this._skillList.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+				cb.checked = selectedSkills.has(cb.value);
+			});
+		}
+		this.agentPort = data.port || this.agentPort;
+		if (this._streamingMode) {
+			this._connectAgent();
+		} else {
+			this._disconnectAgent();
+		}
+		this._connectProactive();
+		if (data.model_source && data.model_name) {
+			this._setStatus(`${data.model_source}/${data.model_name}`);
+		}
+		this._setInputEnabled(true);
+		this._updateSettingsSummary();
+	}
+
+	async _applyWorkbenchWorkflowToConsole() {
+		if (!this.api?.consoleApplyWorkflow) return;
+		const btn = this._applyWorkflowBtn;
+		const originalLabel = btn?.textContent || 'Use Current Workbench';
+		if (btn) {
+			btn.disabled = true;
+			btn.textContent = 'Applying...';
+		}
+		try {
+			const workflow = typeof window.exportCurrentWorkflowForAssistant === 'function'
+				? window.exportCurrentWorkflowForAssistant()
+				: null;
+			if (!workflow?.nodes?.length) {
+				throw new Error('The current workbench is empty.');
+			}
+			const data = await this.api.consoleApplyWorkflow(workflow);
+			await this._applyConsoleWorkflowState(data);
+			const assistantName = data?.options?.name ? ` as "${data.options.name}"` : '';
+			this._addMessage('system', `Applied "${data?.workflow_name || 'Workbench'}" to the Assistant${assistantName}.`);
+			for (const warning of (data?.warnings || [])) {
+				this._addMessage('system', `Console workflow note: ${warning}`);
+			}
+		} catch (err) {
+			this._addMessage('error', `Failed to apply current workbench to the Assistant: ${err.message}`);
 		} finally {
 			if (btn) {
 				btn.disabled = false;
