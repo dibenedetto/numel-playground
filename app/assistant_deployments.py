@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Literal, Optional
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from assistant_network_workflow import build_assistant_network_workflow
 from runtime_settings import get_runtime_settings
 from utils import log_print
 
@@ -1656,11 +1657,29 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
                     f"Proactive task '{task.name}' must target one of the deployment's bound channels or leave the channel empty",
                 )
 
+    def _visible_channels(request: Request) -> List[dict]:
+        user_id, is_admin = _get_user(request)
+        rows = channel_registry.list() if channel_registry else []
+        if is_admin:
+            return list(rows)
+        return [
+            row for row in rows
+            if not row.get("created_by") or row.get("created_by") == user_id
+        ]
+
     @app.post("/assistant-deployments/list")
     async def assistant_deployment_list(request: Request):
         user = _require_auth(request)
         _, is_admin = _get_user(request)
         return {"deployments": deployment_mgr.list(user_id=user.id, is_admin=is_admin)}
+
+    @app.post("/assistant-deployments/network-workflow")
+    async def assistant_deployment_network_workflow(request: Request):
+        user = _require_auth(request)
+        _, is_admin = _get_user(request)
+        deployments = deployment_mgr.list(user_id=user.id, is_admin=is_admin)
+        channels = _visible_channels(request)
+        return build_assistant_network_workflow(deployments=deployments, channels=channels)
 
     @app.post("/assistant-deployments/get")
     async def assistant_deployment_get(request: Request):

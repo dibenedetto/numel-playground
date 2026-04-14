@@ -925,6 +925,93 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(deployment["linked_space_title"], space["title"])
         self.assertEqual(deployment["linked_workflow_name"], "Ask Your Docs")
 
+    async def test_assistant_deployment_network_workflow_exports_live_network(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "deploynet", "email": "deploynet@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        channel_resp = await self._client.post(
+            "/channels/add",
+            json={"name": "Network Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel_resp.status_code, 200, channel_resp.text)
+        channel_id = channel_resp.json()["id"]
+
+        specialist_resp = await self._client.post(
+            "/assistant-deployments/create",
+            json={
+                "name": "Billing Specialist",
+                "profile": "billing",
+                "channel_ids": [],
+                "routing_rules": [],
+                "proactive_tasks": [],
+            },
+            headers=headers,
+        )
+        self.assertEqual(specialist_resp.status_code, 200, specialist_resp.text)
+        specialist_id = specialist_resp.json()["id"]
+
+        frontdoor_resp = await self._client.post(
+            "/assistant-deployments/create",
+            json={
+                "name": "Support Front Door",
+                "profile": "triage",
+                "channel_ids": [channel_id],
+                "routing_rules": [
+                    {
+                        "name": "Billing Route",
+                        "keywords": ["invoice", "refund"],
+                        "target_deployment_id": specialist_id,
+                        "enabled": True,
+                    }
+                ],
+                "proactive_tasks": [
+                    {
+                        "name": "Morning Summary",
+                        "prompt": "Summarize the top overnight issues.",
+                        "interval_sec": 900,
+                        "channel_id": channel_id,
+                        "enabled": True,
+                        "send_response": True,
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        self.assertEqual(frontdoor_resp.status_code, 200, frontdoor_resp.text)
+
+        network_resp = await self._client.post(
+            "/assistant-deployments/network-workflow",
+            json={},
+            headers=headers,
+        )
+        self.assertEqual(network_resp.status_code, 200, network_resp.text)
+        workflow = network_resp.json()["workflow"]
+
+        validate_resp = await self._client.post(
+            "/workflow/validate",
+            json={"workflow": workflow},
+            headers=headers,
+        )
+        self.assertEqual(validate_resp.status_code, 200, validate_resp.text)
+
+        node_types = [node["type"] for node in workflow["nodes"]]
+        self.assertIn("assistant_deployment_runtime_config", node_types)
+        self.assertIn("channel_runtime_config", node_types)
+        self.assertIn("assistant_route_runtime_config", node_types)
+        self.assertIn("assistant_proactive_runtime_config", node_types)
+        self.assertNotIn("assistant_approval_runtime_config", node_types)
+
+        target_slots = [edge["target_slot"] for edge in workflow["edges"]]
+        self.assertTrue(any(slot.startswith("bound_channels.") for slot in target_slots))
+        self.assertTrue(any(slot.startswith("outgoing_routes.") for slot in target_slots))
+        self.assertTrue(any(slot.startswith("incoming_routes.") for slot in target_slots))
+        self.assertTrue(any(slot.startswith("proactive_tasks.") for slot in target_slots))
+
     async def test_assistant_deployment_lifecycle_does_not_control_bound_channels(self) -> None:
         register = await self._client.post(
             "/auth/register",

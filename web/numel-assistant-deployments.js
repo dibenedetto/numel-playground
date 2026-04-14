@@ -3,7 +3,7 @@
 
 // eslint-disable-next-line no-unused-vars
 const NumelAssistantDeployments = (() => {
-	let _panel, _closeBtn, _openBtn, _openInlineBtn, _refreshBtn, _addBtn, _listEl, _summaryEl;
+	let _panel, _closeBtn, _openBtn, _openInlineBtn, _refreshBtn, _openWorkflowBtn, _addBtn, _listEl, _summaryEl;
 	let _statusFilterEl, _searchEl, _pendingOnlyEl;
 	let _lastItems = [];
 	const _pendingOps = new Map();
@@ -396,6 +396,36 @@ async function _post(path, body = {}) {
 			_renderList(items);
 		} catch (err) {
 			_listEl.innerHTML = `<div style="color:var(--sg-accent-red);font-size:12px;">Error: ${_esc(err.message)}</div>`;
+		}
+	}
+
+	async function _openNetworkInWorkbench() {
+		if (typeof window.loadWorkflowFromServer !== 'function') {
+			await NumelAlert('Assistant Deployment Network', 'Workbench loader is not available.');
+			return;
+		}
+		const btn = _openWorkflowBtn;
+		const originalLabel = btn?.textContent || 'Open Network In Workbench';
+		if (btn) {
+			btn.disabled = true;
+			btn.textContent = 'Loading...';
+		}
+		try {
+			const data = await _post('/assistant-deployments/network-workflow');
+			const workflow = data?.workflow;
+			const name = data?.name || 'Assistant Deployment Network';
+			if (!workflow?.nodes) {
+				throw new Error('The assistant deployment network is empty.');
+			}
+			await window.loadWorkflowFromServer(workflow, name, { source: 'assistant-deployment-network' });
+			close();
+		} catch (err) {
+			await NumelAlert('Assistant Deployment Network', `Error: ${_esc(err.message)}`);
+		} finally {
+			if (btn) {
+				btn.disabled = false;
+				btn.textContent = originalLabel;
+			}
 		}
 	}
 
@@ -910,6 +940,7 @@ ${_esc(deploymentHint)}</div></div>
 		_openBtn = document.getElementById('assistantDeploymentPanelBtn');
 		_openInlineBtn = document.getElementById('assistantDeploymentPanelBtnInline');
 		_refreshBtn = document.getElementById('assistantDeploymentRefreshBtn');
+		_openWorkflowBtn = document.getElementById('assistantDeploymentOpenWorkflowBtn');
 		_addBtn = document.getElementById('assistantDeploymentAddBtn');
 		_listEl = document.getElementById('assistantDeploymentList');
 		_summaryEl = document.getElementById('assistantDeploymentSummary');
@@ -921,6 +952,7 @@ ${_esc(deploymentHint)}</div></div>
 		if (_openBtn) _openBtn.onclick = toggle;
 		if (_openInlineBtn) _openInlineBtn.onclick = open;
 		if (_refreshBtn) _refreshBtn.onclick = refresh;
+		if (_openWorkflowBtn) _openWorkflowBtn.onclick = _openNetworkInWorkbench;
 		if (_addBtn) _addBtn.onclick = _showAddDialog;
 		if (_statusFilterEl) {
 			_statusFilterEl.addEventListener('change', () => {

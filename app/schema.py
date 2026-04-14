@@ -669,6 +669,144 @@ class AgentEndpointConfig(ConfigType):
 
 
 @node_info(
+	title       = "Channel Runtime",
+	description = "Operational view of a live channel binding inside the assistant network",
+	icon        = "📡",
+	section     = "Operations",
+	layer       = 2,
+	visible     = True
+)
+class ChannelRuntimeConfig(ConfigType):
+	"""Read-only operational node representing a configured channel adapter in the live assistant network."""
+	type         : Annotated[Literal["channel_runtime_config"], FieldRole.CONSTANT] = "channel_runtime_config"
+	channel_id   : Annotated[str                             , FieldRole.INPUT   ] = Field(default="", description="Channel adapter id")
+	name         : Annotated[str                             , FieldRole.INPUT   ] = Field(default="", description="Channel display name")
+	channel_type : Annotated[str                             , FieldRole.INPUT   ] = Field(default="", description="Channel adapter type, such as telegram, webhook, or discord")
+	status       : Annotated[str                             , FieldRole.INPUT   ] = Field(default="", description="Current runtime status")
+	enabled      : Annotated[bool                            , FieldRole.INPUT   ] = Field(default=True, description="Whether the channel is enabled in Numel")
+	auto_start   : Annotated[bool                            , FieldRole.INPUT   ] = Field(default=False, description="Whether the channel auto-starts with the server")
+	owner        : Annotated[Optional[str]                   , FieldRole.INPUT   ] = Field(default=None, description="Owning user id when available")
+
+	@property
+	def config(self) -> Annotated[ChannelRuntimeConfig, FieldRole.OUTPUT]:
+		return self
+
+
+@node_info(
+	title       = "Deployment Route",
+	description = "Operational routing or handoff rule between assistant deployments",
+	icon        = "🧭",
+	section     = "Operations",
+	layer       = 2,
+	visible     = True
+)
+class AssistantRouteRuntimeConfig(ConfigType):
+	"""Read-only routing rule node used by the assistant-network workflow export."""
+	type                 : Annotated[Literal["assistant_route_runtime_config"], FieldRole.CONSTANT] = "assistant_route_runtime_config"
+	route_id             : Annotated[str                                       , FieldRole.INPUT   ] = Field(default="", description="Routing rule id")
+	name                 : Annotated[str                                       , FieldRole.INPUT   ] = Field(default="", description="Optional rule label")
+	keywords             : Annotated[Optional[str]                             , FieldRole.INPUT   ] = Field(default=None, description="Comma-separated keywords that trigger the route")
+	target_deployment_id : Annotated[str                                       , FieldRole.INPUT   ] = Field(default="", description="Target deployment id")
+	target_name          : Annotated[Optional[str]                             , FieldRole.INPUT   ] = Field(default=None, description="Resolved target deployment name when available")
+	enabled              : Annotated[bool                                      , FieldRole.INPUT   ] = Field(default=True, description="Whether the route is currently enabled")
+
+	@property
+	def config(self) -> Annotated[AssistantRouteRuntimeConfig, FieldRole.OUTPUT]:
+		return self
+
+
+@node_info(
+	title       = "Proactive Task",
+	description = "Operational proactive job attached to an assistant deployment",
+	icon        = "⏰",
+	section     = "Operations",
+	layer       = 2,
+	visible     = True
+)
+class AssistantProactiveRuntimeConfig(ConfigType):
+	"""Read-only proactive-task node for assistant-network workflow exports."""
+	type          : Annotated[Literal["assistant_proactive_runtime_config"], FieldRole.CONSTANT] = "assistant_proactive_runtime_config"
+	task_id        : Annotated[str                                           , FieldRole.INPUT   ] = Field(default="", description="Proactive task id")
+	name           : Annotated[str                                           , FieldRole.INPUT   ] = Field(default="", description="Task name")
+	prompt         : Annotated[Optional[str]                                 , FieldRole.INPUT   ] = Field(default=None, description="Task prompt")
+	interval_sec   : Annotated[int                                           , FieldRole.INPUT   ] = Field(default=900, description="Task interval in seconds")
+	channel_id     : Annotated[Optional[str]                                 , FieldRole.INPUT   ] = Field(default=None, description="Preferred delivery channel id")
+	recipient_id   : Annotated[Optional[str]                                 , FieldRole.INPUT   ] = Field(default=None, description="Preferred recipient for delivery")
+	enabled        : Annotated[bool                                          , FieldRole.INPUT   ] = Field(default=True, description="Whether the task is enabled")
+	send_response  : Annotated[bool                                          , FieldRole.INPUT   ] = Field(default=True, description="Whether the task sends its response outward")
+	runtime_status : Annotated[Optional[str]                                 , FieldRole.INPUT   ] = Field(default=None, description="Scheduler/runtime status such as scheduled, running, or stopped")
+	last_status    : Annotated[Optional[str]                                 , FieldRole.INPUT   ] = Field(default=None, description="Last execution status")
+	next_run_at    : Annotated[Optional[str]                                 , FieldRole.INPUT   ] = Field(default=None, description="Next scheduled run time, if known")
+	last_run_at    : Annotated[Optional[str]                                 , FieldRole.INPUT   ] = Field(default=None, description="Last run time, if known")
+
+	@property
+	def config(self) -> Annotated[AssistantProactiveRuntimeConfig, FieldRole.OUTPUT]:
+		return self
+
+
+@node_info(
+	title       = "Pending Approval",
+	description = "Operational approval record waiting on an operator decision",
+	icon        = "🛑",
+	section     = "Operations",
+	layer       = 2,
+	visible     = True
+)
+class AssistantApprovalRuntimeConfig(ConfigType):
+	"""Read-only approval node representing a pending proactive or tool approval."""
+	type        : Annotated[Literal["assistant_approval_runtime_config"], FieldRole.CONSTANT] = "assistant_approval_runtime_config"
+	approval_id : Annotated[str                                          , FieldRole.INPUT   ] = Field(default="", description="Approval id")
+	kind        : Annotated[str                                          , FieldRole.INPUT   ] = Field(default="approval", description="Approval kind, such as proactive or tool")
+	status      : Annotated[str                                          , FieldRole.INPUT   ] = Field(default="pending", description="Current approval status")
+	channel_id  : Annotated[Optional[str]                                , FieldRole.INPUT   ] = Field(default=None, description="Associated channel id")
+	task_name   : Annotated[Optional[str]                                , FieldRole.INPUT   ] = Field(default=None, description="Associated proactive task name when relevant")
+	tool_name   : Annotated[Optional[str]                                , FieldRole.INPUT   ] = Field(default=None, description="Associated tool call name when relevant")
+	created_at  : Annotated[Optional[str]                                , FieldRole.INPUT   ] = Field(default=None, description="When the approval was created")
+	preview     : Annotated[Optional[str]                                , FieldRole.INPUT   ] = Field(default=None, description="Short preview of the pending action")
+
+	@property
+	def config(self) -> Annotated[AssistantApprovalRuntimeConfig, FieldRole.OUTPUT]:
+		return self
+
+
+@node_info(
+	title       = "Assistant Deployment",
+	description = "Operational view of a live assistant deployment",
+	icon        = "🛰️",
+	section     = "Operations",
+	layer       = 2,
+	visible     = True
+)
+class AssistantDeploymentRuntimeConfig(ConfigType):
+	"""Read-only operational node representing a live assistant deployment in the network graph."""
+	type                    : Annotated[Literal["assistant_deployment_runtime_config"]                       , FieldRole.CONSTANT   ] = "assistant_deployment_runtime_config"
+	deployment_id           : Annotated[str                                                                  , FieldRole.INPUT      ] = Field(default="", description="Deployment id")
+	name                    : Annotated[str                                                                  , FieldRole.INPUT      ] = Field(default="", description="Deployment name")
+	profile                 : Annotated[str                                                                  , FieldRole.INPUT      ] = Field(default="general", description="Deployment profile label")
+	description             : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Operator-facing deployment summary")
+	status                  : Annotated[str                                                                  , FieldRole.INPUT      ] = Field(default="stopped", description="Aggregate deployment status")
+	enabled                 : Annotated[bool                                                                 , FieldRole.INPUT      ] = Field(default=False, description="Whether the deployment is currently enabled")
+	model_source            : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Deployment model source override")
+	model_name              : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Deployment model name override")
+	linked_space_title      : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Linked workbench space title")
+	linked_workflow_name    : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Linked workbench workflow name")
+	toolkit_names           : Annotated[Optional[List[str]]                                                  , FieldRole.INPUT      ] = Field(default=None, description="Attached toolkit names")
+	skill_names             : Annotated[Optional[List[str]]                                                  , FieldRole.INPUT      ] = Field(default=None, description="Attached skill names")
+	proactive_delivery_mode : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Proactive delivery policy")
+	tool_execution_mode     : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Tool execution approval policy")
+	pending_approval_count  : Annotated[int                                                                  , FieldRole.INPUT      ] = Field(default=0, description="Current pending approval count")
+	bound_channels          : Annotated[Optional[Dict[str, ChannelRuntimeConfig]]                            , FieldRole.MULTI_INPUT] = Field(default=None, description="Bound channel nodes")
+	outgoing_routes         : Annotated[Optional[Dict[str, AssistantRouteRuntimeConfig]]                     , FieldRole.MULTI_INPUT] = Field(default=None, description="Outgoing routing or handoff rules from this deployment")
+	incoming_routes         : Annotated[Optional[Dict[str, AssistantRouteRuntimeConfig]]                     , FieldRole.MULTI_INPUT] = Field(default=None, description="Incoming routes targeting this deployment")
+	proactive_tasks         : Annotated[Optional[Dict[str, AssistantProactiveRuntimeConfig]]                 , FieldRole.MULTI_INPUT] = Field(default=None, description="Attached proactive task nodes")
+	pending_approvals       : Annotated[Optional[Dict[str, AssistantApprovalRuntimeConfig]]                  , FieldRole.MULTI_INPUT] = Field(default=None, description="Pending approval nodes associated with this deployment")
+
+	@property
+	def config(self) -> Annotated[AssistantDeploymentRuntimeConfig, FieldRole.OUTPUT]:
+		return self
+
+
+@node_info(
 	title       = "Agent Options",
 	description = "Stores agent configuration options",
 	icon        = "🛠️",
@@ -1724,6 +1862,11 @@ WorkflowNodeUnion = Union[
 	ToolkitConfig,
 	SkillConfig,
 	AgentEndpointConfig,
+	ChannelRuntimeConfig,
+	AssistantRouteRuntimeConfig,
+	AssistantProactiveRuntimeConfig,
+	AssistantApprovalRuntimeConfig,
+	AssistantDeploymentRuntimeConfig,
 	AgentOptionsConfig,
 	AgentConfig,
 
