@@ -1228,10 +1228,12 @@ async def run_server(
 		config_path=str(_runtime_settings.assistant_deployments_path)
 	)
 	assistant_deployment_mgr.initialize(channel_registry=channel_registry, channel_pool=channel_pool)
-	# Make channel registry available to workspace engines and agent pool
-	workspace_mgr._channel_registry = channel_registry
-	for _ws in workspace_mgr._workspaces.values():
-		_ws.engine.channel_registry = channel_registry
+	# Make shared runtime services available to workspace engines and agent pool
+	workspace_mgr.set_runtime_services(
+		channel_registry=channel_registry,
+		assistant_deployment_mgr=assistant_deployment_mgr,
+		channel_pool=channel_pool,
+	)
 	channel_pool._channel_reg = channel_registry
 
 	# ── Skills ────────────────────────────────────────────────
@@ -1276,7 +1278,7 @@ async def run_server(
 		ws.manager._skill_mgr = skill_mgr
 
 	# ── API Routes (order matters: specific routes before static mount) ──
-	setup_api(app, event_bus, schema_code, workspace_mgr, skill_mgr=skill_mgr)
+	setup_api(app, event_bus, schema_code, workspace_mgr, skill_mgr=skill_mgr, assistant_deployment_mgr=assistant_deployment_mgr)
 	setup_console_api(app, console_mgr, channel_pool=channel_pool, channel_cmd=channel_cmd)
 	setup_channel_api(app, channel_registry, pool=channel_pool)
 	setup_assistant_deployments_api(app, assistant_deployment_mgr, channel_registry=channel_registry)

@@ -85,6 +85,8 @@ For the current product-facing design direction, see
 [docs/product-roadmap.md](docs/product-roadmap.md).
 For the assistant deployment model, including routing, proactive jobs, approvals,
 and operator flows, see [docs/assistant-deployments.md](docs/assistant-deployments.md).
+For the longer-term assistant network and remote agent architecture, including
+Agent Endpoints and A2A fit, see [docs/assistant-network-architecture.md](docs/assistant-network-architecture.md).
 For a market and positioning comparison against LangChain, n8n, and OpenClaw,
 see [docs/competitive-landscape.md](docs/competitive-landscape.md).
 Concrete UI concepts for review live in

@@ -139,6 +139,30 @@ def _resolve_native_skill_bundle(skill_mgr, skill_names: Optional[List[str]] = N
 	return build_backend_skills(skill_definitions, backend_name=backend_name)
 
 
+def _toolkit_runtime_args(
+	tk_name: str,
+	*,
+	base_url: str,
+	internal_token: str,
+	user_id: Optional[str],
+	auth_token: str = "",
+	local_app = None,
+	deployment_id: Optional[str] = None,
+) -> Dict[str, Any]:
+	"""Provide runtime-only constructor args for toolkits that need Numel app context."""
+	args: Dict[str, Any] = {}
+	if tk_name in {"workspace_toolkit", "agent_endpoint_toolkit"}:
+		args.setdefault("base_url", base_url)
+		args.setdefault("internal_token", internal_token)
+		args.setdefault("user_id", user_id)
+		args.setdefault("local_app", local_app)
+		if auth_token:
+			args.setdefault("auth_token", auth_token)
+	if tk_name == "agent_endpoint_toolkit" and deployment_id:
+		args.setdefault("deployment_id", deployment_id)
+	return args
+
+
 def _remove_sqlite_sidecars(db_path: str) -> None:
 	"""Delete a sqlite db file plus WAL/SHM companions."""
 	for suffix in ("", "-wal", "-shm"):
@@ -439,13 +463,15 @@ class ConsoleAgentManager:
 					tools.append(native_toolkit)
 			else:
 				tk_args = dict(_toolkit_args.get(tk_name) or {})
-				if tk_name == "workspace_toolkit":
-					tk_args.setdefault("base_url", self._base_url)
-					tk_args.setdefault("internal_token", self._internal_token)
-					tk_args.setdefault("user_id", user_id)
-					tk_args.setdefault("local_app", self._fastapi_app)
-					if getattr(self, '_auth_token', ''):
-						tk_args.setdefault("auth_token", self._auth_token)
+				for key, value in _toolkit_runtime_args(
+					tk_name,
+					base_url=self._base_url,
+					internal_token=self._internal_token,
+					user_id=user_id,
+					auth_token=getattr(self, "_auth_token", ""),
+					local_app=self._fastapi_app,
+				).items():
+					tk_args.setdefault(key, value)
 				native_toolkit = _load_native_toolkit(tk_name, tk_args or None)
 				if native_toolkit is not None:
 					tools.append(native_toolkit)
@@ -1218,7 +1244,8 @@ class ChannelAgentPool:
 							 skill_names: Optional[List[str]] = None,
 							 tool_confirmation_mode: Optional[str] = None,
 							 assistant_name: Optional[str] = None,
-							 assistant_description: Optional[str] = None) -> Agent:
+							 assistant_description: Optional[str] = None,
+							 deployment_id: Optional[str] = None) -> Agent:
 		"""Return (or lazily build) the Agent for this session."""
 		async with self._lock:
 			# Update stored token if a fresh one is provided
@@ -1234,6 +1261,7 @@ class ChannelAgentPool:
 				"tool_confirmation_mode": tool_confirmation_mode or "",
 				"assistant_name": assistant_name or "",
 				"assistant_description": assistant_description or "",
+				"deployment_id": deployment_id or "",
 				"extra_instructions": list(extra_instructions) if extra_instructions else [],
 			}
 
@@ -1259,6 +1287,7 @@ class ChannelAgentPool:
 				tool_confirmation_mode=tool_confirmation_mode,
 				assistant_name=assistant_name,
 				assistant_description=assistant_description,
+				deployment_id=deployment_id,
 			)
 			self._agents[session_id]   = agent
 			self._agent_tks[session_id] = list(toolkits) if toolkits else []
@@ -1300,7 +1329,8 @@ class ChannelAgentPool:
 						   skill_names: Optional[List[str]] = None,
 						   tool_confirmation_mode: Optional[str] = None,
 						   assistant_name: Optional[str] = None,
-						   assistant_description: Optional[str] = None) -> Agent:
+						   assistant_description: Optional[str] = None,
+						   deployment_id: Optional[str] = None) -> Agent:
 		"""Build a lightweight Agent from console_agent.json defaults."""
 		import credentials as _creds
 		config = _creds.load_json(self._config_path)
@@ -1349,13 +1379,16 @@ class ChannelAgentPool:
 					tools.append(native_toolkit)
 			elif tk_name not in _INJECTED:
 				tk_args = {}
-				if tk_name == "workspace_toolkit" and auth_token:
-					tk_args["auth_token"] = auth_token
-				if tk_name == "workspace_toolkit":
-					tk_args.setdefault("base_url", self._base_url)
-					tk_args.setdefault("internal_token", self._internal_token)
-					tk_args.setdefault("user_id", user_id)
-					tk_args.setdefault("local_app", self._fastapi_app)
+				for key, value in _toolkit_runtime_args(
+					tk_name,
+					base_url=self._base_url,
+					internal_token=self._internal_token,
+					user_id=user_id,
+					auth_token=auth_token,
+					local_app=self._fastapi_app,
+					deployment_id=deployment_id,
+				).items():
+					tk_args.setdefault(key, value)
 				native_toolkit = _load_native_toolkit(
 					tk_name,
 					tk_args or None,
@@ -1438,6 +1471,7 @@ class ChannelAgentPool:
 				tool_confirmation_mode=tool_confirmation_mode,
 				assistant_name=assistant_name,
 				assistant_description=assistant_description,
+				deployment_id=deployment_id,
 			)
 		except Exception as e:
 			log_print(f"ChannelAgentPool: agent creation failed for {session_id[:16]}: {e}")

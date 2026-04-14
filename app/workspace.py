@@ -55,6 +55,8 @@ class WorkspaceManager:
 		self._next_port        : int                        = base_port + 2  # +0 = main server, +1 = console agent
 		self._storage_root     : Optional[Path]             = Path(storage_root) if storage_root else None
 		self._channel_registry                              = channel_registry
+		self._assistant_deployment_mgr                      = None
+		self._channel_pool                                  = None
 		self._workspaces       : Dict[str, WorkspaceState]  = {}
 		self._default_ws_id    : Optional[str]              = None
 		self._user_ws          : Dict[str, str]             = {}   # user_id → workspace_id
@@ -70,6 +72,21 @@ class WorkspaceManager:
 		ws = await self.create_workspace("default", "Default workspace")
 		self._default_ws_id = ws.workspace_id
 		await ws.manager.initialize()
+
+	def set_runtime_services(self, *, channel_registry=None, assistant_deployment_mgr=None, channel_pool=None) -> None:
+		"""Propagate shared runtime services into current and future workspace engines."""
+		if channel_registry is not None:
+			self._channel_registry = channel_registry
+		if assistant_deployment_mgr is not None:
+			self._assistant_deployment_mgr = assistant_deployment_mgr
+		if channel_pool is not None:
+			self._channel_pool = channel_pool
+		for ws in self._workspaces.values():
+			ws.engine.set_runtime_services(
+				channel_registry=self._channel_registry,
+				assistant_deployment_mgr=self._assistant_deployment_mgr,
+				channel_pool=self._channel_pool,
+			)
 
 
 	async def shutdown(self):
@@ -140,7 +157,12 @@ class WorkspaceManager:
 
 		mgr    = WorkflowManager(port, self._event_bus, storage_dir=storage_dir)
 		mgr._skill_mgr = self._skill_mgr
-		eng    = WorkflowEngine(self._event_bus, channel_registry=self._channel_registry)
+		eng    = WorkflowEngine(
+			self._event_bus,
+			channel_registry=self._channel_registry,
+			assistant_deployment_mgr=self._assistant_deployment_mgr,
+			channel_pool=self._channel_pool,
+		)
 
 		ws = WorkspaceState(
 			workspace_id = workspace_id,

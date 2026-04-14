@@ -4061,6 +4061,7 @@ class SchemaGraphApp {
 		const dropdown = document.getElementById('sg-comboBoxDropdown');
 		const refreshBtn = document.getElementById('sg-comboBoxRefresh');
 		const spinner = document.getElementById('sg-comboBoxSpinner');
+		const comboContext = this._buildComboContext();
 
 		// Use a comfortable width for the combo-box (wider than the tiny slot width)
 		const comboWidth = Math.max(parseInt(width) || 75, 140) + 'px';
@@ -4070,26 +4071,27 @@ class SchemaGraphApp {
 		input.value = String(currentValue ?? '');
 
 		// Check session cache
-		const cacheKey = `_comboCache_${optionsSource}`;
-		const cached = this[cacheKey];
+		this._comboCache = this._comboCache || {};
+		const cacheKey = JSON.stringify({ source: optionsSource, context: comboContext || {} });
+		const cached = this._comboCache[cacheKey];
 
 		if (cached) {
 			this._populateComboDropdown(dropdown, cached, '');
 		} else if (staticOptions && staticOptions.length > 0) {
 			this._populateComboDropdown(dropdown, staticOptions, '');
 			// Also fetch from API to get fresh options
-			this._fetchComboOptions(optionsSource, dropdown, spinner, '');
+			this._fetchComboOptions(optionsSource, dropdown, spinner, '', comboContext, cacheKey);
 		} else {
-			this._fetchComboOptions(optionsSource, dropdown, spinner, '');
+			this._fetchComboOptions(optionsSource, dropdown, spinner, '', comboContext, cacheKey);
 		}
 
 		refreshBtn.onclick = () => {
-			delete this[cacheKey];
-			this._fetchComboOptions(optionsSource, dropdown, spinner, '');
+			delete this._comboCache[cacheKey];
+			this._fetchComboOptions(optionsSource, dropdown, spinner, '', comboContext, cacheKey);
 		};
 
 		input.oninput = () => {
-			const allOptions = this[cacheKey] || staticOptions || [];
+			const allOptions = this._comboCache[cacheKey] || staticOptions || [];
 			this._populateComboDropdown(dropdown, allOptions, input.value);
 		};
 
@@ -4099,7 +4101,28 @@ class SchemaGraphApp {
 		input.select();
 	}
 
-	async _fetchComboOptions(optionsSource, dropdown, spinner, filterValue) {
+	_buildComboContext() {
+		const node = this.editingNode;
+		if (!node?.nativeInputs || !node?.inputMeta) return {};
+		const context = {};
+		for (const [idx, meta] of Object.entries(node.inputMeta)) {
+			const inputInfo = node.nativeInputs[idx];
+			if (!inputInfo || !meta?.name || meta.name.includes('.')) continue;
+			context[meta.name] = inputInfo.value;
+		}
+		return context;
+	}
+
+	_authHeadersForCombo() {
+		const headers = { 'Content-Type': 'application/json' };
+		const token = window._numelToken || localStorage.getItem('numel_token');
+		if (token) headers['Authorization'] = `Bearer ${token}`;
+		const sessionId = sessionStorage.getItem('numel_session_id');
+		if (sessionId) headers['X-Session-Id'] = sessionId;
+		return headers;
+	}
+
+	async _fetchComboOptions(optionsSource, dropdown, spinner, filterValue, context = {}, cacheKey = null) {
 		spinner.classList.add('show');
 		dropdown.innerHTML = '<div class="sg-combo-box-loading">Loading...</div>';
 		dropdown.classList.add('show');
@@ -4108,14 +4131,15 @@ class SchemaGraphApp {
 			const baseUrl = this._comboBoxBaseUrl || '';
 			const response = await fetch(`${baseUrl}/options/${optionsSource}`, {
 				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: null
+				headers: this._authHeadersForCombo(),
+				body: JSON.stringify(context || {})
 			});
 			if (!response.ok) throw new Error(`Failed: ${response.statusText}`);
 			const data = await response.json();
 			const options = data.options || [];
 
-			this[`_comboCache_${optionsSource}`] = options;
+			this._comboCache = this._comboCache || {};
+			this._comboCache[cacheKey || JSON.stringify({ source: optionsSource, context: context || {} })] = options;
 			this._populateComboDropdown(dropdown, options, filterValue);
 		} catch (e) {
 			console.error(`[ComboBox] Failed to fetch options for ${optionsSource}:`, e);
@@ -4126,10 +4150,11 @@ class SchemaGraphApp {
 	}
 
 	_populateComboDropdown(dropdown, options, filterValue) {
+		const normalized = (options || []).map(opt => this._normalizeComboOption(opt));
 		const filter = (filterValue || '').toLowerCase();
 		const filtered = filter
-			? options.filter(opt => String(opt).toLowerCase().includes(filter))
-			: options;
+			? normalized.filter(opt => `${opt.label} ${opt.value} ${opt.description || ''}`.toLowerCase().includes(filter))
+			: normalized;
 
 		if (filtered.length === 0) {
 			dropdown.innerHTML = '<div class="sg-combo-box-empty">No matching options</div>';
@@ -4138,8 +4163,10 @@ class SchemaGraphApp {
 		}
 
 		dropdown.innerHTML = filtered.map(opt => {
-			const displayValue = opt === null ? 'null' : String(opt);
-			return `<div class="sg-combo-box-option" data-value="${opt}">${displayValue}</div>`;
+			const label = this._escapeComboHtml(opt.label);
+			const value = this._escapeComboHtml(opt.value);
+			const description = opt.description ? `<div class="sg-combo-box-option-description">${this._escapeComboHtml(opt.description)}</div>` : '';
+			return `<div class="sg-combo-box-option" data-value="${value}"><div class="sg-combo-box-option-label">${label}</div>${description}</div>`;
 		}).join('');
 
 		dropdown.querySelectorAll('.sg-combo-box-option').forEach(el => {
@@ -4153,6 +4180,26 @@ class SchemaGraphApp {
 		});
 
 		dropdown.classList.add('show');
+	}
+
+	_normalizeComboOption(opt) {
+		if (opt && typeof opt === 'object' && !Array.isArray(opt)) {
+			const value = opt.value ?? opt.id ?? opt.target ?? opt.name ?? '';
+			const label = opt.label ?? opt.title ?? opt.name ?? String(value);
+			const description = opt.description ?? '';
+			return { value: String(value), label: String(label), description: String(description || '') };
+		}
+		const value = opt === null ? 'null' : String(opt ?? '');
+		return { value, label: value, description: '' };
+	}
+
+	_escapeComboHtml(value) {
+		return String(value ?? '')
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;')
+			.replace(/"/g, '&quot;')
+			.replace(/'/g, '&#39;');
 	}
 
 	_applyComboBoxValue(val) {

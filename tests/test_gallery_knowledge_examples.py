@@ -41,6 +41,15 @@ class GalleryKnowledgeExamplesTests(unittest.TestCase):
 		self.assertIn("knowledge_manager_config", node_types)
 		self.assertIn("user_input_flow", node_types)
 
+	def test_assistant_network_consult_specialist_example_links(self):
+		workflow = self._load_workflow("assistant_network_consult_specialist.json")
+		node_types = [node.type for node in workflow.nodes]
+		self.assertIn("agent_endpoint_config", node_types)
+		self.assertIn("agent_endpoint_flow", node_types)
+		self.assertIn("user_input_flow", node_types)
+		endpoint_node = next(node for node in workflow.nodes if node.type == "agent_endpoint_flow")
+		self.assertEqual(endpoint_node.mode, "consult")
+
 	def test_gallery_manager_syncs_missing_builtin_items_into_existing_gallery(self):
 		root = PROJECT_ROOT / "storage" / f"gallery-sync-{uuid.uuid4().hex[:8]}"
 		gallery_dir = root / "runtime_gallery"

@@ -473,8 +473,23 @@
   transition: background 0.1s ease;
 }
 
+.sg-combo-box-option-label {
+  line-height: 1.25;
+}
+
+.sg-combo-box-option-description {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--sg-text-secondary, #b0b0b0);
+  line-height: 1.3;
+}
+
 .sg-combo-box-option:hover {
   background: var(--sg-bg-tertiary, #353535);
+  color: var(--sg-accent-blue, #46a2da);
+}
+
+.sg-combo-box-option:hover .sg-combo-box-option-description {
   color: var(--sg-accent-blue, #46a2da);
 }
 

@@ -86,6 +86,7 @@ class AssistantDeploymentManager:
         self._runtime_stats: Dict[str, Dict[str, Any]] = {}
         self._handoff_history: List[Dict[str, Any]] = []
         self._message_history: List[Dict[str, Any]] = []
+        self._endpoint_history: List[Dict[str, Any]] = []
         self._proactive_history: List[Dict[str, Any]] = []
         self._pending_proactive_approvals: Dict[str, Dict[str, Any]] = {}
         self._pending_tool_approvals: Dict[str, Dict[str, Any]] = {}
@@ -241,6 +242,10 @@ class AssistantDeploymentManager:
         ]
         self._message_history = [
             row for row in self._message_history
+            if row.get("deployment_id") != deployment_id
+        ]
+        self._endpoint_history = [
+            row for row in self._endpoint_history
             if row.get("deployment_id") != deployment_id
         ]
         self._proactive_history = [
@@ -697,6 +702,14 @@ class AssistantDeploymentManager:
             "last_approval_at": None,
             "last_approval_kind": None,
             "last_tool_name": None,
+            "endpoint_call_count": 0,
+            "last_endpoint_call_at": None,
+            "last_endpoint_mode": None,
+            "last_endpoint_target": None,
+            "last_endpoint_kind": None,
+            "last_endpoint_status": None,
+            "last_endpoint_preview": "",
+            "last_endpoint_error": None,
         }
 
     def _empty_proactive_runtime(self, task: AssistantProactiveTask) -> Dict[str, Any]:
@@ -810,6 +823,52 @@ class AssistantDeploymentManager:
             )
             self._message_history = self._message_history[-200:]
 
+    def record_endpoint_interaction(
+        self,
+        deployment_id: str,
+        *,
+        mode: str,
+        endpoint_kind: str,
+        endpoint_target: str,
+        endpoint_name: Optional[str] = None,
+        status: str,
+        preview: str = "",
+        error: Optional[str] = None,
+        session_id: Optional[str] = None,
+        remote_task_id: Optional[str] = None,
+    ) -> None:
+        now = _now_iso()
+        stats = self._runtime_stats.setdefault(deployment_id, self._empty_runtime_stats())
+        stats["endpoint_call_count"] = int(stats.get("endpoint_call_count") or 0) + 1
+        stats["last_endpoint_call_at"] = now
+        stats["last_endpoint_mode"] = mode
+        stats["last_endpoint_target"] = endpoint_target
+        stats["last_endpoint_kind"] = endpoint_kind
+        stats["last_endpoint_status"] = status
+        stats["last_endpoint_preview"] = preview[:240]
+        stats["last_endpoint_error"] = error[:240] if error else None
+        if status == "error" and error:
+            stats["last_error"] = error[:240]
+
+        self._endpoint_history.append(
+            {
+                "id": f"activity_{uuid.uuid4().hex[:10]}",
+                "timestamp": now,
+                "deployment_id": deployment_id,
+                "kind": "endpoint_call",
+                "status": status,
+                "mode": mode,
+                "endpoint_kind": endpoint_kind,
+                "endpoint_target": endpoint_target,
+                "endpoint_name": endpoint_name,
+                "preview": preview[:240],
+                "error": error[:240] if error else None,
+                "session_id": session_id,
+                "remote_task_id": remote_task_id,
+            }
+        )
+        self._endpoint_history = self._endpoint_history[-200:]
+
     def _detach_channels_from_other_deployments(self, channel_ids: List[str], *, keep_id: str) -> None:
         if not channel_ids:
             return
@@ -860,6 +919,10 @@ class AssistantDeploymentManager:
         data["runtime"] = dict(self._runtime_stats.get(deployment.id) or self._empty_runtime_stats())
         data["recent_messages"] = [
             row for row in self._message_history
+            if row.get("deployment_id") == deployment.id
+        ][-10:]
+        data["recent_endpoint_calls"] = [
+            row for row in self._endpoint_history
             if row.get("deployment_id") == deployment.id
         ][-10:]
         data["recent_handoffs"] = [
@@ -951,6 +1014,27 @@ class AssistantDeploymentManager:
                     "title": f"Proactive task: {item.get('task_name') or 'task'}",
                     "detail": " · ".join(delivery_bits) or "run completed",
                     "preview": item.get("preview") or "",
+                }
+            )
+        for item in self._endpoint_history:
+            if item.get("deployment_id") != deployment_id:
+                continue
+            endpoint_label = item.get("endpoint_name") or item.get("endpoint_target") or "endpoint"
+            detail = f"{item.get('mode') or 'consult'} -> {endpoint_label}"
+            endpoint_kind = str(item.get("endpoint_kind") or "")
+            if endpoint_kind:
+                detail += f" ({endpoint_kind})"
+            if item.get("remote_task_id"):
+                detail += f" · task {item.get('remote_task_id')}"
+            rows.append(
+                {
+                    "id": item.get("id"),
+                    "timestamp": item.get("timestamp"),
+                    "kind": "endpoint_call",
+                    "status": item.get("status"),
+                    "title": "Agent endpoint call",
+                    "detail": detail,
+                    "preview": item.get("preview") or item.get("error") or "",
                 }
             )
         for item in self._pending_proactive_approvals.values():
@@ -1253,7 +1337,8 @@ class AssistantDeploymentManager:
         if not recipient_id:
             return False, "No recipient configured for proactive delivery", channel_id, None
         status = getattr(adapter.status, "value", str(adapter.status))
-        if str(status).lower() != "running":
+        channel_type = str(getattr(adapter.config, "channel_type", "") or "").strip().lower()
+        if str(status).lower() != "running" and channel_type not in {"webhook"}:
             return False, f"Channel '{channel_id}' is not running", channel_id, recipient_id
         try:
             sent = await adapter.send(recipient_id, text)
@@ -1323,7 +1408,8 @@ class AssistantDeploymentManager:
         if not recipient_id:
             return False, "No recipient is linked to this approval"
         status = getattr(adapter.status, "value", str(adapter.status))
-        if str(status).lower() != "running":
+        channel_type = str(getattr(adapter.config, "channel_type", "") or "").strip().lower()
+        if str(status).lower() != "running" and channel_type not in {"webhook"}:
             return False, f"Channel '{channel_id}' is not running"
         try:
             sent = await adapter.send(recipient_id, text)

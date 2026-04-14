@@ -333,6 +333,7 @@ def _semantic_validation(workflow: Workflow, workflow_doc: Dict[str, Any]) -> tu
 	config_rules = {
 		"tool_flow": {"allowed": {"tool_config", "toolkit_config"}},
 		"agent_flow": {"allowed": {"agent_config"}},
+		"agent_endpoint_flow": {"allowed": {"agent_endpoint_config"}},
 		"tool_call": {"allowed": {"tool_config"}},
 		"agent_chat": {"allowed": {"agent_config"}},
 	}
@@ -377,6 +378,15 @@ def _semantic_validation(workflow: Workflow, workflow_doc: Dict[str, Any]) -> tu
 			script = str(getattr(config_obj, "script", "") or "").strip() if config_obj is not None else ""
 			if not name and not script:
 				errors.append(f"{label} points to a tool_config without a name or inline script.")
+			continue
+
+		if node_type == "agent_endpoint_flow":
+			target = str(getattr(config_obj, "target", "") or "").strip() if config_obj is not None else ""
+			mode = str(getattr(node, "mode", "") or "consult").strip().lower() or "consult"
+			if not target:
+				errors.append(f"{label} points to an agent_endpoint_config without a target.")
+			if mode not in {"consult", "delegate", "notify"}:
+				errors.append(f"{label} has invalid mode '{mode}'. Use consult, delegate, or notify.")
 			continue
 
 		if node_type != "tool_flow":

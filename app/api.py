@@ -13,7 +13,7 @@ from   PIL       import Image
 from   pathlib   import Path
 from   fastapi   import FastAPI, HTTPException, Request, UploadFile, WebSocket, WebSocketDisconnect, File, Form
 from   fastapi.responses import FileResponse
-from   inspect   import iscoroutinefunction
+from   inspect   import iscoroutinefunction, signature
 from   pydantic  import BaseModel
 from   typing    import Any, Dict, List, Optional
 
@@ -121,7 +121,7 @@ class GenerateWorkflowRequest(BaseModel):
 	history     : Optional[List[dict]] = None
 
 
-def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr, skill_mgr=None):
+def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr, skill_mgr=None, assistant_deployment_mgr=None):
 
 	# Default workspace provides manager/engine for non-workspace-prefixed endpoints
 	_default_ws = workspace_mgr.get_default_workspace()
@@ -1462,17 +1462,69 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			source = context.get("source") or context.get("model_source")
 		return get_text_generation_models(model_source=source)
 
+	def _get_agent_endpoint_kinds(context=None):
+		return ["deployment", "a2a_remote"]
+
+	def _get_agent_endpoint_modes(context=None):
+		return ["consult", "delegate", "notify"]
+
+	def _get_agent_endpoint_targets(request: Optional[Request] = None, context: Optional[Dict[str, Any]] = None):
+		context = context or {}
+		kind = str(context.get("kind") or "deployment").strip().lower() or "deployment"
+		if kind != "deployment" or assistant_deployment_mgr is None:
+			return []
+		user = getattr(getattr(request, "state", None), "user", None) if request is not None else None
+		if user is None:
+			return []
+		role = getattr(user, "role", None)
+		role_value = getattr(role, "value", role)
+		is_admin = str(role_value or "").lower() == "admin"
+		items = assistant_deployment_mgr.list(user_id=user.id, is_admin=is_admin)
+		options = []
+		for item in items:
+			deployment_id = str(item.get("id") or "").strip()
+			if not deployment_id:
+				continue
+			name = str(item.get("name") or deployment_id).strip() or deployment_id
+			status = str(item.get("status") or "").strip()
+			description = str(item.get("description") or "").strip()
+			label = name if name == deployment_id else f"{name} ({deployment_id})"
+			meta_bits = []
+			if status:
+				meta_bits.append(status)
+			if description:
+				meta_bits.append(description)
+			options.append(
+				{
+					"value": deployment_id,
+					"label": label,
+					"description": " · ".join(meta_bits),
+				}
+			)
+		options.sort(key=lambda row: str(row.get("label") or "").lower())
+		return options
+
 	register_options_provider("model_sources", _get_model_sources)
 	register_options_provider("model_names", _get_model_names)
 	register_options_provider("published_app_model_sources", _get_model_sources)
 	register_options_provider("published_app_model_names", _get_model_names)
+	register_options_provider("agent_endpoint_kinds", _get_agent_endpoint_kinds)
+	register_options_provider("agent_endpoint_modes", _get_agent_endpoint_modes)
+	register_options_provider("agent_endpoint_targets", _get_agent_endpoint_targets)
 
 	@app.post("/options/{provider_key}")
-	async def get_options(provider_key: str, context: Optional[Dict[str, Any]] = None):
+	async def get_options(provider_key: str, request: Request, context: Optional[Dict[str, Any]] = None):
 		if provider_key not in _options_providers:
 			raise HTTPException(status_code=404, detail=f"Unknown options provider: {provider_key}")
 		fn = _options_providers[provider_key]
-		options = await fn(context) if iscoroutinefunction(fn) else fn(context)
+		try:
+			param_count = len(signature(fn).parameters)
+		except Exception:
+			param_count = 1
+		if param_count >= 2:
+			options = await fn(request, context) if iscoroutinefunction(fn) else fn(request, context)
+		else:
+			options = await fn(context) if iscoroutinefunction(fn) else fn(context)
 		return {"options": options}
 
 

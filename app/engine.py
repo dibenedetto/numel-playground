@@ -12,6 +12,7 @@ from   pydantic    import BaseModel, ConfigDict, Field
 from   typing      import Any, Dict, List, Optional, Set, Tuple, Union, get_origin, get_args
 
 
+from   agent_endpoint_runtime import invoke_agent_endpoint, normalize_agent_endpoint_config
 from   event_bus   import EventType, EventBus
 from   nodes       import ImplementedBackend, NodeExecutionContext, NodeExecutionResult, create_node
 from   schema      import DEFAULT_WORKFLOW_NODE_DELAY, DEFAULT_WORKFLOW_EXEC_DELAY, DEFAULT_WORKFLOW_USER_INPUT_TIMEOUT, Edge, BaseType, FlowType, Workflow
@@ -102,13 +103,23 @@ class WorkflowExecutionState(BaseModel):
 class WorkflowEngine:
 	"""Frontier-based workflow execution engine"""
 
-	def __init__(self, event_bus: EventBus, channel_registry=None):
+	def __init__(self, event_bus: EventBus, channel_registry=None, assistant_deployment_mgr=None, channel_pool=None):
 		self.event_bus           : EventBus                          = event_bus
 		self.channel_registry    : Any                               = channel_registry
+		self.assistant_deployment_mgr : Any                          = assistant_deployment_mgr
+		self.channel_pool        : Any                               = channel_pool
 		self.executions          : Dict[str, WorkflowExecutionState] = {}
 		self.execution_tasks     : Dict[str, asyncio.Task]           = {}
 		self.pending_user_inputs    : Dict[str, asyncio.Future]         = {}
 		self.pending_chat_responses : Dict[str, asyncio.Future]         = {}
+
+	def set_runtime_services(self, *, channel_registry=None, assistant_deployment_mgr=None, channel_pool=None) -> None:
+		if channel_registry is not None:
+			self.channel_registry = channel_registry
+		if assistant_deployment_mgr is not None:
+			self.assistant_deployment_mgr = assistant_deployment_mgr
+		if channel_pool is not None:
+			self.channel_pool = channel_pool
 
 
 	def validate_workflow(self, workflow: Workflow) -> Dict[str, Any]:
@@ -1125,7 +1136,7 @@ class WorkflowEngine:
 		with_reference = []
 
 		for i, (node, impl) in enumerate(zip(nodes, backend.handles)):
-			if node.type in ("agent_node", "agent_flow", "tool_node", "tool_flow", "knowledge_ingest_flow", "knowledge_search_flow"):
+			if node.type in ("agent_node", "agent_flow", "agent_endpoint_flow", "tool_node", "tool_flow", "knowledge_ingest_flow", "knowledge_search_flow"):
 				with_reference.append(i)
 				continue
 			instances[i] = create_node(node, impl)
@@ -1147,6 +1158,13 @@ class WorkflowEngine:
 				raise ValueError(f"Node {i} ({node.type}) references config node {config_link} which failed to initialize")
 
 			config_impl = config_node.impl
+			config_value = getattr(config_node, "config", None)
+			if node.type == "agent_endpoint_flow":
+				if config_value is None:
+					raise ValueError(f"Node {i} ({node.type}) references endpoint config node {config_link} which failed to initialize")
+				ref = partial(self._run_agent_endpoint, config_value)
+				instances[i] = create_node(node, impl, ref=ref)
+				continue
 			if config_impl is None:
 				config_name = getattr(nodes[config_link], 'name', None) or nodes[config_link].type
 				raise ValueError(f"Node {i} ({node.type}): config '{config_name}' failed to load — check the module name")
@@ -1173,6 +1191,30 @@ class WorkflowEngine:
 			instances[i] = create_node(node, impl, ref=ref)
 
 		return instances
+
+	async def _run_agent_endpoint(
+		self,
+		config: Any,
+		*,
+		mode: str,
+		prompt: str,
+		session_id: Optional[str] = None,
+		source_deployment_id: Optional[str] = None,
+		sender_name: Optional[str] = None,
+		user_id: Optional[str] = None,
+	) -> Dict[str, Any]:
+		endpoint_config = normalize_agent_endpoint_config(endpoint=config)
+		return await invoke_agent_endpoint(
+			endpoint_config,
+			mode=mode,
+			prompt=prompt,
+			deployment_mgr=self.assistant_deployment_mgr,
+			channel_pool=self.channel_pool,
+			user_id=user_id,
+			sender_name=sender_name,
+			source_deployment_id=source_deployment_id,
+			session_id=session_id,
+		)
 
 
 	async def _execute_node(self,

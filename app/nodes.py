@@ -12,6 +12,7 @@ from   typing   import Any, Callable, Dict, List, Optional
 
 
 from   events   import get_event_registry, TimerSourceConfig, FSWatchSourceConfig, WebhookSourceConfig, BrowserSourceConfig, ChannelSourceConfig
+from   agent_endpoint_runtime import normalize_agent_endpoint_config
 from   knowledge_runtime import normalize_knowledge_inputs
 from   schema   import DEFAULT_TRANSFORM_NODE_LANG, DEFAULT_TRANSFORM_NODE_SCRIPT, BaseType
 from   utils	import log_print
@@ -380,6 +381,73 @@ class WFAgentFlow(WFFlowType):
 		except Exception as e:
 			result.success = False
 			result.error   = str(e)
+
+		return result
+
+
+class WFAgentEndpointFlow(WFFlowType):
+	def __init__(self, config: Dict[str, Any], impl: Any = None, **kwargs):
+		assert "ref" in kwargs, "WFAgentEndpointFlow requires 'ref' argument"
+		super().__init__(config, impl, **kwargs)
+		self.ref = kwargs["ref"]
+
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		result.outputs["output"] = None
+		result.outputs["response"] = None
+		result.outputs["status"] = None
+		result.outputs["task_id"] = None
+		result.outputs["endpoint_kind"] = None
+		result.outputs["endpoint_name"] = None
+		result.outputs["error"] = None
+
+		try:
+			prompt_value = context.inputs.get("prompt")
+			if prompt_value is None:
+				prompt_value = context.inputs.get("input")
+			if isinstance(prompt_value, dict):
+				prompt = (
+					prompt_value.get("prompt")
+					or prompt_value.get("message")
+					or prompt_value.get("text")
+					or prompt_value.get("value")
+					or prompt_value.get("input")
+					or json.dumps(prompt_value, ensure_ascii=False)
+				)
+			else:
+				prompt = "" if prompt_value is None else str(prompt_value)
+			if not prompt.strip():
+				raise ValueError("prompt is required")
+
+			mode = str(context.inputs.get("mode") or "consult").strip().lower() or "consult"
+			config_value = context.inputs.get("config") or getattr(self.config, "config", None) or self.config
+			endpoint_config = normalize_agent_endpoint_config(endpoint=config_value)
+
+			endpoint_result = await self.ref(
+				mode=mode,
+				prompt=prompt,
+				session_id=context.inputs.get("session_id"),
+				source_deployment_id=context.inputs.get("source_deployment_id"),
+				sender_name=context.inputs.get("sender_name"),
+				user_id=context.inputs.get("user_id"),
+			)
+
+			error_text = str(endpoint_result.get("error") or "").strip() or None
+			status_value = str(endpoint_result.get("status") or ("error" if error_text else "ok"))
+			result.outputs["output"] = endpoint_result
+			result.outputs["response"] = endpoint_result.get("response")
+			result.outputs["status"] = status_value
+			result.outputs["task_id"] = endpoint_result.get("task_id")
+			result.outputs["endpoint_kind"] = endpoint_result.get("kind") or endpoint_config.kind
+			result.outputs["endpoint_name"] = endpoint_result.get("name") or endpoint_config.name or endpoint_config.target
+			result.outputs["error"] = error_text
+			if error_text:
+				result.success = False
+				result.error = error_text
+		except Exception as e:
+			result.success = False
+			result.error = str(e)
+			result.outputs["error"] = str(e)
 
 		return result
 
@@ -1738,6 +1806,7 @@ _NODE_TYPES = {
 	"user_input_flow"          : WFUserInputFlow,
 	"tool_flow"                : WFToolFlow,
 	"agent_flow"               : WFAgentFlow,
+	"agent_endpoint_flow"      : WFAgentEndpointFlow,
 	"knowledge_ingest_flow"    : WFKnowledgeIngestFlow,
 	"knowledge_search_flow"    : WFKnowledgeSearchFlow,
 

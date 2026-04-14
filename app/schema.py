@@ -633,6 +633,41 @@ class SkillConfig(ConfigType):
 		return self
 
 
+DEFAULT_AGENT_ENDPOINT_KIND         : str  = "deployment"
+DEFAULT_AGENT_ENDPOINT_NAME         : str  = ""
+DEFAULT_AGENT_ENDPOINT_DESCRIPTION  : str  = None
+DEFAULT_AGENT_ENDPOINT_TARGET       : str  = ""
+DEFAULT_AGENT_ENDPOINT_DISCOVERY_URL: str  = None
+DEFAULT_AGENT_ENDPOINT_AUTH         : str  = "inherit"
+DEFAULT_AGENT_ENDPOINT_TIMEOUT_SEC  : int  = 60
+
+
+@node_info(
+	title       = "Agent Endpoint",
+	description = "Abstract agent endpoint for local deployments or remote protocols such as A2A",
+	icon        = "🧭",
+	section     = "Configurations",
+	layer       = 2,
+	visible     = True
+)
+class AgentEndpointConfig(ConfigType):
+	"""Backend-neutral reference to another agent-capable endpoint. Use kind='deployment' for local Numel deployments, or kind='a2a_remote' for remote Agent2Agent servers. Wire config→agent_endpoint_flow.config to let workflows consult or delegate to other agents through a shared Numel abstraction."""
+	type          : Annotated[Literal["agent_endpoint_config"], FieldRole.CONSTANT] = "agent_endpoint_config"
+	kind          : Annotated[str                             , FieldRole.INPUT   ] = Field(default=DEFAULT_AGENT_ENDPOINT_KIND,          json_schema_extra={"options_source": "agent_endpoint_kinds"}, description="Endpoint kind. Today Numel natively supports local 'deployment' endpoints and remote 'a2a_remote' endpoints.")
+	name          : Annotated[str                             , FieldRole.INPUT   ] = Field(default=DEFAULT_AGENT_ENDPOINT_NAME,          description="Human-friendly label for the endpoint")
+	description   : Annotated[Optional[str]                   , FieldRole.INPUT   ] = Field(default=DEFAULT_AGENT_ENDPOINT_DESCRIPTION,   description="Optional description of the endpoint's purpose or specialization")
+	target        : Annotated[str                             , FieldRole.INPUT   ] = Field(default=DEFAULT_AGENT_ENDPOINT_TARGET,        json_schema_extra={"options_source": "agent_endpoint_targets"}, description="Primary endpoint target. For local deployment endpoints this is usually a deployment id; for remote A2A endpoints it is usually a base URL or endpoint id.")
+	discovery_url : Annotated[Optional[str]                   , FieldRole.INPUT   ] = Field(default=DEFAULT_AGENT_ENDPOINT_DISCOVERY_URL, description="Optional discovery URL for endpoint metadata, such as an A2A Agent Card URL")
+	auth          : Annotated[str                             , FieldRole.INPUT   ] = Field(default=DEFAULT_AGENT_ENDPOINT_AUTH,          description="Authentication mode or policy hint, such as 'inherit', 'none', 'bearer', or 'api_key'")
+	allowed_modes : Annotated[Optional[List[str]]             , FieldRole.INPUT   ] = Field(default=None,                                  description="Optional list of allowed interaction modes, such as 'consult', 'delegate', 'handoff', or 'notify'")
+	timeout_sec   : Annotated[int                             , FieldRole.INPUT   ] = Field(default=DEFAULT_AGENT_ENDPOINT_TIMEOUT_SEC,   description="Suggested timeout in seconds when calling this endpoint")
+	metadata      : Annotated[Optional[Dict[str, Any]]        , FieldRole.INPUT   ] = Field(default=None,                                  description="Optional transport-neutral metadata for the endpoint, such as capability hints or policy tags")
+
+	@property
+	def config(self) -> Annotated[AgentEndpointConfig, FieldRole.OUTPUT]:
+		return self
+
+
 @node_info(
 	title       = "Agent Options",
 	description = "Stores agent configuration options",
@@ -858,6 +893,42 @@ class AgentFlow(FlowType):
 	request  : Annotated[Any                  , FieldRole.INPUT   ] = Field(default=None, description="Text or dict sent as the user message to the agent for this turn")
 	image    : Annotated[Optional[str]         , FieldRole.INPUT   ] = Field(default=None, description="Optional base64-encoded image to include in the agent request (multimodal)")
 	response : Annotated[Any                  , FieldRole.OUTPUT  ] = Field(default=None, description="Dict containing the agent's response content and metadata")
+
+
+DEFAULT_AGENT_ENDPOINT_FLOW_MODE : str = "consult"
+
+
+@node_info(
+	title       = "Agent Endpoint Call",
+	description = "Calls another deployment or remote agent endpoint from the workflow graph",
+	icon        = "🔀",
+	section     = "Workflow",
+	layer       = 2,
+	visible     = True
+)
+class AgentEndpointFlow(FlowType):
+	"""Call another agent endpoint through the shared AgentEndpointConfig abstraction.
+
+	Wire agent_endpoint_config→config. Use `mode` to choose whether this is a consultation,
+	delegated subtask, or notification. This is the general workflow primitive for
+	agent-to-agent communication; more specialized nodes can be added later as UX sugar
+	without changing the core runtime semantics."""
+	type                 : Annotated[Literal["agent_endpoint_flow"], FieldRole.CONSTANT] = "agent_endpoint_flow"
+	config               : Annotated[Optional[AgentEndpointConfig]  , FieldRole.INPUT   ] = Field(default=None, description="AgentEndpointConfig describing the local deployment or remote endpoint to call")
+	mode                 : Annotated[str                            , FieldRole.INPUT   ] = Field(default=DEFAULT_AGENT_ENDPOINT_FLOW_MODE, json_schema_extra={"options_source": "agent_endpoint_modes"}, description="Interaction mode, such as 'consult', 'delegate', or 'notify'")
+	prompt               : Annotated[Optional[Any]                  , FieldRole.INPUT   ] = Field(default=None, description="Prompt or payload sent to the target endpoint. If omitted, the node falls back to `input`.")
+	input                : Annotated[Optional[Any]                  , FieldRole.INPUT   ] = Field(default=None, description="Optional alternate payload source used when `prompt` is empty")
+	session_id           : Annotated[Optional[str]                  , FieldRole.INPUT   ] = Field(default=None, description="Optional stable session/task id for the endpoint interaction")
+	source_deployment_id : Annotated[Optional[str]                  , FieldRole.INPUT   ] = Field(default=None, description="Optional source deployment id for operator tracing when this workflow is part of a deployment runtime")
+	sender_name          : Annotated[Optional[str]                  , FieldRole.INPUT   ] = Field(default=None, description="Optional caller label passed to the endpoint runtime")
+	user_id              : Annotated[Optional[str]                  , FieldRole.INPUT   ] = Field(default=None, description="Optional user id used when the endpoint interaction should run under a specific Numel user context")
+	output               : Annotated[Any                            , FieldRole.OUTPUT  ] = Field(default=None, description="Full structured result returned by the endpoint runtime")
+	response             : Annotated[Optional[str]                  , FieldRole.OUTPUT  ] = Field(default=None, description="Primary textual response extracted from the endpoint result")
+	status               : Annotated[Optional[str]                  , FieldRole.OUTPUT  ] = Field(default=None, description="Endpoint execution status such as 'ok', 'error', or protocol-specific task state")
+	task_id              : Annotated[Optional[str]                  , FieldRole.OUTPUT  ] = Field(default=None, description="Optional remote task id returned by the endpoint, especially for A2A calls")
+	endpoint_kind        : Annotated[Optional[str]                  , FieldRole.OUTPUT  ] = Field(default=None, description="Resolved endpoint kind, such as 'deployment' or 'a2a_remote'")
+	endpoint_name        : Annotated[Optional[str]                  , FieldRole.OUTPUT  ] = Field(default=None, description="Resolved endpoint name used for the call")
+	error                : Annotated[Optional[str]                  , FieldRole.OUTPUT  ] = Field(default=None, description="Error text when the endpoint call fails")
 
 
 DEFAULT_KNOWLEDGE_SEARCH_RESULTS : int = 5
@@ -1652,6 +1723,7 @@ WorkflowNodeUnion = Union[
 	ToolConfig,
 	ToolkitConfig,
 	SkillConfig,
+	AgentEndpointConfig,
 	AgentOptionsConfig,
 	AgentConfig,
 
@@ -1667,6 +1739,7 @@ WorkflowNodeUnion = Union[
 	UserInputFlow,
 	ToolFlow,
 	AgentFlow,
+	AgentEndpointFlow,
 	KnowledgeIngestFlow,
 	KnowledgeSearchFlow,
 

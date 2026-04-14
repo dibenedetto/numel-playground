@@ -1,0 +1,58 @@
+{
+  "id": "assistant_network_consult_specialist",
+  "title": "Assistant Network: Consult Specialist",
+  "description": "A minimal assistant-network workflow that sends a prompt to another deployment through the shared agent endpoint abstraction. Replace the endpoint target with one of your deployment ids.",
+  "category": "assistant-network",
+  "tags": ["assistant", "network", "endpoint", "deployment", "a2a"],
+  "author": "system",
+  "created_at": 1776124800.0,
+  "workflow": {
+    "type": "workflow",
+    "options": {
+      "name": "Consult Specialist Deployment",
+      "description": "Ask another deployment for help through AgentEndpointConfig and agent_endpoint_flow."
+    },
+    "nodes": [
+      {
+        "type": "start_flow",
+        "extra": { "pos": [40, 240], "name": "Start" }
+      },
+      {
+        "type": "agent_endpoint_config",
+        "kind": "deployment",
+        "name": "Billing Specialist",
+        "description": "Replace target with a real assistant deployment id from your environment.",
+        "target": "deploy_billing_specialist",
+        "allowed_modes": ["consult", "delegate", "notify"],
+        "extra": { "pos": [40, 60], "name": "Specialist Endpoint" }
+      },
+      {
+        "type": "user_input_flow",
+        "query": "What do you want to ask the specialist deployment?",
+        "extra": { "pos": [320, 240], "name": "Question" }
+      },
+      {
+        "type": "agent_endpoint_flow",
+        "mode": "consult",
+        "extra": { "pos": [700, 240], "name": "Consult Specialist" }
+      },
+      {
+        "type": "preview_flow",
+        "hint": "text",
+        "extra": { "pos": [980, 240], "name": "Specialist Reply" }
+      },
+      {
+        "type": "end_flow",
+        "extra": { "pos": [1240, 240], "name": "End" }
+      }
+    ],
+    "edges": [
+      { "source": 0, "target": 2, "source_slot": "flow_out", "target_slot": "flow_in" },
+      { "source": 1, "target": 3, "source_slot": "config", "target_slot": "config" },
+      { "source": 2, "target": 3, "source_slot": "message", "target_slot": "prompt" },
+      { "source": 2, "target": 3, "source_slot": "flow_out", "target_slot": "flow_in" },
+      { "source": 3, "target": 4, "source_slot": "response", "target_slot": "flow_in" },
+      { "source": 4, "target": 5, "source_slot": "flow_out", "target_slot": "flow_in" }
+    ]
+  }
+}

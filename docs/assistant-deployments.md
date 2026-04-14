@@ -83,7 +83,14 @@ So:
 
 ### Channel Binding
 
-Deployments can bind one or more channels and start/stop them from the deployment panel.
+Deployments can bind one or more channels.
+
+Important nuance:
+
+- deployments decide whether they are active
+- channels decide whether their transport is running
+
+So the deployment panel no longer owns channel start/stop directly. A deployment uses its bound channels, but channel lifecycle is a separate concern.
 
 ### Linked Workbench
 
@@ -168,6 +175,8 @@ Right now, tool approval is deployment-wide: if enabled, tool calls from that de
 - Gallery:
   - `Assistant Deployments: Support Workbench`
   - `Assistant Deployments: Ops Workbench`
+- Architecture:
+  - [assistant-network-architecture.md](assistant-network-architecture.md)
 - Tutorial:
   - [tutorial-11-assistant-deployments.md](tutorial-11-assistant-deployments.md)
 - Example deployment configs:

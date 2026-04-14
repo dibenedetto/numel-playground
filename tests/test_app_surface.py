@@ -1728,6 +1728,85 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(openai_names.status_code, 200, openai_names.text)
         self.assertIn("gpt-4o", openai_names.json()["options"])
 
+    async def test_agent_endpoint_options_are_user_scoped_and_context_aware(self) -> None:
+        kinds_response = await self._client.post("/options/agent_endpoint_kinds", json={})
+        self.assertEqual(kinds_response.status_code, 200, kinds_response.text)
+        self.assertEqual(kinds_response.json()["options"], ["deployment", "a2a_remote"])
+
+        modes_response = await self._client.post("/options/agent_endpoint_modes", json={})
+        self.assertEqual(modes_response.status_code, 200, modes_response.text)
+        self.assertEqual(modes_response.json()["options"], ["consult", "delegate", "notify"])
+
+        bootstrap = await self._client.post(
+            "/auth/register",
+            json={"username": "endpointadmin", "email": "endpointadmin@local", "password": "pass1234"},
+        )
+        self.assertEqual(bootstrap.status_code, 200, bootstrap.text)
+
+        alice_register = await self._client.post(
+            "/auth/register",
+            json={"username": "endpointalice", "email": "endpointalice@local", "password": "pass1234"},
+        )
+        self.assertEqual(alice_register.status_code, 200, alice_register.text)
+        alice_headers = self._auth_headers(alice_register.json()["token"])
+
+        bob_register = await self._client.post(
+            "/auth/register",
+            json={"username": "endpointbob", "email": "endpointbob@local", "password": "pass1234"},
+        )
+        self.assertEqual(bob_register.status_code, 200, bob_register.text)
+        bob_headers = self._auth_headers(bob_register.json()["token"])
+
+        alice_deploy = await self._client.post(
+            "/assistant-deployments/create",
+            json={"name": "Alice Specialist", "description": "Alice-only deployment."},
+            headers=alice_headers,
+        )
+        self.assertEqual(alice_deploy.status_code, 200, alice_deploy.text)
+        alice_id = alice_deploy.json()["id"]
+
+        bob_deploy = await self._client.post(
+            "/assistant-deployments/create",
+            json={"name": "Bob Specialist", "description": "Bob-only deployment."},
+            headers=bob_headers,
+        )
+        self.assertEqual(bob_deploy.status_code, 200, bob_deploy.text)
+        bob_id = bob_deploy.json()["id"]
+
+        anonymous_targets = await self._client.post("/options/agent_endpoint_targets", json={"kind": "deployment"})
+        self.assertEqual(anonymous_targets.status_code, 200, anonymous_targets.text)
+        self.assertEqual(anonymous_targets.json()["options"], [])
+
+        alice_targets = await self._client.post(
+            "/options/agent_endpoint_targets",
+            json={"kind": "deployment"},
+            headers=alice_headers,
+        )
+        self.assertEqual(alice_targets.status_code, 200, alice_targets.text)
+        alice_options = alice_targets.json()["options"]
+        self.assertEqual(len(alice_options), 1)
+        self.assertEqual(alice_options[0]["value"], alice_id)
+        self.assertIn("Alice Specialist", alice_options[0]["label"])
+
+        bob_targets = await self._client.post(
+            "/options/agent_endpoint_targets",
+            json={"kind": "deployment"},
+            headers=bob_headers,
+        )
+        self.assertEqual(bob_targets.status_code, 200, bob_targets.text)
+        bob_options = bob_targets.json()["options"]
+        self.assertEqual(len(bob_options), 1)
+        self.assertEqual(bob_options[0]["value"], bob_id)
+        self.assertIn("Bob Specialist", bob_options[0]["label"])
+
+        remote_targets = await self._client.post(
+            "/options/agent_endpoint_targets",
+            json={"kind": "a2a_remote"},
+            headers=alice_headers,
+        )
+        self.assertEqual(remote_targets.status_code, 200, remote_targets.text)
+        self.assertEqual(remote_targets.json()["options"], [])
+
     async def test_published_apps_are_user_owned_and_store_generated_assets(self) -> None:
         register = await self._client.post(
             "/auth/register",

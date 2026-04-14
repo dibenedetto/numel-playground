@@ -170,6 +170,10 @@ Start with:
 - [docs/assistant-deployments.md](docs/assistant-deployments.md)
 - [docs/tutorial-11-assistant-deployments.md](docs/tutorial-11-assistant-deployments.md)
 
+If you are thinking about how multiple deployments and remote agents could work together later, also see:
+
+- [docs/assistant-network-architecture.md](docs/assistant-network-architecture.md)
+
 ### If you want a shared knowledge base you can query later
 
 A good mental model is:
