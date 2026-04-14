@@ -12,7 +12,8 @@ from typing import Any, Dict, List, Literal, Optional
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from assistant_network_workflow import build_assistant_network_workflow
+from assistant_network_workflow import build_assistant_network_workflow, parse_assistant_network_workflow_import
+from channels.base import ChannelConfig, ChannelStatus
 from runtime_settings import get_runtime_settings
 from utils import log_print
 
@@ -1585,6 +1586,14 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
         if not user_id or deployment.created_by != user_id:
             raise HTTPException(403, "Only the deployment owner or an admin can perform this action")
 
+    def _require_channel_owner(request: Request, adapter) -> None:
+        user_id, is_admin = _get_user(request)
+        if is_admin:
+            return
+        owner = adapter.config.created_by
+        if owner and owner != user_id:
+            raise HTTPException(403, "Only the channel creator or an admin can perform this action")
+
     def _validate_channels(request: Request, channel_ids: List[str]) -> None:
         user_id, is_admin = _get_user(request)
         for channel_id in channel_ids:
@@ -1680,6 +1689,219 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
         deployments = deployment_mgr.list(user_id=user.id, is_admin=is_admin)
         channels = _visible_channels(request)
         return build_assistant_network_workflow(deployments=deployments, channels=channels)
+
+    @app.post("/assistant-deployments/network-workflow/apply")
+    async def assistant_deployment_network_workflow_apply(payload: dict, request: Request):
+        user = _require_auth(request)
+        _, is_admin = _get_user(request)
+        workflow = payload.get("workflow")
+        if not isinstance(workflow, dict):
+            raise HTTPException(status_code=400, detail="No valid workflow JSON")
+        try:
+            parsed = parse_assistant_network_workflow_import(workflow)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        warnings = list(parsed.get("warnings") or [])
+        warnings.append("Assistant network apply preserves existing deployments and channels that are not represented in the workflow.")
+
+        visible_channel_ids = {str(row.get("id") or "") for row in _visible_channels(request)}
+        creatable_channel_ids: set[str] = set()
+
+        for channel_row in parsed.get("channels") or []:
+            channel_id = str(channel_row.get("id") or "").strip()
+            if not channel_id:
+                continue
+            channel_type = str(channel_row.get("channel_type") or "").strip().lower()
+            if not channel_type:
+                raise HTTPException(400, f"Channel '{channel_row.get('name') or channel_id}' is missing its channel_type.")
+            existing_adapter = channel_registry.get(channel_id) if channel_registry else None
+            if existing_adapter is not None:
+                _require_channel_owner(request, existing_adapter)
+                if channel_type != existing_adapter.config.channel_type:
+                    raise HTTPException(
+                        400,
+                        f"Channel '{channel_id}' cannot change type from '{existing_adapter.config.channel_type}' to '{channel_type}'.",
+                    )
+                visible_channel_ids.add(channel_id)
+                continue
+            if channel_type not in {"webhook", "web"}:
+                warnings.append(
+                    f"Channel '{channel_row.get('name') or channel_id}' was not created because workflow-backed channel creation currently supports webhook and web channels without stored credentials."
+                )
+                continue
+            visible_channel_ids.add(channel_id)
+            creatable_channel_ids.add(channel_id)
+
+        imported_deployment_ids = {str(item.get("id") or "").strip() for item in parsed.get("deployments") or [] if str(item.get("id") or "").strip()}
+
+        for deployment_row in parsed.get("deployments") or []:
+            deployment_id = str(deployment_row.get("id") or "").strip()
+            if not deployment_id:
+                continue
+            existing = deployment_mgr.get_config(deployment_id)
+            if existing is not None:
+                _require_owner(request, existing)
+            for channel_id in deployment_row.get("channel_ids") or []:
+                if channel_id not in visible_channel_ids:
+                    raise HTTPException(
+                        400,
+                        f"Deployment '{deployment_row.get('name') or deployment_id}' references unavailable channel '{channel_id}'.",
+                    )
+            for route in deployment_row.get("routing_rules") or []:
+                target_id = str(route.get("target_deployment_id") or "").strip()
+                if not target_id:
+                    raise HTTPException(400, f"Deployment '{deployment_row.get('name') or deployment_id}' has a route without a target deployment.")
+                if target_id == deployment_id:
+                    raise HTTPException(400, f"Deployment '{deployment_row.get('name') or deployment_id}' cannot route to itself.")
+                target = deployment_mgr.get_config(target_id)
+                if target is None and target_id not in imported_deployment_ids:
+                    raise HTTPException(400, f"Unknown target deployment: {target_id}")
+                if target is not None and not is_admin and target.created_by and target.created_by != user.id:
+                    raise HTTPException(403, f"Target deployment '{target_id}' belongs to another user")
+            conflicts = deployment_mgr.find_channel_conflicts(
+                deployment_row.get("channel_ids") or [],
+                exclude_deployment_id=deployment_id,
+                created_by=user.id,
+                is_admin=is_admin,
+            )
+            for conflict in conflicts:
+                warnings.append(
+                    f"Channel '{conflict['channel_id']}' was rebound from '{conflict['existing_deployment_name']}' to '{deployment_row.get('name') or deployment_id}'."
+                )
+            candidate = AssistantDeploymentConfig(
+                id=deployment_id,
+                name=str(deployment_row.get("name") or "").strip() or deployment_id,
+                profile=str(deployment_row.get("profile") or "general").strip() or "general",
+                description=str(deployment_row.get("description") or "").strip(),
+                instructions=str(deployment_row.get("instructions") or "").strip(),
+                linked_space_id=(str(deployment_row.get("linked_space_id") or "").strip() or None),
+                linked_space_title=(str(deployment_row.get("linked_space_title") or "").strip() or None),
+                linked_workflow_name=(str(deployment_row.get("linked_workflow_name") or "").strip() or None),
+                model_source=(str(deployment_row.get("model_source") or "").strip() or None),
+                model_name=(str(deployment_row.get("model_name") or "").strip() or None),
+                toolkit_names=[str(name).strip() for name in deployment_row.get("toolkit_names") or [] if str(name).strip()],
+                skill_names=[str(name).strip() for name in deployment_row.get("skill_names") or [] if str(name).strip()],
+                channel_ids=[str(channel_id).strip() for channel_id in deployment_row.get("channel_ids") or [] if str(channel_id).strip()],
+                routing_rules=deployment_row.get("routing_rules") or [],
+                proactive_tasks=deployment_row.get("proactive_tasks") or [],
+                safety=deployment_row.get("safety") or {},
+                enabled=bool(deployment_row.get("enabled")),
+                auto_start=bool(deployment_row.get("auto_start")),
+                created_by=(existing.created_by if existing and existing.created_by else user.id),
+            )
+            _validate_proactive_tasks(request, candidate, candidate.proactive_tasks)
+
+        created_channels: List[str] = []
+        updated_channels: List[str] = []
+        for channel_row in parsed.get("channels") or []:
+            channel_id = str(channel_row.get("id") or "").strip()
+            if not channel_id:
+                continue
+            channel_type = str(channel_row.get("channel_type") or "").strip().lower()
+            existing_adapter = channel_registry.get(channel_id) if channel_registry else None
+            if existing_adapter is not None:
+                previous_status = existing_adapter.status
+                config = ChannelConfig(
+                    **{
+                        **existing_adapter.config.model_dump(),
+                        "id": channel_id,
+                        "name": str(channel_row.get("name") or existing_adapter.config.name or channel_id).strip(),
+                        "channel_type": channel_type,
+                        "enabled": bool(channel_row.get("enabled", True)),
+                        "auto_start": bool(channel_row.get("auto_start")),
+                        "session_id": (str(channel_row.get("session_id") or "").strip() or None),
+                        "allowed_users": [str(item).strip() for item in channel_row.get("allowed_users") or [] if str(item).strip()],
+                        "created_by": existing_adapter.config.created_by,
+                    }
+                )
+                await channel_registry.upsert_config(config)
+                if not config.enabled and previous_status in {ChannelStatus.RUNNING, ChannelStatus.STARTING}:
+                    await channel_registry.stop(channel_id)
+                updated_channels.append(channel_id)
+            else:
+                if channel_id not in creatable_channel_ids:
+                    continue
+                config = ChannelConfig(
+                    id=channel_id,
+                    name=str(channel_row.get("name") or channel_id).strip(),
+                    channel_type=channel_type,
+                    enabled=bool(channel_row.get("enabled", True)),
+                    auto_start=bool(channel_row.get("auto_start")),
+                    session_id=(str(channel_row.get("session_id") or "").strip() or None),
+                    allowed_users=[str(item).strip() for item in channel_row.get("allowed_users") or [] if str(item).strip()],
+                    created_by=user.id,
+                )
+                await channel_registry.add(config)
+                created_channels.append(channel_id)
+
+        created_deployments: List[str] = []
+        updated_deployments: List[str] = []
+        for deployment_row in parsed.get("deployments") or []:
+            deployment_id = str(deployment_row.get("id") or "").strip()
+            if not deployment_id:
+                continue
+            existing = deployment_mgr.get_config(deployment_id)
+            if existing is None:
+                config = AssistantDeploymentConfig(
+                    id=deployment_id,
+                    name=str(deployment_row.get("name") or "").strip() or deployment_id,
+                    profile=str(deployment_row.get("profile") or "general").strip() or "general",
+                    description=str(deployment_row.get("description") or "").strip(),
+                    instructions=str(deployment_row.get("instructions") or "").strip(),
+                    linked_space_id=(str(deployment_row.get("linked_space_id") or "").strip() or None),
+                    linked_space_title=(str(deployment_row.get("linked_space_title") or "").strip() or None),
+                    linked_workflow_name=(str(deployment_row.get("linked_workflow_name") or "").strip() or None),
+                    model_source=(str(deployment_row.get("model_source") or "").strip() or None),
+                    model_name=(str(deployment_row.get("model_name") or "").strip() or None),
+                    toolkit_names=[str(name).strip() for name in deployment_row.get("toolkit_names") or [] if str(name).strip()],
+                    skill_names=[str(name).strip() for name in deployment_row.get("skill_names") or [] if str(name).strip()],
+                    channel_ids=[str(channel_id).strip() for channel_id in deployment_row.get("channel_ids") or [] if str(channel_id).strip()],
+                    routing_rules=deployment_row.get("routing_rules") or [],
+                    proactive_tasks=deployment_row.get("proactive_tasks") or [],
+                    safety=deployment_row.get("safety") or {},
+                    enabled=bool(deployment_row.get("enabled")),
+                    auto_start=bool(deployment_row.get("auto_start")),
+                    created_by=user.id,
+                )
+                deployment_mgr.add(config)
+                created_deployments.append(deployment_id)
+            else:
+                deployment_mgr.update(
+                    deployment_id,
+                    {
+                        "name": str(deployment_row.get("name") or "").strip() or deployment_id,
+                        "profile": str(deployment_row.get("profile") or "general").strip() or "general",
+                        "description": str(deployment_row.get("description") or "").strip(),
+                        "instructions": str(deployment_row.get("instructions") or "").strip(),
+                        "linked_space_id": (str(deployment_row.get("linked_space_id") or "").strip() or None),
+                        "linked_space_title": (str(deployment_row.get("linked_space_title") or "").strip() or None),
+                        "linked_workflow_name": (str(deployment_row.get("linked_workflow_name") or "").strip() or None),
+                        "model_source": (str(deployment_row.get("model_source") or "").strip() or None),
+                        "model_name": (str(deployment_row.get("model_name") or "").strip() or None),
+                        "toolkit_names": [str(name).strip() for name in deployment_row.get("toolkit_names") or [] if str(name).strip()],
+                        "skill_names": [str(name).strip() for name in deployment_row.get("skill_names") or [] if str(name).strip()],
+                        "channel_ids": [str(channel_id).strip() for channel_id in deployment_row.get("channel_ids") or [] if str(channel_id).strip()],
+                        "routing_rules": deployment_row.get("routing_rules") or [],
+                        "proactive_tasks": deployment_row.get("proactive_tasks") or [],
+                        "safety": deployment_row.get("safety") or {},
+                        "enabled": bool(deployment_row.get("enabled")),
+                        "auto_start": bool(deployment_row.get("auto_start")),
+                    },
+                )
+                updated_deployments.append(deployment_id)
+            await deployment_mgr.refresh_runtime(deployment_id)
+
+        return {
+            "applied": True,
+            "workflow_name": parsed.get("workflow_name") or "Assistant Deployment Network",
+            "created_channels": created_channels,
+            "updated_channels": updated_channels,
+            "created_deployments": created_deployments,
+            "updated_deployments": updated_deployments,
+            "warnings": warnings,
+            "deployments": deployment_mgr.list(user_id=user.id, is_admin=is_admin),
+        }
 
     @app.post("/assistant-deployments/get")
     async def assistant_deployment_get(request: Request):

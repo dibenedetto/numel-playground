@@ -148,5 +148,7 @@ class ChannelAdapter(ABC):
 			"error":        self._error,
 			"enabled":      self.config.enabled,
 			"auto_start":   self.config.auto_start,
+			"session_id":   self.config.session_id,
+			"allowed_users": list(self.config.allowed_users or []),
 			"created_by":   self.config.created_by,
 		}

@@ -62,6 +62,30 @@ class ChannelRegistry:
 		log_print(f"Channel added: {config.channel_type}/{config.name} ({config.id})")
 		return adapter
 
+	async def upsert_config(self, config: ChannelConfig) -> ChannelAdapter:
+		"""Create or update a channel configuration while preserving hidden connection settings."""
+		adapter = self._adapters.get(config.id)
+		if adapter is None:
+			return await self.add(config)
+		if adapter.type != config.channel_type:
+			raise ValueError(
+				f"Channel '{config.id}' already exists as type '{adapter.type}' and cannot change to '{config.channel_type}'"
+			)
+		if not config.token:
+			config.token = adapter.config.token
+		if not config.webhook_url:
+			config.webhook_url = adapter.config.webhook_url
+		if not config.api_endpoint:
+			config.api_endpoint = adapter.config.api_endpoint
+		if not config.extras:
+			config.extras = dict(adapter.config.extras or {})
+		if not config.created_by:
+			config.created_by = adapter.config.created_by
+		adapter.config = config
+		self._save()
+		log_print(f"Channel updated: {config.channel_type}/{config.name} ({config.id})")
+		return adapter
+
 	async def remove(self, channel_id: str) -> bool:
 		"""Stop and remove a channel adapter."""
 		adapter = self._adapters.get(channel_id)

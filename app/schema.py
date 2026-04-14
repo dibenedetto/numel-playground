@@ -685,6 +685,8 @@ class ChannelRuntimeConfig(ConfigType):
 	status       : Annotated[str                             , FieldRole.INPUT   ] = Field(default="", description="Current runtime status")
 	enabled      : Annotated[bool                            , FieldRole.INPUT   ] = Field(default=True, description="Whether the channel is enabled in Numel")
 	auto_start   : Annotated[bool                            , FieldRole.INPUT   ] = Field(default=False, description="Whether the channel auto-starts with the server")
+	session_id   : Annotated[Optional[str]                   , FieldRole.INPUT   ] = Field(default=None, description="Optional fixed session id used for channel memory continuity")
+	allowed_users: Annotated[Optional[List[str]]             , FieldRole.INPUT   ] = Field(default=None, description="Optional allow-list of user ids that can use the channel")
 	owner        : Annotated[Optional[str]                   , FieldRole.INPUT   ] = Field(default=None, description="Owning user id when available")
 
 	@property
@@ -784,10 +786,13 @@ class AssistantDeploymentRuntimeConfig(ConfigType):
 	name                    : Annotated[str                                                                  , FieldRole.INPUT      ] = Field(default="", description="Deployment name")
 	profile                 : Annotated[str                                                                  , FieldRole.INPUT      ] = Field(default="general", description="Deployment profile label")
 	description             : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Operator-facing deployment summary")
+	instructions            : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Deployment-specific instructions applied at runtime")
 	status                  : Annotated[str                                                                  , FieldRole.INPUT      ] = Field(default="stopped", description="Aggregate deployment status")
 	enabled                 : Annotated[bool                                                                 , FieldRole.INPUT      ] = Field(default=False, description="Whether the deployment is currently enabled")
+	auto_start              : Annotated[bool                                                                 , FieldRole.INPUT      ] = Field(default=False, description="Whether the deployment auto-starts with the server")
 	model_source            : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Deployment model source override")
 	model_name              : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Deployment model name override")
+	linked_space_id         : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Linked workbench space id")
 	linked_space_title      : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Linked workbench space title")
 	linked_workflow_name    : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Linked workbench workflow name")
 	toolkit_names           : Annotated[Optional[List[str]]                                                  , FieldRole.INPUT      ] = Field(default=None, description="Attached toolkit names")

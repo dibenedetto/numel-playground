@@ -1012,6 +1012,205 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(slot.startswith("incoming_routes.") for slot in target_slots))
         self.assertTrue(any(slot.startswith("proactive_tasks.") for slot in target_slots))
 
+    async def test_assistant_deployment_network_workflow_apply_round_trips_back_to_runtime(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "networkapply", "email": "networkapply@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        channel_resp = await self._client.post(
+            "/channels/add",
+            json={"name": "Support Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel_resp.status_code, 200, channel_resp.text)
+        channel_id = channel_resp.json()["id"]
+
+        deployment_resp = await self._client.post(
+            "/assistant-deployments/create",
+            json={
+                "name": "Support Front Door",
+                "profile": "general",
+                "channel_ids": [channel_id],
+            },
+            headers=headers,
+        )
+        self.assertEqual(deployment_resp.status_code, 200, deployment_resp.text)
+        frontdoor_id = deployment_resp.json()["id"]
+
+        network_resp = await self._client.post(
+            "/assistant-deployments/network-workflow",
+            json={},
+            headers=headers,
+        )
+        self.assertEqual(network_resp.status_code, 200, network_resp.text)
+        workflow = network_resp.json()["workflow"]
+
+        frontdoor_index = next(
+            index
+            for index, node in enumerate(workflow["nodes"])
+            if node.get("type") == "assistant_deployment_runtime_config" and node.get("deployment_id") == frontdoor_id
+        )
+        channel_index = next(
+            index
+            for index, node in enumerate(workflow["nodes"])
+            if node.get("type") == "channel_runtime_config" and node.get("channel_id") == channel_id
+        )
+
+        workflow["nodes"][frontdoor_index]["profile"] = "triage"
+        workflow["nodes"][frontdoor_index]["instructions"] = "Route billing traffic to the billing specialist."
+        workflow["nodes"][frontdoor_index]["auto_start"] = True
+        workflow["nodes"][frontdoor_index]["enabled"] = True
+        workflow["nodes"][frontdoor_index]["linked_space_id"] = "space_support"
+        workflow["nodes"][frontdoor_index]["linked_space_title"] = "Support"
+        workflow["nodes"][frontdoor_index]["linked_workflow_name"] = "Support Front Door"
+        workflow["nodes"][frontdoor_index]["toolkit_names"] = ["file_toolkit"]
+        workflow["nodes"][frontdoor_index]["skill_names"] = ["faq"]
+        workflow["nodes"][frontdoor_index]["proactive_delivery_mode"] = "approval"
+        workflow["nodes"][frontdoor_index]["tool_execution_mode"] = "approval"
+
+        workflow["nodes"][channel_index]["name"] = "Primary Support Webhook"
+        workflow["nodes"][channel_index]["auto_start"] = True
+        workflow["nodes"][channel_index]["session_id"] = "shared_support_session"
+        workflow["nodes"][channel_index]["allowed_users"] = ["customer_1", "customer_2"]
+
+        specialist_id = "deploy_billing_manual"
+        route_id = "route_billing_manual"
+        task_id = "proactive_digest_manual"
+        specialist_index = len(workflow["nodes"])
+        workflow["nodes"].append(
+            {
+                "type": "assistant_deployment_runtime_config",
+                "deployment_id": specialist_id,
+                "name": "Billing Specialist",
+                "profile": "billing",
+                "description": "Handles invoices and refunds.",
+                "instructions": "Focus on billing and refunds.",
+                "enabled": False,
+                "auto_start": False,
+                "model_source": "openai",
+                "model_name": "gpt-4o-mini",
+                "toolkit_names": ["file_toolkit"],
+                "skill_names": [],
+                "proactive_delivery_mode": "auto",
+                "tool_execution_mode": "auto",
+                "pending_approval_count": 0,
+                "extra": {"pos": [920, 120], "name": "Billing Specialist"},
+            }
+        )
+        route_index = len(workflow["nodes"])
+        workflow["nodes"].append(
+            {
+                "type": "assistant_route_runtime_config",
+                "route_id": route_id,
+                "name": "Billing Route",
+                "keywords": "invoice, refund",
+                "target_deployment_id": specialist_id,
+                "enabled": True,
+                "extra": {"pos": [720, 220], "name": "Billing Route"},
+            }
+        )
+        task_index = len(workflow["nodes"])
+        workflow["nodes"].append(
+            {
+                "type": "assistant_proactive_runtime_config",
+                "task_id": task_id,
+                "name": "Daily Digest",
+                "prompt": "Summarize open support requests.",
+                "interval_sec": 1800,
+                "channel_id": channel_id,
+                "recipient_id": "ops-room",
+                "enabled": True,
+                "send_response": True,
+                "extra": {"pos": [520, 340], "name": "Daily Digest"},
+            }
+        )
+        workflow["edges"].append(
+            {
+                "source": route_index,
+                "target": frontdoor_index,
+                "source_slot": "config",
+                "target_slot": "outgoing_routes.billing_route",
+            }
+        )
+        workflow["edges"].append(
+            {
+                "source": route_index,
+                "target": specialist_index,
+                "source_slot": "config",
+                "target_slot": "incoming_routes.billing_route",
+            }
+        )
+        workflow["edges"].append(
+            {
+                "source": task_index,
+                "target": frontdoor_index,
+                "source_slot": "config",
+                "target_slot": "proactive_tasks.daily_digest",
+            }
+        )
+
+        apply_resp = await self._client.post(
+            "/assistant-deployments/network-workflow/apply",
+            json={"workflow": workflow},
+            headers=headers,
+        )
+        self.assertEqual(apply_resp.status_code, 200, apply_resp.text)
+        payload = apply_resp.json()
+        self.assertTrue(payload["applied"])
+        self.assertIn(frontdoor_id, payload["updated_deployments"])
+        self.assertIn(specialist_id, payload["created_deployments"])
+        self.assertIn(channel_id, payload["updated_channels"])
+
+        frontdoor_get = await self._client.post(
+            "/assistant-deployments/get",
+            json={"id": frontdoor_id},
+            headers=headers,
+        )
+        self.assertEqual(frontdoor_get.status_code, 200, frontdoor_get.text)
+        frontdoor = frontdoor_get.json()
+        self.assertEqual(frontdoor["profile"], "triage")
+        self.assertEqual(frontdoor["instructions"], "Route billing traffic to the billing specialist.")
+        self.assertTrue(frontdoor["enabled"])
+        self.assertTrue(frontdoor["auto_start"])
+        self.assertEqual(frontdoor["linked_space_id"], "space_support")
+        self.assertEqual(frontdoor["linked_space_title"], "Support")
+        self.assertEqual(frontdoor["linked_workflow_name"], "Support Front Door")
+        self.assertEqual(frontdoor["toolkit_names"], ["file_toolkit"])
+        self.assertEqual(frontdoor["skill_names"], ["faq"])
+        self.assertEqual(frontdoor["safety"]["proactive_delivery_mode"], "approval")
+        self.assertEqual(frontdoor["safety"]["tool_execution_mode"], "approval")
+        self.assertEqual(len(frontdoor["routing_rules"]), 1)
+        self.assertEqual(frontdoor["routing_rules"][0]["target_deployment_id"], specialist_id)
+        self.assertEqual(frontdoor["routing_rules"][0]["keywords"], ["invoice", "refund"])
+        self.assertEqual(len(frontdoor["proactive_tasks"]), 1)
+        self.assertEqual(frontdoor["proactive_tasks"][0]["name"], "Daily Digest")
+        self.assertEqual(frontdoor["proactive_tasks"][0]["recipient_id"], "ops-room")
+        self.assertEqual(frontdoor["status"], "stopped")
+
+        specialist_get = await self._client.post(
+            "/assistant-deployments/get",
+            json={"id": specialist_id},
+            headers=headers,
+        )
+        self.assertEqual(specialist_get.status_code, 200, specialist_get.text)
+        specialist = specialist_get.json()
+        self.assertEqual(specialist["name"], "Billing Specialist")
+        self.assertEqual(specialist["profile"], "billing")
+        self.assertEqual(specialist["model_source"], "openai")
+        self.assertEqual(specialist["model_name"], "gpt-4o-mini")
+        self.assertEqual(specialist["toolkit_names"], ["file_toolkit"])
+
+        channels_list = await self._client.post("/channels/list", json={}, headers=headers)
+        self.assertEqual(channels_list.status_code, 200, channels_list.text)
+        channel_rows = {row["id"]: row for row in channels_list.json()}
+        self.assertEqual(channel_rows[channel_id]["name"], "Primary Support Webhook")
+        self.assertTrue(channel_rows[channel_id]["auto_start"])
+        self.assertEqual(channel_rows[channel_id]["session_id"], "shared_support_session")
+        self.assertEqual(channel_rows[channel_id]["allowed_users"], ["customer_1", "customer_2"])
+
     async def test_assistant_deployment_lifecycle_does_not_control_bound_channels(self) -> None:
         register = await self._client.post(
             "/auth/register",

@@ -208,7 +208,21 @@ Current status:
 
 This is the point where the deployment network starts to become naturally representable as a workflow without over-specializing the node catalog.
 
-### 4. Operator Tracing
+### 5. Workflow-Backed Operations Graph
+
+The deployment network should not stay only as an internal runtime structure.
+
+Current status:
+
+- the live assistant deployment network can now be exported into the workbench as an operational workflow
+- that exported graph includes deployments, bound channels, routing rules, proactive tasks, and pending approvals
+- the same operational graph can now be applied back into the runtime to upsert deployments, bindings, routes, proactive tasks, and editable channel settings
+- channel credentials are intentionally preserved in backend storage rather than round-tripped through the workflow graph
+- existing deployments or channels that are not represented in the current graph are preserved for now instead of being deleted implicitly
+
+This gives Numel a real read/write bridge between the live deployment network and the workflow surface, which is an important step toward “everything in Numel is workflow-backed.”
+
+### 5. Operator Tracing
 
 Every endpoint interaction should be visible as a first-class event:
 

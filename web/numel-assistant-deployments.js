@@ -3,7 +3,7 @@
 
 // eslint-disable-next-line no-unused-vars
 const NumelAssistantDeployments = (() => {
-	let _panel, _closeBtn, _openBtn, _openInlineBtn, _refreshBtn, _openWorkflowBtn, _addBtn, _listEl, _summaryEl;
+	let _panel, _closeBtn, _openBtn, _openInlineBtn, _refreshBtn, _openWorkflowBtn, _applyWorkflowBtn, _addBtn, _listEl, _summaryEl;
 	let _statusFilterEl, _searchEl, _pendingOnlyEl;
 	let _lastItems = [];
 	const _pendingOps = new Map();
@@ -419,6 +419,44 @@ async function _post(path, body = {}) {
 			}
 			await window.loadWorkflowFromServer(workflow, name, { source: 'assistant-deployment-network' });
 			close();
+		} catch (err) {
+			await NumelAlert('Assistant Deployment Network', `Error: ${_esc(err.message)}`);
+		} finally {
+			if (btn) {
+				btn.disabled = false;
+				btn.textContent = originalLabel;
+			}
+		}
+	}
+
+	async function _applyWorkbenchNetwork() {
+		const btn = _applyWorkflowBtn;
+		const originalLabel = btn?.textContent || 'Use Current Workbench';
+		if (btn) {
+			btn.disabled = true;
+			btn.textContent = 'Applying...';
+		}
+		try {
+			const workflow = typeof window.exportCurrentWorkflowForAssistant === 'function'
+				? window.exportCurrentWorkflowForAssistant()
+				: null;
+			if (!workflow?.nodes?.length) {
+				throw new Error('The current workbench is empty.');
+			}
+			const data = await _post('/assistant-deployments/network-workflow/apply', { workflow });
+			await refresh();
+			const createdDeployments = Array.isArray(data?.created_deployments) ? data.created_deployments.length : 0;
+			const updatedDeployments = Array.isArray(data?.updated_deployments) ? data.updated_deployments.length : 0;
+			const createdChannels = Array.isArray(data?.created_channels) ? data.created_channels.length : 0;
+			const updatedChannels = Array.isArray(data?.updated_channels) ? data.updated_channels.length : 0;
+			const warningLines = Array.isArray(data?.warnings) ? data.warnings.filter(Boolean).slice(0, 8) : [];
+			const summary = [
+				`Applied "${_esc(data?.workflow_name || 'Assistant Deployment Network')}" to the live assistant network.`,
+				`Deployments: ${createdDeployments} created, ${updatedDeployments} updated.`,
+				`Channels: ${createdChannels} created, ${updatedChannels} updated.`,
+				...(warningLines.length ? ['', 'Notes:', ...warningLines.map((line) => `- ${line}`)] : []),
+			].join('\n');
+			await NumelAlert('Assistant Deployment Network', summary);
 		} catch (err) {
 			await NumelAlert('Assistant Deployment Network', `Error: ${_esc(err.message)}`);
 		} finally {
@@ -941,6 +979,7 @@ ${_esc(deploymentHint)}</div></div>
 		_openInlineBtn = document.getElementById('assistantDeploymentPanelBtnInline');
 		_refreshBtn = document.getElementById('assistantDeploymentRefreshBtn');
 		_openWorkflowBtn = document.getElementById('assistantDeploymentOpenWorkflowBtn');
+		_applyWorkflowBtn = document.getElementById('assistantDeploymentApplyWorkflowBtn');
 		_addBtn = document.getElementById('assistantDeploymentAddBtn');
 		_listEl = document.getElementById('assistantDeploymentList');
 		_summaryEl = document.getElementById('assistantDeploymentSummary');
@@ -953,6 +992,7 @@ ${_esc(deploymentHint)}</div></div>
 		if (_openInlineBtn) _openInlineBtn.onclick = open;
 		if (_refreshBtn) _refreshBtn.onclick = refresh;
 		if (_openWorkflowBtn) _openWorkflowBtn.onclick = _openNetworkInWorkbench;
+		if (_applyWorkflowBtn) _applyWorkflowBtn.onclick = _applyWorkbenchNetwork;
 		if (_addBtn) _addBtn.onclick = _showAddDialog;
 		if (_statusFilterEl) {
 			_statusFilterEl.addEventListener('change', () => {
