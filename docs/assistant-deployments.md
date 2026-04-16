@@ -96,9 +96,37 @@ So the deployment panel no longer owns channel start/stop directly. A deployment
 
 Each deployment can point to a space and workflow. This gives operators a concrete place to jump back to when they need to inspect or change the deployment's workbench context.
 
-### Multi-Agent Routing
+Useful distinction:
 
-A front-door deployment can route matching requests to specialist deployments through keyword-based routing rules.
+- a **space** is the container for the work
+- a **workflow** is the graph inside that space
+- the **workbench** is the full Numel working surface around that space and workflow
+
+So when a deployment says it is linked to a workbench, it really means:
+
+- "this deployment points back to this space and this workflow, and operators can jump there to work on it"
+
+### Routing And Handoff
+
+A front-door deployment can send conversations to specialist deployments.
+
+There are two related ideas here:
+
+- **routing** chooses the likely target
+- **handoff** transfers conversation ownership to that target
+
+This matters because Numel now supports sticky conversation ownership. After a handoff, later messages in the same conversation keep going to the specialist until another handoff happens.
+
+Deployments can now choose different selector policies for deciding that handoff:
+
+- `keyword`
+  Use deterministic keyword rules only.
+- `hybrid`
+  Try keyword rules first, then use a workflow-backed semantic selector if keywords do not decide the route.
+- `workflow`
+  Use the workflow-backed selector directly.
+
+`hybrid` is now the default because it gives a good balance between predictability and flexibility.
 
 ### Proactive Jobs
 

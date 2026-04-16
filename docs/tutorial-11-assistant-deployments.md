@@ -25,6 +25,14 @@ The easiest mental model is:
 - **assistant deployment** = runtime product object
 - **channel** = where users interact with it
 
+More precisely:
+
+- a **space** is the container for what you are building
+- a **workflow** is the graph inside that space
+- a **workbench** is the full Numel working surface around that space and workflow
+
+So when the deployment editor asks for a linked workbench, it is really asking for the space and workflow that operators should jump back to later.
+
 This is different from plain user memory:
 
 - **user memory** makes an assistant remember a person over time
@@ -97,6 +105,20 @@ billing,invoice,refund,chargeback => deploy_xxxxxxxx
 ```
 
 Use the actual target deployment id shown in the panel.
+
+Also choose a handoff selector mode:
+
+- **Hybrid** is the best default
+  It tries keyword rules first, then falls back to a workflow-backed semantic selector when the wording does not literally match the keywords.
+- **Keyword only** is useful when you want strict deterministic routing.
+- **Workflow-backed selector** is useful when you want the semantic selector to make the routing decision directly.
+
+Important idea:
+
+- **routing** chooses the target
+- **handoff** transfers conversation ownership to that target
+
+So if `Support Front Door` hands the conversation to `Billing Specialist`, the next customer message can still go to `Billing Specialist` even if that next message does not repeat the original billing keywords.
 
 ## Part 5: Add A Proactive Job
 

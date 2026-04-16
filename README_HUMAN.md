@@ -106,6 +106,24 @@ A **space** is your working area. Think of it as the container for the current t
 
 Each space has one current workflow. That workflow is the thing you edit on the canvas and run.
 
+### Workbench
+
+A **workbench** is the practical working environment you see on screen:
+
+- the current space
+- the current workflow on the canvas
+- the assistant
+- the run/debug panels
+- the surrounding tools for channels, deployments, knowledge, and apps
+
+So:
+
+- a **space** is the container
+- a **workflow** is the graph inside that space
+- a **workbench** is the whole working surface built around that space and workflow
+
+In everyday language, people often say "open the workbench" when they really mean "open this space and its current workflow in the full Numel UI." That is normal.
+
 ### Nodes
 
 Nodes are the building blocks of a workflow. Some handle control flow, some transform data, some configure agents, some connect to events, tools, or knowledge.
@@ -125,6 +143,25 @@ It answers questions like:
 - whether it needs approval before doing something risky
 - whether it should run proactive jobs
 - which workbench it belongs to
+
+### Handoff
+
+A **handoff** happens when one deployment decides that another deployment should take over the conversation.
+
+Example:
+
+- `Support Front Door` receives the first customer message
+- it recognizes that the issue is really about billing
+- it hands the conversation to `Billing Specialist`
+
+The important part is that a handoff is not just one reply. It changes who currently owns that conversation.
+
+So:
+
+- **routing** is the decision about where a message should go
+- **handoff** is the runtime transfer of conversation ownership to another deployment
+
+That is why handoff matters more than a simple keyword match: once the handoff happens, later messages in the same conversation can keep going to the specialist until another handoff occurs.
 
 ### Published App
 
@@ -233,10 +270,13 @@ That is where it starts to feel less like a demo canvas and more like an AI syst
 
 One useful way to think about Numel is:
 
+- **Space** = the container for a piece of work
 - **Workflow** = the logic
+- **Workbench** = the full working surface around the current space and workflow
 - **Assistant** = the collaborator
 - **Knowledge** = the shared memory of documents and facts
 - **Assistant Deployment** = the running service
+- **Handoff** = conversation ownership moving from one deployment to another
 - **Published App** = the user-facing product surface
 
 ## Where To Go Next
