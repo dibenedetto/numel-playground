@@ -833,7 +833,7 @@ class ConsoleAgentManager:
 			"toolkit_args": dict(self._toolkit_args or {}),
 			"skill_names": list(self._skill_names or []),
 			"use_backend_memory": bool(self._use_backend_memory),
-			"memory_override": dict(self._memory_override or {}),
+			"memory_override": dict(self._current_runtime_console_state().get("memory") or {}),
 			"options": self.current_console_options(),
 			"warnings": list(parsed.get("warnings") or []),
 		}
@@ -1872,6 +1872,7 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 		toolkit_names:      Optional[List[str]]              = None   # e.g. ["console_toolkit", "file_toolkit"]
 		toolkit_args:       Optional[Dict[str, Dict[str, Any]]] = None   # e.g. {"file_toolkit": {"root": "."}}
 		use_backend_memory: Optional[bool]                   = None   # deprecated, ignored
+		memory_override:    Optional[Dict[str, Any]]         = None
 		skill_names:        Optional[List[str]]              = None   # e.g. ["web-search", "git-assistant"]
 
 	class ConsoleChatRequest(BaseModel):
@@ -1886,13 +1887,24 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 		# Store auth token so assistant toolkits can operate on the caller's current space
 		token = req.headers.get("authorization", "").removeprefix("Bearer ").strip()
 		console_mgr._auth_token = token
-		port = await console_mgr.start(request.model_source, request.model_name, request.toolkit_names, request.use_backend_memory, request.toolkit_args, skill_names=request.skill_names, user_id=user_id)
+		port = await console_mgr.start(
+			request.model_source,
+			request.model_name,
+			request.toolkit_names,
+			request.use_backend_memory,
+			request.toolkit_args,
+			skill_names=request.skill_names,
+			memory_override=request.memory_override,
+			user_id=user_id,
+		)
 		return {
 			"port":          port,
 			"status":        "running",
 			"model_source":  console_mgr._model_source,
 			"model_name":    console_mgr._model_name,
 			"toolkit_names": console_mgr._toolkit_names,
+			"memory_override": dict(console_mgr._current_runtime_console_state().get("memory") or {}),
+			"options": console_mgr.current_console_options(),
 		}
 
 	@app.post("/console/stop")

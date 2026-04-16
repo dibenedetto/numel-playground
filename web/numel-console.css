@@ -53,7 +53,7 @@
 	top: 0;
 	right: 0;
 	bottom: 0;
-	width: var(--nw-side-panel-width, 400px);
+	width: var(--nw-console-panel-width, 484px);
 	z-index: 8500;
 	background: color-mix(in srgb, var(--sg-bg-primary) 96%, white 4%);
 	border-left: 1px solid var(--nw-border-soft, var(--sg-border-color));
@@ -228,12 +228,88 @@
 	align-items: center;
 	gap: 8px;
 }
+.nw-console-settings-row-memory {
+	align-items: flex-start;
+}
+.nw-console-settings-row-memory-note {
+	align-items: flex-start;
+}
 .nw-console-settings-row > label:first-child {
 	font-size: 11px;
 	color: var(--sg-text-secondary);
 	white-space: nowrap;
 	width: 64px;
 	flex-shrink: 0;
+}
+.nw-console-memory-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px 10px;
+	flex: 1;
+}
+.nw-console-memory-note {
+	font-style: normal;
+}
+.nw-console-memory-field {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 11px;
+	color: var(--sg-text-secondary);
+}
+.nw-console-memory-field > span {
+	white-space: nowrap;
+}
+.nw-console-stepper {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	background: color-mix(in srgb, var(--sg-bg-primary) 82%, transparent);
+	border: 1px solid var(--nw-border-soft, var(--sg-border-color));
+	border-radius: var(--nw-radius-control, 10px);
+	padding: 2px;
+}
+.nw-console-stepper-btn {
+	width: 22px;
+	height: 22px;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--sg-text-secondary);
+	font-size: 14px;
+	font-weight: 600;
+	line-height: 1;
+	cursor: pointer;
+	transition: background 0.15s, color 0.15s;
+}
+.nw-console-stepper-btn:hover {
+	background: color-mix(in srgb, var(--sg-accent-blue) 18%, transparent);
+	color: var(--sg-text-primary);
+}
+.nw-console-stepper-btn:focus {
+	outline: none;
+	background: color-mix(in srgb, var(--sg-accent-blue) 22%, transparent);
+	color: var(--sg-text-primary);
+}
+.nw-console-memory-input {
+	width: 40px;
+	background: transparent;
+	border: none;
+	color: var(--sg-text-primary);
+	padding: 3px 2px;
+	font-size: 11px;
+	font-family: inherit;
+	text-align: center;
+	appearance: textfield;
+	-moz-appearance: textfield;
+}
+.nw-console-memory-input:focus {
+	outline: none;
+}
+.nw-console-memory-input::-webkit-outer-spin-button,
+.nw-console-memory-input::-webkit-inner-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
 }
 
 .nw-console-inline-hint {
@@ -783,7 +859,7 @@ body.nw-layout-assistant-dock .nw-canvas-panel > #consolePanel {
 	background: color-mix(in srgb, var(--sg-bg-secondary) 94%, white 6%);
 	display: grid;
 	pointer-events: auto;
-	grid-template-columns: 1fr 360px;
+	grid-template-columns: 1fr 436px;
 	grid-template-rows: 6px auto 1fr auto;
 	grid-template-areas:
 		"resize   resize"

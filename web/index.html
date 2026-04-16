@@ -555,12 +555,64 @@
 							<span class="nw-console-toggle-label">Stream responses (AGUI)</span>
 						</label>
 					</div>
-					<div class="nw-console-settings-row">
-						<label for="consoleMemoryToggle">Memory</label>
-						<label class="nw-console-toggle">
-							<input type="checkbox" id="consoleMemoryToggle" checked disabled>
-							<span class="nw-console-toggle-label">Backend memory is always on</span>
-						</label>
+					<div class="nw-console-settings-row nw-console-settings-row-memory-note">
+						<label>Memory</label>
+						<span class="nw-console-inline-hint nw-console-memory-note">Assistant memory is backend-managed. Use the controls below to tune history, session, and long-term recall.</span>
+					</div>
+					<div class="nw-console-settings-row nw-console-settings-row-memory">
+						<label>History</label>
+						<div class="nw-console-memory-grid">
+							<label class="nw-console-toggle">
+								<input type="checkbox" id="consoleHistoryQueryToggle" checked>
+								<span class="nw-console-toggle-label">Use recent history as context</span>
+							</label>
+							<label class="nw-console-memory-field" for="consoleHistorySize">
+								<span>History runs</span>
+								<div class="nw-console-stepper">
+									<button type="button" class="nw-console-stepper-btn" data-step-target="consoleHistorySize" data-step-dir="-1" aria-label="Decrease history runs">-</button>
+									<input type="number" id="consoleHistorySize" class="nw-console-memory-input" min="1" max="50" step="1" value="5">
+									<button type="button" class="nw-console-stepper-btn" data-step-target="consoleHistorySize" data-step-dir="1" aria-label="Increase history runs">+</button>
+								</div>
+							</label>
+						</div>
+					</div>
+					<div class="nw-console-settings-row nw-console-settings-row-memory">
+						<label>Session</label>
+						<div class="nw-console-memory-grid">
+							<label class="nw-console-toggle">
+								<input type="checkbox" id="consoleSessionQueryToggle" checked>
+								<span class="nw-console-toggle-label">Search session history</span>
+							</label>
+							<label class="nw-console-toggle">
+								<input type="checkbox" id="consoleSessionUpdateToggle" checked>
+								<span class="nw-console-toggle-label">Update session summaries</span>
+							</label>
+							<label class="nw-console-memory-field" for="consoleSessionHistorySize">
+								<span>Session history</span>
+								<div class="nw-console-stepper">
+									<button type="button" class="nw-console-stepper-btn" data-step-target="consoleSessionHistorySize" data-step-dir="-1" aria-label="Decrease session history">-</button>
+									<input type="number" id="consoleSessionHistorySize" class="nw-console-memory-input" min="1" max="50" step="1" value="5">
+									<button type="button" class="nw-console-stepper-btn" data-step-target="consoleSessionHistorySize" data-step-dir="1" aria-label="Increase session history">+</button>
+								</div>
+							</label>
+						</div>
+					</div>
+					<div class="nw-console-settings-row nw-console-settings-row-memory">
+						<label>Long-term</label>
+						<div class="nw-console-memory-grid">
+							<label class="nw-console-toggle">
+								<input type="checkbox" id="consoleMemoryQueryToggle" checked>
+								<span class="nw-console-toggle-label">Recall long-term memory</span>
+							</label>
+							<label class="nw-console-toggle">
+								<input type="checkbox" id="consoleMemoryUpdateToggle">
+								<span class="nw-console-toggle-label">Write user memories</span>
+							</label>
+							<label class="nw-console-toggle">
+								<input type="checkbox" id="consoleMemoryManagedToggle" checked>
+								<span class="nw-console-toggle-label">Use managed memory updates</span>
+							</label>
+						</div>
 					</div>
 					<div class="nw-console-settings-row">
 						<label for="consoleAutoGenToggle">Auto-gen</label>

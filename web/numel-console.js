@@ -42,7 +42,14 @@ class AgentConsoleManager {
 		this._ttsToggle      = document.getElementById('consoleTtsToggle');
 		this._ttsVoiceSelect = document.getElementById('consoleTtsVoice');
 		this._streamToggle   = document.getElementById('consoleStreamToggle');
-		this._memoryToggle   = document.getElementById('consoleMemoryToggle');
+		this._historyQueryToggle = document.getElementById('consoleHistoryQueryToggle');
+		this._historySizeInput = document.getElementById('consoleHistorySize');
+		this._sessionQueryToggle = document.getElementById('consoleSessionQueryToggle');
+		this._sessionUpdateToggle = document.getElementById('consoleSessionUpdateToggle');
+		this._sessionHistorySizeInput = document.getElementById('consoleSessionHistorySize');
+		this._memoryQueryToggle = document.getElementById('consoleMemoryQueryToggle');
+		this._memoryUpdateToggle = document.getElementById('consoleMemoryUpdateToggle');
+		this._memoryManagedToggle = document.getElementById('consoleMemoryManagedToggle');
 		this._settingsHeader = document.getElementById('consoleSettingsHeader');
 		this._settingsBody   = document.getElementById('consoleSettingsBody');
 		this._settingsSummary = document.getElementById('consoleSettingsSummary');
@@ -125,10 +132,38 @@ class AgentConsoleManager {
 			this._onConfigChanged();
 		});
 
-		// Memory toggle → restart agent
-		if (this._memoryToggle) {
-			this._memoryToggle.addEventListener('change', () => this._onConfigChanged());
-		}
+		[
+			this._historyQueryToggle,
+			this._historySizeInput,
+			this._sessionQueryToggle,
+			this._sessionUpdateToggle,
+			this._sessionHistorySizeInput,
+			this._memoryQueryToggle,
+			this._memoryUpdateToggle,
+			this._memoryManagedToggle,
+		].forEach((control) => {
+			if (!control) return;
+			control.addEventListener('change', () => {
+				this._updateSettingsSummary();
+				this._onConfigChanged();
+			});
+		});
+		this._panel?.querySelectorAll('.nw-console-stepper-btn').forEach((btn) => {
+			btn.addEventListener('click', () => {
+				const targetId = btn.dataset.stepTarget;
+				const direction = parseInt(btn.dataset.stepDir || '0', 10);
+				if (!targetId || !direction) return;
+				const input = document.getElementById(targetId);
+				if (!(input instanceof HTMLInputElement)) return;
+				const min = parseInt(input.min || '1', 10);
+				const max = parseInt(input.max || '9999', 10);
+				const current = parseInt(input.value || '0', 10) || 0;
+				const next = Math.min(max, Math.max(min, current + direction));
+				if (next === current) return;
+				input.value = String(next);
+				input.dispatchEvent(new Event('change', { bubbles: true }));
+			});
+		});
 
 		// Streaming mode toggle
 		if (this._streamToggle) {
@@ -555,14 +590,15 @@ class AgentConsoleManager {
 		const [source, ...rest] = val.split(':');
 		const modelLabel = rest.join(':') || source;
 		const toolkits = this._getSelectedToolkits().filter(t => t !== 'console_toolkit');
-		const memOn     = this._memoryToggle    ? this._memoryToggle.checked    : true;
+		const sessionHistory = this._sessionHistorySizeInput ? parseInt(this._sessionHistorySizeInput.value, 10) || 5 : 5;
+		const historyRuns = this._historySizeInput ? parseInt(this._historySizeInput.value, 10) || 5 : 5;
 		const autoGenOn = this._autoGenToggle   ? this._autoGenToggle.checked   : true;
 		const skillCount = this._skillList
 			? this._skillList.querySelectorAll('input[type="checkbox"]:checked').length : 0;
 		const parts = [modelLabel];
 		if (toolkits.length) parts.push(`+${toolkits.length} toolkit${toolkits.length > 1 ? 's' : ''}`);
 		if (skillCount)      parts.push(`+${skillCount} skill${skillCount > 1 ? 's' : ''}`);
-		if (memOn)     parts.push('mem');
+		parts.push(`mem h${historyRuns}/s${sessionHistory}`);
 		if (autoGenOn) parts.push('auto-gen');
 		if (this._plannerEnabled) parts.push('planner');
 		this._settingsSummary.textContent = parts.join(' · ');
@@ -583,6 +619,44 @@ class AgentConsoleManager {
 		if (!this._skillList) return [];
 		const checks = this._skillList.querySelectorAll('input[type="checkbox"]:checked');
 		return [...checks].map(cb => cb.value);
+	}
+
+	_getMemoryOverride() {
+		const intOr = (input, fallback) => {
+			const value = parseInt(input?.value, 10);
+			return Number.isFinite(value) && value > 0 ? value : fallback;
+		};
+		return {
+			history_query: this._historyQueryToggle ? !!this._historyQueryToggle.checked : true,
+			history_size: intOr(this._historySizeInput, 5),
+			session_query: this._sessionQueryToggle ? !!this._sessionQueryToggle.checked : true,
+			session_update: this._sessionUpdateToggle ? !!this._sessionUpdateToggle.checked : true,
+			session_history: intOr(this._sessionHistorySizeInput, 5),
+			memory_query: this._memoryQueryToggle ? !!this._memoryQueryToggle.checked : true,
+			memory_update: this._memoryUpdateToggle ? !!this._memoryUpdateToggle.checked : false,
+			memory_managed: this._memoryManagedToggle ? !!this._memoryManagedToggle.checked : true,
+		};
+	}
+
+	_applyMemoryOverride(memory = {}) {
+		const cfg = {
+			history_query: memory.history_query !== false,
+			history_size: parseInt(memory.history_size, 10) > 0 ? parseInt(memory.history_size, 10) : 5,
+			session_query: memory.session_query !== false,
+			session_update: memory.session_update !== false,
+			session_history: parseInt(memory.session_history, 10) > 0 ? parseInt(memory.session_history, 10) : 5,
+			memory_query: memory.memory_query !== false,
+			memory_update: !!memory.memory_update,
+			memory_managed: memory.memory_managed !== false,
+		};
+		if (this._historyQueryToggle) this._historyQueryToggle.checked = cfg.history_query;
+		if (this._historySizeInput) this._historySizeInput.value = String(cfg.history_size);
+		if (this._sessionQueryToggle) this._sessionQueryToggle.checked = cfg.session_query;
+		if (this._sessionUpdateToggle) this._sessionUpdateToggle.checked = cfg.session_update;
+		if (this._sessionHistorySizeInput) this._sessionHistorySizeInput.value = String(cfg.session_history);
+		if (this._memoryQueryToggle) this._memoryQueryToggle.checked = cfg.memory_query;
+		if (this._memoryUpdateToggle) this._memoryUpdateToggle.checked = cfg.memory_update;
+		if (this._memoryManagedToggle) this._memoryManagedToggle.checked = cfg.memory_managed;
 	}
 
 	async _fetchToolkits() {
@@ -861,10 +935,7 @@ class AgentConsoleManager {
 		if (!data) return;
 		this._toolkitArgs = data.toolkit_args || {};
 		this._ensureModelOption(data.model_source, data.model_name);
-		if (this._memoryToggle) {
-			this._memoryToggle.checked = true;
-			this._memoryToggle.disabled = true;
-		}
+		this._applyMemoryOverride(data.memory_override || {});
 		await this._fetchToolkits();
 		await this._fetchSkills();
 		const selectedSkills = new Set(data.skill_names || []);
@@ -930,8 +1001,10 @@ class AgentConsoleManager {
 			const toolkit_args = this._toolkitArgs || {};
 			const skill_names = this._getSelectedSkills();
 			const use_backend_memory = true;
-			const data = await this.api.consoleStart({ model_source: source, model_name: name, toolkit_names, toolkit_args, skill_names, use_backend_memory });
+			const memory_override = this._getMemoryOverride();
+			const data = await this.api.consoleStart({ model_source: source, model_name: name, toolkit_names, toolkit_args, skill_names, use_backend_memory, memory_override });
 			this.agentPort = data.port;
+			this._applyMemoryOverride(data.memory_override || memory_override);
 
 			// Connect AGUI handler if streaming mode is on
 			if (this._streamingMode) {
