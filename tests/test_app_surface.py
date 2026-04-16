@@ -1272,6 +1272,110 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(channel_rows[channel_id]["session_id"], "shared_support_session")
         self.assertEqual(channel_rows[channel_id]["allowed_users"], ["customer_1", "customer_2"])
 
+    async def test_assistant_deployment_network_workflow_apply_deletes_missing_runtime_objects(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "networkdelete", "email": "networkdelete@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        channel_front = await self._client.post(
+            "/channels/add",
+            json={"name": "Front Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel_front.status_code, 200, channel_front.text)
+        front_channel_id = channel_front.json()["id"]
+
+        channel_extra = await self._client.post(
+            "/channels/add",
+            json={"name": "Extra Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel_extra.status_code, 200, channel_extra.text)
+        extra_channel_id = channel_extra.json()["id"]
+
+        frontdoor = await self._client.post(
+            "/assistant-deployments/create",
+            json={"name": "Front Door", "channel_ids": [front_channel_id]},
+            headers=headers,
+        )
+        self.assertEqual(frontdoor.status_code, 200, frontdoor.text)
+        frontdoor_id = frontdoor.json()["id"]
+
+        specialist = await self._client.post(
+            "/assistant-deployments/create",
+            json={"name": "Specialist", "channel_ids": []},
+            headers=headers,
+        )
+        self.assertEqual(specialist.status_code, 200, specialist.text)
+        specialist_id = specialist.json()["id"]
+
+        network_resp = await self._client.post(
+            "/assistant-deployments/network-workflow",
+            json={},
+            headers=headers,
+        )
+        self.assertEqual(network_resp.status_code, 200, network_resp.text)
+        workflow = network_resp.json()["workflow"]
+
+        removed_indexes = {
+            index
+            for index, node in enumerate(workflow["nodes"])
+            if (node.get("type") == "assistant_deployment_runtime_config" and node.get("deployment_id") == specialist_id)
+            or (node.get("type") == "channel_runtime_config" and node.get("channel_id") == extra_channel_id)
+        }
+        remap = {}
+        filtered_nodes = []
+        for index, node in enumerate(workflow["nodes"]):
+            if index in removed_indexes:
+                continue
+            remap[index] = len(filtered_nodes)
+            filtered_nodes.append(node)
+        filtered_edges = []
+        for edge in workflow["edges"]:
+            source = edge.get("source")
+            target = edge.get("target")
+            if source not in remap or target not in remap:
+                continue
+            filtered_edges.append(
+                {
+                    **edge,
+                    "source": remap[source],
+                    "target": remap[target],
+                }
+            )
+        workflow["nodes"] = filtered_nodes
+        workflow["edges"] = filtered_edges
+
+        apply_resp = await self._client.post(
+            "/assistant-deployments/network-workflow/apply",
+            json={"workflow": workflow},
+            headers=headers,
+        )
+        self.assertEqual(apply_resp.status_code, 200, apply_resp.text)
+        payload = apply_resp.json()
+        self.assertTrue(payload["prune_missing"])
+        self.assertIn(specialist_id, payload["deleted_deployments"])
+        self.assertIn(extra_channel_id, payload["deleted_channels"])
+        self.assertNotIn(frontdoor_id, payload["deleted_deployments"])
+        self.assertNotIn(front_channel_id, payload["deleted_channels"])
+
+        specialist_get = await self._client.post(
+            "/assistant-deployments/get",
+            json={"id": specialist_id},
+            headers=headers,
+        )
+        self.assertEqual(specialist_get.status_code, 200, specialist_get.text)
+        self.assertEqual(specialist_get.json(), {"error": "not found"})
+
+        channels_list = await self._client.post("/channels/list", json={}, headers=headers)
+        self.assertEqual(channels_list.status_code, 200, channels_list.text)
+        channel_rows = {row["id"]: row for row in channels_list.json()}
+        self.assertIn(front_channel_id, channel_rows)
+        self.assertNotIn(extra_channel_id, channel_rows)
+
     async def test_assistant_deployment_lifecycle_does_not_control_bound_channels(self) -> None:
         register = await self._client.post(
             "/auth/register",

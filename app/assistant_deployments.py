@@ -2096,6 +2096,10 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
     async def assistant_deployment_network_workflow_apply(payload: dict, request: Request):
         user = _require_auth(request)
         _, is_admin = _get_user(request)
+        prune_missing = payload.get("prune_missing", True)
+        if prune_missing is None:
+            prune_missing = True
+        prune_missing = bool(prune_missing)
         workflow = payload.get("workflow")
         if not isinstance(workflow, dict):
             raise HTTPException(status_code=400, detail="No valid workflow JSON")
@@ -2105,10 +2109,28 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         warnings = list(parsed.get("warnings") or [])
-        warnings.append("Assistant network apply preserves existing deployments and channels that are not represented in the workflow.")
+        if prune_missing:
+            warnings.append("Assistant network apply is authoritative: deployments and channels you own that are missing from the workflow will be removed.")
+        else:
+            warnings.append("Assistant network apply preserved existing deployments and channels that were not represented in the workflow.")
 
-        visible_channel_ids = {str(row.get("id") or "") for row in _visible_channels(request)}
+        existing_visible_channels = {
+            str(row.get("id") or "").strip(): row
+            for row in _visible_channels(request)
+            if str(row.get("id") or "").strip()
+        }
+        visible_channel_ids = set(existing_visible_channels.keys())
+        existing_visible_deployment_ids = {
+            str(row.get("id") or "").strip()
+            for row in deployment_mgr.list(user_id=user.id, is_admin=is_admin)
+            if str(row.get("id") or "").strip()
+        }
         creatable_channel_ids: set[str] = set()
+        imported_channel_ids = {
+            str(item.get("id") or "").strip()
+            for item in parsed.get("channels") or []
+            if str(item.get("id") or "").strip()
+        }
 
         for channel_row in parsed.get("channels") or []:
             channel_id = str(channel_row.get("id") or "").strip()
@@ -2150,6 +2172,11 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
                         400,
                         f"Deployment '{deployment_row.get('name') or deployment_id}' references unavailable channel '{channel_id}'.",
                     )
+                if prune_missing and channel_id not in imported_channel_ids:
+                    raise HTTPException(
+                        400,
+                        f"Deployment '{deployment_row.get('name') or deployment_id}' references channel '{channel_id}' but that channel is not represented in the workflow.",
+                    )
             for route in deployment_row.get("routing_rules") or []:
                 target_id = str(route.get("target_deployment_id") or "").strip()
                 if not target_id:
@@ -2157,6 +2184,11 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
                 if target_id == deployment_id:
                     raise HTTPException(400, f"Deployment '{deployment_row.get('name') or deployment_id}' cannot route to itself.")
                 target = deployment_mgr.get_config(target_id)
+                if prune_missing and target_id not in imported_deployment_ids:
+                    raise HTTPException(
+                        400,
+                        f"Route target deployment '{target_id}' must be represented in the workflow when authoritative apply is enabled.",
+                    )
                 if target is None and target_id not in imported_deployment_ids:
                     raise HTTPException(400, f"Unknown target deployment: {target_id}")
                 if target is not None and not is_admin and target.created_by and target.created_by != user.id:
@@ -2192,6 +2224,21 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
                 auto_start=bool(deployment_row.get("auto_start")),
                 created_by=(existing.created_by if existing and existing.created_by else user.id),
             )
+            if prune_missing:
+                for task in candidate.proactive_tasks:
+                    if task.channel_id and task.channel_id not in imported_channel_ids:
+                        raise HTTPException(
+                            400,
+                            f"Proactive task '{task.name}' references delivery channel '{task.channel_id}' but that channel is not represented in the workflow.",
+                        )
+                    trigger = task.trigger if isinstance(task.trigger, dict) else {}
+                    if str(task.trigger_kind or "timer").strip().lower() == "channel":
+                        trigger_channel_id = str(trigger.get("channel_id") or "").strip()
+                        if trigger_channel_id and trigger_channel_id not in imported_channel_ids:
+                            raise HTTPException(
+                                400,
+                                f"Proactive task '{task.name}' references trigger channel '{trigger_channel_id}' but that channel is not represented in the workflow.",
+                            )
             _validate_proactive_tasks(request, candidate, candidate.proactive_tasks)
 
         created_channels: List[str] = []
@@ -2294,13 +2341,36 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
                 updated_deployments.append(deployment_id)
             await deployment_mgr.refresh_runtime(deployment_id)
 
+        deleted_deployments: List[str] = []
+        deleted_channels: List[str] = []
+        if prune_missing:
+            for deployment_id in sorted(existing_visible_deployment_ids - imported_deployment_ids):
+                existing = deployment_mgr.get_config(deployment_id)
+                if existing is None:
+                    continue
+                _require_owner(request, existing)
+                removed = await deployment_mgr.remove(deployment_id)
+                if removed:
+                    deleted_deployments.append(deployment_id)
+            for channel_id in sorted(existing_visible_channels.keys() - imported_channel_ids):
+                adapter = channel_registry.get(channel_id) if channel_registry else None
+                if adapter is None:
+                    continue
+                _require_channel_owner(request, adapter)
+                removed = await channel_registry.remove(channel_id)
+                if removed:
+                    deleted_channels.append(channel_id)
+
         return {
             "applied": True,
             "workflow_name": parsed.get("workflow_name") or "Assistant Deployment Network",
             "created_channels": created_channels,
             "updated_channels": updated_channels,
+            "deleted_channels": deleted_channels,
             "created_deployments": created_deployments,
             "updated_deployments": updated_deployments,
+            "deleted_deployments": deleted_deployments,
+            "prune_missing": prune_missing,
             "warnings": warnings,
             "deployments": deployment_mgr.list(user_id=user.id, is_admin=is_admin),
         }

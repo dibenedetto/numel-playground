@@ -658,17 +658,19 @@ async function _post(path, body = {}) {
 			if (!workflow?.nodes?.length) {
 				throw new Error('The current workbench is empty.');
 			}
-			const data = await _post('/assistant-deployments/network-workflow/apply', { workflow });
+			const data = await _post('/assistant-deployments/network-workflow/apply', { workflow, prune_missing: true });
 			await refresh();
 			const createdDeployments = Array.isArray(data?.created_deployments) ? data.created_deployments.length : 0;
 			const updatedDeployments = Array.isArray(data?.updated_deployments) ? data.updated_deployments.length : 0;
+			const deletedDeployments = Array.isArray(data?.deleted_deployments) ? data.deleted_deployments.length : 0;
 			const createdChannels = Array.isArray(data?.created_channels) ? data.created_channels.length : 0;
 			const updatedChannels = Array.isArray(data?.updated_channels) ? data.updated_channels.length : 0;
+			const deletedChannels = Array.isArray(data?.deleted_channels) ? data.deleted_channels.length : 0;
 			const warningLines = Array.isArray(data?.warnings) ? data.warnings.filter(Boolean).slice(0, 8) : [];
 			const summary = [
 				`Applied "${_esc(data?.workflow_name || 'Assistant Deployment Network')}" to the live assistant network.`,
-				`Deployments: ${createdDeployments} created, ${updatedDeployments} updated.`,
-				`Channels: ${createdChannels} created, ${updatedChannels} updated.`,
+				`Deployments: ${createdDeployments} created, ${updatedDeployments} updated, ${deletedDeployments} deleted.`,
+				`Channels: ${createdChannels} created, ${updatedChannels} updated, ${deletedChannels} deleted.`,
 				...(warningLines.length ? ['', 'Notes:', ...warningLines.map((line) => `- ${line}`)] : []),
 			].join('\n');
 			await NumelAlert('Assistant Deployment Network', summary);
