@@ -303,6 +303,7 @@ One useful way to think about Numel is:
 - For the product direction, see [docs/product-roadmap.md](docs/product-roadmap.md)
 - For assistant operations, see [docs/assistant-deployments.md](docs/assistant-deployments.md)
 - For the current workflow-backed runtime model, see [docs/workflow-backed-surfaces.md](docs/workflow-backed-surfaces.md)
+- For a plain technical comparison of the local and production slices, see [docs/local-vs-prod-matrix.md](docs/local-vs-prod-matrix.md)
 - For a positioning comparison with other tools, see [docs/competitive-landscape.md](docs/competitive-landscape.md)
 
 If you only remember one thing, make it this:

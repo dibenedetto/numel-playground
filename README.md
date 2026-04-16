@@ -90,6 +90,8 @@ Agent Endpoints and A2A fit, see [docs/assistant-network-architecture.md](docs/a
 For the current convergence model around console, deployments, planner turns,
 and live networks becoming workflow-backed surfaces, see
 [docs/workflow-backed-surfaces.md](docs/workflow-backed-surfaces.md).
+For a concrete implementation-level comparison of the `local` and `prod`
+slices, see [docs/local-vs-prod-matrix.md](docs/local-vs-prod-matrix.md).
 For a market and positioning comparison against LangChain, n8n, and OpenClaw,
 see [docs/competitive-landscape.md](docs/competitive-landscape.md).
 Concrete UI concepts for review live in
