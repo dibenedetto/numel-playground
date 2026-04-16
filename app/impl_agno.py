@@ -196,22 +196,57 @@ def build_chat_agent_agno(
 	tools=None,
 	skills=None,
 	memory_db_path: str | None = None,
-	session_history: int | None = None,
+	history_config = None,
+	memory_config = None,
+	session_config = None,
 ):
 	model = _build_chat_model_agno(model_source, model_name)
 	db = None
 	enable_agentic_memory = False
+	enable_user_memories = False
 	add_memories_to_context = False
+	update_memory_on_run = False
+	add_history_to_context = False
+	num_history_runs = 0
 	search_session_history = False
 	num_history_sessions = None
 	session_summary_manager = None
+	memory_manager = None
 	if memory_db_path:
 		db = _build_chat_memory_db_agno(memory_db_path)
-		enable_agentic_memory = True
-		add_memories_to_context = True
-		search_session_history = True
-		num_history_sessions = session_history
-		session_summary_manager = _build_bg_session_summary_manager_agno(model)
+	if history_config is not None:
+		add_history_to_context = bool(getattr(history_config, "query", False))
+		num_history_runs = int(getattr(history_config, "size", 0) or 0)
+	if memory_config is not None:
+		manager_model_cfg = getattr(memory_config, "model", None)
+		manager_model = (
+			_build_chat_model_agno(manager_model_cfg.source, manager_model_cfg.name)
+			if manager_model_cfg is not None
+			else model
+		)
+		memory_manager = MemoryManager(
+			model=manager_model,
+			system_message=getattr(memory_config, "prompt", None),
+			additional_instructions=getattr(memory_config, "instructions", None),
+		)
+		enable_agentic_memory = bool(getattr(memory_config, "managed", False))
+		enable_user_memories = bool(getattr(memory_config, "update", False))
+		add_memories_to_context = bool(getattr(memory_config, "query", False))
+		update_memory_on_run = True
+	if session_config is not None:
+		search_session_history = bool(getattr(session_config, "query", False))
+		num_history_sessions = int(getattr(session_config, "history_size", 0) or 0)
+		if getattr(session_config, "model", None) is not None or getattr(session_config, "prompt", None):
+			session_model_cfg = getattr(session_config, "model", None)
+			session_model = (
+				_build_chat_model_agno(session_model_cfg.source, session_model_cfg.name)
+				if session_model_cfg is not None
+				else model
+			)
+			session_summary_manager = SessionSummaryManager(
+				model=session_model,
+				session_summary_prompt=getattr(session_config, "prompt", None),
+			)
 	return Agent(
 		name=name,
 		model=model,
@@ -221,8 +256,13 @@ def build_chat_agent_agno(
 		tools=list(tools or []),
 		skills=skills,
 		db=db,
+		add_history_to_context=add_history_to_context,
+		num_history_runs=num_history_runs,
 		enable_agentic_memory=enable_agentic_memory,
+		enable_user_memories=enable_user_memories,
 		add_memories_to_context=add_memories_to_context,
+		update_memory_on_run=update_memory_on_run,
+		memory_manager=memory_manager,
 		search_session_history=search_session_history,
 		num_history_sessions=num_history_sessions,
 		session_summary_manager=session_summary_manager,
@@ -240,7 +280,9 @@ def build_chat_runtime_agno(
 	tools=None,
 	skills=None,
 	memory_db_path: str | None = None,
-	session_history: int | None = None,
+	history_config = None,
+	memory_config = None,
+	session_config = None,
 ):
 	agent = build_chat_agent_agno(
 		model_source=model_source,
@@ -252,7 +294,9 @@ def build_chat_runtime_agno(
 		tools=tools,
 		skills=skills,
 		memory_db_path=memory_db_path,
-		session_history=session_history,
+		history_config=history_config,
+		memory_config=memory_config,
+		session_config=session_config,
 	)
 	app = AgentOS(
 		agents=[agent],

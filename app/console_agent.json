@@ -25,7 +25,14 @@
 	"toolkits": ["console_toolkit", "code_toolkit", "channel_toolkit"],
 	"memory": {
 		"backend": true,
-		"session_history": 5
+		"history_query": true,
+		"history_size": 5,
+		"session_query": true,
+		"session_update": true,
+		"session_history": 5,
+		"memory_query": true,
+		"memory_update": false,
+		"memory_managed": true
 	},
 	"channel_pool": {
 		"idle_timeout": 1800

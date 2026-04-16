@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 
+from assistant_memory_contract import normalize_assistant_memory_config
 from copy import deepcopy
 from typing import Any, Dict, Optional
 
@@ -24,6 +25,8 @@ def build_assistant_proactive_workflow(
 	toolkit_args: Optional[Dict[str, Dict[str, Any]]] = None,
 	skill_names: Optional[list[str]] = None,
 	options_config: Optional[Dict[str, Any]] = None,
+	memory_config: Optional[Dict[str, Any]] = None,
+	memory_db_path: Optional[str] = None,
 	trigger_kind: str = "timer",
 	trigger_config: Optional[Dict[str, Any]] = None,
 	backend_name: str = DEFAULT_BACKEND_NAME,
@@ -40,13 +43,14 @@ def build_assistant_proactive_workflow(
 		options["description"] = deployment_description
 
 	exported = build_console_workflow_export(
-		config={"options": options, "memory": {}},
+		config={"options": options, "memory": normalize_assistant_memory_config(memory_config)},
 		model_source=model_source,
 		model_name=model_name,
 		toolkit_names=list(toolkit_names or []),
 		toolkit_args=dict(toolkit_args or {}),
 		skill_names=list(skill_names or []),
-		use_backend_memory=False,
+		use_backend_memory=True,
+		memory_db_path=memory_db_path,
 		backend_name=backend_name,
 	)
 	workflow = deepcopy(exported["workflow"])

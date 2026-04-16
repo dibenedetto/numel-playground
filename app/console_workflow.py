@@ -3,6 +3,8 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
 
+from assistant_memory_contract import build_assistant_memory_components, normalize_assistant_memory_config
+from runtime_settings import get_runtime_settings
 from schema import DEFAULT_BACKEND_NAME
 
 
@@ -22,6 +24,7 @@ _RUNTIME_ONLY_TOOLKIT_ARG_KEYS = {
 	"channel_registry",
 	"channel_pool",
 	"deployment_id",
+	"runtime_context_id",
 }
 
 _DECLARATIVE_RUNTIME_BOUND_TOOLKIT_ARGS = {
@@ -165,7 +168,7 @@ def _append_planner_export_subgraph(
 		toolkit_names=list(toolkit_names or []),
 		toolkit_args=dict(toolkit_args or {}),
 		skill_names=list(skill_names or []),
-		use_backend_memory=False,
+		use_backend_memory=True,
 		backend_name=backend_name,
 	)
 	planner_workflow = deepcopy(planner_export["workflow"])
@@ -354,6 +357,7 @@ def build_console_workflow_export(
 	toolkit_args: Optional[Dict[str, Dict[str, Any]]] = None,
 	skill_names: Optional[List[str]] = None,
 	use_backend_memory: bool = True,
+	memory_db_path: Optional[str] = None,
 	backend_name: str = DEFAULT_BACKEND_NAME,
 	planner_state: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
@@ -410,19 +414,49 @@ def build_console_workflow_export(
 	edges: List[Dict[str, Any]] = []
 
 	agent_config_index = None
+	content_db_index = None
+	history_manager_index = None
 	memory_manager_index = None
 	session_manager_index = None
 
 	if use_backend_memory:
+		components = build_assistant_memory_components(
+			memory_cfg=memory_cfg,
+			model_source=model_source,
+			model_name=model_name,
+			memory_db_path=memory_db_path or str(get_runtime_settings().user_memory_dir / "assistant_console.db"),
+		)
+		settings = components["settings"]
+		content_db_index = len(nodes)
+		nodes.append(
+			_node_payload(
+				"content_db_config",
+				label="Backend Memory Store",
+				pos=(620, 60),
+				engine="sqlite",
+				url=components["content_db"].url,
+			)
+		)
+		history_manager_index = len(nodes)
+		nodes.append(
+			_node_payload(
+				"history_manager_config",
+				label="History Context",
+				pos=(840, 60),
+				query=settings["history_query"],
+				size=settings["history_size"],
+			)
+		)
 		session_manager_index = len(nodes)
 		nodes.append(
 			_node_payload(
 				"session_manager_config",
 				label="Session Memory",
-				pos=(640, 60),
-				query=True,
-				update=True,
-				history_size=max(1, int(memory_cfg.get("session_history", 5) or 5)),
+				pos=(1060, 60),
+				query=settings["session_query"],
+				update=settings["session_update"],
+				history_size=settings["session_history"],
+				prompt=components["session_mgr"].prompt,
 			)
 		)
 		memory_manager_index = len(nodes)
@@ -430,10 +464,12 @@ def build_console_workflow_export(
 			_node_payload(
 				"memory_manager_config",
 				label="Long-Term Memory",
-				pos=(860, 60),
-				query=True,
-				update=True,
-				managed=True,
+				pos=(1280, 60),
+				query=settings["memory_query"],
+				update=settings["memory_update"],
+				managed=settings["memory_managed"],
+				prompt=components["memory_mgr"].prompt,
+				instructions=components["memory_mgr"].instructions,
 			)
 		)
 
@@ -466,11 +502,25 @@ def build_console_workflow_export(
 
 	if session_manager_index is not None:
 		edges.append(
+			{"source": 1, "target": session_manager_index, "source_slot": "config", "target_slot": "model"}
+		)
+		edges.append(
 			{"source": session_manager_index, "target": agent_config_index, "source_slot": "config", "target_slot": "session_mgr"}
+		)
+	if history_manager_index is not None:
+		edges.append(
+			{"source": history_manager_index, "target": agent_config_index, "source_slot": "config", "target_slot": "history_mgr"}
 		)
 	if memory_manager_index is not None:
 		edges.append(
+			{"source": 1, "target": memory_manager_index, "source_slot": "config", "target_slot": "model"}
+		)
+		edges.append(
 			{"source": memory_manager_index, "target": agent_config_index, "source_slot": "config", "target_slot": "memory_mgr"}
+		)
+	if content_db_index is not None:
+		edges.append(
+			{"source": content_db_index, "target": agent_config_index, "source_slot": "config", "target_slot": "content_db"}
 		)
 
 	used_keys: set[str] = set()
@@ -737,6 +787,20 @@ def parse_console_workflow_import(
 		"memory_mgr",
 		"memory_manager_config",
 	)
+	history_node, _ = _resolve_single_linked_or_inline(
+		nodes if agent_index is not None else [agent_node],
+		edges if agent_index is not None else [],
+		agent_index if agent_index is not None else 0,
+		"history_mgr",
+		"history_manager_config",
+	)
+	content_db_node, _ = _resolve_single_linked_or_inline(
+		nodes if agent_index is not None else [agent_node],
+		edges if agent_index is not None else [],
+		agent_index if agent_index is not None else 0,
+		"content_db",
+		"content_db_config",
+	)
 	session_node, _ = _resolve_single_linked_or_inline(
 		nodes if agent_index is not None else [agent_node],
 		edges if agent_index is not None else [],
@@ -806,19 +870,34 @@ def parse_console_workflow_import(
 	if options_payload.get("prompt_override"):
 		warnings.append("agent_options_config.prompt_override is not currently applied by the console bridge and was ignored.")
 
-	use_backend_memory = memory_node is not None or session_node is not None
-	memory_override: Dict[str, Any] = {}
+	use_backend_memory = True
+	memory_override = normalize_assistant_memory_config({})
+	if history_node is not None:
+		memory_override["history_query"] = bool(history_node.get("query", memory_override["history_query"]))
+		history_size = history_node.get("size")
+		if isinstance(history_size, int) and history_size > 0:
+			memory_override["history_size"] = history_size
 	if session_node is not None:
+		memory_override["session_query"] = bool(session_node.get("query", memory_override["session_query"]))
+		memory_override["session_update"] = bool(session_node.get("update", memory_override["session_update"]))
 		history_size = session_node.get("history_size")
 		if isinstance(history_size, int) and history_size > 0:
 			memory_override["session_history"] = history_size
-	if (memory_node is None) != (session_node is None):
-		warnings.append("Console import maps workflow memory/session managers to a single console memory toggle; partial memory wiring was imported as memory enabled.")
+		if session_node.get("prompt") is not None:
+			memory_override["session_prompt"] = session_node.get("prompt")
+	if memory_node is not None:
+		memory_override["memory_query"] = bool(memory_node.get("query", memory_override["memory_query"]))
+		memory_override["memory_update"] = bool(memory_node.get("update", memory_override["memory_update"]))
+		memory_override["memory_managed"] = bool(memory_node.get("managed", memory_override["memory_managed"]))
+		if memory_node.get("prompt") is not None:
+			memory_override["memory_prompt"] = memory_node.get("prompt")
+		if memory_node.get("instructions") is not None:
+			memory_override["memory_instructions"] = memory_node.get("instructions")
+	if content_db_node is None:
+		warnings.append("Console import did not find a content_db_config for backend memory; Numel will rebind the backend memory store at runtime.")
 
 	unsupported_agent_fields = [
-		field_name
-		for field_name in ("content_db", "history_mgr", "knowledge_mgr", "tools")
-		if agent_node.get(field_name)
+		field_name for field_name in ("knowledge_mgr", "tools") if agent_node.get(field_name)
 	]
 	if unsupported_agent_fields:
 		warnings.append(

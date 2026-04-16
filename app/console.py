@@ -28,11 +28,14 @@ from   backend_factory                 import (
 	extract_chat_tool_calls,
 	get_pending_tool_approval,
 	is_chat_response_paused,
-	prepare_chat_memory_db_path,
 	run_chat_agent,
 )
+from   assistant_memory_contract       import (
+	build_assistant_memory_components,
+	normalize_assistant_memory_config,
+	resolve_assistant_memory_db_path,
+)
 from   console_workflow               import build_console_workflow_export, parse_console_workflow_import
-from   memory                          import MemoryStore
 from   prompt_stack                    import PLANNER_MODE_DIRECTIVE, extend_instruction_block
 from   runtime_settings                import get_runtime_settings
 from   runtime_toolkit_bindings        import build_runtime_toolkit_args
@@ -195,7 +198,6 @@ class ConsoleAgentManager:
 
 	def __init__(self, workspace_mgr, event_bus: EventBus, port: int,
 				 config_path: str = _CONFIG_PATH,
-				 memory_store: Optional['MemoryStore'] = None,
 				 user_memory_db=None,
 				 base_url: str = "http://localhost:11360",
 				 internal_token: str = ""):
@@ -205,7 +207,6 @@ class ConsoleAgentManager:
 		self._base_url      = base_url.rstrip("/")
 		self._internal_token = internal_token
 		self._config_path   = config_path
-		self._memory        = memory_store
 		self._user_memory_db = user_memory_db       # UserMemoryDB for per-user isolation
 		self._current_user_id: Optional[str] = None # set on start / chat
 		self._agent_user_id: Optional[str] = None
@@ -225,7 +226,7 @@ class ConsoleAgentManager:
 		self._proactive_ws       : Dict[WebSocket, Optional[str]] = {}
 		self._sessions           : Dict[str, List[dict]] = {}  # session_id → message history
 		self._start_lock         = asyncio.Lock()               # prevents concurrent start/stop
-		self._use_backend_memory = False                        # set during start()
+		self._use_backend_memory = True                         # backend memory is the only supported mode
 
 		# ── Planner mode (per-session) ──
 		# Keyed by planner_key (typically "user_{user_id}_{session_id}" or
@@ -463,11 +464,7 @@ class ConsoleAgentManager:
 			options_override=_options_override or None,
 			memory_override=_memory_override or None,
 		)
-		requested_use_backend = (
-			use_backend_memory
-			if use_backend_memory is not None
-			else bool((effective_config.get("memory") or {}).get("backend", True))
-		)
+		requested_use_backend = True
 
 		model_cfg = effective_config.get("model", {})
 		source = model_source or model_cfg.get("source", "ollama")
@@ -551,30 +548,24 @@ class ConsoleAgentManager:
 
 		log_print(f"Console agent tools: {[getattr(t, 'name', getattr(t, '__name__', str(t))) for t in tools]}")
 
-		# Memory: backend-managed SQLite or manual MemoryStore
-		mem_cfg = effective_config.get("memory", {})
-		# use_backend_memory param overrides the config file value
-		use_backend = requested_use_backend
-		self._use_backend_memory = use_backend
-
-		memory_db_path = None
-		session_history = None
-		if use_backend:
-			if self._user_memory_db and user_id:
-				memory_db_path = self._user_memory_db.get_db_path(user_id)
-			else:
-				memory_db_path = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
-			memory_db_path = prepare_chat_memory_db_path(
-				memory_db_path,
-				backend_name=DEFAULT_BACKEND_NAME,
-			)
-			session_history = mem_cfg.get("session_history", 5)
-			log_print(f"Console agent: using backend memory ({memory_db_path})")
-		else:
-			log_print("Console agent: using manual MemoryStore")
+		mem_cfg = normalize_assistant_memory_config(effective_config.get("memory", {}))
+		self._use_backend_memory = True
+		memory_db_path = resolve_assistant_memory_db_path(
+			user_memory_db=self._user_memory_db,
+			identity=user_id,
+			fallback_config_path=self._config_path,
+			backend_name=DEFAULT_BACKEND_NAME,
+		)
+		memory_components = build_assistant_memory_components(
+			memory_cfg=mem_cfg,
+			model_source=source,
+			model_name=name,
+			memory_db_path=memory_db_path,
+		)
+		log_print(f"Console agent: using backend memory ({memory_db_path})")
 
 		# Build agent
-		opts = config.get("options", {})
+		opts = effective_config.get("options", {})
 		instructions = list(opts.get("instructions", []))
 
 		native_skills = _resolve_native_skill_bundle(
@@ -596,7 +587,9 @@ class ConsoleAgentManager:
 			tools                   = tools,
 			skills                  = native_skills,
 			memory_db_path          = memory_db_path,
-			session_history         = session_history,
+			history_config          = memory_components["history_mgr"],
+			memory_config           = memory_components["memory_mgr"],
+			session_config          = memory_components["session_mgr"],
 		)
 
 		# Start uvicorn server and wait for it to actually bind the port
@@ -636,13 +629,8 @@ class ConsoleAgentManager:
 
 	def clear_memory(self):
 		"""Clear all agent memory: sessions, backend memories, and in-memory history."""
-		# 1. Clear backend-managed memory if the runtime exposes it
 		if self._agent:
 			clear_chat_memory(self._agent, backend_name=DEFAULT_BACKEND_NAME)
-		# 2. Clear custom MemoryStore
-		if self._memory:
-			self._memory.clear()
-		# 3. Clear in-memory session history
 		self._sessions.clear()
 		log_print("Console memory cleared")
 
@@ -671,8 +659,9 @@ class ConsoleAgentManager:
 				if value is not None:
 					memory[key] = value
 
+		memory["backend"] = True
 		effective["options"] = options
-		effective["memory"] = memory
+		effective["memory"] = normalize_assistant_memory_config(memory)
 		return effective
 
 	def current_console_options(self) -> Dict[str, Any]:
@@ -708,6 +697,7 @@ class ConsoleAgentManager:
 			"toolkit_args": dict(self._toolkit_args or {}),
 			"skill_names": list(self._skill_names or []),
 			"options": dict(effective_config.get("options") or {}),
+			"memory": normalize_assistant_memory_config(effective_config.get("memory") or {}),
 		}
 
 	async def _run_workflow_backed_console_turn(
@@ -756,6 +746,13 @@ class ConsoleAgentManager:
 			auth_token=auth_token or self._auth_token,
 			local_app=self._fastapi_app,
 			channel_registry=getattr(self, "_channel_reg", None),
+			memory_config=dict(state.get("memory") or {}),
+			memory_db_path=resolve_assistant_memory_db_path(
+				user_memory_db=self._user_memory_db,
+				identity=user_id or self._agent_user_id,
+				fallback_config_path=self._config_path,
+				backend_name=DEFAULT_BACKEND_NAME,
+			),
 			backend_name=DEFAULT_BACKEND_NAME,
 		)
 		result.setdefault("tool_calls", [])
@@ -784,11 +781,8 @@ class ConsoleAgentManager:
 		if "console_toolkit" not in toolkit_names:
 			toolkit_names = ["console_toolkit"] + list(toolkit_names)
 		skill_names = list(self._skill_names or [])
-		use_backend_memory = bool(
-			self._use_backend_memory
-			if self._started
-			else bool((config.get("memory") or {}).get("backend", True))
-		)
+		use_backend_memory = True
+		export_user_id = user_id or self._agent_user_id
 		planner_state = None
 		if include_planner:
 			planner_state = self._planner_export_state(
@@ -802,6 +796,12 @@ class ConsoleAgentManager:
 			toolkit_args=dict(self._toolkit_args or {}),
 			skill_names=skill_names,
 			use_backend_memory=use_backend_memory,
+			memory_db_path=resolve_assistant_memory_db_path(
+				user_memory_db=self._user_memory_db,
+				identity=export_user_id,
+				fallback_config_path=self._config_path,
+				backend_name=DEFAULT_BACKEND_NAME,
+			),
 			backend_name=DEFAULT_BACKEND_NAME,
 			planner_state=planner_state,
 		)
@@ -815,7 +815,7 @@ class ConsoleAgentManager:
 			model_source=parsed["model_source"],
 			model_name=parsed["model_name"],
 			toolkit_names=parsed["toolkit_names"],
-			use_backend_memory=parsed["use_backend_memory"],
+			use_backend_memory=True,
 			toolkit_args=parsed["toolkit_args"],
 			skill_names=parsed["skill_names"],
 			options_override=parsed["options_override"],
@@ -1162,11 +1162,6 @@ class ConsoleAgentManager:
 				parts = []
 				if ctx.get("context"):
 					parts.append(f"[Current space state]\n{ctx['context']}")
-				# Manual memory retrieval (only when not using backend)
-				if self._memory and not self._use_backend_memory:
-					mem_ctx = self._memory.get_context_for_query(message)
-					if mem_ctx:
-						parts.append(mem_ctx)
 				if parts:
 					augmented = "\n\n".join(parts) + f"\n\n[User message]\n{message}"
 			except Exception as e:
@@ -1206,18 +1201,6 @@ class ConsoleAgentManager:
 					f"Planner: workflow JSON prepared for client-side apply "
 					f"({len(wf_json.get('nodes', []))} nodes)"
 				)
-
-		# Save conversation to manual MemoryStore (only when not using backend, every 3 turns)
-		turn_count = self._sessions.get(session_id, 0)
-		if self._memory and not self._use_backend_memory and turn_count >= 3 and turn_count % 3 == 0:
-			try:
-				self._memory.add(
-					content=f"User: {message}\nAssistant: {assistant_content[:500]}",
-					type="conversation",
-					metadata={"session_id": session_id},
-				)
-			except Exception:
-				pass
 
 		# Detect model/infra errors returned as assistant content by the backend
 		_ERROR_PATTERNS = ("not found", "status code:", "connection refused", "timed out", "unreachable")
@@ -1404,7 +1387,7 @@ class ChannelAgentPool:
 	"""Manages per-session backend chat-agent instances for channel messages."""
 
 	def __init__(self, config_path: str = _CONFIG_PATH,
-				 workspace_mgr=None, memory_store=None,
+				 workspace_mgr=None,
 				 user_memory_db=None, channel_registry=None,
 				 idle_timeout: float = 1800,
 				 base_url: str = "http://localhost:11360",
@@ -1412,7 +1395,6 @@ class ChannelAgentPool:
 				 fastapi_app=None):
 		self._config_path    = config_path
 		self._ws_mgr         = workspace_mgr
-		self._memory_store   = memory_store
 		self._user_memory_db = user_memory_db       # UserMemoryDB for per-user isolation
 		self._channel_reg    = channel_registry      # ChannelRegistry for cross-channel messaging
 		self._idle_timeout   = idle_timeout          # seconds before evicting idle agent
@@ -1602,21 +1584,22 @@ class ChannelAgentPool:
 				if native_toolkit is not None:
 					tools.append(native_toolkit)
 
-		# Memory — per-user isolation via UserMemoryDB
-		mem_cfg     = effective_config.get("memory", {})
-		use_backend = mem_cfg.get("backend", True)
-		memory_db_path = None
-		if use_backend:
-			if self._user_memory_db and user_id:
-				memory_db_path = self._user_memory_db.get_db_path(user_id, is_guest=is_guest)
-			else:
-				# Fallback: shared db (no user isolation available)
-				memory_db_path = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
-			memory_db_path = prepare_chat_memory_db_path(
-				memory_db_path,
-				backend_name=DEFAULT_BACKEND_NAME,
-			)
-			log_print(f"ChannelAgentPool: memory db → {os.path.basename(memory_db_path)}")
+		mem_cfg = normalize_assistant_memory_config(effective_config.get("memory", {}))
+		identity = user_id or (f"guest_{sender_name or session_id}" if is_guest else session_id)
+		memory_db_path = resolve_assistant_memory_db_path(
+			user_memory_db=self._user_memory_db,
+			identity=identity,
+			is_guest=is_guest,
+			fallback_config_path=self._config_path,
+			backend_name=DEFAULT_BACKEND_NAME,
+		)
+		memory_components = build_assistant_memory_components(
+			memory_cfg=mem_cfg,
+			model_source=source,
+			model_name=name,
+			memory_db_path=memory_db_path,
+		)
+		log_print(f"ChannelAgentPool: memory db → {os.path.basename(memory_db_path)}")
 
 		opts = effective_config.get("options", {})
 		instructions = list(opts.get("instructions", []))
@@ -1644,7 +1627,9 @@ class ChannelAgentPool:
 			tools                   = tools,
 			skills                  = native_skills,
 			memory_db_path          = memory_db_path,
-			session_history         = mem_cfg.get("session_history", 5) if memory_db_path else None,
+			history_config          = memory_components["history_mgr"],
+			memory_config           = memory_components["memory_mgr"],
+			session_config          = memory_components["session_mgr"],
 		)
 
 	async def chat(self, message: str, session_id: str,
@@ -1886,7 +1871,7 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 		model_name:         Optional[str]                    = None   # e.g. "mistral", "gpt-4o-mini"
 		toolkit_names:      Optional[List[str]]              = None   # e.g. ["console_toolkit", "file_toolkit"]
 		toolkit_args:       Optional[Dict[str, Dict[str, Any]]] = None   # e.g. {"file_toolkit": {"root": "."}}
-		use_backend_memory: Optional[bool]                   = None   # None = use console_agent.json default
+		use_backend_memory: Optional[bool]                   = None   # deprecated, ignored
 		skill_names:        Optional[List[str]]              = None   # e.g. ["web-search", "git-assistant"]
 
 	class ConsoleChatRequest(BaseModel):
@@ -2218,59 +2203,11 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 
 	# ── Memory Routes ─────────────────────────────────────────────
 
-	@app.post("/console/memory/search")
-	async def console_memory_search(request: dict):
-		"""Search agent memory."""
-		if not console_mgr._memory:
-			return {"error": "memory not available"}
-		query       = request.get("query", "")
-		n_results   = request.get("n_results", 5)
-		type_filter = request.get("type", None)
-		results = console_mgr._memory.search(query, n_results, type_filter)
-		return [{"entry": r.entry.model_dump(), "score": r.score} for r in results]
-
-	@app.post("/console/memory/add")
-	async def console_memory_add(request: dict):
-		"""Manually add a memory."""
-		if not console_mgr._memory:
-			return {"error": "memory not available"}
-		mem_id = console_mgr._memory.add(
-			content    = request.get("content", ""),
-			type       = request.get("type", "general"),
-			metadata   = request.get("metadata", {}),
-			importance = request.get("importance", 0.5),
-		)
-		return {"id": mem_id}
-
-	@app.post("/console/memory/recent")
-	async def console_memory_recent(request: dict):
-		"""Get recent memories."""
-		if not console_mgr._memory:
-			return {"error": "memory not available"}
-		n           = request.get("n", 10)
-		type_filter = request.get("type", None)
-		entries = console_mgr._memory.get_recent(n, type_filter)
-		return [e.model_dump() for e in entries]
-
-	@app.post("/console/memory/delete")
-	async def console_memory_delete(request: dict):
-		"""Delete a memory entry."""
-		if not console_mgr._memory:
-			return {"error": "memory not available"}
-		return {"deleted": console_mgr._memory.delete(request.get("id", ""))}
-
 	@app.post("/console/memory/clear")
 	async def console_memory_clear():
-		"""Clear all agent memory: sessions, backend memories, and in-memory history."""
+		"""Clear backend-managed assistant memory and in-memory session state."""
 		console_mgr.clear_memory()
 		return {"cleared": True}
-
-	@app.post("/console/memory/stats")
-	async def console_memory_stats():
-		"""Get memory store statistics."""
-		if not console_mgr._memory:
-			return {"error": "memory not available"}
-		return console_mgr._memory.get_stats()
 
 	@app.websocket("/ws/console")
 	async def console_ws(websocket: WebSocket):

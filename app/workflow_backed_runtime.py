@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 
+from assistant_memory_contract import resolve_assistant_memory_db_path
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -52,6 +53,8 @@ def build_agent_turn_workflow(
 	sender_name: Optional[str] = None,
 	assistant_name: Optional[str] = None,
 	assistant_description: Optional[str] = None,
+	memory_config: Optional[Dict[str, Any]] = None,
+	memory_db_path: Optional[str] = None,
 	backend_name: str = DEFAULT_BACKEND_NAME,
 ) -> Dict[str, Any]:
 	"""Build a transient single-turn workflow around an agent_flow node."""
@@ -62,13 +65,14 @@ def build_agent_turn_workflow(
 		options["description"] = assistant_description
 
 	exported = build_console_workflow_export(
-		config={"options": options, "memory": {}},
+		config={"options": options, "memory": dict(memory_config or {})},
 		model_source=model_source,
 		model_name=model_name,
 		toolkit_names=list(toolkit_names or []),
 		toolkit_args=dict(toolkit_args or {}),
 		skill_names=list(skill_names or []),
-		use_backend_memory=False,
+		use_backend_memory=True,
+		memory_db_path=memory_db_path,
 		backend_name=backend_name,
 	)
 	workflow = copy.deepcopy(exported["workflow"])
@@ -127,9 +131,12 @@ async def run_workflow_backed_agent_turn(
 	local_app = None,
 	channel_registry = None,
 	deployment_id: Optional[str] = None,
+	memory_config: Optional[Dict[str, Any]] = None,
+	memory_db_path: Optional[str] = None,
 	backend_name: str = DEFAULT_BACKEND_NAME,
 ) -> Dict[str, Any]:
 	"""Run a single agent turn through a transient Numel workflow."""
+	resolved_memory_db_path = memory_db_path or resolve_assistant_memory_db_path(identity=user_id or deployment_id)
 	built = build_agent_turn_workflow(
 		workflow_name=workflow_name,
 		request=request,
@@ -143,6 +150,8 @@ async def run_workflow_backed_agent_turn(
 		sender_name=sender_name,
 		assistant_name=assistant_name,
 		assistant_description=assistant_description,
+		memory_config=memory_config,
+		memory_db_path=resolved_memory_db_path,
 		backend_name=backend_name,
 	)
 	payload = bind_runtime_toolkits_to_workflow(

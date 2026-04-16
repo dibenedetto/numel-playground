@@ -51,6 +51,8 @@ class ConsoleWorkflowExportTests(unittest.TestCase):
 		self.assertEqual(exported["name"], "Numel Assistant")
 		self.assertIn("agent_chat", node_types)
 		self.assertIn("agent_config", node_types)
+		self.assertIn("content_db_config", node_types)
+		self.assertIn("history_manager_config", node_types)
 		self.assertIn("memory_manager_config", node_types)
 		self.assertIn("session_manager_config", node_types)
 		self.assertIn("skill_config", node_types)
@@ -77,7 +79,7 @@ class ConsoleWorkflowExportTests(unittest.TestCase):
 			["console_toolkit", "agent_endpoint_toolkit"],
 		)
 
-	def test_build_workflow_export_omits_memory_nodes_when_disabled(self) -> None:
+	def test_build_workflow_export_keeps_backend_memory_nodes_even_if_toggle_is_false(self) -> None:
 		manager = self._manager()
 		manager._started = True
 		manager._model_source = "ollama"
@@ -90,8 +92,10 @@ class ConsoleWorkflowExportTests(unittest.TestCase):
 		exported = manager.build_workflow_export()
 		node_types = [node["type"] for node in exported["workflow"]["nodes"]]
 
-		self.assertNotIn("memory_manager_config", node_types)
-		self.assertNotIn("session_manager_config", node_types)
+		self.assertIn("content_db_config", node_types)
+		self.assertIn("history_manager_config", node_types)
+		self.assertIn("memory_manager_config", node_types)
+		self.assertIn("session_manager_config", node_types)
 		self.assertIn("console_toolkit", [node["name"] for node in exported["workflow"]["nodes"] if node["type"] == "toolkit_config"])
 		self.assertIn("code_toolkit", [node["name"] for node in exported["workflow"]["nodes"] if node["type"] == "toolkit_config"])
 
@@ -172,7 +176,13 @@ class ConsoleWorkflowExportTests(unittest.TestCase):
 		self.assertEqual(parsed["toolkit_args"], {"file_toolkit": {"root": "."}})
 		self.assertEqual(parsed["skill_names"], ["web-search"])
 		self.assertTrue(parsed["use_backend_memory"])
-		self.assertEqual(parsed["memory_override"], {"session_history": 8})
+		self.assertEqual(parsed["memory_override"]["session_history"], 8)
+		self.assertEqual(parsed["memory_override"]["history_size"], 5)
+		self.assertTrue(parsed["memory_override"]["history_query"])
+		self.assertTrue(parsed["memory_override"]["session_query"])
+		self.assertTrue(parsed["memory_override"]["session_update"])
+		self.assertTrue(parsed["memory_override"]["memory_query"])
+		self.assertTrue(parsed["memory_override"]["memory_managed"])
 		self.assertEqual(parsed["options_override"]["name"], "Workflow Assistant")
 		self.assertEqual(parsed["options_override"]["description"], "Imported from workflow")
 		self.assertEqual(parsed["options_override"]["instructions"], ["Stay grounded in the graph."])

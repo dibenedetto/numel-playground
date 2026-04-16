@@ -16,7 +16,7 @@ if str(PROJECT_ROOT) not in sys.path:
 	sys.path.insert(1, str(PROJECT_ROOT))
 
 
-from console import _prepare_agno_memory_db_path
+from backend_factory import prepare_chat_memory_db_path
 
 
 class ConsoleDbPruneTests(unittest.TestCase):
@@ -43,7 +43,7 @@ class ConsoleDbPruneTests(unittest.TestCase):
 		conn.commit()
 		conn.close()
 
-		resolved = _prepare_agno_memory_db_path(path)
+		resolved = prepare_chat_memory_db_path(path)
 
 		self.assertEqual(resolved, path)
 		self.assertFalse(os.path.exists(path))
@@ -66,7 +66,7 @@ class ConsoleDbPruneTests(unittest.TestCase):
 		conn.commit()
 		conn.close()
 
-		resolved = _prepare_agno_memory_db_path(path)
+		resolved = prepare_chat_memory_db_path(path)
 
 		self.assertEqual(resolved, path)
 		self.assertTrue(os.path.exists(path))

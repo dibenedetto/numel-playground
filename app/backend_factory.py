@@ -10,8 +10,11 @@ from schema import (
 	DEFAULT_BACKEND_NAME,
 	Edge,
 	EmbeddingConfig,
+	HistoryManagerConfig,
 	IndexDBConfig,
 	KnowledgeManagerConfig,
+	MemoryManagerConfig,
+	SessionManagerConfig,
 	Workflow,
 )
 
@@ -64,7 +67,9 @@ def build_chat_agent(
 	tools=None,
 	skills=None,
 	memory_db_path: Optional[str] = None,
-	session_history: Optional[int] = None,
+	history_config: Optional[HistoryManagerConfig] = None,
+	memory_config: Optional[MemoryManagerConfig] = None,
+	session_config: Optional[SessionManagerConfig] = None,
 	backend_name: Optional[str] = None,
 ):
 	backend = normalize_backend_name(backend_name)
@@ -80,7 +85,9 @@ def build_chat_agent(
 			tools=tools,
 			skills=skills,
 			memory_db_path=memory_db_path,
-			session_history=session_history,
+			history_config=history_config,
+			memory_config=memory_config,
+			session_config=session_config,
 		)
 	raise ValueError(f"Unsupported backend: {backend}")
 
@@ -96,7 +103,9 @@ def build_chat_runtime(
 	tools=None,
 	skills=None,
 	memory_db_path: Optional[str] = None,
-	session_history: Optional[int] = None,
+	history_config: Optional[HistoryManagerConfig] = None,
+	memory_config: Optional[MemoryManagerConfig] = None,
+	session_config: Optional[SessionManagerConfig] = None,
 	backend_name: Optional[str] = None,
 ):
 	backend = normalize_backend_name(backend_name)
@@ -112,7 +121,9 @@ def build_chat_runtime(
 			tools=tools,
 			skills=skills,
 			memory_db_path=memory_db_path,
-			session_history=session_history,
+			history_config=history_config,
+			memory_config=memory_config,
+			session_config=session_config,
 		)
 	raise ValueError(f"Unsupported backend: {backend}")
 

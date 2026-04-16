@@ -43,9 +43,14 @@ class WorkflowBackedRuntimeTests(unittest.TestCase):
 		workflow = built["workflow"]
 		nodes = list(workflow.get("nodes") or [])
 		agent_node = nodes[built["agent_node_index"]]
+		node_types = [node.get("type") for node in nodes]
 		self.assertEqual(agent_node["type"], "agent_flow")
 		self.assertEqual(agent_node["request"], "inspect the workflow")
 		self.assertEqual(workflow["options"]["name"], "Planner Turn")
+		self.assertIn("content_db_config", node_types)
+		self.assertIn("history_manager_config", node_types)
+		self.assertIn("memory_manager_config", node_types)
+		self.assertIn("session_manager_config", node_types)
 
 		options_node = next(node for node in nodes if node.get("type") == "agent_options_config")
 		self.assertIn("Stay grounded in the graph.", list(options_node.get("instructions") or []))

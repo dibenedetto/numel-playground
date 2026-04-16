@@ -73,7 +73,7 @@ from   console   import ConsoleAgentManager, ChannelAgentPool, setup_console_api
 from   event_bus import EventBus, get_event_bus
 from   gallery   import GalleryManager, setup_gallery_api
 from   skills    import SkillManager, setup_skills_api
-from   memory    import MemoryStore, UserMemoryDB
+from   memory    import UserMemoryDB
 from   published_apps import PublishedAppManager, setup_published_apps_api
 from   domain.concrete import build_db_git_platform_spec
 from   domain.models import ExecutionState
@@ -1015,15 +1015,12 @@ async def run_server(
 	server = uvicorn.Server(config)
 	app.state.uvicorn_server = server
 
-	# ── Persistent Memory ─────────────────────────────────────
-	memory_store = MemoryStore(storage_dir=str(_runtime_settings.memory_storage_dir))
-	memory_store.initialize()
+	# ── Backend Memory Identity ───────────────────────────────
 	user_memory_db = UserMemoryDB(storage_dir=str(_runtime_settings.user_memory_dir))
 
 	# ── Console Agent ─────────────────────────────────────────
 	_main_base_url = f"http://localhost:{args.port}"
 	console_mgr = ConsoleAgentManager(workspace_mgr, event_bus, port=args.port + 1,
-									  memory_store=memory_store,
 									  user_memory_db=user_memory_db,
 									  base_url=_main_base_url,
 									  internal_token=_platform_internal_token)
@@ -1084,7 +1081,7 @@ async def run_server(
 	# Read pool config from console_agent.json
 	_pool_cfg = _creds.load_json(_cfg_path).get("channel_pool", {})
 	channel_pool = ChannelAgentPool(
-		workspace_mgr=workspace_mgr, memory_store=memory_store,
+		workspace_mgr=workspace_mgr,
 		user_memory_db=user_memory_db,
 		idle_timeout=_pool_cfg.get("idle_timeout", 1800),
 		base_url=_main_base_url,

@@ -862,7 +862,8 @@ class AgentConsoleManager {
 		this._toolkitArgs = data.toolkit_args || {};
 		this._ensureModelOption(data.model_source, data.model_name);
 		if (this._memoryToggle) {
-			this._memoryToggle.checked = !!data.use_backend_memory;
+			this._memoryToggle.checked = true;
+			this._memoryToggle.disabled = true;
 		}
 		await this._fetchToolkits();
 		await this._fetchSkills();
@@ -928,7 +929,7 @@ class AgentConsoleManager {
 			const toolkit_names = this._getSelectedToolkits();
 			const toolkit_args = this._toolkitArgs || {};
 			const skill_names = this._getSelectedSkills();
-			const use_backend_memory = this._memoryToggle ? this._memoryToggle.checked : true;
+			const use_backend_memory = true;
 			const data = await this.api.consoleStart({ model_source: source, model_name: name, toolkit_names, toolkit_args, skill_names, use_backend_memory });
 			this.agentPort = data.port;
 

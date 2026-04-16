@@ -2677,7 +2677,8 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["options"]["name"], "Workbench Assistant")
         self.assertEqual(payload["options"]["description"], "Imported from a workflow-backed console.")
         self.assertEqual(payload["options"]["instructions"], ["Stay focused on the current workbench."])
-        self.assertEqual(payload["memory_override"], {"session_history": 9})
+        self.assertEqual(payload["memory_override"]["session_history"], 9)
+        self.assertEqual(payload["memory_override"]["history_size"], 5)
 
         exported_again = await self._client.post("/console/workflow", json={})
         self.assertEqual(exported_again.status_code, 200, exported_again.text)

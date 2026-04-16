@@ -207,17 +207,6 @@ class NumelAPI {
 		return this.json(`/chat_response/${executionId}`, { node_id: String(nodeId), response });
 	}
 
-	// ── Memory API ───────────────────────────────────────────────
-
-	memorySearch(query, n = 5, type = null)   { return this.json('/console/memory/search', { query, n_results: n, type }); }
-	memoryAdd(content, type = 'general', metadata = {}, importance = 0.5) {
-		return this.json('/console/memory/add', { content, type, metadata, importance });
-	}
-	memoryRecent(n = 10, type = null)          { return this.json('/console/memory/recent', { n, type }); }
-	memoryDelete(id)                           { return this.json('/console/memory/delete', { id }); }
-	memoryClear()                              { return this.json('/console/memory/clear'); }
-	memoryStats()                              { return this.json('/console/memory/stats'); }
-
 	// ── Channel API ──────────────────────────────────────────────
 
 	channelTypes()                             { return this.json('/channels/types'); }

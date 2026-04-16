@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Literal, Optional
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from assistant_memory_contract import normalize_assistant_memory_config, resolve_assistant_memory_db_path
 from assistant_network_workflow import build_assistant_network_workflow, parse_assistant_network_workflow_import
 from assistant_proactive_workflow import build_assistant_proactive_workflow
 from channels.base import ChannelConfig, ChannelStatus
@@ -151,6 +152,14 @@ class AssistantDeploymentManager:
 
     def set_skill_mgr(self, skill_mgr) -> None:
         self._skill_mgr = skill_mgr
+
+    def _runtime_memory_db_path(self, identity: Optional[str]) -> Optional[str]:
+        return resolve_assistant_memory_db_path(
+            user_memory_db=getattr(self._channel_pool, "_user_memory_db", None),
+            identity=identity,
+            fallback_config_path=getattr(self._channel_pool, "_config_path", None) or self._config_path,
+            backend_name="agno",
+        )
 
     async def shutdown(self) -> None:
         await self._stop_all_proactive_tasks()
@@ -895,7 +904,7 @@ class AssistantDeploymentManager:
                 return payload
         return None
 
-    def _load_selector_defaults(self) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    def _load_selector_defaults(self) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
         console_config: Dict[str, Any] = {}
         try:
             import credentials as _creds
@@ -905,7 +914,11 @@ class AssistantDeploymentManager:
                 console_config = _creds.load_json(config_path)
         except Exception:
             console_config = {}
-        return dict(console_config.get("model") or {}), dict(console_config.get("options") or {})
+        return (
+            dict(console_config.get("model") or {}),
+            dict(console_config.get("options") or {}),
+            normalize_assistant_memory_config(console_config.get("memory") or {}),
+        )
 
     async def _match_workflow_routing_rule(
         self,
@@ -921,7 +934,7 @@ class AssistantDeploymentManager:
         routes = [rule for rule in deployment.routing_rules if rule.enabled]
         if not routes:
             return None
-        model_cfg, options_cfg = self._load_selector_defaults()
+        model_cfg, options_cfg, memory_cfg = self._load_selector_defaults()
         route_rows: List[Dict[str, Any]] = []
         route_by_id: Dict[str, AssistantRoutingRule] = {}
         for rule in routes:
@@ -974,6 +987,8 @@ class AssistantDeploymentManager:
             local_app=getattr(self._channel_pool, "_fastapi_app", None),
             channel_registry=getattr(self._channel_pool, "_channel_reg", None),
             deployment_id=deployment.id,
+            memory_config=memory_cfg,
+            memory_db_path=self._runtime_memory_db_path(f"deployment_{deployment.id}"),
         )
         payload = self._parse_selector_payload(result.get("response"))
         if not payload:
@@ -1621,6 +1636,8 @@ class AssistantDeploymentManager:
             toolkit_args={},
             skill_names=list(deployment.skill_names or []),
             options_config=options_cfg,
+            memory_config=normalize_assistant_memory_config(console_config.get("memory") or {}),
+            memory_db_path=self._runtime_memory_db_path(f"deployment_{deployment.id}"),
             trigger_kind=str(task.trigger_kind or "timer"),
             trigger_config=trigger_config,
         )
@@ -1938,6 +1955,8 @@ class AssistantDeploymentManager:
                 local_app=getattr(self._channel_pool, "_fastapi_app", None),
                 channel_registry=getattr(self._channel_pool, "_channel_reg", None),
                 deployment_id=deployment.id,
+                memory_config=normalize_assistant_memory_config(console_config.get("memory") or {}),
+                memory_db_path=self._runtime_memory_db_path(f"deployment_{deployment.id}"),
             )
             if result.get("error"):
                 raise RuntimeError(str(result.get("error")))
