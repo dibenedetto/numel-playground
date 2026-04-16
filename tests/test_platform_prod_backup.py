@@ -61,6 +61,7 @@ class PlatformProdBackupTests(unittest.TestCase):
         self.settings.process_credentials_path.write_text('{"API_KEY":"abc"}', encoding="utf-8")
         self.settings.channel_users_path.write_text("{}", encoding="utf-8")
         self.settings.channels_config_path.write_text("{}", encoding="utf-8")
+        self.settings.assistant_deployments_path.write_text('[{"id":"deploy_prod","name":"Prod Deployment"}]', encoding="utf-8")
         self.settings.agent_tasks_path.write_text("[]", encoding="utf-8")
         self.settings.published_apps_path.write_text("[]", encoding="utf-8")
         self._calls: list[list[str]] = []
@@ -91,6 +92,7 @@ class PlatformProdBackupTests(unittest.TestCase):
         self.assertIn("database", labels)
         self.assertIn("spaces", labels)
         self.assertIn("artifacts", labels)
+        self.assertIn("assistant_deployments_file", labels)
 
         archive_path = self.root / "backup-prod.zip"
         with patch("platform_prod.backup.subprocess.run", side_effect=self._fake_run):
@@ -106,6 +108,7 @@ class PlatformProdBackupTests(unittest.TestCase):
         self.assertIn("data/postgresql.sql", names)
         self.assertIn("data/spaces/space_demo/workflow.json", names)
         self.assertIn("data/runtime/published_apps/user_1/demo/index.html", names)
+        self.assertIn("data/runtime/assistant_deployments.json", names)
 
         shutil.rmtree(self.spaces_root, ignore_errors=True)
         shutil.rmtree(self.artifacts_root, ignore_errors=True)
@@ -115,6 +118,7 @@ class PlatformProdBackupTests(unittest.TestCase):
             self.settings.process_credentials_path,
             self.settings.channel_users_path,
             self.settings.channels_config_path,
+            self.settings.assistant_deployments_path,
             self.settings.agent_tasks_path,
             self.settings.published_apps_path,
         ):
@@ -130,6 +134,10 @@ class PlatformProdBackupTests(unittest.TestCase):
         self.assertEqual((self.artifacts_root / "executions" / "exec1" / "result.txt").read_text(encoding="utf-8"), "artifact")
         self.assertEqual((self.settings.published_apps_dir / "user_1" / "demo" / "index.html").read_text(encoding="utf-8"), "<html></html>")
         self.assertEqual(self.settings.process_credentials_path.read_text(encoding="utf-8"), '{"API_KEY":"abc"}')
+        self.assertEqual(
+            self.settings.assistant_deployments_path.read_text(encoding="utf-8"),
+            '[{"id":"deploy_prod","name":"Prod Deployment"}]',
+        )
 
     def test_prod_restore_requires_overwrite(self) -> None:
         archive_path = self.root / "backup-prod.zip"

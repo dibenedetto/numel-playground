@@ -88,6 +88,7 @@ def _runtime_entries() -> list[BackupEntry]:
 		BackupEntry("credentials_file", settings.process_credentials_path.resolve(), "data/runtime/credentials.json", "file"),
 		BackupEntry("channel_users_file", settings.channel_users_path.resolve(), "data/runtime/channel_users.json", "file"),
 		BackupEntry("channels_config_file", settings.channels_config_path.resolve(), "data/runtime/channels.json", "file"),
+		BackupEntry("assistant_deployments_file", settings.assistant_deployments_path.resolve(), "data/runtime/assistant_deployments.json", "file"),
 		BackupEntry("agent_tasks_file", settings.agent_tasks_path.resolve(), "data/runtime/agent_tasks.json", "file"),
 		BackupEntry("published_apps_file", settings.published_apps_path.resolve(), "data/runtime/published_apps.json", "file"),
 	]
