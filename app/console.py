@@ -1472,14 +1472,17 @@ class ChannelAgentPool:
 		"""Build a lightweight Agent from console_agent.json defaults."""
 		import credentials as _creds
 		config = _creds.load_json(self._config_path)
+		effective_config = ConsoleAgentManager._build_effective_console_config(
+			config=config,
+		)
 
-		model_cfg = config.get("model", {})
+		model_cfg = effective_config.get("model", {})
 		source    = model_source or model_cfg.get("source", "ollama")
 		name      = model_name or model_cfg.get("name", "mistral")
 		model     = _build_model(source, name)
 
 		# Build tools — use per-user toolkit list if provided, else config defaults
-		tk_names = toolkits if toolkits is not None else config.get("toolkits", ["console_toolkit"])
+		tk_names = toolkits if toolkits is not None else effective_config.get("toolkits", ["console_toolkit"])
 		# Always include console_toolkit if workspace is available
 		if self._ws_mgr and "console_toolkit" not in tk_names:
 			tk_names = ["console_toolkit"] + list(tk_names)
@@ -1537,7 +1540,7 @@ class ChannelAgentPool:
 					tools.append(native_toolkit)
 
 		# Memory — per-user isolation via UserMemoryDB
-		mem_cfg     = config.get("memory", {})
+		mem_cfg     = effective_config.get("memory", {})
 		use_backend = mem_cfg.get("backend", True)
 		db          = None
 		if use_backend:
