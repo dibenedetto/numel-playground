@@ -6,7 +6,6 @@ import httpx
 import importlib
 import json
 import os
-import sqlite3
 import time
 import uuid
 
@@ -29,6 +28,7 @@ from   backend_factory                 import (
 	extract_chat_tool_calls,
 	get_pending_tool_approval,
 	is_chat_response_paused,
+	prepare_chat_memory_db_path,
 	run_chat_agent,
 )
 from   console_workflow               import build_console_workflow_export, parse_console_workflow_import
@@ -134,59 +134,6 @@ def _toolkit_runtime_args(
 		local_app=local_app,
 		deployment_id=deployment_id,
 	)
-
-
-def _remove_sqlite_sidecars(db_path: str) -> None:
-	"""Delete a sqlite db file plus WAL/SHM companions."""
-	for suffix in ("", "-wal", "-shm"):
-		try:
-			os.remove(db_path + suffix)
-		except OSError:
-			pass
-
-
-def _versioned_agno_db_path(db_path: str) -> str:
-	root, ext = os.path.splitext(db_path)
-	return f"{root}_v2{ext or '.db'}"
-
-
-def _prepare_agno_memory_db_path(db_path: Optional[str]) -> Optional[str]:
-	"""Remove old Agno memory databases whose approvals schema predates run_status.
-
-	Numel no longer needs backward compatibility for these local memory DBs, so
-	we prefer pruning an incompatible file over surfacing repeated startup
-	warnings from Agno's strict schema validator.
-	"""
-	if not db_path:
-		return db_path
-	if not os.path.exists(db_path):
-		return db_path
-
-	conn = None
-	try:
-		conn = sqlite3.connect(db_path)
-		cur = conn.cursor()
-		cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='agno_approvals'")
-		row = cur.fetchone()
-		if not row:
-			return db_path
-		cur.execute("PRAGMA table_info(agno_approvals)")
-		columns = {info[1] for info in cur.fetchall()}
-		if "run_status" in columns:
-			return db_path
-	finally:
-		if conn is not None:
-			conn.close()
-
-	log_print(f"Pruning stale Agno memory db with outdated approvals schema: {db_path}")
-	_remove_sqlite_sidecars(db_path)
-	if not os.path.exists(db_path):
-		return db_path
-
-	fallback_path = _versioned_agno_db_path(db_path)
-	log_print(f"Agno memory db is locked; using fresh replacement path instead: {fallback_path}")
-	return fallback_path
-
 
 # ── Planner State (per-user) ────────────────────────────────────
 
@@ -600,7 +547,10 @@ class ConsoleAgentManager:
 				memory_db_path = self._user_memory_db.get_db_path(user_id)
 			else:
 				memory_db_path = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
-			memory_db_path = _prepare_agno_memory_db_path(memory_db_path)
+			memory_db_path = prepare_chat_memory_db_path(
+				memory_db_path,
+				backend_name=DEFAULT_BACKEND_NAME,
+			)
 			session_history = mem_cfg.get("session_history", 5)
 			log_print(f"Console agent: using backend memory ({memory_db_path})")
 		else:
@@ -668,7 +618,7 @@ class ConsoleAgentManager:
 		log_print("Console agent stopped")
 
 	def clear_memory(self):
-		"""Clear all agent memory: sessions, agno memories, and in-memory history."""
+		"""Clear all agent memory: sessions, backend memories, and in-memory history."""
 		# 1. Clear backend-managed memory if the runtime exposes it
 		if self._agent:
 			clear_chat_memory(self._agent, backend_name=DEFAULT_BACKEND_NAME)
@@ -1147,7 +1097,7 @@ class ConsoleAgentManager:
 	async def chat(self, message: str, session_id: Optional[str] = None,
 				   include_context: bool = True,
 				   attachments: Optional[list] = None) -> dict:
-		"""Send a message and get a response. Uses agno's built-in session history.
+		"""Send a message and get a response. Uses backend-managed session history.
 		Returns { session_id, response, tool_calls }.
 		attachments: list of Attachment objects from ChannelMessage (described in prompt)."""
 
@@ -1234,7 +1184,7 @@ class ConsoleAgentManager:
 			except Exception:
 				pass
 
-		# Detect model/infra errors returned as assistant content by agno
+		# Detect model/infra errors returned as assistant content by the backend
 		_ERROR_PATTERNS = ("not found", "status code:", "connection refused", "timed out", "unreachable")
 		if assistant_content and not tool_calls and any(p in assistant_content.lower() for p in _ERROR_PATTERNS):
 			return {
@@ -1627,7 +1577,10 @@ class ChannelAgentPool:
 			else:
 				# Fallback: shared db (no user isolation available)
 				memory_db_path = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
-			memory_db_path = _prepare_agno_memory_db_path(memory_db_path)
+			memory_db_path = prepare_chat_memory_db_path(
+				memory_db_path,
+				backend_name=DEFAULT_BACKEND_NAME,
+			)
 			log_print(f"ChannelAgentPool: memory db → {os.path.basename(memory_db_path)}")
 
 		opts = effective_config.get("options", {})
@@ -1734,7 +1687,7 @@ class ChannelAgentPool:
 				"pending_tool_approval": pending_tool_approval,
 			}
 
-		# Detect model/infra errors returned as assistant content by agno
+		# Detect model/infra errors returned as assistant content by the backend
 		_ERROR_PATTERNS = ("not found", "status code:", "connection refused", "timed out", "unreachable")
 		if content and not tool_calls and any(p in content.lower() for p in _ERROR_PATTERNS):
 			return {"session_id": session_id, "error": content, "tool_calls": []}
@@ -2263,7 +2216,7 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 
 	@app.post("/console/memory/clear")
 	async def console_memory_clear():
-		"""Clear all agent memory: sessions, agno memories, and in-memory history."""
+		"""Clear all agent memory: sessions, backend memories, and in-memory history."""
 		console_mgr.clear_memory()
 		return {"cleared": True}
 

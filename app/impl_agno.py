@@ -2,6 +2,7 @@
 
 import copy
 import os
+import sqlite3
 import tempfile
 import uuid
 
@@ -117,6 +118,58 @@ def _build_chat_model_agno(source: str, name: str):
 
 def _build_chat_memory_db_agno(memory_db_path: str):
 	return SqliteDb(db_file=memory_db_path)
+
+
+def _remove_sqlite_sidecars_agno(db_path: str) -> None:
+	"""Delete a sqlite db file plus WAL/SHM companions."""
+	for suffix in ("", "-wal", "-shm"):
+		try:
+			os.remove(db_path + suffix)
+		except OSError:
+			pass
+
+
+def _versioned_chat_memory_db_path_agno(db_path: str) -> str:
+	root, ext = os.path.splitext(db_path)
+	return f"{root}_v2{ext or '.db'}"
+
+
+def prepare_chat_memory_db_path_agno(db_path: str | None) -> str | None:
+	"""Prepare an Agno chat memory DB path, pruning stale approval schemas if needed.
+
+	Numel no longer keeps backward compatibility for old local Agno memory DBs,
+	so we prefer pruning an incompatible file over surfacing repeated startup
+	warnings from Agno's strict schema validator.
+	"""
+	if not db_path:
+		return db_path
+	if not os.path.exists(db_path):
+		return db_path
+
+	conn = None
+	try:
+		conn = sqlite3.connect(db_path)
+		cur = conn.cursor()
+		cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='agno_approvals'")
+		row = cur.fetchone()
+		if not row:
+			return db_path
+		cur.execute("PRAGMA table_info(agno_approvals)")
+		columns = {info[1] for info in cur.fetchall()}
+		if "run_status" in columns:
+			return db_path
+	finally:
+		if conn is not None:
+			conn.close()
+
+	log_print(f"Pruning stale Agno memory db with outdated approvals schema: {db_path}")
+	_remove_sqlite_sidecars_agno(db_path)
+	if not os.path.exists(db_path):
+		return db_path
+
+	fallback_path = _versioned_chat_memory_db_path_agno(db_path)
+	log_print(f"Agno memory db is locked; using fresh replacement path instead: {fallback_path}")
+	return fallback_path
 
 
 def _build_bg_session_summary_manager_agno(model):

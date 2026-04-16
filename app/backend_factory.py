@@ -202,6 +202,18 @@ def clear_chat_memory(agent, *, backend_name: Optional[str] = None) -> None:
 	raise ValueError(f"Unsupported backend: {backend}")
 
 
+def prepare_chat_memory_db_path(
+	db_path: Optional[str],
+	*,
+	backend_name: Optional[str] = None,
+) -> Optional[str]:
+	backend = normalize_backend_name(backend_name)
+	if backend == "agno":
+		from impl_agno import prepare_chat_memory_db_path_agno
+		return prepare_chat_memory_db_path_agno(db_path)
+	raise ValueError(f"Unsupported backend: {backend}")
+
+
 def get_text_generation_sources(name: Optional[str] = None) -> list[str]:
 	backend_name = normalize_backend_name(name)
 	if backend_name == "agno":
