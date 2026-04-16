@@ -263,6 +263,8 @@ def build_assistant_network_workflow(
 				linked_workflow_name=str(deployment.get("linked_workflow_name") or "") or None,
 				toolkit_names=_clean_string_list(deployment.get("toolkit_names")),
 				skill_names=_clean_string_list(deployment.get("skill_names")),
+				handoff_selector_mode=str(deployment.get("handoff_selector_mode") or "hybrid") or "hybrid",
+				handoff_selector_prompt=str(deployment.get("handoff_selector_prompt") or "") or None,
 				proactive_delivery_mode=str(((deployment.get("safety") or {}).get("proactive_delivery_mode") or "")) or None,
 				tool_execution_mode=str(((deployment.get("safety") or {}).get("tool_execution_mode") or "")) or None,
 				pending_approval_count=int(runtime.get("pending_approval_count") or 0),
@@ -545,6 +547,8 @@ def parse_assistant_network_workflow_import(workflow: Dict[str, Any]) -> Dict[st
 				"linked_workflow_name": _optional_text(raw.get("linked_workflow_name")),
 				"toolkit_names": _string_list(raw.get("toolkit_names")),
 				"skill_names": _string_list(raw.get("skill_names")),
+				"handoff_selector_mode": _optional_text(raw.get("handoff_selector_mode")) or "hybrid",
+				"handoff_selector_prompt": _optional_text(raw.get("handoff_selector_prompt")),
 				"safety": {
 					"proactive_delivery_mode": _optional_text(raw.get("proactive_delivery_mode")) or "auto",
 					"tool_execution_mode": _optional_text(raw.get("tool_execution_mode")) or "auto",

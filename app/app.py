@@ -1127,30 +1127,42 @@ async def run_server(
 			primary_deployment = None
 			deployment = None
 			handoff = None
+			external_session_id = str(msg.metadata.get("session_id") or "").strip() or None
 			if assistant_deployment_mgr:
-				primary_deployment, deployment, handoff = assistant_deployment_mgr.resolve_for_message(
+				primary_deployment, deployment, handoff = await assistant_deployment_mgr.resolve_for_message(
 					msg.channel_id,
 					msg.content,
+					sender_id=msg.sender_id,
+					session_id=external_session_id,
 				)
-			session_id = msg.metadata.get("session_id")
-			if not session_id:
-				if deployment is not None:
-					session_id = f"deploy_{deployment.id}_{msg.channel_type}_{msg.sender_id}"
-				else:
-					session_id = f"ch_{msg.channel_type}_{msg.sender_id}"
+			base_session_id = external_session_id or f"channel_{msg.channel_id}_{msg.sender_id}"
+			if deployment is not None:
+				session_id = f"deploy_{deployment.id}_{base_session_id}"
+			else:
+				session_id = f"ch_{base_session_id}"
 			# Resolve per-user identity and toolkits
 			numel_user_id = channel_cmd.get_linked_user_id(msg.channel_type, msg.sender_id)
 			toolkits = channel_cmd.get_enabled_toolkits(msg.channel_type, msg.sender_id)
 			deployment_toolkits = list(deployment.toolkit_names) if deployment and deployment.toolkit_names else None
 			deployment_skills = list(deployment.skill_names) if deployment and deployment.skill_names else None
+			handoff_source_id = str((handoff or {}).get("source_deployment_id") or "").strip() or None
+			is_new_handoff = bool(
+				handoff
+				and str((handoff or {}).get("event") or "") == "handoff"
+				and deployment is not None
+				and handoff_source_id
+				and handoff_source_id != deployment.id
+			)
 			extra_instructions = []
 			if deployment and deployment.instructions.strip():
 				extra_instructions.append(
 					f"[Assistant Deployment]\nDeployment: {deployment.name}\nProfile: {deployment.profile}\n{deployment.instructions.strip()}"
 				)
-			if handoff and primary_deployment and deployment and primary_deployment.id != deployment.id:
+			if handoff and deployment and handoff_source_id and handoff_source_id != deployment.id:
+				source_name = str((handoff or {}).get("source_name") or (primary_deployment.name if primary_deployment else handoff_source_id))
+				handoff_title = "Conversation handoff" if is_new_handoff else "Active conversation owner"
 				extra_instructions.append(
-					f"[Assistant Handoff]\nSource deployment: {primary_deployment.name}\nTarget deployment: {deployment.name}\nReason: {handoff.get('reason', 'routing rule matched')}"
+					f"[Assistant Handoff]\n{handoff_title}: {source_name} -> {deployment.name}\nReason: {handoff.get('reason', 'handoff active')}"
 				)
 			if not extra_instructions:
 				extra_instructions = None
@@ -1180,7 +1192,7 @@ async def run_server(
 						sender_id=msg.sender_id,
 						approval=dict(result.get("pending_tool_approval") or {}),
 						preview=str(result.get("response", "") or ""),
-						routed_from=primary_deployment.id if primary_deployment and deployment and primary_deployment.id != deployment.id else None,
+						routed_from=handoff_source_id if is_new_handoff else None,
 						handoff=handoff,
 					)
 				return result.get("response", "") or "Approval requested before running a tool."
@@ -1192,7 +1204,7 @@ async def run_server(
 						sender_id=msg.sender_id,
 						status="error",
 						preview=str(result.get("error", "")),
-						routed_from=primary_deployment.id if primary_deployment and deployment and primary_deployment.id != deployment.id else None,
+						routed_from=handoff_source_id if is_new_handoff else None,
 						handoff=handoff,
 					)
 				return f"⚠ {result['error']}"
@@ -1203,7 +1215,7 @@ async def run_server(
 					sender_id=msg.sender_id,
 					status="ok",
 					preview=str(result.get("response", "") or ""),
-					routed_from=primary_deployment.id if primary_deployment and deployment and primary_deployment.id != deployment.id else None,
+					routed_from=handoff_source_id if is_new_handoff else None,
 					handoff=handoff,
 				)
 			return result.get("response", "") or "(no response from agent)"

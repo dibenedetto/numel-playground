@@ -10,6 +10,7 @@ import unittest
 import uuid
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import httpx
 
@@ -960,6 +961,8 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
             json={
                 "name": "Support Front Door",
                 "profile": "triage",
+                "handoff_selector_mode": "workflow",
+                "handoff_selector_prompt": "Prefer billing for invoice, refund, and charge dispute requests.",
                 "channel_ids": [channel_id],
                 "routing_rules": [
                     {
@@ -1009,6 +1012,16 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("channel_receive_flow", node_types)
         self.assertIn("event_listener_flow", node_types)
         self.assertNotIn("assistant_approval_runtime_config", node_types)
+        deployment_node = next(
+            node
+            for node in workflow["nodes"]
+            if node["type"] == "assistant_deployment_runtime_config" and node["deployment_id"] == frontdoor_resp.json()["id"]
+        )
+        self.assertEqual(deployment_node["handoff_selector_mode"], "workflow")
+        self.assertEqual(
+            deployment_node["handoff_selector_prompt"],
+            "Prefer billing for invoice, refund, and charge dispute requests.",
+        )
         proactive_node = next(node for node in workflow["nodes"] if node["type"] == "assistant_proactive_runtime_config")
         self.assertEqual(proactive_node["trigger_kind"], "channel")
         self.assertEqual(proactive_node["trigger"], {"channel_id": channel_id, "sender_filter": "^ops_"})
@@ -1076,6 +1089,8 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         workflow["nodes"][frontdoor_index]["linked_workflow_name"] = "Support Front Door"
         workflow["nodes"][frontdoor_index]["toolkit_names"] = ["file_toolkit"]
         workflow["nodes"][frontdoor_index]["skill_names"] = ["faq"]
+        workflow["nodes"][frontdoor_index]["handoff_selector_mode"] = "workflow"
+        workflow["nodes"][frontdoor_index]["handoff_selector_prompt"] = "Route charge disputes and refund requests to billing."
         workflow["nodes"][frontdoor_index]["proactive_delivery_mode"] = "approval"
         workflow["nodes"][frontdoor_index]["tool_execution_mode"] = "approval"
 
@@ -1238,6 +1253,8 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(frontdoor["linked_workflow_name"], "Support Front Door")
         self.assertEqual(frontdoor["toolkit_names"], ["file_toolkit"])
         self.assertEqual(frontdoor["skill_names"], ["faq"])
+        self.assertEqual(frontdoor["handoff_selector_mode"], "workflow")
+        self.assertEqual(frontdoor["handoff_selector_prompt"], "Route charge disputes and refund requests to billing.")
         self.assertEqual(frontdoor["safety"]["proactive_delivery_mode"], "approval")
         self.assertEqual(frontdoor["safety"]["tool_execution_mode"], "approval")
         self.assertEqual(len(frontdoor["routing_rules"]), 1)
@@ -2178,34 +2195,50 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(front_started.status_code, 200, front_started.text)
 
-        captured: dict[str, object] = {}
+        captured_calls: list[dict[str, object]] = []
 
         async def _fake_chat(message, session_id, **kwargs):
-            captured["message"] = message
-            captured["session_id"] = session_id
-            captured.update(kwargs)
+            captured_calls.append(
+                {
+                    "message": message,
+                    "session_id": session_id,
+                    **kwargs,
+                }
+            )
             return {"response": "handled by specialist", "tool_calls": []}
 
         channel_pool = self._app.state.console_mgr._channel_pool
         original_chat = channel_pool.chat
         channel_pool.chat = _fake_chat
         try:
-            response = await self._client.post(
+            first_response = await self._client.post(
                 f"/channels/webhook/{channel_id}",
                 json={"text": "Can you help with an invoice discrepancy?", "sender_id": "customer_1", "sender_name": "Customer"},
+            )
+            second_response = await self._client.post(
+                f"/channels/webhook/{channel_id}",
+                json={"text": "Thanks. What documents do you need from me?", "sender_id": "customer_1", "sender_name": "Customer"},
             )
         finally:
             channel_pool.chat = original_chat
 
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(captured["assistant_name"], "Billing Specialist")
-        self.assertEqual(captured["model_source"], "openai")
-        self.assertEqual(captured["model_name"], "gpt-4o-mini")
-        self.assertEqual(captured["toolkits"], ["file_toolkit"])
-        self.assertTrue(str(captured["session_id"]).startswith(f"deploy_{specialist_id}"))
-        extra_instructions = captured.get("extra_instructions") or []
+        self.assertEqual(first_response.status_code, 200, first_response.text)
+        self.assertEqual(second_response.status_code, 200, second_response.text)
+        self.assertEqual(len(captured_calls), 2)
+        first_call = captured_calls[0]
+        second_call = captured_calls[1]
+        self.assertEqual(first_call["assistant_name"], "Billing Specialist")
+        self.assertEqual(first_call["model_source"], "openai")
+        self.assertEqual(first_call["model_name"], "gpt-4o-mini")
+        self.assertEqual(first_call["toolkits"], ["file_toolkit"])
+        self.assertTrue(str(first_call["session_id"]).startswith(f"deploy_{specialist_id}"))
+        self.assertEqual(second_call["assistant_name"], "Billing Specialist")
+        self.assertEqual(second_call["session_id"], first_call["session_id"])
+        extra_instructions = first_call.get("extra_instructions") or []
         self.assertTrue(any("[Assistant Handoff]" in str(item) for item in extra_instructions))
         self.assertTrue(any("invoice" in str(item).lower() for item in extra_instructions))
+        active_handoff_instructions = second_call.get("extra_instructions") or []
+        self.assertTrue(any("[Assistant Handoff]" in str(item) for item in active_handoff_instructions))
 
         front_door_get = await self._client.post(
             "/assistant-deployments/get",
@@ -2217,6 +2250,7 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(front_data["runtime"]["message_count"], 1)
         self.assertEqual(front_data["runtime"]["last_handoff_target"], specialist_id)
         self.assertEqual(len(front_data["recent_handoffs"]), 1)
+        self.assertEqual(front_data["recent_handoffs"][0]["selector_mode"], "keyword")
         self.assertTrue(any(row["kind"] == "handoff" for row in front_data["recent_activity"]))
 
         specialist_get = await self._client.post(
@@ -2226,10 +2260,244 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(specialist_get.status_code, 200, specialist_get.text)
         specialist_data = specialist_get.json()
-        self.assertEqual(specialist_data["runtime"]["message_count"], 1)
+        self.assertEqual(specialist_data["runtime"]["message_count"], 2)
         self.assertEqual(specialist_data["runtime"]["last_handoff_from"], front_door_id)
         self.assertEqual(len(specialist_data["recent_handoffs"]), 1)
         self.assertTrue(any(row["kind"] == "routed_message" for row in specialist_data["recent_activity"]))
+
+    async def test_assistant_deployment_hybrid_selector_routes_without_keyword_match(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "hybridroute", "email": "hybridroute@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        channel = await self._client.post(
+            "/channels/add",
+            json={"name": "Hybrid Routing Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel.status_code, 200, channel.text)
+        channel_id = channel.json()["id"]
+
+        specialist = await self._client.post(
+            "/assistant-deployments/create",
+            json={
+                "name": "Billing Specialist",
+                "profile": "billing",
+                "description": "Handles invoices, refunds, and charge disputes.",
+            },
+            headers=headers,
+        )
+        self.assertEqual(specialist.status_code, 200, specialist.text)
+        specialist_id = specialist.json()["id"]
+
+        route_id = "route_semantic_billing"
+        front_door = await self._client.post(
+            "/assistant-deployments/create",
+            json={
+                "name": "Support Front Door",
+                "profile": "triage",
+                "description": "Routes support traffic to specialists.",
+                "channel_ids": [channel_id],
+                "routing_rules": [
+                    {
+                        "id": route_id,
+                        "name": "billing",
+                        "target_deployment_id": specialist_id,
+                        "keywords": ["invoice", "billing"],
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        self.assertEqual(front_door.status_code, 200, front_door.text)
+        front_door_id = front_door.json()["id"]
+        self.assertEqual(front_door.json()["handoff_selector_mode"], "hybrid")
+
+        specialist_started = await self._client.post(
+            "/assistant-deployments/start",
+            json={"id": specialist_id},
+            headers=headers,
+        )
+        self.assertEqual(specialist_started.status_code, 200, specialist_started.text)
+        front_started = await self._client.post(
+            "/assistant-deployments/start",
+            json={"id": front_door_id},
+            headers=headers,
+        )
+        self.assertEqual(front_started.status_code, 200, front_started.text)
+
+        captured_calls: list[dict[str, object]] = []
+
+        async def _fake_chat(message, session_id, **kwargs):
+            captured_calls.append(
+                {
+                    "message": message,
+                    "session_id": session_id,
+                    **kwargs,
+                }
+            )
+            return {"response": "handled by semantic billing specialist", "tool_calls": []}
+
+        async def _fake_selector_turn(*args, **kwargs):
+            return {
+                "response": json.dumps(
+                    {
+                        "route_id": route_id,
+                        "reason": "Charge disputes should be handled by billing even without explicit invoice keywords.",
+                        "matched_keywords": ["charge dispute"],
+                    }
+                )
+            }
+
+        channel_pool = self._app.state.console_mgr._channel_pool
+        original_chat = channel_pool.chat
+        channel_pool.chat = _fake_chat
+        try:
+            with patch("assistant_deployments.run_workflow_backed_agent_turn", _fake_selector_turn):
+                first_response = await self._client.post(
+                    f"/channels/webhook/{channel_id}",
+                    json={"text": "There is a charge dispute on my account.", "sender_id": "customer_3", "sender_name": "Customer"},
+                )
+                second_response = await self._client.post(
+                    f"/channels/webhook/{channel_id}",
+                    json={"text": "What details do you need from me?", "sender_id": "customer_3", "sender_name": "Customer"},
+                )
+        finally:
+            channel_pool.chat = original_chat
+
+        self.assertEqual(first_response.status_code, 200, first_response.text)
+        self.assertEqual(second_response.status_code, 200, second_response.text)
+        self.assertEqual(len(captured_calls), 2)
+        self.assertEqual(captured_calls[0]["assistant_name"], "Billing Specialist")
+        self.assertEqual(captured_calls[1]["assistant_name"], "Billing Specialist")
+        self.assertEqual(captured_calls[1]["session_id"], captured_calls[0]["session_id"])
+
+        front_door_get = await self._client.post(
+            "/assistant-deployments/get",
+            json={"id": front_door_id},
+            headers=headers,
+        )
+        self.assertEqual(front_door_get.status_code, 200, front_door_get.text)
+        front_data = front_door_get.json()
+        self.assertEqual(front_data["handoff_selector_mode"], "hybrid")
+        self.assertEqual(len(front_data["recent_handoffs"]), 1)
+        self.assertEqual(front_data["recent_handoffs"][0]["selector_mode"], "workflow")
+        self.assertEqual(front_data["recent_handoffs"][0]["target_deployment_id"], specialist_id)
+
+    async def test_assistant_deployment_handoff_can_return_to_front_door(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "handoffreturn", "email": "handoffreturn@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        channel = await self._client.post(
+            "/channels/add",
+            json={"name": "Return Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel.status_code, 200, channel.text)
+        channel_id = channel.json()["id"]
+
+        specialist = await self._client.post(
+            "/assistant-deployments/create",
+            json={
+                "name": "Billing Specialist",
+                "profile": "billing",
+                "description": "Handles invoices and billing issues.",
+            },
+            headers=headers,
+        )
+        self.assertEqual(specialist.status_code, 200, specialist.text)
+        specialist_id = specialist.json()["id"]
+
+        front_door = await self._client.post(
+            "/assistant-deployments/create",
+            json={
+                "name": "Support Front Door",
+                "profile": "triage",
+                "channel_ids": [channel_id],
+                "routing_rules": [
+                    {
+                        "name": "billing",
+                        "target_deployment_id": specialist_id,
+                        "keywords": ["invoice", "billing"],
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        self.assertEqual(front_door.status_code, 200, front_door.text)
+        front_door_id = front_door.json()["id"]
+
+        specialist_update = await self._client.post(
+            "/assistant-deployments/update",
+            json={
+                "id": specialist_id,
+                "routing_rules": [
+                    {
+                        "name": "return",
+                        "target_deployment_id": front_door_id,
+                        "keywords": ["general"],
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        self.assertEqual(specialist_update.status_code, 200, specialist_update.text)
+
+        specialist_started = await self._client.post(
+            "/assistant-deployments/start",
+            json={"id": specialist_id},
+            headers=headers,
+        )
+        self.assertEqual(specialist_started.status_code, 200, specialist_started.text)
+        front_started = await self._client.post(
+            "/assistant-deployments/start",
+            json={"id": front_door_id},
+            headers=headers,
+        )
+        self.assertEqual(front_started.status_code, 200, front_started.text)
+
+        captured_calls: list[dict[str, object]] = []
+
+        async def _fake_chat(message, session_id, **kwargs):
+            captured_calls.append(
+                {
+                    "message": message,
+                    "session_id": session_id,
+                    **kwargs,
+                }
+            )
+            return {"response": "ok", "tool_calls": []}
+
+        channel_pool = self._app.state.console_mgr._channel_pool
+        original_chat = channel_pool.chat
+        channel_pool.chat = _fake_chat
+        try:
+            first_response = await self._client.post(
+                f"/channels/webhook/{channel_id}",
+                json={"text": "I need help with an invoice", "sender_id": "customer_2", "sender_name": "Customer"},
+            )
+            second_response = await self._client.post(
+                f"/channels/webhook/{channel_id}",
+                json={"text": "Actually this is a general support question.", "sender_id": "customer_2", "sender_name": "Customer"},
+            )
+        finally:
+            channel_pool.chat = original_chat
+
+        self.assertEqual(first_response.status_code, 200, first_response.text)
+        self.assertEqual(second_response.status_code, 200, second_response.text)
+        self.assertEqual(len(captured_calls), 2)
+        self.assertEqual(captured_calls[0]["assistant_name"], "Billing Specialist")
+        self.assertTrue(str(captured_calls[0]["session_id"]).startswith(f"deploy_{specialist_id}"))
+        self.assertEqual(captured_calls[1]["assistant_name"], "Support Front Door")
+        self.assertTrue(str(captured_calls[1]["session_id"]).startswith(f"deploy_{front_door_id}"))
+        self.assertNotEqual(captured_calls[0]["session_id"], captured_calls[1]["session_id"])
 
     async def test_published_app_model_options_are_available(self) -> None:
         source_response = await self._client.post("/options/published_app_model_sources", json={})

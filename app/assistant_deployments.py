@@ -41,6 +41,7 @@ def _proactive_source_id(deployment_id: str, task_id: str) -> str:
 
 
 _PROACTIVE_TRIGGER_KINDS = {"timer", "fswatch", "webhook", "channel", "browser"}
+_HANDOFF_SELECTOR_MODES = {"keyword", "hybrid", "workflow"}
 
 
 class AssistantRoutingRule(BaseModel):
@@ -83,6 +84,8 @@ class AssistantDeploymentConfig(BaseModel):
     toolkit_names: List[str] = Field(default_factory=list)
     skill_names: List[str] = Field(default_factory=list)
     channel_ids: List[str] = Field(default_factory=list)
+    handoff_selector_mode: Literal["keyword", "hybrid", "workflow"] = "hybrid"
+    handoff_selector_prompt: str = ""
     routing_rules: List[AssistantRoutingRule] = Field(default_factory=list)
     proactive_tasks: List[AssistantProactiveTask] = Field(default_factory=list)
     safety: AssistantSafetyConfig = Field(default_factory=AssistantSafetyConfig)
@@ -110,6 +113,7 @@ class AssistantDeploymentManager:
         self._pending_tool_approvals: Dict[str, Dict[str, Any]] = {}
         self._approval_history: List[Dict[str, Any]] = []
         self._tool_approval_history: List[Dict[str, Any]] = []
+        self._conversation_handoffs: Dict[str, Dict[str, Any]] = {}
         self._proactive_runtime: Dict[str, Dict[str, Any]] = {}
         self._proactive_loops: Dict[str, asyncio.Task] = {}
         self._proactive_event_bus = None
@@ -173,19 +177,96 @@ class AssistantDeploymentManager:
                 return deployment
         return None
 
-    def resolve_for_message(self, channel_id: str, content: str) -> tuple[Optional[AssistantDeploymentConfig], Optional[AssistantDeploymentConfig], Optional[dict]]:
+    @staticmethod
+    def _conversation_key(channel_id: str, sender_id: Optional[str], session_id: Optional[str] = None) -> str:
+        sid = str(session_id or "").strip()
+        if sid:
+            return f"session:{channel_id}:{sid}"
+        return f"channel:{channel_id}:{str(sender_id or '').strip()}"
+
+    def _clear_conversation_handoffs_for_deployment(self, deployment_id: str) -> None:
+        self._conversation_handoffs = {
+            key: row
+            for key, row in self._conversation_handoffs.items()
+            if row.get("active_deployment_id") != deployment_id
+            and row.get("primary_deployment_id") != deployment_id
+            and row.get("source_deployment_id") != deployment_id
+        }
+
+    async def resolve_for_message(
+        self,
+        channel_id: str,
+        content: str,
+        *,
+        sender_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> tuple[Optional[AssistantDeploymentConfig], Optional[AssistantDeploymentConfig], Optional[dict]]:
         primary = self.find_for_channel(channel_id)
         if primary is None:
             return None, None, None
-        handoff = self._match_routing_rule(primary, content)
-        if handoff is None:
-            return primary, primary, None
-        target = self._deployments.get(handoff["target_deployment_id"])
-        if target is None or not target.enabled:
-            return primary, primary, None
-        handoff["target_name"] = target.name
-        handoff["source_name"] = primary.name
-        return primary, target, handoff
+        conversation_key = self._conversation_key(channel_id, sender_id, session_id)
+        state = self._conversation_handoffs.get(conversation_key)
+        current_owner = primary
+        if state is not None:
+            active_owner = self._deployments.get(str(state.get("active_deployment_id") or ""))
+            if active_owner is None or not active_owner.enabled:
+                self._conversation_handoffs.pop(conversation_key, None)
+                state = None
+            else:
+                current_owner = active_owner
+
+        handoff = await self._match_routing_rule(
+            current_owner,
+            content,
+            primary=primary,
+            sender_id=sender_id,
+            session_id=session_id,
+        )
+        if handoff is not None:
+            target = self._deployments.get(handoff["target_deployment_id"])
+            if target is not None and target.enabled:
+                handoff["target_name"] = target.name
+                handoff["source_name"] = current_owner.name
+                handoff["source_deployment_id"] = current_owner.id
+                handoff["primary_deployment_id"] = primary.id
+                handoff["conversation_key"] = conversation_key
+                if target.id != current_owner.id:
+                    handoff["event"] = "handoff"
+                    if target.id == primary.id:
+                        self._conversation_handoffs.pop(conversation_key, None)
+                    else:
+                        self._conversation_handoffs[conversation_key] = {
+                            "primary_deployment_id": primary.id,
+                            "active_deployment_id": target.id,
+                            "source_deployment_id": current_owner.id,
+                            "target_deployment_id": target.id,
+                            "source_name": current_owner.name,
+                            "target_name": target.name,
+                            "reason": handoff.get("reason"),
+                            "matched_keywords": list(handoff.get("matched_keywords") or []),
+                            "selector_mode": handoff.get("selector_mode"),
+                            "updated_at": _now_iso(),
+                        }
+                else:
+                    handoff["event"] = "matched_current_owner"
+                return primary, target, handoff
+
+        if state is not None and current_owner.id != primary.id:
+            source_id = str(state.get("source_deployment_id") or primary.id)
+            source = self._deployments.get(source_id)
+            return primary, current_owner, {
+                "event": "active_handoff",
+                "source_deployment_id": source_id,
+                "source_name": source.name if source is not None else primary.name,
+                "target_deployment_id": current_owner.id,
+                "target_name": current_owner.name,
+                "primary_deployment_id": primary.id,
+                "conversation_key": conversation_key,
+                "matched_keywords": list(state.get("matched_keywords") or []),
+                "selector_mode": str(state.get("selector_mode") or current_owner.handoff_selector_mode or "hybrid"),
+                "reason": str(state.get("reason") or "Conversation remains assigned to this specialist."),
+            }
+        return primary, primary, None
 
     def find_channel_conflicts(
         self,
@@ -222,6 +303,8 @@ class AssistantDeploymentManager:
         config.channel_ids = self._normalize_channel_ids(config.channel_ids)
         config.toolkit_names = self._normalize_name_list(config.toolkit_names)
         config.skill_names = self._normalize_name_list(config.skill_names)
+        config.handoff_selector_mode = self._normalize_handoff_selector_mode(config.handoff_selector_mode)
+        config.handoff_selector_prompt = str(config.handoff_selector_prompt or "").strip()
         config.routing_rules = self._normalize_routing_rules(config.routing_rules)
         config.proactive_tasks = self._normalize_proactive_tasks(config.proactive_tasks)
         config.safety = self._normalize_safety(config.safety)
@@ -249,6 +332,10 @@ class AssistantDeploymentManager:
             payload["toolkit_names"] = self._normalize_name_list(payload.get("toolkit_names"))
         if "skill_names" in payload:
             payload["skill_names"] = self._normalize_name_list(payload.get("skill_names"))
+        if "handoff_selector_mode" in payload:
+            payload["handoff_selector_mode"] = self._normalize_handoff_selector_mode(payload.get("handoff_selector_mode"))
+        if "handoff_selector_prompt" in payload:
+            payload["handoff_selector_prompt"] = str(payload.get("handoff_selector_prompt") or "").strip()
         if "routing_rules" in payload:
             payload["routing_rules"] = self._normalize_routing_rules(payload.get("routing_rules"))
         if "proactive_tasks" in payload:
@@ -279,6 +366,7 @@ class AssistantDeploymentManager:
         if deployment is None:
             return False
         await self._stop_proactive_tasks(deployment_id)
+        self._clear_conversation_handoffs_for_deployment(deployment_id)
         self._runtime_stats.pop(deployment_id, None)
         self._handoff_history = [
             row for row in self._handoff_history
@@ -335,6 +423,7 @@ class AssistantDeploymentManager:
             return None
         deployment.enabled = False
         self._touch(deployment)
+        self._clear_conversation_handoffs_for_deployment(deployment_id)
         await self._stop_proactive_tasks(deployment_id)
         self._save()
         return self._serialize(deployment)
@@ -473,6 +562,7 @@ class AssistantDeploymentManager:
             "preview": preview[:240],
             "source_deployment_id": routed_from,
             "reason": (handoff or {}).get("reason"),
+            "selector_mode": (handoff or {}).get("selector_mode"),
         }
         self._pending_tool_approvals[row["id"]] = row
         stats["pending_tool_approval_count"] = len([
@@ -507,6 +597,7 @@ class AssistantDeploymentManager:
                     "sender_id": sender_id,
                     "reason": (handoff or {}).get("reason"),
                     "matched_keywords": list((handoff or {}).get("matched_keywords") or []),
+                    "selector_mode": (handoff or {}).get("selector_mode"),
                 }
             )
             self._handoff_history = self._handoff_history[-50:]
@@ -652,6 +743,13 @@ class AssistantDeploymentManager:
         return text or None
 
     @staticmethod
+    def _normalize_handoff_selector_mode(value: Any) -> str:
+        mode = str(value or "hybrid").strip().lower() or "hybrid"
+        if mode not in _HANDOFF_SELECTOR_MODES:
+            mode = "hybrid"
+        return mode
+
+    @staticmethod
     def _normalize_routing_rules(rules: Optional[List[Any]]) -> List[AssistantRoutingRule]:
         normalized: List[AssistantRoutingRule] = []
         seen_ids = set()
@@ -662,7 +760,7 @@ class AssistantDeploymentManager:
             rule.name = str(rule.name or "").strip()
             rule.target_deployment_id = str(rule.target_deployment_id or "").strip()
             rule.keywords = AssistantDeploymentManager._normalize_name_list(rule.keywords)
-            if not rule.target_deployment_id or not rule.keywords:
+            if not rule.target_deployment_id:
                 continue
             if rule.id in seen_ids:
                 rule.id = f"route_{uuid.uuid4().hex[:8]}"
@@ -760,7 +858,8 @@ class AssistantDeploymentManager:
         safety.tool_execution_mode = tool_mode
         return safety
 
-    def _match_routing_rule(self, deployment: AssistantDeploymentConfig, content: str) -> Optional[dict]:
+    @staticmethod
+    def _match_keyword_routing_rule(deployment: AssistantDeploymentConfig, content: str) -> Optional[dict]:
         text = str(content or "").lower()
         for rule in deployment.routing_rules:
             if not rule.enabled:
@@ -772,9 +871,159 @@ class AssistantDeploymentManager:
                     "rule_name": rule.name or rule.target_deployment_id,
                     "target_deployment_id": rule.target_deployment_id,
                     "matched_keywords": matched,
+                    "selector_mode": "keyword",
                     "reason": f"matched keyword(s): {', '.join(matched)}",
                 }
         return None
+
+    @staticmethod
+    def _parse_selector_payload(text: Any) -> Optional[Dict[str, Any]]:
+        raw = str(text or "").strip()
+        if not raw:
+            return None
+        candidates = [raw]
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start >= 0 and end > start:
+            candidates.append(raw[start:end + 1])
+        for candidate in candidates:
+            try:
+                payload = json.loads(candidate)
+            except Exception:
+                continue
+            if isinstance(payload, dict):
+                return payload
+        return None
+
+    def _load_selector_defaults(self) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        console_config: Dict[str, Any] = {}
+        try:
+            import credentials as _creds
+
+            config_path = getattr(self._channel_pool, "_config_path", None)
+            if config_path:
+                console_config = _creds.load_json(config_path)
+        except Exception:
+            console_config = {}
+        return dict(console_config.get("model") or {}), dict(console_config.get("options") or {})
+
+    async def _match_workflow_routing_rule(
+        self,
+        deployment: AssistantDeploymentConfig,
+        content: str,
+        *,
+        primary: AssistantDeploymentConfig,
+        sender_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> Optional[dict]:
+        if self._channel_pool is None:
+            return None
+        routes = [rule for rule in deployment.routing_rules if rule.enabled]
+        if not routes:
+            return None
+        model_cfg, options_cfg = self._load_selector_defaults()
+        route_rows: List[Dict[str, Any]] = []
+        route_by_id: Dict[str, AssistantRoutingRule] = {}
+        for rule in routes:
+            route_by_id[rule.id] = rule
+            target = self._deployments.get(rule.target_deployment_id)
+            route_rows.append(
+                {
+                    "route_id": rule.id,
+                    "route_name": rule.name or rule.target_deployment_id,
+                    "target_deployment_id": rule.target_deployment_id,
+                    "target_name": target.name if target is not None else None,
+                    "keywords": list(rule.keywords or []),
+                }
+            )
+        selector_request = {
+            "message": str(content or ""),
+            "sender_id": str(sender_id or "") or None,
+            "session_id": str(session_id or "") or None,
+            "primary_deployment": {"id": primary.id, "name": primary.name},
+            "current_owner": {"id": deployment.id, "name": deployment.name, "profile": deployment.profile},
+            "available_routes": route_rows,
+        }
+        extra_instructions = [
+            "[Deployment Handoff Selector]",
+            "Choose at most one route for this incoming message.",
+            "Return ONLY compact JSON.",
+            'Use {"route_id":"stay","reason":"...","matched_keywords":[]} when the current owner should keep the conversation.',
+            'Use {"route_id":"<route_id>","reason":"...","matched_keywords":["..."]} when one route should receive the conversation.',
+            "matched_keywords may be empty when the handoff is semantic rather than literal keyword matching.",
+        ]
+        if deployment.handoff_selector_prompt.strip():
+            extra_instructions.append(f"Selector guidance: {deployment.handoff_selector_prompt.strip()}")
+        result = await run_workflow_backed_agent_turn(
+            workflow_name=f"Handoff Selector: {deployment.name}",
+            request=json.dumps(selector_request, ensure_ascii=False),
+            model_source=deployment.model_source or model_cfg.get("source", "ollama"),
+            model_name=deployment.model_name or model_cfg.get("name", "mistral"),
+            toolkit_names=[],
+            toolkit_args={},
+            skill_names=[],
+            options_config=options_cfg,
+            extra_instructions=extra_instructions,
+            sender_name=deployment.name,
+            assistant_name=f"{deployment.name} Selector",
+            assistant_description=f"Workflow-backed handoff selector for deployment {deployment.name}",
+            base_url=str(getattr(self._channel_pool, "_base_url", "http://localhost:11360")),
+            internal_token=str(getattr(self._channel_pool, "_internal_token", "") or ""),
+            user_id=deployment.created_by or f"deployment:{deployment.id}",
+            auth_token="",
+            local_app=getattr(self._channel_pool, "_fastapi_app", None),
+            channel_registry=getattr(self._channel_pool, "_channel_reg", None),
+            deployment_id=deployment.id,
+        )
+        payload = self._parse_selector_payload(result.get("response"))
+        if not payload:
+            return None
+        decision = str(payload.get("decision") or "").strip().lower()
+        route_id = str(payload.get("route_id") or "").strip()
+        target_deployment_id = str(payload.get("target_deployment_id") or "").strip()
+        if decision == "stay" or route_id.lower() == "stay" or target_deployment_id.lower() == "stay":
+            return None
+        selected_rule = route_by_id.get(route_id)
+        if selected_rule is None and target_deployment_id:
+            matches = [rule for rule in routes if rule.target_deployment_id == target_deployment_id]
+            if len(matches) == 1:
+                selected_rule = matches[0]
+        if selected_rule is None:
+            return None
+        matched_keywords = self._normalize_name_list(payload.get("matched_keywords"))
+        reason = str(payload.get("reason") or payload.get("rationale") or "").strip()
+        if not reason:
+            reason = f"selector chose route '{selected_rule.name or selected_rule.target_deployment_id}'"
+        return {
+            "rule_id": selected_rule.id,
+            "rule_name": selected_rule.name or selected_rule.target_deployment_id,
+            "target_deployment_id": selected_rule.target_deployment_id,
+            "matched_keywords": matched_keywords,
+            "selector_mode": "workflow",
+            "reason": reason,
+        }
+
+    async def _match_routing_rule(
+        self,
+        deployment: AssistantDeploymentConfig,
+        content: str,
+        *,
+        primary: AssistantDeploymentConfig,
+        sender_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> Optional[dict]:
+        mode = self._normalize_handoff_selector_mode(deployment.handoff_selector_mode)
+        if mode in {"keyword", "hybrid"}:
+            matched = self._match_keyword_routing_rule(deployment, content)
+            if matched is not None or mode == "keyword":
+                return matched
+        return await self._match_workflow_routing_rule(
+            deployment,
+            content,
+            primary=primary,
+            sender_id=sender_id,
+            session_id=session_id,
+        )
 
     def _empty_runtime_stats(self) -> Dict[str, Any]:
         return {
@@ -877,6 +1126,7 @@ class AssistantDeploymentManager:
             "preview": preview[:240],
             "source_deployment_id": routed_from,
             "reason": (handoff or {}).get("reason"),
+            "selector_mode": (handoff or {}).get("selector_mode"),
         }
         self._message_history.append(message_event)
         self._message_history = self._message_history[-200:]
@@ -904,6 +1154,7 @@ class AssistantDeploymentManager:
                     "sender_id": sender_id,
                     "reason": (handoff or {}).get("reason"),
                     "matched_keywords": list((handoff or {}).get("matched_keywords") or []),
+                    "selector_mode": (handoff or {}).get("selector_mode"),
                 }
             )
             self._handoff_history = self._handoff_history[-50:]
@@ -919,6 +1170,7 @@ class AssistantDeploymentManager:
                     "preview": preview[:240],
                     "target_deployment_id": deployment_id,
                     "reason": (handoff or {}).get("reason"),
+                    "selector_mode": (handoff or {}).get("selector_mode"),
                 }
             )
             self._message_history = self._message_history[-200:]
@@ -1900,6 +2152,8 @@ class AssistantDeploymentManager:
                 config.channel_ids = self._normalize_channel_ids(config.channel_ids)
                 config.toolkit_names = self._normalize_name_list(config.toolkit_names)
                 config.skill_names = self._normalize_name_list(config.skill_names)
+                config.handoff_selector_mode = self._normalize_handoff_selector_mode(config.handoff_selector_mode)
+                config.handoff_selector_prompt = str(config.handoff_selector_prompt or "").strip()
                 config.routing_rules = self._normalize_routing_rules(config.routing_rules)
                 config.proactive_tasks = self._normalize_proactive_tasks(config.proactive_tasks)
                 config.safety = self._normalize_safety(config.safety)
@@ -1925,6 +2179,8 @@ class AssistantDeploymentCreateRequest(BaseModel):
     toolkit_names: List[str] = Field(default_factory=list)
     skill_names: List[str] = Field(default_factory=list)
     channel_ids: List[str] = Field(default_factory=list)
+    handoff_selector_mode: Literal["keyword", "hybrid", "workflow"] = "hybrid"
+    handoff_selector_prompt: str = ""
     routing_rules: List[AssistantRoutingRule] = Field(default_factory=list)
     proactive_tasks: List[AssistantProactiveTask] = Field(default_factory=list)
     safety: AssistantSafetyConfig = Field(default_factory=AssistantSafetyConfig)
@@ -1947,6 +2203,8 @@ class AssistantDeploymentUpdateRequest(BaseModel):
     toolkit_names: Optional[List[str]] = None
     skill_names: Optional[List[str]] = None
     channel_ids: Optional[List[str]] = None
+    handoff_selector_mode: Optional[Literal["keyword", "hybrid", "workflow"]] = None
+    handoff_selector_prompt: Optional[str] = None
     routing_rules: Optional[List[AssistantRoutingRule]] = None
     proactive_tasks: Optional[List[AssistantProactiveTask]] = None
     safety: Optional[AssistantSafetyConfig] = None
@@ -2022,7 +2280,8 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
 
     def _validate_routing(request: Request, routing_rules: List[AssistantRoutingRule], *, current_id: Optional[str] = None) -> None:
         user_id, is_admin = _get_user(request)
-        for rule in routing_rules:
+        normalized_rules = deployment_mgr._normalize_routing_rules(routing_rules)
+        for rule in normalized_rules:
             if current_id and rule.target_deployment_id == current_id:
                 raise HTTPException(400, "Routing rules cannot target the deployment itself")
             target = deployment_mgr.get_config(rule.target_deployment_id)
@@ -2217,6 +2476,8 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
                 toolkit_names=[str(name).strip() for name in deployment_row.get("toolkit_names") or [] if str(name).strip()],
                 skill_names=[str(name).strip() for name in deployment_row.get("skill_names") or [] if str(name).strip()],
                 channel_ids=[str(channel_id).strip() for channel_id in deployment_row.get("channel_ids") or [] if str(channel_id).strip()],
+                handoff_selector_mode=str(deployment_row.get("handoff_selector_mode") or "hybrid").strip().lower() or "hybrid",
+                handoff_selector_prompt=str(deployment_row.get("handoff_selector_prompt") or "").strip(),
                 routing_rules=deployment_row.get("routing_rules") or [],
                 proactive_tasks=deployment_row.get("proactive_tasks") or [],
                 safety=deployment_row.get("safety") or {},
@@ -2306,6 +2567,8 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
                     toolkit_names=[str(name).strip() for name in deployment_row.get("toolkit_names") or [] if str(name).strip()],
                     skill_names=[str(name).strip() for name in deployment_row.get("skill_names") or [] if str(name).strip()],
                     channel_ids=[str(channel_id).strip() for channel_id in deployment_row.get("channel_ids") or [] if str(channel_id).strip()],
+                    handoff_selector_mode=str(deployment_row.get("handoff_selector_mode") or "hybrid").strip().lower() or "hybrid",
+                    handoff_selector_prompt=str(deployment_row.get("handoff_selector_prompt") or "").strip(),
                     routing_rules=deployment_row.get("routing_rules") or [],
                     proactive_tasks=deployment_row.get("proactive_tasks") or [],
                     safety=deployment_row.get("safety") or {},
@@ -2331,6 +2594,8 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
                         "toolkit_names": [str(name).strip() for name in deployment_row.get("toolkit_names") or [] if str(name).strip()],
                         "skill_names": [str(name).strip() for name in deployment_row.get("skill_names") or [] if str(name).strip()],
                         "channel_ids": [str(channel_id).strip() for channel_id in deployment_row.get("channel_ids") or [] if str(channel_id).strip()],
+                        "handoff_selector_mode": str(deployment_row.get("handoff_selector_mode") or "hybrid").strip().lower() or "hybrid",
+                        "handoff_selector_prompt": str(deployment_row.get("handoff_selector_prompt") or "").strip(),
                         "routing_rules": deployment_row.get("routing_rules") or [],
                         "proactive_tasks": deployment_row.get("proactive_tasks") or [],
                         "safety": deployment_row.get("safety") or {},
@@ -2403,6 +2668,8 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
             toolkit_names=[str(name).strip() for name in payload.toolkit_names if str(name).strip()],
             skill_names=[str(name).strip() for name in payload.skill_names if str(name).strip()],
             channel_ids=payload.channel_ids,
+            handoff_selector_mode=str(payload.handoff_selector_mode or "hybrid").strip().lower() or "hybrid",
+            handoff_selector_prompt=str(payload.handoff_selector_prompt or "").strip(),
             routing_rules=payload.routing_rules,
             proactive_tasks=payload.proactive_tasks,
             safety=payload.safety,

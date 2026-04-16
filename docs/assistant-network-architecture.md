@@ -241,7 +241,7 @@ Without this, inter-agent networking becomes hard to supervise.
 Current assistant deployments already provide:
 
 - channel binding
-- routing rules for inbound user messages
+- routing rules and conversation-level handoff ownership for inbound user messages
 - proactive tasks
 - tool approvals
 - linked workbench context
@@ -340,7 +340,12 @@ Current status:
 Current status:
 
 - steps 1 through 6 now exist in a first usable form
-- the missing higher-order pieces are richer policy controls, a more explicit handoff model, and better workflow/gallery surfaces for assistant-network design
+- deployment routing now supports sticky conversation ownership after a handoff, instead of only per-message keyword routing
+- deployments can now choose handoff selector policies:
+  - `keyword` for deterministic routing
+  - `hybrid` for keyword-first with workflow-backed semantic fallback, and this is now the default
+  - `workflow` for workflow-backed semantic route selection
+- the missing higher-order pieces are richer policy controls and better workflow/gallery surfaces for assistant-network design
 
 There is already a simple built-in gallery starter you can inspect:
 

@@ -802,6 +802,8 @@ class AssistantDeploymentRuntimeConfig(ConfigType):
 	linked_workflow_name    : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Linked workbench workflow name")
 	toolkit_names           : Annotated[Optional[List[str]]                                                  , FieldRole.INPUT      ] = Field(default=None, description="Attached toolkit names")
 	skill_names             : Annotated[Optional[List[str]]                                                  , FieldRole.INPUT      ] = Field(default=None, description="Attached skill names")
+	handoff_selector_mode   : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default="hybrid", description="How this deployment selects a handoff target: keyword, hybrid, or workflow")
+	handoff_selector_prompt : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Optional selector guidance used by workflow-backed handoff selection")
 	proactive_delivery_mode : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Proactive delivery policy")
 	tool_execution_mode     : Annotated[Optional[str]                                                        , FieldRole.INPUT      ] = Field(default=None, description="Tool execution approval policy")
 	pending_approval_count  : Annotated[int                                                                  , FieldRole.INPUT      ] = Field(default=0, description="Current pending approval count")

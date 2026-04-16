@@ -96,6 +96,13 @@ async function _post(path, body = {}) {
 		}).join('\n');
 	}
 
+	function _handoffSelectorLabel(mode) {
+		const normalized = String(mode || 'hybrid').trim().toLowerCase() || 'hybrid';
+		if (normalized === 'workflow') return 'workflow selector';
+		if (normalized === 'hybrid') return 'hybrid selector';
+		return 'keyword selector';
+	}
+
 	function _parseRoutingRules(text) {
 		return String(text || '')
 			.split(/\r?\n/)
@@ -712,6 +719,7 @@ async function _post(path, body = {}) {
 			const routingSummary = Array.isArray(item.routing_rules) && item.routing_rules.length
 				? item.routing_rules.map((rule) => `${(rule.keywords || []).join(', ')} → ${rule.target_deployment_id}`).join(' · ')
 				: 'No routing rules';
+			const selectorSummary = _handoffSelectorLabel(item.handoff_selector_mode);
 			const lastActivity = runtime.last_message_at ? _formatTimestamp(runtime.last_message_at) : 'No traffic yet';
 			const handoffSummary = handoffs.length
 				? handoffs.slice(-2).map((handoff) => `${handoff.source_deployment_id} → ${handoff.target_deployment_id} (${(handoff.matched_keywords || []).join(', ')})`).join(' · ')
@@ -756,7 +764,7 @@ async function _post(path, body = {}) {
 					Toolkits: ${_esc((item.toolkit_names || []).join(', ') || 'default')}<br>
 					Skills: ${_esc((item.skill_names || []).join(', ') || 'active defaults')}<br>
 					Workbench: ${_esc(workbenchSummary)}<br>
-					Routing: ${_esc(routingSummary)}<br>
+					Routing: ${_esc(selectorSummary)} · ${_esc(routingSummary)}<br>
 					Proactive: ${_esc(proactiveSummary)}<br>
 					Safety: ${_esc(item.safety?.proactive_delivery_mode === 'approval' ? 'Approval before proactive delivery' : 'Auto proactive delivery')} · ${_esc(toolSafetyLabel)}<br>
 					Last activity: ${_esc(lastActivity)}${runtime.message_count ? ` · ${_esc(String(runtime.message_count))} message(s)` : ''}<br>
@@ -980,6 +988,8 @@ async function _post(path, body = {}) {
 			toolkit_names: _splitCsv(dialog.querySelector('#_assist_toolkits').value),
 			skill_names: _splitCsv(dialog.querySelector('#_assist_skills').value),
 			channel_ids: channelIds,
+			handoff_selector_mode: dialog.querySelector('#_assist_handoff_selector_mode').value || 'hybrid',
+			handoff_selector_prompt: dialog.querySelector('#_assist_handoff_selector_prompt').value.trim(),
 			routing_rules: _parseRoutingRules(dialog.querySelector('#_assist_routing').value),
 			proactive_tasks: _collectProactiveTasks(dialog),
 			safety: {
@@ -1036,6 +1046,15 @@ async function _post(path, body = {}) {
 			<input id="_assist_toolkits" placeholder="channel_toolkit,file_toolkit" autocomplete="off">
 			<label>Skills (comma-separated)</label>
 			<input id="_assist_skills" placeholder="Leave empty to use active defaults" autocomplete="off">
+			<label>Handoff Selector</label>
+			<select id="_assist_handoff_selector_mode">
+				<option value="hybrid" selected>Hybrid: keywords first, workflow fallback</option>
+				<option value="keyword">Keyword only</option>
+				<option value="workflow">Workflow-backed selector</option>
+			</select>
+			<div class="nw-ext-note">Choose how this deployment decides handoffs. Hybrid keeps deterministic keyword matches and asks the workflow-backed selector only when keywords do not decide the route.</div>
+			<label>Selector Guidance</label>
+			<textarea id="_assist_handoff_selector_prompt" rows="2" placeholder="Optional guidance for semantic handoff selection, for example: route refund questions to billing even when users avoid the exact keyword."></textarea>
 			<label>Proactive Delivery</label>
 			<select id="_assist_proactive_delivery_mode">
 				<option value="auto">Send automatically</option>
@@ -1048,7 +1067,7 @@ async function _post(path, body = {}) {
 			</select>
 			<label>Routing Rules</label>
 			<textarea id="_assist_routing" rows="4" placeholder="billing,invoice => deploy_ab12cd34&#10;support triage: refund,chargeback => deploy_ef56gh78"></textarea>
-			<div class="nw-ext-note"><div class="nw-ext-note-pre">Target deployment IDs for routing:
+			<div class="nw-ext-note"><div class="nw-ext-note-pre">Target deployment IDs for routing or handoff selection:
 ${_esc(deploymentHint)}</div></div>
 			<label>Channels</label>
 			<div class="nw-ext-note">A channel can be bound to only one deployment at a time. If you choose a channel already in use, Numel will ask before reassigning it.</div>
@@ -1120,6 +1139,15 @@ ${_esc(deploymentHint)}</div></div>
 			<input id="_assist_toolkits" value="${_esc((deployment.toolkit_names || []).join(', '))}" autocomplete="off">
 			<label>Skills (comma-separated)</label>
 			<input id="_assist_skills" value="${_esc((deployment.skill_names || []).join(', '))}" autocomplete="off">
+			<label>Handoff Selector</label>
+			<select id="_assist_handoff_selector_mode">
+				<option value="hybrid" ${String(deployment.handoff_selector_mode || 'hybrid') === 'hybrid' ? 'selected' : ''}>Hybrid: keywords first, workflow fallback</option>
+				<option value="keyword" ${String(deployment.handoff_selector_mode || '') === 'keyword' ? 'selected' : ''}>Keyword only</option>
+				<option value="workflow" ${String(deployment.handoff_selector_mode || '') === 'workflow' ? 'selected' : ''}>Workflow-backed selector</option>
+			</select>
+			<div class="nw-ext-note">Choose how this deployment decides handoffs. Hybrid keeps deterministic keyword matches and asks the workflow-backed selector only when keywords do not decide the route.</div>
+			<label>Selector Guidance</label>
+			<textarea id="_assist_handoff_selector_prompt" rows="2">${_esc(deployment.handoff_selector_prompt || '')}</textarea>
 			<label>Proactive Delivery</label>
 			<select id="_assist_proactive_delivery_mode">
 				<option value="auto" ${deployment.safety?.proactive_delivery_mode !== 'approval' ? 'selected' : ''}>Send automatically</option>
@@ -1132,7 +1160,7 @@ ${_esc(deploymentHint)}</div></div>
 			</select>
 			<label>Routing Rules</label>
 			<textarea id="_assist_routing" rows="4">${_esc(_routingRulesToText(deployment.routing_rules || []))}</textarea>
-			<div class="nw-ext-note"><div class="nw-ext-note-pre">Target deployment IDs for routing:
+			<div class="nw-ext-note"><div class="nw-ext-note-pre">Target deployment IDs for routing or handoff selection:
 ${_esc(deploymentHint)}</div></div>
 			<label>Channels</label>
 			<div class="nw-ext-note">A channel can be bound to only one deployment at a time. Choosing a channel already used elsewhere will ask before reassigning it.</div>

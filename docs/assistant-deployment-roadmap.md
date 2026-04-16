@@ -193,6 +193,10 @@ from “one assistant with many tools” to “an assistant system”.
   - user
   - event type
   - workflow context
+- workflow-backed handoff selector policies so deployments can use:
+  - keyword-only routing
+  - hybrid keyword plus semantic selection
+  - fully workflow-backed semantic selection
 - handoff records
 - specialist assistants for distinct functions, for example:
   - research
