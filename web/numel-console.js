@@ -538,8 +538,8 @@ class AgentConsoleManager {
 		}
 	}
 
-	_confirm(title, message, confirmText = 'OK', danger = false) {
-		return NumelConfirm(title, message, confirmText, danger);
+	_confirm(title, message, confirmText = 'OK', danger = false, cancelText = 'Cancel') {
+		return NumelConfirm(title, message, confirmText, danger, cancelText);
 	}
 
 	// ── Configuration (Model + Toolkits) ─────────────────────────
@@ -799,7 +799,20 @@ class AgentConsoleManager {
 			btn.textContent = 'Loading...';
 		}
 		try {
-			const data = await this.api.consoleWorkflow();
+			let includePlanner = false;
+			if (this._plannerEnabled) {
+				includePlanner = await this._confirm(
+					'Include Planner Graph',
+					'Planner is enabled for this Assistant session. Include the active planner branch in the workbench export? Choose Assistant Only to export just the live Assistant graph.',
+					'Include Planner',
+					false,
+					'Assistant Only',
+				);
+			}
+			const data = await this.api.consoleWorkflow({
+				include_planner: includePlanner,
+				session_id: this._sessionId,
+			});
 			const workflow = data?.workflow;
 			const name = data?.name || 'Assistant Console';
 			if (!workflow?.nodes) throw new Error('Console workflow export is empty.');
@@ -813,7 +826,12 @@ class AgentConsoleManager {
 			const suffix = runtimeBound.length
 				? ` Runtime-bound toolkits preserved in the graph and rebound by Numel at runtime: ${runtimeBound.join(', ')}.`
 				: '';
-			this._addMessage('system', `Loaded "${name}" into the current workbench as a workflow-backed Assistant.${suffix}`);
+			const plannerSuffix = data?.planner_included
+				? ' The active planner branch was included too.'
+				: (includePlanner && data?.planner_requested && !data?.planner_available
+					? ' Planner export was requested, but there is no active planner for this session.'
+					: '');
+			this._addMessage('system', `Loaded "${name}" into the current workbench as a workflow-backed Assistant.${plannerSuffix}${suffix}`);
 		} catch (err) {
 			this._addMessage('error', `Failed to open console workflow: ${err.message}`);
 		} finally {

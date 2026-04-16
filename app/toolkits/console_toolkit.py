@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from runtime_toolkit_context import get_runtime_toolkit_context
 from toolkits.http_helpers import ToolkitHttpSession
 
 
@@ -30,7 +31,10 @@ Available operations:
 		internal_token: str = "",
 		user_id: Optional[str] = None,
 		local_app = None,
+		runtime_context_id: str = "",
 	):
+		if local_app is None and runtime_context_id:
+			local_app = get_runtime_toolkit_context(runtime_context_id).get("local_app")
 		self._http = ToolkitHttpSession(
 			base_url=base_url,
 			auth_token=auth_token,

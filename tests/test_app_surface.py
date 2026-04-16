@@ -2610,6 +2610,48 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("console_toolkit", toolkit_names)
         self.assertIn("console_toolkit", data["runtime_bound_toolkits"])
 
+    async def test_console_workflow_endpoint_can_include_active_planner_branch(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "plannergraph", "email": "plannergraph@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        enabled = await self._client.post(
+            "/console/planner/enable",
+            json={"session_id": "tab_planner_export", "profile": "workflow"},
+            headers=headers,
+        )
+        self.assertEqual(enabled.status_code, 200, enabled.text)
+
+        response = await self._client.post(
+            "/console/workflow",
+            json={"include_planner": True, "session_id": "tab_planner_export"},
+            headers=headers,
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        data = response.json()
+        workflow = data["workflow"]
+        node_types = [node["type"] for node in workflow["nodes"]]
+
+        self.assertTrue(data["planner_requested"])
+        self.assertTrue(data["planner_available"])
+        self.assertTrue(data["planner_included"])
+        self.assertIn("agent_chat", node_types)
+        self.assertIn("agent_flow", node_types)
+        self.assertIn("loop_start_flow", node_types)
+        planner_turn = next(
+            node for node in workflow["nodes"]
+            if node.get("type") == "agent_flow" and node.get("extra", {}).get("name") == "Planner Turn · current workbench"
+        )
+        self.assertIn("[Planner Export]", planner_turn.get("request") or "")
+        planner_loop = next(
+            node for node in workflow["nodes"]
+            if node.get("type") == "loop_start_flow" and "Planner Loop" in (node.get("extra", {}).get("name") or "")
+        )
+        self.assertEqual(planner_loop.get("max_iter"), 10)
+
     async def test_console_workflow_apply_endpoint_reconfigures_console(self) -> None:
         exported = await self._client.post("/console/workflow", json={})
         self.assertEqual(exported.status_code, 200, exported.text)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from runtime_toolkit_context import get_runtime_toolkit_context
 from agent_endpoint_runtime import (
 	describe_agent_endpoint,
 	invoke_agent_endpoint,
@@ -37,7 +38,10 @@ class AgentEndpointToolkit:
 		user_id: Optional[str] = None,
 		local_app = None,
 		deployment_id: Optional[str] = None,
+		runtime_context_id: str = "",
 	):
+		if local_app is None and runtime_context_id:
+			local_app = get_runtime_toolkit_context(runtime_context_id).get("local_app")
 		self._base_url = base_url
 		self._auth_token = auth_token or ""
 		self._internal_token = internal_token or ""

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import threading
 import sys
 import unittest
 
@@ -70,14 +72,18 @@ class WorkflowBackedRuntimeTests(unittest.TestCase):
 			options_config={"name": "Runtime Bound"},
 		)
 
+		class _LockedObject:
+			def __init__(self) -> None:
+				self.lock = threading.RLock()
+
 		bound = bind_runtime_toolkits_to_workflow(
 			built["workflow"],
 			base_url="http://localhost:11360",
 			internal_token="internal-token",
 			user_id="user_123",
 			auth_token="auth-token",
-			local_app=object(),
-			channel_registry=object(),
+			local_app=_LockedObject(),
+			channel_registry=_LockedObject(),
 			deployment_id="deploy_123",
 		)
 
@@ -87,8 +93,12 @@ class WorkflowBackedRuntimeTests(unittest.TestCase):
 			if node.get("type") == "toolkit_config"
 		}
 		self.assertEqual(toolkit_nodes["console_toolkit"]["args"]["base_url"], "http://localhost:11360")
-		self.assertEqual(toolkit_nodes["channel_toolkit"]["args"]["channel_registry"].__class__.__name__, "object")
+		self.assertIsInstance(toolkit_nodes["console_toolkit"]["args"]["runtime_context_id"], str)
+		self.assertIsInstance(toolkit_nodes["channel_toolkit"]["args"]["runtime_context_id"], str)
+		self.assertNotIn("local_app", toolkit_nodes["console_toolkit"]["args"])
+		self.assertNotIn("channel_registry", toolkit_nodes["channel_toolkit"]["args"])
 		self.assertEqual(toolkit_nodes["agent_endpoint_toolkit"]["args"]["deployment_id"], "deploy_123")
+		copy.deepcopy(bound)
 
 
 if __name__ == "__main__":

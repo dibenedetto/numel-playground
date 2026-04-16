@@ -3,6 +3,8 @@
 
 from typing import Any, Dict, List, Optional
 
+from runtime_toolkit_context import get_runtime_toolkit_context
+
 
 class ChannelToolkit:
 	"""Toolkit for sending messages across communication channels (Telegram, Discord, Slack, etc.).
@@ -10,7 +12,9 @@ class ChannelToolkit:
 
 	__toolkit__ = True
 
-	def __init__(self, channel_registry=None):
+	def __init__(self, channel_registry=None, runtime_context_id: str = ""):
+		if channel_registry is None and runtime_context_id:
+			channel_registry = get_runtime_toolkit_context(runtime_context_id).get("channel_registry")
 		self._registry = channel_registry
 
 	def list_channels(self) -> List[Dict[str, Any]]:

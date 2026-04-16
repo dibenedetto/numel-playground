@@ -337,6 +337,23 @@ class ConsoleAgentManager:
 			"last_suppressed_event": ps.last_suppressed_event,
 		}
 
+	def _planner_export_state(self, ps: Optional[PlannerState]) -> Optional[Dict[str, Any]]:
+		"""Return the minimal active planner state needed for workbench export."""
+		if ps is None or not ps.enabled:
+			return None
+		return {
+			"enabled": True,
+			"profile": ps.profile,
+			"instructions": ps.instructions,
+			"subscribe_events": list(ps.subs or []),
+			"timeout_s": ps.timeout,
+			"session_timeout_s": ps.session_timeout,
+			"max_iterations": ps.max_turns,
+			"debounce_s": ps.debounce,
+			"browser_session_id": ps.browser_session_id,
+			"planner_session_id": ps.session_id,
+		}
+
 	def _queue_planner_event(self, ps: PlannerState, evt_type: str, evt_data: Dict[str, Any]) -> None:
 		now = time.time()
 		ps.last_event_type = evt_type
@@ -744,7 +761,13 @@ class ConsoleAgentManager:
 		result.setdefault("tool_calls", [])
 		return result
 
-	def build_workflow_export(self) -> Dict[str, Any]:
+	def build_workflow_export(
+		self,
+		*,
+		include_planner: bool = False,
+		user_id: Optional[str] = None,
+		session_id: Optional[str] = None,
+	) -> Dict[str, Any]:
 		"""Materialize the current console assistant configuration as a workflow payload."""
 		import credentials as _creds
 
@@ -766,7 +789,12 @@ class ConsoleAgentManager:
 			if self._started
 			else bool((config.get("memory") or {}).get("backend", True))
 		)
-		return build_console_workflow_export(
+		planner_state = None
+		if include_planner:
+			planner_state = self._planner_export_state(
+				self._resolve_planner_state(user_id, session_id)
+			)
+		payload = build_console_workflow_export(
 			config=effective_config,
 			model_source=source,
 			model_name=name,
@@ -775,7 +803,11 @@ class ConsoleAgentManager:
 			skill_names=skill_names,
 			use_backend_memory=use_backend_memory,
 			backend_name=DEFAULT_BACKEND_NAME,
+			planner_state=planner_state,
 		)
+		payload["planner_requested"] = bool(include_planner)
+		payload["planner_available"] = planner_state is not None
+		return payload
 
 	async def apply_workflow_import(self, workflow: Dict[str, Any], *, user_id: Optional[str] = None) -> Dict[str, Any]:
 		parsed = parse_console_workflow_import(workflow, backend_name=DEFAULT_BACKEND_NAME)
@@ -812,6 +844,9 @@ class ConsoleAgentManager:
 							 user_id: Optional[str] = None,
 							 session_id: Optional[str] = None):
 		"""Activate planner mode for a specific session."""
+		if not hasattr(self, "_config") or not isinstance(getattr(self, "_config", None), dict):
+			import credentials as _creds
+			self._config = _creds.load_json(self._config_path)
 		pkey = self._planner_key(user_id, session_id)
 		# If this session already has an active planner, skip
 		existing = self._planners.get(pkey)
@@ -2136,8 +2171,18 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 		return await console_mgr.get_context(user_id=user.id if user else None)
 
 	@app.post("/console/workflow")
-	async def console_workflow():
-		payload = console_mgr.build_workflow_export()
+	async def console_workflow(request: Request):
+		try:
+			body = await request.json()
+		except Exception:
+			body = {}
+		user = getattr(request.state, 'user', None)
+		user_id = user.id if user else None
+		payload = console_mgr.build_workflow_export(
+			include_planner=bool(body.get("include_planner")),
+			user_id=user_id,
+			session_id=body.get("session_id"),
+		)
 		payload["started"] = console_mgr._started
 		payload["model_source"] = console_mgr._model_source
 		payload["model_name"] = console_mgr._model_name

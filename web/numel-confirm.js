@@ -1,13 +1,13 @@
 // numel-confirm.js — Global themed confirmation/input dialogs
 //
 // Usage:
-//   const ok = await NumelConfirm(title, message, confirmText, danger);
+//   const ok = await NumelConfirm(title, message, confirmText, danger, cancelText);
 //   const val = await NumelPrompt(title, message, initialValue, confirmText, placeholder);
 //   await NumelAlert(title, message, buttonText);
 // Returns a Promise<boolean>, Promise<string|null>, or Promise<void>.
 
 // eslint-disable-next-line no-unused-vars
-function NumelConfirm(title, message, confirmText = 'Confirm', danger = false) {
+function NumelConfirm(title, message, confirmText = 'Confirm', danger = false, cancelText = 'Cancel') {
 	return new Promise((resolve) => {
 		const overlay = document.createElement('div');
 		overlay.className = 'sg-input-dialog-overlay';
@@ -22,7 +22,7 @@ function NumelConfirm(title, message, confirmText = 'Confirm', danger = false) {
 					'<p class="sg-confirm-dialog-message">' + message + '</p>' +
 				'</div>' +
 				'<div class="sg-input-dialog-footer">' +
-					'<button class="sg-input-dialog-btn sg-input-dialog-cancel">Cancel</button>' +
+					'<button class="sg-input-dialog-btn sg-input-dialog-cancel">' + cancelText + '</button>' +
 					'<button class="sg-input-dialog-btn sg-input-dialog-confirm' + dangerClass + '">' + confirmText + '</button>' +
 				'</div>' +
 			'</div>';

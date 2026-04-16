@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
 
 from schema import DEFAULT_BACKEND_NAME
@@ -79,6 +80,271 @@ def _export_toolkit_args(toolkit_name: str, raw_args: Optional[Dict[str, Any]]) 
 	return args or None
 
 
+def _offset_node_position(node: Dict[str, Any], *, dx: int = 0, dy: int = 0) -> None:
+	extra = node.get("extra")
+	if not isinstance(extra, dict):
+		return
+	pos = extra.get("pos")
+	if not (isinstance(pos, list) and len(pos) >= 2):
+		return
+	extra["pos"] = [int(pos[0]) + dx, int(pos[1]) + dy]
+
+
+def _planner_export_request(planner_state: Dict[str, Any]) -> str:
+	profile = _clean_string(planner_state.get("profile")) or "workflow"
+	events = [item for item in (_clean_string(v) for v in planner_state.get("subscribe_events") or []) if item]
+	timeout_s = int(planner_state.get("timeout_s") or 120)
+	session_timeout_s = int(planner_state.get("session_timeout_s") or 600)
+	max_iterations = int(planner_state.get("max_iterations") or 10)
+	debounce_s = float(planner_state.get("debounce_s") or 2.0)
+	instructions = _clean_string(planner_state.get("instructions"))
+	event_lines = "\n".join(f"- {name}" for name in events) if events else "- manager.workflow_added"
+	return (
+		"[Planner Export]\n"
+		"This branch represents the active planner turn for the current Assistant session. "
+		"It is exported as a workbench-visible graph so you can inspect and adapt the planner logic.\n\n"
+		f"[Planner Profile]\n{profile}\n\n"
+		f"[Planner Runtime]\n"
+		f"- debounce_s: {debounce_s}\n"
+		f"- timeout_s: {timeout_s}\n"
+		f"- session_timeout_s: {session_timeout_s}\n"
+		f"- max_iterations: {max_iterations}\n\n"
+		f"[Subscribed Events]\n{event_lines}\n\n"
+		f"[Planner Instructions]\n{instructions or '(none)'}\n\n"
+		"[Sample Event]\n"
+		'{"event_type": "workflow.completed", "data": {"workflow_name": "Example Workflow", "status": "completed"}}\n\n'
+		"Use this exported branch as the planner-facing agent turn. Replace the sample event or attach your own event-driven sources when adapting the graph."
+	)
+
+
+def _planner_event_summary(events: List[str]) -> str:
+	items = [item for item in (_clean_string(v) for v in events) if item]
+	if not items:
+		return "0 events"
+	if len(items) == 1:
+		return items[0]
+	if len(items) == 2:
+		return f"{items[0]} + {items[1]}"
+	return f"{items[0]} +{len(items) - 1}"
+
+
+def _append_planner_export_subgraph(
+	workflow: Dict[str, Any],
+	*,
+	workflow_name: str,
+	model_source: str,
+	model_name: str,
+	toolkit_names: Optional[List[str]] = None,
+	toolkit_args: Optional[Dict[str, Dict[str, Any]]] = None,
+	skill_names: Optional[List[str]] = None,
+	planner_state: Optional[Dict[str, Any]] = None,
+	backend_name: str = DEFAULT_BACKEND_NAME,
+) -> bool:
+	if not planner_state or not bool(planner_state.get("enabled")):
+		return False
+
+	events = [item for item in (_clean_string(v) for v in planner_state.get("subscribe_events") or []) if item]
+	planner_profile = _clean_string(planner_state.get("profile")) or "workflow"
+	timeout_s = int(planner_state.get("timeout_s") or 120)
+	session_timeout_s = int(planner_state.get("session_timeout_s") or 600)
+	max_iterations = int(planner_state.get("max_iterations") or 10)
+	debounce_s = float(planner_state.get("debounce_s") or 2.0)
+	event_summary = _planner_event_summary(events)
+	planner_export = build_console_workflow_export(
+		config={
+			"options": {
+				"name": f"{workflow_name} Planner",
+				"description": "Workflow-backed export of the active Assistant planner turn.",
+				"instructions": [],
+				"markdown": True,
+			},
+			"memory": {},
+		},
+		model_source=model_source,
+		model_name=model_name,
+		toolkit_names=list(toolkit_names or []),
+		toolkit_args=dict(toolkit_args or {}),
+		skill_names=list(skill_names or []),
+		use_backend_memory=False,
+		backend_name=backend_name,
+	)
+	planner_workflow = deepcopy(planner_export["workflow"])
+	planner_branch_nodes = list(planner_workflow.get("nodes") or [])
+	planner_edges = list(planner_workflow.get("edges") or [])
+
+	agent_flow_local_index: Optional[int] = None
+	for index, node in enumerate(planner_branch_nodes):
+		if not isinstance(node, dict):
+			continue
+		_offset_node_position(node, dx=0, dy=440)
+		node_type = str(node.get("type") or "")
+		extra = node.setdefault("extra", {})
+		label = _clean_string(extra.get("name"))
+		if node_type == "backend_config":
+			extra["name"] = "Planner Backend"
+		elif node_type == "model_config":
+			extra["name"] = "Planner Model"
+		elif node_type == "agent_options_config":
+			extra["name"] = "Planner Persona"
+			instructions = list(node.get("instructions") or [])
+			instructions.insert(
+				0,
+				(
+					"[Planner Export]\n"
+					f"Profile: {planner_profile}\n"
+					"This exported branch is the planner-facing agent turn for the current Assistant session."
+				),
+			)
+			node["instructions"] = instructions
+		elif node_type == "agent_config":
+			extra["name"] = "Planner Agent"
+		elif node_type == "agent_chat":
+			agent_flow_local_index = index
+			node["type"] = "agent_flow"
+			node["request"] = _planner_export_request(planner_state)
+			node.pop("system_prompt", None)
+			extra["name"] = "Planner Turn · current workbench"
+		elif node_type == "toolkit_config" and label:
+			extra["name"] = f"Planner Toolkit: {label}"
+		elif node_type == "skill_config" and label:
+			extra["name"] = f"Planner Skill: {label}"
+
+	if agent_flow_local_index is None:
+		raise ValueError("Planner export could not locate the planner agent node.")
+
+	base_nodes = list(workflow.get("nodes") or [])
+	base_edges = list(workflow.get("edges") or [])
+	index_offset = len(base_nodes)
+	agent_flow_global_index = index_offset + agent_flow_local_index
+
+	planner_runtime_script = (
+		"output = {\n"
+		f"    'profile': {planner_profile!r},\n"
+		f"    'timeout_s': {timeout_s},\n"
+		f"    'session_timeout_s': {session_timeout_s},\n"
+		f"    'max_iterations': {max_iterations},\n"
+		f"    'debounce_s': {debounce_s!r},\n"
+		f"    'subscribed_events': {events!r},\n"
+		"    'target_graph': 'current workbench graph in Numel',\n"
+		"    'target_interaction': 'Use workspace_toolkit to inspect and modify the graph loaded in the workbench.',\n"
+		f"    'planner_session_id': {_clean_string(planner_state.get('planner_session_id'))!r},\n"
+		f"    'browser_session_id': {_clean_string(planner_state.get('browser_session_id'))!r},\n"
+		"}\n"
+	)
+	planner_prompt_script = (
+		"state = input or {}\n"
+		"events = state.get('subscribed_events') or []\n"
+		"event_lines = '\\n'.join(f'- {name}' for name in events) if events else '- manager.workflow_added'\n"
+		"output = (\n"
+		"    '[Planner Export]\\n'\n"
+		"    'This branch represents the active planner turn for the current Assistant session.\\n\\n'\n"
+		"    '[Planner Scope]\\n'\n"
+		"    + str(state.get('target_graph') or 'current workbench graph in Numel') + '\\n'\n"
+		"    + str(state.get('target_interaction') or '') + '\\n\\n'\n"
+		"    + '[Planner Profile]\\n' + str(state.get('profile') or 'workflow') + '\\n\\n'\n"
+		"    + '[Planner Runtime]\\n'\n"
+		"    + f\"- debounce_s: {state.get('debounce_s')}\\n\"\n"
+		"    + f\"- timeout_s: {state.get('timeout_s')}\\n\"\n"
+		"    + f\"- session_timeout_s: {state.get('session_timeout_s')}\\n\"\n"
+		"    + f\"- max_iterations: {state.get('max_iterations')}\\n\\n\"\n"
+		"    + '[Subscribed Events]\\n' + event_lines + '\\n\\n'\n"
+		"    + '[Planner Session]\\n'\n"
+		"    + f\"- planner_session_id: {state.get('planner_session_id') or '(none)'}\\n\"\n"
+		"    + f\"- browser_session_id: {state.get('browser_session_id') or '(none)'}\\n\\n\"\n"
+		"    + '[Planner Instructions]\\n'\n"
+		"    + " + repr(_clean_string(planner_state.get("instructions")) or "(none)") + " + '\\n\\n'\n"
+		"    + '[Sample Event]\\n'\n"
+		"    + '{\"event_type\": \"workflow.completed\", \"data\": {\"workflow_name\": \"Example Workflow\", \"status\": \"completed\"}}\\n\\n'\n"
+		"    + 'Use this exported branch as the planner-facing agent turn for the current workbench graph.'\n"
+		")\n"
+	)
+
+	planner_control_nodes = [
+		_node_payload(
+			"start_flow",
+			label="Planner Start",
+			pos=(40, 640),
+		),
+		_node_payload(
+			"loop_start_flow",
+			label=f"Planner Loop · max {max_iterations}",
+			pos=(260, 640),
+			condition=True,
+			max_iter=max_iterations,
+		),
+		_node_payload(
+			"transform_flow",
+			label=f"Planner Runtime · {timeout_s}s / {session_timeout_s}s / {debounce_s}s",
+			pos=(520, 640),
+			lang="python",
+			script=planner_runtime_script,
+		),
+		_node_payload(
+			"transform_flow",
+			label=f"Planner Scope · current workbench · {event_summary}",
+			pos=(820, 640),
+			lang="python",
+			script=planner_prompt_script,
+		),
+		_node_payload(
+			"loop_end_flow",
+			label="Planner Loop End",
+			pos=(1760, 640),
+		),
+		_node_payload(
+			"end_flow",
+			label="Planner End",
+			pos=(1980, 640),
+		),
+	]
+
+	planner_controls_index_offset = index_offset + len(planner_branch_nodes)
+	start_index = planner_controls_index_offset + 0
+	loop_start_index = planner_controls_index_offset + 1
+	runtime_index = planner_controls_index_offset + 2
+	prompt_index = planner_controls_index_offset + 3
+	loop_end_index = planner_controls_index_offset + 4
+	end_index = planner_controls_index_offset + 5
+
+	base_nodes.extend(planner_branch_nodes)
+	base_nodes.extend(planner_control_nodes)
+
+	for edge in planner_edges:
+		base_edges.append(
+			{
+				**edge,
+				"source": int(edge.get("source", -1)) + index_offset,
+				"target": int(edge.get("target", -1)) + index_offset,
+			}
+		)
+
+	base_edges.extend(
+		[
+			{"source": start_index, "target": loop_start_index, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": loop_start_index, "target": runtime_index, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": runtime_index, "target": prompt_index, "source_slot": "output", "target_slot": "input"},
+			{"source": runtime_index, "target": prompt_index, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": prompt_index, "target": agent_flow_global_index, "source_slot": "output", "target_slot": "request"},
+			{"source": prompt_index, "target": agent_flow_global_index, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": agent_flow_global_index, "target": loop_end_index, "source_slot": "flow_out", "target_slot": "flow_in"},
+			{"source": loop_end_index, "target": loop_start_index, "source_slot": "flow_out", "target_slot": "flow_in", "loop": True},
+			{"source": loop_end_index, "target": end_index, "source_slot": "flow_out", "target_slot": "flow_in"},
+		]
+	)
+
+	workflow["nodes"] = base_nodes
+	workflow["edges"] = base_edges
+	options = dict(workflow.get("options") or {})
+	description = _clean_string(options.get("description"))
+	planner_note = (
+		" Includes an exported planner branch for the active Assistant session. "
+		"The planner branch is a workbench-visible view of the planner turn, loop budget, timing contract, and current-workbench scope; live debounce and event subscription ownership remain runtime-managed."
+	)
+	options["description"] = (description + planner_note).strip()
+	workflow["options"] = options
+	return True
+
+
 def build_console_workflow_export(
 	*,
 	config: Dict[str, Any],
@@ -89,6 +355,7 @@ def build_console_workflow_export(
 	skill_names: Optional[List[str]] = None,
 	use_backend_memory: bool = True,
 	backend_name: str = DEFAULT_BACKEND_NAME,
+	planner_state: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
 	"""Build a workflow-backed view of the current assistant console configuration."""
 	options_cfg = dict(config.get("options") or {})
@@ -268,12 +535,25 @@ def build_console_workflow_export(
 		"edges": edges,
 	}
 
+	planner_included = _append_planner_export_subgraph(
+		workflow,
+		workflow_name=workflow_name,
+		model_source=model_source,
+		model_name=model_name,
+		toolkit_names=selected_toolkits,
+		toolkit_args=toolkit_args,
+		skill_names=selected_skills,
+		planner_state=planner_state,
+		backend_name=backend_name,
+	)
+
 	return {
 		"name": workflow_name,
 		"workflow": workflow,
 		"omitted_toolkits": [],
 		"runtime_bound_toolkits": runtime_bound_toolkits,
 		"runtime_only_toolkits": sorted(_RUNTIME_BOUND_TOOLKITS),
+		"planner_included": planner_included,
 	}
 
 

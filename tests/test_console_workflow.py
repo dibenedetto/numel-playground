@@ -15,7 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
 	sys.path.insert(1, str(PROJECT_ROOT))
 
 
-from console import ConsoleAgentManager
+from console import ConsoleAgentManager, PlannerState
 from console_workflow import parse_console_workflow_import
 from event_bus import EventBus
 
@@ -94,6 +94,56 @@ class ConsoleWorkflowExportTests(unittest.TestCase):
 		self.assertNotIn("session_manager_config", node_types)
 		self.assertIn("console_toolkit", [node["name"] for node in exported["workflow"]["nodes"] if node["type"] == "toolkit_config"])
 		self.assertIn("code_toolkit", [node["name"] for node in exported["workflow"]["nodes"] if node["type"] == "toolkit_config"])
+
+	def test_build_workflow_export_can_include_active_planner_branch(self) -> None:
+		manager = self._manager()
+		manager._started = True
+		manager._model_source = "openai"
+		manager._model_name = "gpt-4o-mini"
+		manager._toolkit_names = ["console_toolkit", "workspace_toolkit"]
+		manager._toolkit_args = {"workspace_toolkit": {"workflow_name": "Current Workflow"}}
+		manager._skill_names = ["web-search"]
+		manager._use_backend_memory = True
+
+		planner = PlannerState(key="user_1_tab_1", user_id="user_1", browser_session_id="tab_1")
+		planner.enabled = True
+		planner.profile = "workflow"
+		planner.instructions = "Inspect workflow events and suggest the next graph update."
+		planner.subs = ["workflow.completed", "workflow.failed", "manager.workflow_added"]
+		planner.timeout = 90
+		planner.session_timeout = 900
+		planner.max_turns = 7
+		planner.debounce = 1.5
+		manager._planners[planner.key] = planner
+
+		exported = manager.build_workflow_export(include_planner=True, user_id="user_1", session_id="tab_1")
+		workflow = exported["workflow"]
+		node_types = [node["type"] for node in workflow["nodes"]]
+
+		self.assertTrue(exported["planner_requested"])
+		self.assertTrue(exported["planner_available"])
+		self.assertTrue(exported["planner_included"])
+		self.assertIn("agent_chat", node_types)
+		self.assertIn("agent_flow", node_types)
+		self.assertIn("loop_start_flow", node_types)
+		self.assertIn("loop_end_flow", node_types)
+		self.assertGreaterEqual(node_types.count("transform_flow"), 2)
+
+		planner_agent = next(
+			node for node in workflow["nodes"]
+			if node.get("type") == "agent_flow" and node.get("extra", {}).get("name") == "Planner Turn · current workbench"
+		)
+		self.assertIn("[Planner Export]", planner_agent.get("request") or "")
+		planner_loop = next(
+			node for node in workflow["nodes"]
+			if node.get("type") == "loop_start_flow" and "Planner Loop" in (node.get("extra", {}).get("name") or "")
+		)
+		self.assertEqual(planner_loop.get("max_iter"), 7)
+		planner_scope = next(
+			node for node in workflow["nodes"]
+			if node.get("type") == "transform_flow" and "Planner Scope" in (node.get("extra", {}).get("name") or "")
+		)
+		self.assertIn("current workbench", planner_scope.get("extra", {}).get("name") or "")
 
 	def test_parse_console_workflow_import_round_trips_console_shape(self) -> None:
 		manager = self._manager()

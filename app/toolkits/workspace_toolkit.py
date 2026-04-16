@@ -11,6 +11,7 @@ import json
 import time
 from typing import Any, Dict, List, Optional
 
+from runtime_toolkit_context import get_runtime_toolkit_context
 from toolkits.http_helpers import ToolkitHttpSession
 
 
@@ -72,7 +73,10 @@ class WorkspaceToolkit:
 
 	def __init__(self, base_url: str = "http://localhost:11360", workflow_name: str = "",
 				 auth_token: str = "", internal_token: str = "",
-				 user_id: Optional[str] = None, local_app = None):
+				 user_id: Optional[str] = None, local_app = None,
+				 runtime_context_id: str = ""):
+		if local_app is None and runtime_context_id:
+			local_app = get_runtime_toolkit_context(runtime_context_id).get("local_app")
 		self._name: Optional[str] = workflow_name or None
 		self._wf:   Optional[Dict] = None   # cached dict: {type, nodes, edges}
 		self._http = ToolkitHttpSession(

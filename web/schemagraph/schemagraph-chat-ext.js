@@ -2152,21 +2152,51 @@ class ChatExtension extends SchemaGraphExtension {
 				opacity: 0.5;
 			}
 
-			.sg-chat-messages::-webkit-scrollbar {
-				width: 4px;
+			.sg-chat-messages,
+			.sg-chat-workflow-json,
+			.sg-chat-preview-text-content,
+			.sg-chat-msg-content pre.sg-chat-code,
+			.sg-chat-input {
+				scrollbar-width: thin;
+				scrollbar-color: var(--nw-scrollbar-thumb, var(--sg-bg-quaternary, rgba(255, 255, 255, 0.1))) transparent;
 			}
 
-			.sg-chat-messages::-webkit-scrollbar-track {
+			.sg-chat-messages::-webkit-scrollbar,
+			.sg-chat-workflow-json::-webkit-scrollbar,
+			.sg-chat-preview-text-content::-webkit-scrollbar,
+			.sg-chat-msg-content pre.sg-chat-code::-webkit-scrollbar,
+			.sg-chat-input::-webkit-scrollbar {
+				width: var(--nw-scrollbar-size, 8px);
+				height: var(--nw-scrollbar-size, 8px);
+			}
+
+			.sg-chat-messages::-webkit-scrollbar-track,
+			.sg-chat-workflow-json::-webkit-scrollbar-track,
+			.sg-chat-preview-text-content::-webkit-scrollbar-track,
+			.sg-chat-msg-content pre.sg-chat-code::-webkit-scrollbar-track,
+			.sg-chat-input::-webkit-scrollbar-track {
 				background: transparent;
 			}
 
-			.sg-chat-messages::-webkit-scrollbar-thumb {
-				background: var(--sg-bg-quaternary, rgba(255, 255, 255, 0.1));
-				border-radius: 2px;
+			.sg-chat-messages::-webkit-scrollbar-thumb,
+			.sg-chat-workflow-json::-webkit-scrollbar-thumb,
+			.sg-chat-preview-text-content::-webkit-scrollbar-thumb,
+			.sg-chat-msg-content pre.sg-chat-code::-webkit-scrollbar-thumb,
+			.sg-chat-input::-webkit-scrollbar-thumb {
+				background: var(--nw-scrollbar-thumb, var(--sg-bg-quaternary, rgba(255, 255, 255, 0.1)));
+				border-radius: 999px;
+				border: 2px solid transparent;
+				background-clip: padding-box;
 			}
 
-			.sg-chat-messages::-webkit-scrollbar-thumb:hover {
-				background: var(--sg-text-tertiary, rgba(255, 255, 255, 0.2));
+			.sg-chat-messages::-webkit-scrollbar-thumb:hover,
+			.sg-chat-workflow-json::-webkit-scrollbar-thumb:hover,
+			.sg-chat-preview-text-content::-webkit-scrollbar-thumb:hover,
+			.sg-chat-msg-content pre.sg-chat-code::-webkit-scrollbar-thumb:hover,
+			.sg-chat-input::-webkit-scrollbar-thumb:hover {
+				background: var(--nw-scrollbar-thumb-hover, var(--sg-text-tertiary, rgba(255, 255, 255, 0.2)));
+				border: 2px solid transparent;
+				background-clip: padding-box;
 			}
 
 			.sg-chat-workflow-actions {
