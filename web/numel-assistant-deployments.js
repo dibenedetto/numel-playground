@@ -1000,86 +1000,196 @@ async function _post(path, body = {}) {
 		};
 	}
 
+	function _renderModelSourceOptions(selected = '') {
+		const value = String(selected || '').trim();
+		return `
+			<option value="" ${!value ? 'selected' : ''}>Default</option>
+			<option value="ollama" ${value === 'ollama' ? 'selected' : ''}>ollama</option>
+			<option value="openai" ${value === 'openai' ? 'selected' : ''}>openai</option>
+			<option value="anthropic" ${value === 'anthropic' ? 'selected' : ''}>anthropic</option>
+		`;
+	}
+
+	function _renderHandoffSelectorOptions(selected = 'hybrid') {
+		const value = String(selected || 'hybrid').trim().toLowerCase() || 'hybrid';
+		return `
+			<option value="hybrid" ${value === 'hybrid' ? 'selected' : ''}>Hybrid: keywords first, workflow fallback</option>
+			<option value="keyword" ${value === 'keyword' ? 'selected' : ''}>Keyword only</option>
+			<option value="workflow" ${value === 'workflow' ? 'selected' : ''}>Workflow-backed selector</option>
+		`;
+	}
+
+	function _renderDeploymentDialogBody({
+		deployment = null,
+		channels = [],
+		deployments = [],
+		deploymentId = '',
+		currentWorkbench = null,
+	}) {
+		const linkedSpaceId = deployment?.linked_space_id || currentWorkbench?.space_id || '';
+		const linkedSpaceTitle = deployment?.linked_space_title || currentWorkbench?.space_title || '';
+		const linkedWorkflowName = deployment?.linked_workflow_name || currentWorkbench?.workflow_name || '';
+		const deploymentHint = (Array.isArray(deployments) ? deployments : [])
+			.filter((item) => !deploymentId || item.id !== deploymentId)
+			.map((item) => `${item.id} (${item.name})`)
+			.join('\n') || (deploymentId ? 'No other deployments available.' : 'No existing deployments yet.');
+		const selectedChannelIds = Array.isArray(deployment?.channel_ids) ? deployment.channel_ids : [];
+		return `
+			<div class="nw-assist-dialog-layout">
+				<div class="nw-assist-dialog-column">
+					<section class="nw-assist-dialog-section">
+						<div class="nw-assist-dialog-section-head">
+							<h4>Identity</h4>
+							<p>Define the role and operator-facing personality of this deployment.</p>
+						</div>
+						<div class="nw-assist-dialog-field-grid">
+							<div class="nw-assist-dialog-field">
+								<label>Name</label>
+								<input id="_assist_name" value="${_esc(deployment?.name || '')}" placeholder="Customer Support Assistant" autocomplete="off">
+							</div>
+							<div class="nw-assist-dialog-field">
+								<label>Profile</label>
+								<input id="_assist_profile" value="${_esc(deployment?.profile || 'general')}" placeholder="general" autocomplete="off">
+							</div>
+							<div class="nw-assist-dialog-field nw-assist-dialog-field-span-2">
+								<label>Description</label>
+								<input id="_assist_description" value="${_esc(deployment?.description || '')}" placeholder="Short operator-facing summary" autocomplete="off">
+							</div>
+							<div class="nw-assist-dialog-field nw-assist-dialog-field-span-2">
+								<label>Instructions</label>
+								<textarea id="_assist_instructions" rows="5" placeholder="Deployment-specific guidance for this assistant.">${_esc(deployment?.instructions || '')}</textarea>
+							</div>
+						</div>
+					</section>
+
+					<section class="nw-assist-dialog-section">
+						<div class="nw-assist-dialog-section-head">
+							<h4>Linked Workbench</h4>
+							<p>Keep an operator-friendly link back to the space and workflow this deployment belongs to.</p>
+						</div>
+						<div class="nw-assist-dialog-field-grid">
+							<div class="nw-assist-dialog-field">
+								<label>Space ID</label>
+								<input id="_assist_linked_space_id" value="${_esc(linkedSpaceId)}" placeholder="Current space id" autocomplete="off">
+							</div>
+							<div class="nw-assist-dialog-field">
+								<label>Space Title</label>
+								<input id="_assist_linked_space_title" value="${_esc(linkedSpaceTitle)}" placeholder="Current space title" autocomplete="off">
+							</div>
+							<div class="nw-assist-dialog-field nw-assist-dialog-field-span-2">
+								<label>Workflow Name</label>
+								<input id="_assist_linked_workflow_name" value="${_esc(linkedWorkflowName)}" placeholder="Current workflow name" autocomplete="off">
+							</div>
+						</div>
+						<div class="nw-assist-dialog-inline-actions">
+							<button type="button" class="nw-btn nw-btn-sm nw-btn-secondary" data-role="use-current-workbench">Use Current Workbench</button>
+						</div>
+					</section>
+
+					<section class="nw-assist-dialog-section">
+						<div class="nw-assist-dialog-section-head">
+							<h4>Channels</h4>
+							<p>Bind this deployment to the channels it should serve directly.</p>
+						</div>
+						<div class="nw-assist-dialog-help">A channel can be bound to only one deployment at a time. If you choose a channel already in use, Numel will ask before reassigning it.</div>
+						<div data-role="channel-list" class="nw-assist-channel-list">${_renderChannelCheckboxes(channels, selectedChannelIds, deployments, deploymentId)}</div>
+					</section>
+				</div>
+
+				<div class="nw-assist-dialog-column">
+					<section class="nw-assist-dialog-section">
+						<div class="nw-assist-dialog-section-head">
+							<h4>Runtime</h4>
+							<p>Choose model and capability defaults for this deployed assistant.</p>
+						</div>
+						<div class="nw-assist-dialog-field-grid">
+							<div class="nw-assist-dialog-field">
+								<label>Model Source</label>
+								<select id="_assist_model_source">${_renderModelSourceOptions(deployment?.model_source || '')}</select>
+							</div>
+							<div class="nw-assist-dialog-field">
+								<label>Model Name</label>
+								<input id="_assist_model_name" value="${_esc(deployment?.model_name || '')}" placeholder="Leave empty to use the default model" autocomplete="off">
+							</div>
+							<div class="nw-assist-dialog-field nw-assist-dialog-field-span-2">
+								<label>Toolkits (comma-separated)</label>
+								<input id="_assist_toolkits" value="${_esc((deployment?.toolkit_names || []).join(', '))}" placeholder="channel_toolkit,file_toolkit" autocomplete="off">
+							</div>
+							<div class="nw-assist-dialog-field nw-assist-dialog-field-span-2">
+								<label>Skills (comma-separated)</label>
+								<input id="_assist_skills" value="${_esc((deployment?.skill_names || []).join(', '))}" placeholder="Leave empty to use active defaults" autocomplete="off">
+							</div>
+						</div>
+					</section>
+
+					<section class="nw-assist-dialog-section">
+						<div class="nw-assist-dialog-section-head">
+							<h4>Handoff And Safety</h4>
+							<p>Decide how this deployment routes conversations and when human approval is required.</p>
+						</div>
+						<div class="nw-assist-dialog-field-grid">
+							<div class="nw-assist-dialog-field nw-assist-dialog-field-span-2">
+								<label>Handoff Selector</label>
+								<select id="_assist_handoff_selector_mode">${_renderHandoffSelectorOptions(deployment?.handoff_selector_mode || 'hybrid')}</select>
+								<div class="nw-assist-dialog-help">Hybrid keeps deterministic keyword matches and asks the workflow-backed selector only when keywords do not decide the route.</div>
+							</div>
+							<div class="nw-assist-dialog-field nw-assist-dialog-field-span-2">
+								<label>Selector Guidance</label>
+								<textarea id="_assist_handoff_selector_prompt" rows="3" placeholder="Optional guidance for semantic handoff selection, for example: route refund questions to billing even when users avoid the exact keyword.">${_esc(deployment?.handoff_selector_prompt || '')}</textarea>
+							</div>
+							<div class="nw-assist-dialog-field">
+								<label>Proactive Delivery</label>
+								<select id="_assist_proactive_delivery_mode">
+									<option value="auto" ${deployment?.safety?.proactive_delivery_mode !== 'approval' ? 'selected' : ''}>Send automatically</option>
+									<option value="approval" ${deployment?.safety?.proactive_delivery_mode === 'approval' ? 'selected' : ''}>Require approval before sending</option>
+								</select>
+							</div>
+							<div class="nw-assist-dialog-field">
+								<label>Tool Execution</label>
+								<select id="_assist_tool_execution_mode">
+									<option value="auto" ${deployment?.safety?.tool_execution_mode !== 'approval' ? 'selected' : ''}>Run tool calls automatically</option>
+									<option value="approval" ${deployment?.safety?.tool_execution_mode === 'approval' ? 'selected' : ''}>Require approval before each tool call</option>
+								</select>
+							</div>
+							<div class="nw-assist-dialog-field nw-assist-dialog-field-span-2">
+								<label>Routing Rules</label>
+								<textarea id="_assist_routing" rows="5" placeholder="billing,invoice => deploy_ab12cd34&#10;support triage: refund,chargeback => deploy_ef56gh78">${_esc(_routingRulesToText(deployment?.routing_rules || []))}</textarea>
+								<div class="nw-assist-dialog-help"><div class="nw-ext-note-pre">Target deployment IDs for routing or handoff selection:
+${_esc(deploymentHint)}</div></div>
+							</div>
+						</div>
+					</section>
+
+					<section class="nw-assist-dialog-section">
+						<div class="nw-assist-dialog-section-head">
+							<h4>Proactive Tasks</h4>
+							<p>Attach scheduled or event-driven jobs that run with this deployment.</p>
+						</div>
+						<div class="nw-assist-dialog-help">Starting or stopping the deployment pauses and resumes its proactive tasks.</div>
+						<div data-role="proactive-tasks" class="nw-assist-task-stack"></div>
+						<div class="nw-assist-dialog-inline-actions">
+							<button type="button" class="nw-btn nw-btn-sm nw-btn-secondary" data-role="add-proactive-task">+ Add Proactive Task</button>
+						</div>
+						<label class="nw-checkbox-row nw-assist-dialog-toggle">
+							<input id="_assist_autostart" type="checkbox" ${deployment?.auto_start ? 'checked' : ''}> Start this deployment automatically on server startup
+						</label>
+					</section>
+				</div>
+			</div>
+		`;
+	}
+
 	async function _showAddDialog() {
 		const [channels, deployments] = await Promise.all([
 			_loadChannelChoices(),
 			_loadDeploymentChoices(),
 		]);
 		const currentWorkbench = _readWorkbenchContext();
-		const deploymentHint = deployments.length
-			? deployments.map((item) => `${item.id} (${item.name})`).join('\n')
-			: 'No existing deployments yet.';
-		_dialog('Add Assistant Deployment', `
-			<label>Name</label>
-			<input id="_assist_name" placeholder="Customer Support Assistant" autocomplete="off">
-			<label>Profile</label>
-			<input id="_assist_profile" value="general" placeholder="general" autocomplete="off">
-			<label>Description</label>
-			<input id="_assist_description" placeholder="Short operator-facing summary" autocomplete="off">
-			<label>Instructions</label>
-			<textarea id="_assist_instructions" rows="4" placeholder="Deployment-specific guidance for this assistant."></textarea>
-			<label>Linked Workbench</label>
-			<div class="nw-ext-note">Operator-facing link back to the space and workflow this deployment belongs to.</div>
-			<div class="nw-assist-link-grid">
-				<div>
-					<label>Space ID</label>
-					<input id="_assist_linked_space_id" value="${_esc(currentWorkbench.space_id || '')}" placeholder="Current space id" autocomplete="off">
-				</div>
-				<div>
-					<label>Space Title</label>
-					<input id="_assist_linked_space_title" value="${_esc(currentWorkbench.space_title || '')}" placeholder="Current space title" autocomplete="off">
-				</div>
-			</div>
-			<label>Workflow Name</label>
-			<input id="_assist_linked_workflow_name" value="${_esc(currentWorkbench.workflow_name || '')}" placeholder="Current workflow name" autocomplete="off">
-			<button type="button" class="nw-btn nw-btn-sm nw-btn-secondary" data-role="use-current-workbench">Use Current Workbench</button>
-			<label>Model Source</label>
-			<select id="_assist_model_source">
-				<option value="">Default</option>
-				<option value="ollama">ollama</option>
-				<option value="openai">openai</option>
-				<option value="anthropic">anthropic</option>
-			</select>
-			<label>Model Name</label>
-			<input id="_assist_model_name" placeholder="Leave empty to use the default model" autocomplete="off">
-			<label>Toolkits (comma-separated)</label>
-			<input id="_assist_toolkits" placeholder="channel_toolkit,file_toolkit" autocomplete="off">
-			<label>Skills (comma-separated)</label>
-			<input id="_assist_skills" placeholder="Leave empty to use active defaults" autocomplete="off">
-			<label>Handoff Selector</label>
-			<select id="_assist_handoff_selector_mode">
-				<option value="hybrid" selected>Hybrid: keywords first, workflow fallback</option>
-				<option value="keyword">Keyword only</option>
-				<option value="workflow">Workflow-backed selector</option>
-			</select>
-			<div class="nw-ext-note">Choose how this deployment decides handoffs. Hybrid keeps deterministic keyword matches and asks the workflow-backed selector only when keywords do not decide the route.</div>
-			<label>Selector Guidance</label>
-			<textarea id="_assist_handoff_selector_prompt" rows="2" placeholder="Optional guidance for semantic handoff selection, for example: route refund questions to billing even when users avoid the exact keyword."></textarea>
-			<label>Proactive Delivery</label>
-			<select id="_assist_proactive_delivery_mode">
-				<option value="auto">Send automatically</option>
-				<option value="approval">Require approval before sending</option>
-			</select>
-			<label>Tool Execution</label>
-			<select id="_assist_tool_execution_mode">
-				<option value="auto">Run tool calls automatically</option>
-				<option value="approval">Require approval before each tool call</option>
-			</select>
-			<label>Routing Rules</label>
-			<textarea id="_assist_routing" rows="4" placeholder="billing,invoice => deploy_ab12cd34&#10;support triage: refund,chargeback => deploy_ef56gh78"></textarea>
-			<div class="nw-ext-note"><div class="nw-ext-note-pre">Target deployment IDs for routing or handoff selection:
-${_esc(deploymentHint)}</div></div>
-			<label>Channels</label>
-			<div class="nw-ext-note">A channel can be bound to only one deployment at a time. If you choose a channel already in use, Numel will ask before reassigning it.</div>
-			<div data-role="channel-list">${_renderChannelCheckboxes(channels, [], deployments)}</div>
-			<label>Proactive Tasks</label>
-			<div class="nw-ext-note">Attach scheduled or event-driven jobs to this deployment. Starting or stopping the deployment pauses and resumes them.</div>
-			<div data-role="proactive-tasks" class="nw-assist-task-stack"></div>
-			<button type="button" class="nw-btn nw-btn-sm nw-btn-secondary" data-role="add-proactive-task">+ Add Proactive Task</button>
-			<label class="nw-checkbox-row">
-				<input id="_assist_autostart" type="checkbox"> Start this deployment automatically on server startup
-			</label>
-		`, async (overlay) => {
+		_dialog('Add Assistant Deployment', _renderDeploymentDialogBody({
+			channels,
+			deployments,
+			currentWorkbench,
+		}), async (overlay) => {
 			const payload = _collectDialogData(overlay);
 			if (!payload.name) throw new Error('Name is required');
 			const saved = await _saveDeploymentRequest('/assistant-deployments/create', payload);
@@ -1099,80 +1209,12 @@ ${_esc(deploymentHint)}</div></div>
 			_loadChannelChoices(),
 			_loadDeploymentChoices(),
 		]);
-		const deploymentHint = deployments
-			.filter((item) => item.id !== deploymentId)
-			.map((item) => `${item.id} (${item.name})`).join('\n') || 'No other deployments available.';
-		_dialog(`Edit: ${_esc(deployment.name || deployment.id)}`, `
-			<label>Name</label>
-			<input id="_assist_name" value="${_esc(deployment.name || '')}" autocomplete="off">
-			<label>Profile</label>
-			<input id="_assist_profile" value="${_esc(deployment.profile || 'general')}" autocomplete="off">
-			<label>Description</label>
-			<input id="_assist_description" value="${_esc(deployment.description || '')}" autocomplete="off">
-			<label>Instructions</label>
-			<textarea id="_assist_instructions" rows="4">${_esc(deployment.instructions || '')}</textarea>
-			<label>Linked Workbench</label>
-			<div class="nw-ext-note">Operator-facing link back to the space and workflow this deployment belongs to.</div>
-			<div class="nw-assist-link-grid">
-				<div>
-					<label>Space ID</label>
-					<input id="_assist_linked_space_id" value="${_esc(deployment.linked_space_id || '')}" autocomplete="off">
-				</div>
-				<div>
-					<label>Space Title</label>
-					<input id="_assist_linked_space_title" value="${_esc(deployment.linked_space_title || '')}" autocomplete="off">
-				</div>
-			</div>
-			<label>Workflow Name</label>
-			<input id="_assist_linked_workflow_name" value="${_esc(deployment.linked_workflow_name || '')}" autocomplete="off">
-			<button type="button" class="nw-btn nw-btn-sm nw-btn-secondary" data-role="use-current-workbench">Use Current Workbench</button>
-			<label>Model Source</label>
-			<select id="_assist_model_source">
-				<option value="" ${!deployment.model_source ? 'selected' : ''}>Default</option>
-				<option value="ollama" ${deployment.model_source === 'ollama' ? 'selected' : ''}>ollama</option>
-				<option value="openai" ${deployment.model_source === 'openai' ? 'selected' : ''}>openai</option>
-				<option value="anthropic" ${deployment.model_source === 'anthropic' ? 'selected' : ''}>anthropic</option>
-			</select>
-			<label>Model Name</label>
-			<input id="_assist_model_name" value="${_esc(deployment.model_name || '')}" autocomplete="off">
-			<label>Toolkits (comma-separated)</label>
-			<input id="_assist_toolkits" value="${_esc((deployment.toolkit_names || []).join(', '))}" autocomplete="off">
-			<label>Skills (comma-separated)</label>
-			<input id="_assist_skills" value="${_esc((deployment.skill_names || []).join(', '))}" autocomplete="off">
-			<label>Handoff Selector</label>
-			<select id="_assist_handoff_selector_mode">
-				<option value="hybrid" ${String(deployment.handoff_selector_mode || 'hybrid') === 'hybrid' ? 'selected' : ''}>Hybrid: keywords first, workflow fallback</option>
-				<option value="keyword" ${String(deployment.handoff_selector_mode || '') === 'keyword' ? 'selected' : ''}>Keyword only</option>
-				<option value="workflow" ${String(deployment.handoff_selector_mode || '') === 'workflow' ? 'selected' : ''}>Workflow-backed selector</option>
-			</select>
-			<div class="nw-ext-note">Choose how this deployment decides handoffs. Hybrid keeps deterministic keyword matches and asks the workflow-backed selector only when keywords do not decide the route.</div>
-			<label>Selector Guidance</label>
-			<textarea id="_assist_handoff_selector_prompt" rows="2">${_esc(deployment.handoff_selector_prompt || '')}</textarea>
-			<label>Proactive Delivery</label>
-			<select id="_assist_proactive_delivery_mode">
-				<option value="auto" ${deployment.safety?.proactive_delivery_mode !== 'approval' ? 'selected' : ''}>Send automatically</option>
-				<option value="approval" ${deployment.safety?.proactive_delivery_mode === 'approval' ? 'selected' : ''}>Require approval before sending</option>
-			</select>
-			<label>Tool Execution</label>
-			<select id="_assist_tool_execution_mode">
-				<option value="auto" ${deployment.safety?.tool_execution_mode !== 'approval' ? 'selected' : ''}>Run tool calls automatically</option>
-				<option value="approval" ${deployment.safety?.tool_execution_mode === 'approval' ? 'selected' : ''}>Require approval before each tool call</option>
-			</select>
-			<label>Routing Rules</label>
-			<textarea id="_assist_routing" rows="4">${_esc(_routingRulesToText(deployment.routing_rules || []))}</textarea>
-			<div class="nw-ext-note"><div class="nw-ext-note-pre">Target deployment IDs for routing or handoff selection:
-${_esc(deploymentHint)}</div></div>
-			<label>Channels</label>
-			<div class="nw-ext-note">A channel can be bound to only one deployment at a time. Choosing a channel already used elsewhere will ask before reassigning it.</div>
-			<div data-role="channel-list">${_renderChannelCheckboxes(channels, deployment.channel_ids || [], deployments, deploymentId)}</div>
-			<label>Proactive Tasks</label>
-			<div class="nw-ext-note">Attach scheduled or event-driven jobs to this deployment. Starting or stopping the deployment pauses and resumes them.</div>
-			<div data-role="proactive-tasks" class="nw-assist-task-stack"></div>
-			<button type="button" class="nw-btn nw-btn-sm nw-btn-secondary" data-role="add-proactive-task">+ Add Proactive Task</button>
-			<label class="nw-checkbox-row">
-				<input id="_assist_autostart" type="checkbox" ${deployment.auto_start ? 'checked' : ''}> Start this deployment automatically on server startup
-			</label>
-		`, async (overlay) => {
+		_dialog(`Edit: ${deployment.name || deployment.id}`, _renderDeploymentDialogBody({
+			deployment,
+			channels,
+			deployments,
+			deploymentId,
+		}), async (overlay) => {
 			const payload = _collectDialogData(overlay);
 			if (!payload.name) throw new Error('Name is required');
 			const saved = await _saveDeploymentRequest('/assistant-deployments/update', { id: deploymentId, ...payload });
@@ -1188,12 +1230,20 @@ ${_esc(deploymentHint)}</div></div>
 
 	function _dialog(title, bodyHtml, onSave, onReady) {
 		const overlay = document.createElement('div');
-		overlay.className = 'nw-admin-dialog-overlay';
+		overlay.className = 'nw-admin-dialog-overlay nw-assist-dialog-overlay';
 		overlay.innerHTML = `
-			<div class="nw-admin-dialog">
-				<h3>${title}</h3>
-				${bodyHtml}
-				<div class="nw-admin-dialog-btns">
+			<div class="nw-admin-dialog nw-assist-dialog" role="dialog" aria-modal="true" aria-label="${_esc(title)}">
+				<div class="nw-assist-dialog-header">
+					<div class="nw-assist-dialog-title-wrap">
+						<h3>${title}</h3>
+						<div class="nw-assist-dialog-subtitle">Deployable assistant settings, routing, safety, and proactive behavior in one place.</div>
+					</div>
+					<button class="nw-assist-dialog-close" type="button" aria-label="Close" data-role="cancel">&times;</button>
+				</div>
+				<div class="nw-assist-dialog-body">
+					${bodyHtml}
+				</div>
+				<div class="nw-admin-dialog-btns nw-assist-dialog-actions">
 					<button class="nw-btn nw-btn-sm nw-btn-secondary" data-role="cancel">Cancel</button>
 					<button class="nw-btn nw-btn-sm nw-btn-success" data-role="save">Save</button>
 				</div>
@@ -1201,7 +1251,9 @@ ${_esc(deploymentHint)}</div></div>
 		document.body.appendChild(overlay);
 		if (typeof onReady === 'function') onReady(overlay);
 
-		overlay.querySelector('[data-role="cancel"]').onclick = () => overlay.remove();
+		overlay.querySelectorAll('[data-role="cancel"]').forEach((btn) => {
+			btn.onclick = () => overlay.remove();
+		});
 		overlay.querySelector('[data-role="save"]').onclick = async () => {
 			try {
 				const result = await onSave(overlay);
