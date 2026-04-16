@@ -1227,7 +1227,11 @@ async def run_server(
 	assistant_deployment_mgr = AssistantDeploymentManager(
 		config_path=str(_runtime_settings.assistant_deployments_path)
 	)
-	assistant_deployment_mgr.initialize(channel_registry=channel_registry, channel_pool=channel_pool)
+	assistant_deployment_mgr.initialize(
+		channel_registry=channel_registry,
+		channel_pool=channel_pool,
+		event_bus=event_bus,
+	)
 	# Make shared runtime services available to workspace engines and agent pool
 	workspace_mgr.set_runtime_services(
 		channel_registry=channel_registry,
@@ -1272,6 +1276,7 @@ async def run_server(
 	console_mgr._channel_reg = channel_registry
 	console_mgr.set_skill_mgr(skill_mgr)
 	channel_pool.set_skill_mgr(skill_mgr)
+	assistant_deployment_mgr.set_skill_mgr(skill_mgr)
 	# Propagate skill_mgr to workspace manager and all existing workflow managers
 	workspace_mgr._skill_mgr = skill_mgr
 	for ws in workspace_mgr._workspaces.values():

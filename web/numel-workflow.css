@@ -3688,6 +3688,12 @@ body.nw-layout-project-workbench .nw-auth-title {
 	padding: 10px;
 	background: color-mix(in srgb, var(--sg-bg-secondary) 88%, var(--sg-accent-blue, #4a9eff) 12%);
 }
+.nw-assist-task-trigger-note {
+	margin: 6px 0 2px;
+	color: var(--sg-text-secondary);
+	font-size: 11px;
+	line-height: 1.4;
+}
 .nw-assist-task-header {
 	display: flex;
 	align-items: center;
@@ -3702,6 +3708,16 @@ body.nw-layout-project-workbench .nw-auth-title {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
 	gap: 10px;
+}
+.nw-assist-trigger-panel {
+	margin-top: 8px;
+	padding: 10px;
+	border: 1px solid color-mix(in srgb, var(--sg-border-color) 78%, transparent);
+	border-radius: 8px;
+	background: color-mix(in srgb, var(--sg-bg-tertiary) 88%, transparent);
+}
+.nw-assist-trigger-panel[hidden] {
+	display: none;
 }
 .nw-assist-approval-stack {
 	display: flex;

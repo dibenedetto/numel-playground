@@ -13,9 +13,16 @@ from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from assistant_network_workflow import build_assistant_network_workflow, parse_assistant_network_workflow_import
+from assistant_proactive_workflow import build_assistant_proactive_workflow
 from channels.base import ChannelConfig, ChannelStatus
+from event_bus import EventType
+from engine import WorkflowEngine
+from backend_factory import build_backend
 from runtime_settings import get_runtime_settings
+from runtime_toolkit_bindings import bind_runtime_toolkits_to_workflow
+from runtime_workflow import workflow_from_payload
 from utils import log_print
+from workflow_backed_runtime import run_workflow_backed_agent_turn
 
 
 _CONFIG_PATH = str(get_runtime_settings().assistant_deployments_path)
@@ -27,6 +34,13 @@ def _now_iso() -> str:
 
 def _proactive_key(deployment_id: str, task_id: str) -> str:
     return f"{deployment_id}:{task_id}"
+
+
+def _proactive_source_id(deployment_id: str, task_id: str) -> str:
+    return f"deploy_proactive_{deployment_id}_{task_id}"
+
+
+_PROACTIVE_TRIGGER_KINDS = {"timer", "fswatch", "webhook", "channel", "browser"}
 
 
 class AssistantRoutingRule(BaseModel):
@@ -42,6 +56,8 @@ class AssistantProactiveTask(BaseModel):
     name: str
     prompt: str
     interval_sec: int = 900
+    trigger_kind: str = "timer"
+    trigger: Optional[Dict[str, Any]] = None
     channel_id: Optional[str] = None
     recipient_id: Optional[str] = None
     enabled: bool = True
@@ -96,15 +112,41 @@ class AssistantDeploymentManager:
         self._tool_approval_history: List[Dict[str, Any]] = []
         self._proactive_runtime: Dict[str, Dict[str, Any]] = {}
         self._proactive_loops: Dict[str, asyncio.Task] = {}
+        self._proactive_event_bus = None
+        self._proactive_engine: Optional[WorkflowEngine] = None
+        self._proactive_execution_meta: Dict[str, Dict[str, Any]] = {}
+        self._proactive_execution_index: Dict[str, str] = {}
+        self._skill_mgr = None
 
-    def initialize(self, channel_registry=None, channel_pool=None):
+    def initialize(self, channel_registry=None, channel_pool=None, event_bus=None):
         self._channel_registry = channel_registry
         self._channel_pool = channel_pool
+        self._proactive_event_bus = event_bus
+        if event_bus is not None:
+            self._proactive_engine = WorkflowEngine(
+                event_bus,
+                channel_registry=channel_registry,
+                assistant_deployment_mgr=self,
+                channel_pool=channel_pool,
+            )
+            event_bus.subscribe(EventType.NODE_COMPLETED, self._on_proactive_node_completed)
+            event_bus.subscribe(EventType.WORKFLOW_COMPLETED, self._on_proactive_workflow_completed)
+            event_bus.subscribe(EventType.WORKFLOW_FAILED, self._on_proactive_workflow_failed)
+            event_bus.subscribe(EventType.WORKFLOW_CANCELLED, self._on_proactive_workflow_cancelled)
         self._load()
         log_print(f"Assistant deployments initialized ({len(self._deployments)} deployments)")
 
     def set_channel_pool(self, channel_pool) -> None:
         self._channel_pool = channel_pool
+        if self._proactive_engine is not None:
+            self._proactive_engine.set_runtime_services(
+                channel_registry=self._channel_registry,
+                assistant_deployment_mgr=self,
+                channel_pool=channel_pool,
+            )
+
+    def set_skill_mgr(self, skill_mgr) -> None:
+        self._skill_mgr = skill_mgr
 
     async def shutdown(self) -> None:
         await self._stop_all_proactive_tasks()
@@ -640,7 +682,63 @@ class AssistantDeploymentManager:
             task.prompt = str(task.prompt or "").strip()
             task.channel_id = (task.channel_id or "").strip() or None
             task.recipient_id = (task.recipient_id or "").strip() or None
-            task.interval_sec = max(30, int(task.interval_sec or 0))
+            task.trigger_kind = str(task.trigger_kind or "timer").strip().lower() or "timer"
+            if task.trigger is None:
+                trigger: Dict[str, Any] = {}
+            elif isinstance(task.trigger, dict):
+                trigger = dict(task.trigger)
+            else:
+                trigger = {"value": task.trigger}
+
+            if task.trigger_kind == "timer":
+                task.interval_sec = max(30, int(task.interval_sec or 0))
+                normalized_trigger: Dict[str, Any] = {"immediate": bool(trigger.get("immediate", False))}
+                if trigger.get("max_triggers") not in (None, ""):
+                    normalized_trigger["max_triggers"] = int(trigger.get("max_triggers") or -1)
+                task.trigger = normalized_trigger
+            elif task.trigger_kind == "fswatch":
+                task.interval_sec = max(0, int(task.interval_sec or 0))
+                task.trigger = {
+                    "path": str(trigger.get("path") or ".").strip() or ".",
+                    "recursive": bool(trigger.get("recursive", True)),
+                    "patterns": str(trigger.get("patterns") or "*").strip() or "*",
+                    "events": str(trigger.get("events") or "created,modified,deleted,moved").strip() or "created,modified,deleted,moved",
+                    "debounce_ms": max(0, int(trigger.get("debounce_ms") or 100)),
+                }
+            elif task.trigger_kind == "webhook":
+                task.interval_sec = max(0, int(task.interval_sec or 0))
+                normalized_trigger = {
+                    "endpoint": str(trigger.get("endpoint") or "").strip(),
+                    "methods": str(trigger.get("methods") or "POST").strip() or "POST",
+                }
+                if trigger.get("secret") not in (None, ""):
+                    normalized_trigger["secret"] = str(trigger.get("secret") or "")
+                task.trigger = normalized_trigger
+            elif task.trigger_kind == "channel":
+                task.interval_sec = max(0, int(task.interval_sec or 0))
+                normalized_trigger = {}
+                if trigger.get("channel_id") not in (None, ""):
+                    normalized_trigger["channel_id"] = str(trigger.get("channel_id") or "").strip()
+                if trigger.get("channel_types") not in (None, ""):
+                    normalized_trigger["channel_types"] = str(trigger.get("channel_types") or "").strip()
+                if trigger.get("sender_filter") not in (None, ""):
+                    normalized_trigger["sender_filter"] = str(trigger.get("sender_filter") or "").strip()
+                task.trigger = normalized_trigger or None
+            elif task.trigger_kind == "browser":
+                task.interval_sec = max(0, int(task.interval_sec or 0))
+                normalized_trigger = {
+                    "device_type": str(trigger.get("device_type") or "webcam").strip() or "webcam",
+                    "mode": str(trigger.get("mode") or "event").strip() or "event",
+                    "interval_ms": max(100, int(trigger.get("interval_ms") or 1000)),
+                }
+                if trigger.get("resolution") not in (None, ""):
+                    normalized_trigger["resolution"] = str(trigger.get("resolution") or "").strip()
+                if trigger.get("audio_format") not in (None, ""):
+                    normalized_trigger["audio_format"] = str(trigger.get("audio_format") or "").strip()
+                task.trigger = normalized_trigger
+            else:
+                task.interval_sec = max(0, int(task.interval_sec or 0))
+                task.trigger = trigger or None
             if not task.name or not task.prompt:
                 continue
             if task.id in seen_ids:
@@ -737,7 +835,7 @@ class AssistantDeploymentManager:
         if not task.enabled or deployment is None or not deployment.enabled:
             row["status"] = "stopped"
             row["next_run_at"] = None
-        elif key in self._proactive_loops and row.get("status") != "running":
+        elif self._is_proactive_task_scheduled(key) and row.get("status") != "running":
             row["status"] = "scheduled"
         return row
 
@@ -1116,18 +1214,57 @@ class AssistantDeploymentManager:
 
     async def _start_proactive_task(self, deployment: AssistantDeploymentConfig, task: AssistantProactiveTask) -> None:
         key = _proactive_key(deployment.id, task.id)
+        existing_meta = self._proactive_execution_meta.get(key)
+        if existing_meta and existing_meta.get("execution_id"):
+            return
         existing = self._proactive_loops.get(key)
         if existing and not existing.done():
             return
         runtime = self._proactive_runtime.setdefault(key, self._empty_proactive_runtime(task))
         runtime["status"] = "scheduled"
-        runtime["next_run_at"] = (datetime.now() + timedelta(seconds=max(30, task.interval_sec))).isoformat()
-        self._proactive_loops[key] = asyncio.create_task(self._proactive_loop(deployment.id, task.id))
+        runtime["next_run_at"] = self._next_proactive_run_at(task)
+        if self._proactive_engine is None or self._channel_pool is None:
+            if str(task.trigger_kind or "timer").strip().lower() != "timer":
+                self._mark_proactive_task_start_error(
+                    deployment.id,
+                    task,
+                    "This proactive trigger requires the workflow-backed event runtime.",
+                )
+                return
+            self._proactive_loops[key] = asyncio.create_task(self._proactive_loop(deployment.id, task.id))
+            return
+
+        try:
+            meta = await self._start_proactive_workflow(deployment, task)
+        except Exception as exc:
+            log_print(f"Assistant deployment proactive task failed to start ({deployment.id}/{task.id}): {exc}")
+            self._mark_proactive_task_start_error(deployment.id, task, str(exc))
+            return
+        self._proactive_execution_meta[key] = meta
+        self._proactive_execution_index[str(meta["execution_id"])] = key
 
     async def _stop_proactive_tasks(
         self, deployment_id: str, *, keep_task_ids: Optional[set[str]] = None
     ) -> None:
         prefix = f"{deployment_id}:"
+        execution_keys = [
+            key for key in list(self._proactive_execution_meta.keys())
+            if key.startswith(prefix) and (keep_task_ids is None or key.split(":", 1)[1] not in keep_task_ids)
+        ]
+        for key in execution_keys:
+            meta = self._proactive_execution_meta.pop(key, None) or {}
+            execution_id = str(meta.get("execution_id") or "")
+            if execution_id and self._proactive_engine is not None:
+                with contextlib.suppress(Exception):
+                    await self._proactive_engine.cancel_execution(execution_id)
+            if execution_id:
+                self._proactive_execution_index.pop(execution_id, None)
+            await self._unregister_proactive_sources(meta)
+            runtime = self._proactive_runtime.get(key)
+            if runtime is not None:
+                runtime["status"] = "stopped"
+                runtime["next_run_at"] = None
+
         keys = [
             key for key in list(self._proactive_loops.keys())
             if key.startswith(prefix) and (keep_task_ids is None or key.split(":", 1)[1] not in keep_task_ids)
@@ -1145,6 +1282,20 @@ class AssistantDeploymentManager:
                 runtime["next_run_at"] = None
 
     async def _stop_all_proactive_tasks(self) -> None:
+        for key, meta in list(self._proactive_execution_meta.items()):
+            execution_id = str(meta.get("execution_id") or "")
+            if execution_id and self._proactive_engine is not None:
+                with contextlib.suppress(Exception):
+                    await self._proactive_engine.cancel_execution(execution_id)
+            if execution_id:
+                self._proactive_execution_index.pop(execution_id, None)
+            await self._unregister_proactive_sources(meta)
+            runtime = self._proactive_runtime.get(key)
+            if runtime is not None:
+                runtime["status"] = "stopped"
+                runtime["next_run_at"] = None
+        self._proactive_execution_meta.clear()
+
         for key, task in list(self._proactive_loops.items()):
             self._proactive_loops.pop(key, None)
             task.cancel()
@@ -1154,6 +1305,99 @@ class AssistantDeploymentManager:
             if runtime is not None:
                 runtime["status"] = "stopped"
                 runtime["next_run_at"] = None
+
+    def _next_proactive_run_at(self, task: AssistantProactiveTask) -> Optional[str]:
+        if str(task.trigger_kind or "timer").strip().lower() == "timer":
+            return (datetime.now() + timedelta(seconds=max(30, int(task.interval_sec or 0)))).isoformat()
+        return None
+
+    def _is_proactive_task_scheduled(self, key: str) -> bool:
+        meta = self._proactive_execution_meta.get(key)
+        if meta and meta.get("execution_id"):
+            return True
+        task = self._proactive_loops.get(key)
+        return task is not None and not task.done()
+
+    async def _unregister_proactive_sources(self, meta: Dict[str, Any]) -> None:
+        source_ids = list(meta.get("source_ids") or [])
+        if not source_ids:
+            return
+        try:
+            from events import get_event_registry
+            registry = get_event_registry()
+        except Exception:
+            return
+        for source_id in source_ids:
+            if not source_id:
+                continue
+            with contextlib.suppress(Exception):
+                await registry.unregister(str(source_id))
+
+    async def _start_proactive_workflow(
+        self,
+        deployment: AssistantDeploymentConfig,
+        task: AssistantProactiveTask,
+    ) -> Dict[str, Any]:
+        if self._proactive_engine is None or self._channel_pool is None:
+            raise RuntimeError("Proactive workflow engine is not available")
+        import credentials as _creds
+
+        console_config = _creds.load_json(getattr(self._channel_pool, "_config_path"))
+        model_cfg = dict(console_config.get("model") or {})
+        options_cfg = dict(console_config.get("options") or {})
+        toolkit_names = list(
+            deployment.toolkit_names
+            or console_config.get("toolkits")
+            or ["console_toolkit"]
+        )
+        if getattr(self._channel_pool, "_ws_mgr", None) and "console_toolkit" not in toolkit_names:
+            toolkit_names = ["console_toolkit"] + list(toolkit_names)
+
+        source_id = _proactive_source_id(deployment.id, task.id)
+        trigger_config = {"source_id": source_id, **dict(task.trigger or {})}
+        built = build_assistant_proactive_workflow(
+            deployment_name=deployment.name,
+            deployment_profile=deployment.profile,
+            deployment_description=deployment.description or "",
+            deployment_instructions=deployment.instructions or "",
+            task_name=task.name,
+            task_prompt=task.prompt,
+            task_interval_sec=max(30, int(task.interval_sec or 0)),
+            model_source=deployment.model_source or model_cfg.get("source", "ollama"),
+            model_name=deployment.model_name or model_cfg.get("name", "mistral"),
+            toolkit_names=toolkit_names,
+            toolkit_args={},
+            skill_names=list(deployment.skill_names or []),
+            options_config=options_cfg,
+            trigger_kind=str(task.trigger_kind or "timer"),
+            trigger_config=trigger_config,
+        )
+        payload = bind_runtime_toolkits_to_workflow(
+            built["workflow"],
+            base_url=str(getattr(self._channel_pool, "_base_url", "http://localhost:11360")),
+            internal_token=str(getattr(self._channel_pool, "_internal_token", "") or ""),
+            user_id=deployment.created_by or f"deployment:{deployment.id}",
+            auth_token="",
+            local_app=getattr(self._channel_pool, "_fastapi_app", None),
+            channel_registry=getattr(self._channel_pool, "_channel_reg", None),
+            deployment_id=deployment.id,
+        )
+        workflow = workflow_from_payload(payload)
+        if workflow.options is None:
+            workflow.options = {"name": f"Proactive Runtime: {deployment.name} / {task.name}"}
+        backend = build_backend(workflow, skill_mgr=self._skill_mgr)
+        execution_id = await self._proactive_engine.start_workflow(workflow, backend)
+        return {
+            "execution_id": execution_id,
+            "deployment_id": deployment.id,
+            "task_id": task.id,
+            "task_name": task.name,
+            "response_node_index": int(built["response_node_index"]),
+            "source_ids": list(built.get("source_ids") or []),
+            "workflow_name": str((workflow.options or {}).name if hasattr((workflow.options or {}), "name") else (workflow.options.get("name") if isinstance(workflow.options, dict) else f"Proactive Runtime: {deployment.name} / {task.name}")),
+            "trigger_kind": str(task.trigger_kind or "timer"),
+            "reason": "interval" if str(task.trigger_kind or "timer") == "timer" else "trigger",
+        }
 
     def _resolve_proactive_task(
         self, deployment_id: str, task_id: str
@@ -1191,6 +1435,190 @@ class AssistantDeploymentManager:
                 runtime["next_run_at"] = None
             self._proactive_loops.pop(key, None)
 
+    async def _on_proactive_node_completed(self, event) -> None:
+        execution_id = str(getattr(event, "execution_id", "") or "")
+        key = self._proactive_execution_index.get(execution_id)
+        if not key:
+            return
+        meta = self._proactive_execution_meta.get(key) or {}
+        if str(getattr(event, "node_id", "") or "") != str(meta.get("response_node_index")):
+            return
+        deployment_id = str(meta.get("deployment_id") or "")
+        task_id = str(meta.get("task_id") or "")
+        deployment, task = self._resolve_proactive_task(deployment_id, task_id)
+        if deployment is None or task is None or not deployment.enabled or not task.enabled:
+            return
+        data = getattr(event, "data", None) or {}
+        outputs = data.get("outputs") if isinstance(data, dict) else {}
+        preview = ""
+        if isinstance(outputs, dict):
+            preview = str(outputs.get("output", "") or "")
+        await self._record_proactive_result(
+            deployment=deployment,
+            task=task,
+            reason=str(meta.get("reason") or "trigger"),
+            preview=preview,
+            error=None,
+            workflow_name=str(meta.get("workflow_name") or ""),
+            engine_execution_id=execution_id,
+        )
+
+    async def _on_proactive_workflow_completed(self, event) -> None:
+        execution_id = str(getattr(event, "execution_id", "") or "")
+        key = self._proactive_execution_index.pop(execution_id, None)
+        if not key:
+            return
+        meta = self._proactive_execution_meta.pop(key, None) or {}
+        await self._unregister_proactive_sources(meta)
+        runtime = self._proactive_runtime.get(key)
+        if runtime is not None:
+            runtime["status"] = "stopped"
+            runtime["next_run_at"] = None
+
+    async def _on_proactive_workflow_failed(self, event) -> None:
+        execution_id = str(getattr(event, "execution_id", "") or "")
+        key = self._proactive_execution_index.pop(execution_id, None)
+        if not key:
+            return
+        meta = self._proactive_execution_meta.pop(key, None) or {}
+        await self._unregister_proactive_sources(meta)
+        deployment_id = str(meta.get("deployment_id") or "")
+        task_id = str(meta.get("task_id") or "")
+        deployment, task = self._resolve_proactive_task(deployment_id, task_id)
+        if deployment is None or task is None:
+            return
+        await self._record_proactive_result(
+            deployment=deployment,
+            task=task,
+            reason=str(meta.get("reason") or "trigger"),
+            preview="",
+            error=str(getattr(event, "error", "") or "Workflow failed"),
+            workflow_name=str(meta.get("workflow_name") or ""),
+            engine_execution_id=execution_id,
+        )
+        runtime = self._proactive_runtime.get(key)
+        if runtime is not None:
+            runtime["status"] = "error"
+            runtime["next_run_at"] = None
+
+    async def _on_proactive_workflow_cancelled(self, event) -> None:
+        execution_id = str(getattr(event, "execution_id", "") or "")
+        key = self._proactive_execution_index.pop(execution_id, None)
+        if not key:
+            return
+        meta = self._proactive_execution_meta.pop(key, None) or {}
+        await self._unregister_proactive_sources(meta)
+        runtime = self._proactive_runtime.get(key)
+        if runtime is not None:
+            runtime["status"] = "stopped"
+            runtime["next_run_at"] = None
+
+    def _mark_proactive_task_start_error(
+        self,
+        deployment_id: str,
+        task: AssistantProactiveTask,
+        message: str,
+    ) -> None:
+        key = _proactive_key(deployment_id, task.id)
+        runtime = self._proactive_runtime.setdefault(key, self._empty_proactive_runtime(task))
+        runtime["status"] = "error"
+        runtime["next_run_at"] = None
+        runtime["last_error"] = str(message or "Unable to start proactive task")[:240]
+        stats = self._runtime_stats.setdefault(deployment_id, self._empty_runtime_stats())
+        stats["last_proactive_status"] = "error"
+        stats["last_proactive_task_id"] = task.id
+        stats["last_proactive_task_name"] = task.name
+        stats["last_proactive_error"] = runtime["last_error"]
+
+    async def _record_proactive_result(
+        self,
+        *,
+        deployment: AssistantDeploymentConfig,
+        task: AssistantProactiveTask,
+        reason: str,
+        preview: str,
+        error: Optional[str],
+        workflow_name: Optional[str],
+        engine_execution_id: Optional[str],
+    ) -> Dict[str, Any]:
+        key = _proactive_key(deployment.id, task.id)
+        runtime = self._proactive_runtime.setdefault(key, self._empty_proactive_runtime(task))
+        stats = self._runtime_stats.setdefault(deployment.id, self._empty_runtime_stats())
+        now = _now_iso()
+        delivered = False
+        pending_approval = False
+        approval_id = None
+        delivery_channel_id = None
+        delivery_recipient_id = None
+
+        if not error and task.send_response:
+            if deployment.safety.proactive_delivery_mode == "approval":
+                approval = self._create_pending_approval(
+                    deployment=deployment,
+                    task=task,
+                    response_text=preview,
+                    reason=reason,
+                )
+                approval_id = approval["id"]
+                pending_approval = True
+            else:
+                delivered, delivery_error, delivery_channel_id, delivery_recipient_id = await self._deliver_proactive_response(
+                    deployment,
+                    task,
+                    preview,
+                )
+                if delivery_error:
+                    error = delivery_error
+
+        runtime["run_count"] = int(runtime.get("run_count") or 0) + 1
+        runtime["last_run_at"] = now
+        runtime["last_status"] = "error" if error else ("pending_approval" if pending_approval else "ok")
+        runtime["last_preview"] = preview[:240]
+        runtime["last_error"] = error[:240] if error else None
+        runtime["last_delivery_channel_id"] = delivery_channel_id
+        runtime["last_delivery_recipient_id"] = delivery_recipient_id
+        runtime["last_delivered_at"] = now if delivered else None
+        runtime["last_approval_id"] = approval_id
+        runtime["status"] = "scheduled" if self._is_proactive_task_scheduled(key) else "stopped"
+        runtime["next_run_at"] = self._next_proactive_run_at(task) if self._is_proactive_task_scheduled(key) else None
+
+        stats["proactive_run_count"] = int(stats.get("proactive_run_count") or 0) + 1
+        stats["last_proactive_at"] = now
+        stats["last_proactive_status"] = "error" if error else ("pending_approval" if pending_approval else "ok")
+        stats["last_proactive_task_id"] = task.id
+        stats["last_proactive_task_name"] = task.name
+        stats["last_proactive_preview"] = preview[:240]
+        stats["last_proactive_error"] = error[:240] if error else None
+        stats["last_approval_id"] = approval_id
+        stats["last_approval_status"] = "pending" if pending_approval else None
+        stats["last_approval_at"] = now if pending_approval else stats.get("last_approval_at")
+        stats["pending_approval_count"] = len([
+            row for row in self._pending_proactive_approvals.values()
+            if row.get("deployment_id") == deployment.id
+        ])
+
+        event = {
+            "timestamp": now,
+            "deployment_id": deployment.id,
+            "task_id": task.id,
+            "task_name": task.name,
+            "trigger_kind": str(task.trigger_kind or "timer"),
+            "reason": reason,
+            "status": "error" if error else ("pending_approval" if pending_approval else "ok"),
+            "preview": preview[:240],
+            "error": error[:240] if error else None,
+            "delivered": delivered,
+            "approval_id": approval_id,
+            "channel_id": delivery_channel_id,
+            "recipient_id": delivery_recipient_id,
+            "workflow_backed": True,
+            "workflow_name": workflow_name,
+            "engine_execution_id": engine_execution_id,
+        }
+        self._proactive_history.append(event)
+        self._proactive_history = self._proactive_history[-100:]
+        return event
+
     async def _run_proactive_task(
         self, deployment: AssistantDeploymentConfig, task: AssistantProactiveTask, *, reason: str
     ) -> Dict[str, Any]:
@@ -1220,98 +1648,60 @@ class AssistantDeploymentManager:
 
         preview = ""
         error = None
-        delivered = False
-        pending_approval = False
-        approval_id = None
-        delivery_channel_id = None
-        delivery_recipient_id = None
 
+        result: Dict[str, Any] = {}
         try:
             if self._channel_pool is None:
                 raise RuntimeError("Assistant deployment pool is not available")
-            result = await self._channel_pool.chat(
-                message=task.prompt,
-                session_id=f"deploytask_{deployment.id}_{task.id}",
-                toolkits=list(deployment.toolkit_names) if deployment.toolkit_names else None,
-                sender_name=deployment.name,
-                user_id=deployment.created_by or f"deployment:{deployment.id}",
+            import credentials as _creds
+
+            console_config = _creds.load_json(getattr(self._channel_pool, "_config_path"))
+            model_cfg = dict(console_config.get("model") or {})
+            options_cfg = dict(console_config.get("options") or {})
+            toolkit_names = list(
+                deployment.toolkit_names
+                or console_config.get("toolkits")
+                or ["console_toolkit"]
+            )
+            if getattr(self._channel_pool, "_ws_mgr", None) and "console_toolkit" not in toolkit_names:
+                toolkit_names = ["console_toolkit"] + list(toolkit_names)
+
+            result = await run_workflow_backed_agent_turn(
+                workflow_name=f"Deployment Proactive Task: {deployment.name}",
+                request=task.prompt,
+                model_source=deployment.model_source or model_cfg.get("source", "ollama"),
+                model_name=deployment.model_name or model_cfg.get("name", "mistral"),
+                toolkit_names=toolkit_names,
+                toolkit_args={},
+                skill_names=list(deployment.skill_names or []),
+                options_config=options_cfg,
                 extra_instructions=extra_instructions,
-                model_source=deployment.model_source,
-                model_name=deployment.model_name,
-                skill_names=list(deployment.skill_names),
+                sender_name=deployment.name,
                 assistant_name=deployment.name,
                 assistant_description=deployment.description or None,
+                base_url=str(getattr(self._channel_pool, "_base_url", "http://localhost:11360")),
+                internal_token=str(getattr(self._channel_pool, "_internal_token", "") or ""),
+                user_id=deployment.created_by or f"deployment:{deployment.id}",
+                auth_token="",
+                local_app=getattr(self._channel_pool, "_fastapi_app", None),
+                channel_registry=getattr(self._channel_pool, "_channel_reg", None),
+                deployment_id=deployment.id,
             )
             if result.get("error"):
                 raise RuntimeError(str(result.get("error")))
             preview = str(result.get("response", "") or "")
-            if task.send_response:
-                if deployment.safety.proactive_delivery_mode == "approval":
-                    approval = self._create_pending_approval(
-                        deployment=deployment,
-                        task=task,
-                        response_text=preview,
-                        reason=reason,
-                    )
-                    approval_id = approval["id"]
-                    pending_approval = True
-                else:
-                    delivered, delivery_error, delivery_channel_id, delivery_recipient_id = await self._deliver_proactive_response(
-                        deployment,
-                        task,
-                        preview,
-                    )
-                    if delivery_error:
-                        error = delivery_error
         except Exception as exc:
             error = str(exc)
             preview = error
-
-        runtime["run_count"] = int(runtime.get("run_count") or 0) + 1
-        runtime["last_run_at"] = now
-        runtime["last_status"] = "error" if error else ("pending_approval" if pending_approval else "ok")
-        runtime["last_preview"] = preview[:240]
-        runtime["last_error"] = error[:240] if error else None
-        runtime["last_delivery_channel_id"] = delivery_channel_id
-        runtime["last_delivery_recipient_id"] = delivery_recipient_id
-        runtime["last_delivered_at"] = now if delivered else None
-        runtime["last_approval_id"] = approval_id
-        runtime["status"] = "scheduled" if key in self._proactive_loops else "stopped"
-        if key in self._proactive_loops:
-            runtime["next_run_at"] = (datetime.now() + timedelta(seconds=max(30, task.interval_sec))).isoformat()
-
-        stats["proactive_run_count"] = int(stats.get("proactive_run_count") or 0) + 1
-        stats["last_proactive_at"] = now
-        stats["last_proactive_status"] = "error" if error else ("pending_approval" if pending_approval else "ok")
-        stats["last_proactive_task_id"] = task.id
-        stats["last_proactive_task_name"] = task.name
-        stats["last_proactive_preview"] = preview[:240]
-        stats["last_proactive_error"] = error[:240] if error else None
-        stats["last_approval_id"] = approval_id
-        stats["last_approval_status"] = "pending" if pending_approval else None
-        stats["last_approval_at"] = now if pending_approval else stats.get("last_approval_at")
-        stats["pending_approval_count"] = len([
-            row for row in self._pending_proactive_approvals.values()
-            if row.get("deployment_id") == deployment.id
-        ])
-
-        event = {
-            "timestamp": now,
-            "deployment_id": deployment.id,
-            "task_id": task.id,
-            "task_name": task.name,
-            "reason": reason,
-            "status": "error" if error else ("pending_approval" if pending_approval else "ok"),
-            "preview": preview[:240],
-            "error": error[:240] if error else None,
-            "delivered": delivered,
-            "approval_id": approval_id,
-            "channel_id": delivery_channel_id,
-            "recipient_id": delivery_recipient_id,
-        }
-        self._proactive_history.append(event)
-        self._proactive_history = self._proactive_history[-100:]
-        return event
+        return await self._record_proactive_result(
+            deployment=deployment,
+            task=task,
+            reason=reason,
+            preview=preview,
+            error=error,
+            workflow_name=result.get("workflow_name") if isinstance(result, dict) else None,
+            engine_execution_id=result.get("engine_execution_id") if isinstance(result, dict) else None,
+        )
 
     async def _deliver_proactive_response(
         self,
@@ -1651,8 +2041,20 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
         user_id, is_admin = _get_user(request)
         allowed_channel_ids = set((deployment.channel_ids if deployment else []) or [])
         for task in proactive_tasks:
-            if task.interval_sec < 30:
+            trigger_kind = str(task.trigger_kind or "timer").strip().lower() or "timer"
+            if trigger_kind not in _PROACTIVE_TRIGGER_KINDS:
+                raise HTTPException(400, f"Proactive task '{task.name}' uses unsupported trigger kind '{trigger_kind}'")
+            if trigger_kind == "timer" and task.interval_sec < 30:
                 raise HTTPException(400, f"Proactive task '{task.name}' must use an interval of at least 30 seconds")
+            trigger = task.trigger if isinstance(task.trigger, dict) else {}
+            if trigger_kind == "channel":
+                trigger_channel_id = str(trigger.get("channel_id") or "").strip()
+                if trigger_channel_id:
+                    adapter = channel_registry.get(trigger_channel_id) if channel_registry else None
+                    if adapter is None:
+                        raise HTTPException(400, f"Unknown proactive trigger channel: {trigger_channel_id}")
+                    if not is_admin and adapter.config.created_by and adapter.config.created_by != user_id:
+                        raise HTTPException(403, f"Trigger channel '{trigger_channel_id}' belongs to another user")
             if not task.channel_id:
                 continue
             adapter = channel_registry.get(task.channel_id) if channel_registry else None

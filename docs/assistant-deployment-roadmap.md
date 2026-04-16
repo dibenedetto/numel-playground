@@ -1,6 +1,6 @@
 # Numel Assistant Deployment Roadmap
 
-_Last updated: April 12, 2026_
+_Last updated: April 16, 2026_
 
 This document defines the concrete roadmap slice for capturing the most useful
 OpenClaw-style strengths inside Numel without turning Numel into a copy of
@@ -249,6 +249,8 @@ Numel already has the ingredients. It needs a clearer product layer.
 - assistant-level schedules
 - assistant-level event subscriptions
 - proactive task definitions attached to deployments
+- proactive triggers expressed as real workflow source nodes plus `event_listener_flow`, not hidden timer-only config
+- deployment UI support for both scheduled and event-driven proactive tasks
 - pause/resume controls
 - basic recurrence summaries visible in the UI
 

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import time
 import unittest
 
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from console import ConsoleAgentManager, PlannerState
 from event_bus import EventBus
+from prompt_stack import PLANNER_MODE_DIRECTIVE
 
 
 class ConsolePlannerPauseTests(unittest.IsolatedAsyncioTestCase):
@@ -55,6 +58,20 @@ class ConsolePlannerPauseTests(unittest.IsolatedAsyncioTestCase):
 		event = SimpleNamespace(event_type="manager.workflow_added", data={"source": "planner"})
 		await self.manager._on_planner_event(event)
 		self.assertEqual(self.state.pending, [])
+
+	async def test_process_planner_events_uses_workflow_backed_turn(self) -> None:
+		self.state.pending = [{"type": "workflow.completed", "data": {"status": "ok"}}]
+		self.state.session_start = time.time()
+		self.manager._run_workflow_backed_console_turn = AsyncMock(return_value={"response": "planner ok", "tool_calls": []})
+		self.manager.push_proactive = AsyncMock()
+
+		await self.manager._process_planner_events(self.state.key)
+
+		self.manager._run_workflow_backed_console_turn.assert_awaited_once()
+		call = self.manager._run_workflow_backed_console_turn.await_args
+		self.assertEqual(call.kwargs["workflow_name"], "Planner Event Turn")
+		self.assertEqual(call.kwargs["extra_instructions"], [PLANNER_MODE_DIRECTIVE])
+		self.assertEqual(self.state.turn_count, 1)
 
 
 if __name__ == "__main__":

@@ -130,6 +130,45 @@ async function _post(path, body = {}) {
 		return `every ${value}s`;
 	}
 
+	function _taskTriggerKind(task = {}) {
+		return String(task?.trigger_kind || 'timer').trim().toLowerCase() || 'timer';
+	}
+
+	function _taskTriggerPayload(task = {}) {
+		return task?.trigger && typeof task.trigger === 'object' ? { ...task.trigger } : {};
+	}
+
+	function _taskTriggerLabel(task = {}) {
+		const kind = _taskTriggerKind(task);
+		const trigger = _taskTriggerPayload(task);
+		if (kind === 'timer') return _taskIntervalLabel(task.interval_sec);
+		if (kind === 'webhook') return trigger.endpoint ? `webhook ${trigger.endpoint}` : 'webhook trigger';
+		if (kind === 'channel') {
+			if (trigger.channel_id) return `channel ${trigger.channel_id}`;
+			if (trigger.channel_types) return `channel type ${trigger.channel_types}`;
+			return 'channel event';
+		}
+		if (kind === 'fswatch') return trigger.path ? `watch ${trigger.path}` : 'file watch';
+		if (kind === 'browser') return trigger.device_type ? `${trigger.device_type} event` : 'browser event';
+		return `${kind} trigger`;
+	}
+
+	function _proactiveTriggerHelp(kind) {
+		if (kind === 'timer') return 'Runs on a schedule.';
+		if (kind === 'webhook') return 'Runs when the generated webhook endpoint receives a request.';
+		if (kind === 'channel') return 'Runs when a selected channel or channel type receives a message.';
+		if (kind === 'fswatch') return 'Runs when the watched files or folders emit matching events.';
+		if (kind === 'browser') return 'Runs when a browser-captured source emits media or interaction events.';
+		return 'Runs when its configured trigger fires.';
+	}
+
+	function _renderChannelOptions(channels, selectedValue = '', emptyLabel = 'Select channel') {
+		return [
+			`<option value="">${_esc(emptyLabel)}</option>`,
+			...(channels || []).map((channel) => `<option value="${_esc(channel.id)}" ${channel.id === selectedValue ? 'selected' : ''}>${_esc(channel.name || channel.id)} (${_esc(channel.channel_type || 'channel')})</option>`),
+		].join('');
+	}
+
 	function _formatToolArgsPreview(value) {
 		if (!value || typeof value !== 'object') return '';
 		try {
@@ -146,7 +185,7 @@ async function _post(path, body = {}) {
 		return rows.map((task) => {
 			const runtime = task?.runtime || {};
 			const status = String(runtime.status || (task.enabled === false ? 'disabled' : 'stopped'));
-			return `${task.name} (${_taskIntervalLabel(task.interval_sec)} · ${status})`;
+			return `${task.name} (${_taskTriggerLabel(task)} · ${status})`;
 		}).join(' · ');
 	}
 
@@ -282,12 +321,20 @@ async function _post(path, body = {}) {
 
 	function _renderProactiveTaskRow(channels, task = {}) {
 		const selectedChannel = String(task.channel_id || '');
-		const options = [
+		const triggerKind = _taskTriggerKind(task);
+		const trigger = _taskTriggerPayload(task);
+		const deliveryOptions = [
 			'<option value="">Use first bound channel</option>',
 			...(channels || []).map((channel) => `<option value="${_esc(channel.id)}" ${channel.id === selectedChannel ? 'selected' : ''}>${_esc(channel.name || channel.id)} (${_esc(channel.channel_type || 'channel')})</option>`),
 		].join('');
+		const triggerChannelOptions = _renderChannelOptions(channels, String(trigger.channel_id || ''), 'Any visible channel');
+		const intervalValue = triggerKind === 'timer'
+			? String(Number(task.interval_sec || 900) || 900)
+			: String(Number(task.interval_sec || 0) || 0);
+		const maxTriggersRaw = trigger.max_triggers;
+		const maxTriggersValue = maxTriggersRaw == null ? '' : String(maxTriggersRaw);
 		return `
-			<div class="nw-assist-task-card" data-role="proactive-task" data-id="${_esc(task.id || '')}">
+			<div class="nw-assist-task-card" data-role="proactive-task" data-id="${_esc(task.id || '')}" data-trigger-kind="${_esc(triggerKind)}">
 				<div class="nw-assist-task-header">
 					<span>Proactive Task</span>
 					<button type="button" class="nw-btn nw-btn-sm nw-btn-secondary" data-role="remove-proactive-task">Remove</button>
@@ -298,16 +345,115 @@ async function _post(path, body = {}) {
 						<input data-field="name" value="${_esc(task.name || '')}" placeholder="Morning Summary" autocomplete="off">
 					</div>
 					<div>
-						<label>Interval (seconds)</label>
-						<input data-field="interval_sec" type="number" min="30" step="30" value="${_esc(String(task.interval_sec || 900))}" autocomplete="off">
+						<label>Trigger Type</label>
+						<select data-field="trigger_kind">
+							<option value="timer" ${triggerKind === 'timer' ? 'selected' : ''}>Timer</option>
+							<option value="webhook" ${triggerKind === 'webhook' ? 'selected' : ''}>Webhook</option>
+							<option value="channel" ${triggerKind === 'channel' ? 'selected' : ''}>Channel Event</option>
+							<option value="fswatch" ${triggerKind === 'fswatch' ? 'selected' : ''}>File Watch</option>
+							<option value="browser" ${triggerKind === 'browser' ? 'selected' : ''}>Browser Event</option>
+						</select>
 					</div>
 				</div>
+				<div class="nw-assist-task-trigger-note" data-role="trigger-summary">${_esc(_proactiveTriggerHelp(triggerKind))}</div>
 				<label>Prompt</label>
 				<textarea data-field="prompt" rows="3" placeholder="Summarize the latest inbound activity and send the top items.">${_esc(task.prompt || '')}</textarea>
+				<div class="nw-assist-trigger-panel" data-trigger-kind="timer" ${triggerKind === 'timer' ? '' : 'hidden'}>
+					<div class="nw-assist-task-grid">
+						<div>
+							<label>Interval (seconds)</label>
+							<input data-field="interval_sec" type="number" min="30" step="30" value="${_esc(intervalValue)}" autocomplete="off">
+						</div>
+						<div>
+							<label>Max Triggers</label>
+							<input data-trigger-field="max_triggers" type="number" value="${_esc(maxTriggersValue)}" placeholder="-1 for unlimited" autocomplete="off">
+						</div>
+					</div>
+					<label class="nw-checkbox-row">
+						<input data-trigger-field="immediate" type="checkbox" ${trigger.immediate ? 'checked' : ''}> Fire immediately when the deployment starts
+					</label>
+				</div>
+				<div class="nw-assist-trigger-panel" data-trigger-kind="webhook" ${triggerKind === 'webhook' ? '' : 'hidden'}>
+					<div class="nw-assist-task-grid">
+						<div>
+							<label>Endpoint</label>
+							<input data-trigger-field="endpoint" value="${_esc(trigger.endpoint || '')}" placeholder="/hook/ops-digest" autocomplete="off">
+						</div>
+						<div>
+							<label>Methods</label>
+							<input data-trigger-field="methods" value="${_esc(trigger.methods || 'POST')}" placeholder="POST" autocomplete="off">
+						</div>
+					</div>
+					<label>Secret</label>
+					<input data-trigger-field="secret" value="${_esc(trigger.secret || '')}" placeholder="Optional shared secret" autocomplete="off">
+				</div>
+				<div class="nw-assist-trigger-panel" data-trigger-kind="channel" ${triggerKind === 'channel' ? '' : 'hidden'}>
+					<div class="nw-assist-task-grid">
+						<div>
+							<label>Trigger Channel</label>
+							<select data-trigger-field="channel_id">${triggerChannelOptions}</select>
+						</div>
+						<div>
+							<label>Channel Types</label>
+							<input data-trigger-field="channel_types" value="${_esc(trigger.channel_types || '')}" placeholder="telegram,webhook" autocomplete="off">
+						</div>
+					</div>
+					<label>Sender Filter</label>
+					<input data-trigger-field="sender_filter" value="${_esc(trigger.sender_filter || '')}" placeholder="Optional regex or sender id" autocomplete="off">
+				</div>
+				<div class="nw-assist-trigger-panel" data-trigger-kind="fswatch" ${triggerKind === 'fswatch' ? '' : 'hidden'}>
+					<div class="nw-assist-task-grid">
+						<div>
+							<label>Path</label>
+							<input data-trigger-field="path" value="${_esc(trigger.path || '.')}" placeholder="storage/knowledge_inbox" autocomplete="off">
+						</div>
+						<div>
+							<label>Patterns</label>
+							<input data-trigger-field="patterns" value="${_esc(trigger.patterns || '*')}" placeholder="*.txt,*.md" autocomplete="off">
+						</div>
+					</div>
+					<div class="nw-assist-task-grid">
+						<div>
+							<label>Events</label>
+							<input data-trigger-field="events" value="${_esc(trigger.events || 'created,modified,deleted,moved')}" placeholder="created,modified" autocomplete="off">
+						</div>
+						<div>
+							<label>Debounce (ms)</label>
+							<input data-trigger-field="debounce_ms" type="number" min="0" step="50" value="${_esc(String(trigger.debounce_ms ?? 100))}" autocomplete="off">
+						</div>
+					</div>
+					<label class="nw-checkbox-row">
+						<input data-trigger-field="recursive" type="checkbox" ${trigger.recursive === false ? '' : 'checked'}> Watch subfolders recursively
+					</label>
+				</div>
+				<div class="nw-assist-trigger-panel" data-trigger-kind="browser" ${triggerKind === 'browser' ? '' : 'hidden'}>
+					<div class="nw-assist-task-grid">
+						<div>
+							<label>Device Type</label>
+							<input data-trigger-field="device_type" value="${_esc(trigger.device_type || 'webcam')}" placeholder="webcam" autocomplete="off">
+						</div>
+						<div>
+							<label>Mode</label>
+							<input data-trigger-field="mode" value="${_esc(trigger.mode || 'event')}" placeholder="event" autocomplete="off">
+						</div>
+					</div>
+					<div class="nw-assist-task-grid">
+						<div>
+							<label>Interval (ms)</label>
+							<input data-trigger-field="interval_ms" type="number" min="100" step="100" value="${_esc(String(trigger.interval_ms ?? 1000))}" autocomplete="off">
+						</div>
+						<div>
+							<label>Resolution</label>
+							<input data-trigger-field="resolution" value="${_esc(trigger.resolution || '')}" placeholder="1280x720" autocomplete="off">
+						</div>
+					</div>
+					<label>Audio Format</label>
+					<input data-trigger-field="audio_format" value="${_esc(trigger.audio_format || '')}" placeholder="Optional audio format" autocomplete="off">
+				</div>
 				<div class="nw-assist-task-grid">
 					<div>
 						<label>Delivery Channel</label>
-						<select data-field="channel_id">${options}</select>
+						<select data-field="channel_id">${deliveryOptions}</select>
 					</div>
 					<div>
 						<label>Recipient ID</label>
@@ -323,23 +469,35 @@ async function _post(path, body = {}) {
 			</div>`;
 	}
 
+	function _applyProactiveTaskTriggerUi(row) {
+		if (!row) return;
+		const kind = String(row.querySelector('[data-field="trigger_kind"]')?.value || 'timer').trim().toLowerCase() || 'timer';
+		row.dataset.triggerKind = kind;
+		row.querySelectorAll('[data-trigger-kind]').forEach((panel) => {
+			panel.hidden = panel.dataset.triggerKind !== kind;
+		});
+		const summary = row.querySelector('[data-role="trigger-summary"]');
+		if (summary) summary.textContent = _proactiveTriggerHelp(kind);
+	}
+
 	function _mountProactiveTaskEditor(dialog, channels, tasks = []) {
 		const container = dialog.querySelector('[data-role="proactive-tasks"]');
 		const addBtn = dialog.querySelector('[data-role="add-proactive-task"]');
 		if (!container || !addBtn) return;
 		const ensureEmptyState = () => {
 			if (container.querySelector('[data-role="proactive-task"]')) return;
-			container.innerHTML = '<div class="nw-ext-note">No proactive tasks yet. Add one to let this deployment run itself on a schedule.</div>';
+			container.innerHTML = '<div class="nw-ext-note">No proactive tasks yet. Add one to let this deployment run on a schedule or in response to events.</div>';
 		};
 		const appendRow = (task = {}) => {
 			const placeholder = container.querySelector('.nw-ext-note');
 			if (placeholder) placeholder.remove();
 			container.insertAdjacentHTML('beforeend', _renderProactiveTaskRow(channels, task));
+			_applyProactiveTaskTriggerUi(container.lastElementChild);
 		};
 		container.innerHTML = '';
 		(Array.isArray(tasks) ? tasks : []).forEach((task) => appendRow(task));
 		ensureEmptyState();
-		addBtn.onclick = () => appendRow({ interval_sec: 900, enabled: true, send_response: true });
+		addBtn.onclick = () => appendRow({ trigger_kind: 'timer', interval_sec: 900, enabled: true, send_response: true });
 		container.addEventListener('click', (event) => {
 			const btn = event.target.closest('[data-role="remove-proactive-task"]');
 			if (!btn) return;
@@ -347,16 +505,73 @@ async function _post(path, body = {}) {
 			if (row) row.remove();
 			ensureEmptyState();
 		});
+		container.addEventListener('change', (event) => {
+			const select = event.target.closest('[data-field="trigger_kind"]');
+			if (!select) return;
+			_applyProactiveTaskTriggerUi(select.closest('[data-role="proactive-task"]'));
+		});
 	}
 
 	function _collectProactiveTasks(dialog) {
 		return Array.from(dialog.querySelectorAll('[data-role="proactive-task"]')).map((row) => {
-			const intervalRaw = row.querySelector('[data-field="interval_sec"]')?.value;
+			const triggerKind = String(row.querySelector('[data-field="trigger_kind"]')?.value || 'timer').trim().toLowerCase() || 'timer';
+			const trigger = {};
+			let intervalSec = 0;
+			if (triggerKind === 'timer') {
+				const intervalRaw = row.querySelector('[data-field="interval_sec"]')?.value;
+				intervalSec = Math.max(30, Number(intervalRaw || 0) || 0);
+				trigger.immediate = !!row.querySelector('[data-trigger-field="immediate"]')?.checked;
+				const maxTriggersRaw = row.querySelector('[data-trigger-field="max_triggers"]')?.value;
+				if (String(maxTriggersRaw || '').trim() !== '') {
+					trigger.max_triggers = Number(maxTriggersRaw || -1) || -1;
+				}
+			} else if (triggerKind === 'webhook') {
+				const endpoint = row.querySelector('[data-trigger-field="endpoint"]')?.value.trim() || '';
+				const methods = row.querySelector('[data-trigger-field="methods"]')?.value.trim() || '';
+				const secret = row.querySelector('[data-trigger-field="secret"]')?.value.trim() || '';
+				if (endpoint) trigger.endpoint = endpoint;
+				if (methods) trigger.methods = methods;
+				if (secret) trigger.secret = secret;
+			} else if (triggerKind === 'channel') {
+				const triggerChannel = row.querySelector('[data-trigger-field="channel_id"]')?.value.trim() || '';
+				const channelTypes = row.querySelector('[data-trigger-field="channel_types"]')?.value.trim() || '';
+				const senderFilter = row.querySelector('[data-trigger-field="sender_filter"]')?.value.trim() || '';
+				if (triggerChannel) trigger.channel_id = triggerChannel;
+				if (channelTypes) trigger.channel_types = channelTypes;
+				if (senderFilter) trigger.sender_filter = senderFilter;
+			} else if (triggerKind === 'fswatch') {
+				const path = row.querySelector('[data-trigger-field="path"]')?.value.trim() || '';
+				const patterns = row.querySelector('[data-trigger-field="patterns"]')?.value.trim() || '';
+				const events = row.querySelector('[data-trigger-field="events"]')?.value.trim() || '';
+				const debounceMs = row.querySelector('[data-trigger-field="debounce_ms"]')?.value;
+				if (path) trigger.path = path;
+				if (patterns) trigger.patterns = patterns;
+				if (events) trigger.events = events;
+				trigger.recursive = !!row.querySelector('[data-trigger-field="recursive"]')?.checked;
+				if (String(debounceMs || '').trim() !== '') {
+					trigger.debounce_ms = Math.max(0, Number(debounceMs || 0) || 0);
+				}
+			} else if (triggerKind === 'browser') {
+				const deviceType = row.querySelector('[data-trigger-field="device_type"]')?.value.trim() || '';
+				const mode = row.querySelector('[data-trigger-field="mode"]')?.value.trim() || '';
+				const intervalMs = row.querySelector('[data-trigger-field="interval_ms"]')?.value;
+				const resolution = row.querySelector('[data-trigger-field="resolution"]')?.value.trim() || '';
+				const audioFormat = row.querySelector('[data-trigger-field="audio_format"]')?.value.trim() || '';
+				if (deviceType) trigger.device_type = deviceType;
+				if (mode) trigger.mode = mode;
+				if (String(intervalMs || '').trim() !== '') {
+					trigger.interval_ms = Math.max(100, Number(intervalMs || 0) || 0);
+				}
+				if (resolution) trigger.resolution = resolution;
+				if (audioFormat) trigger.audio_format = audioFormat;
+			}
 			return {
 				id: row.dataset.id || undefined,
 				name: row.querySelector('[data-field="name"]')?.value.trim(),
 				prompt: row.querySelector('[data-field="prompt"]')?.value.trim(),
-				interval_sec: Math.max(30, Number(intervalRaw || 0) || 0),
+				trigger_kind: triggerKind,
+				trigger: Object.keys(trigger).length ? trigger : undefined,
+				interval_sec: intervalSec,
 				channel_id: row.querySelector('[data-field="channel_id"]')?.value.trim() || '',
 				recipient_id: row.querySelector('[data-field="recipient_id"]')?.value.trim() || '',
 				enabled: !!row.querySelector('[data-field="enabled"]')?.checked,
@@ -837,7 +1052,7 @@ ${_esc(deploymentHint)}</div></div>
 			<div class="nw-ext-note">A channel can be bound to only one deployment at a time. If you choose a channel already in use, Numel will ask before reassigning it.</div>
 			<div data-role="channel-list">${_renderChannelCheckboxes(channels, [], deployments)}</div>
 			<label>Proactive Tasks</label>
-			<div class="nw-ext-note">Attach recurring jobs to this deployment. Starting or stopping the deployment pauses and resumes them.</div>
+			<div class="nw-ext-note">Attach scheduled or event-driven jobs to this deployment. Starting or stopping the deployment pauses and resumes them.</div>
 			<div data-role="proactive-tasks" class="nw-assist-task-stack"></div>
 			<button type="button" class="nw-btn nw-btn-sm nw-btn-secondary" data-role="add-proactive-task">+ Add Proactive Task</button>
 			<label class="nw-checkbox-row">
@@ -921,7 +1136,7 @@ ${_esc(deploymentHint)}</div></div>
 			<div class="nw-ext-note">A channel can be bound to only one deployment at a time. Choosing a channel already used elsewhere will ask before reassigning it.</div>
 			<div data-role="channel-list">${_renderChannelCheckboxes(channels, deployment.channel_ids || [], deployments, deploymentId)}</div>
 			<label>Proactive Tasks</label>
-			<div class="nw-ext-note">Attach recurring jobs to this deployment. Starting or stopping the deployment pauses and resumes them.</div>
+			<div class="nw-ext-note">Attach scheduled or event-driven jobs to this deployment. Starting or stopping the deployment pauses and resumes them.</div>
 			<div data-role="proactive-tasks" class="nw-assist-task-stack"></div>
 			<button type="button" class="nw-btn nw-btn-sm nw-btn-secondary" data-role="add-proactive-task">+ Add Proactive Task</button>
 			<label class="nw-checkbox-row">

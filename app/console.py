@@ -35,10 +35,12 @@ from   console_workflow               import build_console_workflow_export, pars
 from   memory                          import MemoryStore
 from   prompt_stack                    import PLANNER_MODE_DIRECTIVE, extend_instruction_block
 from   runtime_settings                import get_runtime_settings
+from   runtime_toolkit_bindings        import build_runtime_toolkit_args
 from   schema                          import DEFAULT_BACKEND_NAME
 from   toolkit_runtime                 import build_toolkit_record_from_instance, load_numel_toolkit
 from   toolkits.console_toolkit        import ConsoleToolkit
 from   utils                           import log_print
+from   workflow_backed_runtime         import run_workflow_backed_agent_turn
 
 
 _CONFIG_PATH = str(get_runtime_settings().console_agent_config_path)
@@ -123,17 +125,15 @@ def _toolkit_runtime_args(
 	deployment_id: Optional[str] = None,
 ) -> Dict[str, Any]:
 	"""Provide runtime-only constructor args for toolkits that need Numel app context."""
-	args: Dict[str, Any] = {}
-	if tk_name in {"workspace_toolkit", "agent_endpoint_toolkit"}:
-		args.setdefault("base_url", base_url)
-		args.setdefault("internal_token", internal_token)
-		args.setdefault("user_id", user_id)
-		args.setdefault("local_app", local_app)
-		if auth_token:
-			args.setdefault("auth_token", auth_token)
-	if tk_name == "agent_endpoint_toolkit" and deployment_id:
-		args.setdefault("deployment_id", deployment_id)
-	return args
+	return build_runtime_toolkit_args(
+		tk_name,
+		base_url=base_url,
+		internal_token=internal_token,
+		user_id=user_id,
+		auth_token=auth_token,
+		local_app=local_app,
+		deployment_id=deployment_id,
+	)
 
 
 def _remove_sqlite_sidecars(db_path: str) -> None:
@@ -617,6 +617,81 @@ class ConsoleAgentManager:
 		)
 		return dict(effective_config.get("options") or {})
 
+	def _current_runtime_console_state(self) -> Dict[str, Any]:
+		import credentials as _creds
+
+		config = getattr(self, "_config", None) or _creds.load_json(self._config_path)
+		effective_config = self._build_effective_console_config(
+			config=config,
+			options_override=self._options_override,
+			memory_override=self._memory_override,
+		)
+		model_cfg = dict(effective_config.get("model") or config.get("model") or {})
+		toolkit_names = list(self._toolkit_names or effective_config.get("toolkits") or ["console_toolkit"])
+		if "console_toolkit" not in toolkit_names:
+			toolkit_names = ["console_toolkit"] + list(toolkit_names)
+		return {
+			"config": config,
+			"effective_config": effective_config,
+			"model_source": self._model_source or model_cfg.get("source", "ollama"),
+			"model_name": self._model_name or model_cfg.get("name", "mistral"),
+			"toolkit_names": toolkit_names,
+			"toolkit_args": dict(self._toolkit_args or {}),
+			"skill_names": list(self._skill_names or []),
+			"options": dict(effective_config.get("options") or {}),
+		}
+
+	async def _run_workflow_backed_console_turn(
+		self,
+		*,
+		message: str,
+		user_id: Optional[str] = None,
+		auth_token: str = "",
+		extra_instructions: Optional[List[str]] = None,
+		workflow_name: str = "Console Agent Turn",
+		sender_name: Optional[str] = None,
+		assistant_name: Optional[str] = None,
+		assistant_description: Optional[str] = None,
+		include_context: bool = False,
+	) -> Dict[str, Any]:
+		state = self._current_runtime_console_state()
+		options = dict(state.get("options") or {})
+		augmented = message
+		if include_context:
+			try:
+				ctx = await self.get_context(user_id=user_id)
+				parts = []
+				if ctx.get("context"):
+					parts.append(f"[Current space state]\n{ctx['context']}")
+				if parts:
+					augmented = "\n\n".join(parts) + f"\n\n[User message]\n{message}"
+			except Exception as exc:
+				log_print(f"Workflow-backed console turn: context augmentation failed: {exc}")
+
+		result = await run_workflow_backed_agent_turn(
+			workflow_name=workflow_name,
+			request=augmented,
+			model_source=str(state["model_source"]),
+			model_name=str(state["model_name"]),
+			toolkit_names=list(state["toolkit_names"]),
+			toolkit_args=dict(state["toolkit_args"]),
+			skill_names=list(state["skill_names"]),
+			options_config=options,
+			extra_instructions=list(extra_instructions or []),
+			sender_name=sender_name,
+			assistant_name=assistant_name or str(options.get("name") or "Numel Assistant"),
+			assistant_description=assistant_description if assistant_description is not None else str(options.get("description") or ""),
+			base_url=self._base_url,
+			internal_token=self._internal_token,
+			user_id=user_id,
+			auth_token=auth_token or self._auth_token,
+			local_app=self._fastapi_app,
+			channel_registry=getattr(self, "_channel_reg", None),
+			backend_name=DEFAULT_BACKEND_NAME,
+		)
+		result.setdefault("tool_calls", [])
+		return result
+
 	def build_workflow_export(self) -> Dict[str, Any]:
 		"""Materialize the current console assistant configuration as a workflow payload."""
 		import credentials as _creds
@@ -911,36 +986,17 @@ class ConsoleAgentManager:
 			# Acquire workflow lock for exclusive access during planner modifications
 			async with self._workflow_lock:
 				try:
-					# Use pool agent if available (per-user memory), else fall back to singleton
-					if self._channel_pool and ps.user_id:
-						# Augment message with planner context (pool agent has no built-in injection)
-						augmented = message
-						try:
-							ctx = await self.get_context(user_id=ps.user_id)
-							parts = []
-							if ctx.get("context"):
-								parts.append(f"[Current space state]\n{ctx['context']}")
-							if parts:
-								augmented = "\n\n".join(parts) + f"\n\n{message}"
-						except Exception:
-							pass
-						_planner_directive = [PLANNER_MODE_DIRECTIVE]
-						pool_session = f"planner_{ps.key}"
-						result = await asyncio.wait_for(
-							self._channel_pool.chat(
-								augmented, pool_session,
-								toolkits=list(self._toolkit_names),
-								sender_name="Planner",
-								user_id=ps.user_id,
-								extra_instructions=_planner_directive,
-							),
-							timeout=ps.timeout,
-						)
-					else:
-						result = await asyncio.wait_for(
-							self.chat(message, session_id=ps.session_id, include_context=True),
-							timeout=ps.timeout,
-						)
+					result = await asyncio.wait_for(
+						self._run_workflow_backed_console_turn(
+							message=message,
+							user_id=ps.user_id,
+							extra_instructions=[PLANNER_MODE_DIRECTIVE],
+							workflow_name="Planner Event Turn",
+							sender_name="Planner",
+							include_context=True,
+						),
+						timeout=ps.timeout,
+					)
 					ps.turn_count += 1
 					response = result.get("response", "")
 					if response:
@@ -1791,38 +1847,16 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 			if ps:
 				ps.session_start = time.time()
 				ps.turn_count = 0
-				# Use pool agent for planner chat (per-user memory)
-				if channel_pool and user_id:
-					# Augment message with planner context (pool agent has no built-in injection)
-					augmented = request.message
-					try:
-						ctx = await console_mgr.get_context(user_id=user_id)
-						parts = []
-						if ctx.get("context"):
-							parts.append(f"[Current space state]\n{ctx['context']}")
-						if parts:
-							augmented = "\n\n".join(parts) + f"\n\n[User message]\n{request.message}"
-					except Exception as e:
-						log_print(f"Planner context augmentation failed: {e}")
-					log_print(f"Planner augmented msg length: {len(augmented)} chars, starts: {augmented[:200]}...")
-					pool_session = f"planner_{ps.key}"
-					_token = req.headers.get("authorization", "").removeprefix("Bearer ").strip()
-					_planner_directive = [PLANNER_MODE_DIRECTIVE]
-					result = await channel_pool.chat(
-						message     = augmented,
-						session_id  = pool_session,
-						toolkits    = list(console_mgr._toolkit_names),
-						sender_name = sender_name,
-						user_id     = user_id,
-						auth_token  = _token or None,
-						extra_instructions = _planner_directive,
-					)
-				else:
-					result = await console_mgr.chat(
-						message         = request.message,
-						session_id      = ps.session_id,
-						include_context = request.include_context,
-					)
+				_token = req.headers.get("authorization", "").removeprefix("Bearer ").strip()
+				result = await console_mgr._run_workflow_backed_console_turn(
+					message=request.message,
+					user_id=user_id,
+					auth_token=_token or "",
+					extra_instructions=[PLANNER_MODE_DIRECTIVE],
+					workflow_name="Planner User Turn",
+					sender_name=sender_name,
+					include_context=request.include_context,
+				)
 				result["session_id"] = session_id
 				return result
 

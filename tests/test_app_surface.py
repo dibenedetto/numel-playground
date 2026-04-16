@@ -973,7 +973,9 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
                     {
                         "name": "Morning Summary",
                         "prompt": "Summarize the top overnight issues.",
-                        "interval_sec": 900,
+                        "interval_sec": 0,
+                        "trigger_kind": "channel",
+                        "trigger": {"channel_id": channel_id, "sender_filter": "^ops_"},
                         "channel_id": channel_id,
                         "enabled": True,
                         "send_response": True,
@@ -1004,7 +1006,13 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("channel_runtime_config", node_types)
         self.assertIn("assistant_route_runtime_config", node_types)
         self.assertIn("assistant_proactive_runtime_config", node_types)
+        self.assertIn("channel_receive_flow", node_types)
+        self.assertIn("event_listener_flow", node_types)
         self.assertNotIn("assistant_approval_runtime_config", node_types)
+        proactive_node = next(node for node in workflow["nodes"] if node["type"] == "assistant_proactive_runtime_config")
+        self.assertEqual(proactive_node["trigger_kind"], "channel")
+        self.assertEqual(proactive_node["trigger"], {"channel_id": channel_id, "sender_filter": "^ops_"})
+        self.assertEqual(proactive_node["interval_sec"], 0)
 
         target_slots = [edge["target_slot"] for edge in workflow["edges"]]
         self.assertTrue(any(slot.startswith("bound_channels.") for slot in target_slots))
@@ -1119,12 +1127,30 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
                 "task_id": task_id,
                 "name": "Daily Digest",
                 "prompt": "Summarize open support requests.",
-                "interval_sec": 1800,
+                "interval_sec": 0,
                 "channel_id": channel_id,
                 "recipient_id": "ops-room",
                 "enabled": True,
                 "send_response": True,
-                "extra": {"pos": [520, 340], "name": "Daily Digest"},
+                "extra": {"pos": [760, 340], "name": "Daily Digest"},
+            }
+        )
+        source_index = len(workflow["nodes"])
+        workflow["nodes"].append(
+            {
+                "type": "webhook_source_flow",
+                "source_id": "deploy_proactive_manual",
+                "endpoint": "/hook/support-digest",
+                "methods": "POST",
+                "extra": {"pos": [280, 340], "name": "Daily Digest Trigger"},
+            }
+        )
+        listener_index = len(workflow["nodes"])
+        workflow["nodes"].append(
+            {
+                "type": "event_listener_flow",
+                "mode": "any",
+                "extra": {"pos": [520, 340], "name": "Daily Digest Listener"},
             }
         )
         workflow["edges"].append(
@@ -1149,6 +1175,38 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
                 "target": frontdoor_index,
                 "source_slot": "config",
                 "target_slot": "proactive_tasks.daily_digest",
+            }
+        )
+        workflow["edges"].append(
+            {
+                "source": source_index,
+                "target": listener_index,
+                "source_slot": "registered_id",
+                "target_slot": "sources.trigger",
+            }
+        )
+        workflow["edges"].append(
+            {
+                "source": source_index,
+                "target": listener_index,
+                "source_slot": "flow_out",
+                "target_slot": "flow_in",
+            }
+        )
+        workflow["edges"].append(
+            {
+                "source": listener_index,
+                "target": task_index,
+                "source_slot": "event",
+                "target_slot": "trigger_event",
+            }
+        )
+        workflow["edges"].append(
+            {
+                "source": listener_index,
+                "target": task_index,
+                "source_slot": "source_id",
+                "target_slot": "trigger_source_id",
             }
         )
 
@@ -1187,6 +1245,9 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(frontdoor["routing_rules"][0]["keywords"], ["invoice", "refund"])
         self.assertEqual(len(frontdoor["proactive_tasks"]), 1)
         self.assertEqual(frontdoor["proactive_tasks"][0]["name"], "Daily Digest")
+        self.assertEqual(frontdoor["proactive_tasks"][0]["trigger_kind"], "webhook")
+        self.assertEqual(frontdoor["proactive_tasks"][0]["trigger"], {"endpoint": "/hook/support-digest", "methods": "POST"})
+        self.assertEqual(frontdoor["proactive_tasks"][0]["interval_sec"], 0)
         self.assertEqual(frontdoor["proactive_tasks"][0]["recipient_id"], "ops-room")
         self.assertEqual(frontdoor["status"], "stopped")
 
@@ -1428,6 +1489,64 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stopped_task["runtime"]["status"], "stopped")
         self.assertIsNone(stopped_task["runtime"]["next_run_at"])
 
+    async def test_assistant_deployment_event_driven_proactive_task_starts_cleanly(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "deployevent", "email": "deployevent@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        channel = await self._client.post(
+            "/channels/add",
+            json={"name": "Event Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel.status_code, 200, channel.text)
+        channel_id = channel.json()["id"]
+
+        created = await self._client.post(
+            "/assistant-deployments/create",
+            json={
+                "name": "Event Assistant",
+                "channel_ids": [channel_id],
+                "proactive_tasks": [
+                    {
+                        "name": "Webhook Draft",
+                        "prompt": "Prepare a concise response for the trigger event.",
+                        "interval_sec": 0,
+                        "trigger_kind": "webhook",
+                        "trigger": {"endpoint": "/hook/event-assistant", "methods": "POST"},
+                        "channel_id": channel_id,
+                        "enabled": True,
+                        "send_response": False,
+                    }
+                ],
+            },
+            headers=headers,
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        deployment_id = created.json()["id"]
+
+        started = await self._client.post(
+            "/assistant-deployments/start",
+            json={"id": deployment_id},
+            headers=headers,
+        )
+        self.assertEqual(started.status_code, 200, started.text)
+        started_task = started.json()["proactive_tasks"][0]
+        self.assertEqual(started_task["trigger_kind"], "webhook")
+        self.assertEqual(started_task["interval_sec"], 0)
+        self.assertEqual(started_task["runtime"]["status"], "scheduled")
+        self.assertIsNone(started_task["runtime"]["next_run_at"])
+
+        stopped = await self._client.post(
+            "/assistant-deployments/stop",
+            json={"id": deployment_id},
+            headers=headers,
+        )
+        self.assertEqual(stopped.status_code, 200, stopped.text)
+
     async def test_assistant_deployment_run_proactive_tasks_records_runtime_and_delivery(self) -> None:
         register = await self._client.post(
             "/auth/register",
@@ -1483,21 +1602,26 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         captured: dict[str, object] = {}
         deliveries: list[tuple[str, str]] = []
 
-        async def _fake_chat(message, session_id, **kwargs):
-            captured["message"] = message
-            captured["session_id"] = session_id
+        async def _fake_workflow_run(**kwargs):
             captured.update(kwargs)
-            return {"response": "Pulse: all quiet", "tool_calls": []}
+            return {
+                "response": "Pulse: all quiet",
+                "tool_calls": [],
+                "workflow_name": "Deployment Proactive Task: Pulse Assistant",
+                "engine_execution_id": "exec_test_proactive",
+                "workflow_backed": True,
+            }
 
         async def _fake_send(recipient_id, text, **kwargs):
             deliveries.append((recipient_id, text))
             return True
 
-        channel_pool = self._app.state.console_mgr._channel_pool
+        import assistant_deployments as assistant_deployments_module
+
         adapter = self._app.state.channel_registry.get(channel_id)
-        original_chat = channel_pool.chat
+        original_workflow_run = assistant_deployments_module.run_workflow_backed_agent_turn
         original_send = adapter.send
-        channel_pool.chat = _fake_chat
+        assistant_deployments_module.run_workflow_backed_agent_turn = _fake_workflow_run
         adapter.send = _fake_send
         try:
             run_now = await self._client.post(
@@ -1506,7 +1630,7 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
                 headers=headers,
             )
         finally:
-            channel_pool.chat = original_chat
+            assistant_deployments_module.run_workflow_backed_agent_turn = original_workflow_run
             adapter.send = original_send
             await self._client.post(
                 "/assistant-deployments/stop",
@@ -1522,8 +1646,8 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(captured["assistant_name"], "Pulse Assistant")
         self.assertEqual(captured["model_source"], "openai")
         self.assertEqual(captured["model_name"], "gpt-4o-mini")
-        self.assertEqual(captured["toolkits"], ["file_toolkit"])
-        self.assertTrue(str(captured["session_id"]).startswith(f"deploytask_{deployment_id}_{task_id}"))
+        self.assertEqual(captured["workflow_name"], "Deployment Proactive Task: Pulse Assistant")
+        self.assertIn("file_toolkit", list(captured.get("toolkit_names") or []))
         extra_instructions = captured.get("extra_instructions") or []
         self.assertTrue(any("[Proactive Task]" in str(item) for item in extra_instructions))
         self.assertEqual(deliveries, [("ops_room", "Pulse: all quiet")])
@@ -1539,6 +1663,7 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(deployment["runtime"]["last_proactive_task_name"], "Pulse")
         self.assertEqual(len(deployment["recent_proactive_runs"]), 1)
         self.assertTrue(any(row["kind"] == "proactive_run" for row in deployment["recent_activity"]))
+        self.assertTrue(deployment["recent_proactive_runs"][0]["workflow_backed"])
         task_runtime = deployment["proactive_tasks"][0]["runtime"]
         self.assertEqual(task_runtime["run_count"], 1)
         self.assertEqual(task_runtime["last_status"], "ok")
@@ -1594,21 +1719,26 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         captured: dict[str, object] = {}
         deliveries: list[tuple[str, str]] = []
 
-        async def _fake_chat(message, session_id, **kwargs):
-            captured["message"] = message
-            captured["session_id"] = session_id
+        async def _fake_workflow_run(**kwargs):
             captured.update(kwargs)
-            return {"response": "Approval pulse ready", "tool_calls": []}
+            return {
+                "response": "Approval pulse ready",
+                "tool_calls": [],
+                "workflow_name": "Deployment Proactive Task: Approval Assistant",
+                "engine_execution_id": "exec_test_approval",
+                "workflow_backed": True,
+            }
 
         async def _fake_send(recipient_id, text, **kwargs):
             deliveries.append((recipient_id, text))
             return True
 
-        channel_pool = self._app.state.console_mgr._channel_pool
+        import assistant_deployments as assistant_deployments_module
+
         adapter = self._app.state.channel_registry.get(channel_id)
-        original_chat = channel_pool.chat
+        original_workflow_run = assistant_deployments_module.run_workflow_backed_agent_turn
         original_send = adapter.send
-        channel_pool.chat = _fake_chat
+        assistant_deployments_module.run_workflow_backed_agent_turn = _fake_workflow_run
         adapter.send = _fake_send
         try:
             run_now = await self._client.post(
@@ -1644,7 +1774,7 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(approved.json()["status"], "approved")
             self.assertEqual(deliveries, [("ops_room", "Approval pulse ready")])
         finally:
-            channel_pool.chat = original_chat
+            assistant_deployments_module.run_workflow_backed_agent_turn = original_workflow_run
             adapter.send = original_send
             await self._client.post(
                 "/assistant-deployments/stop",

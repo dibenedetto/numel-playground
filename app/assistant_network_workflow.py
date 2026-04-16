@@ -58,6 +58,162 @@ def _generated_id(prefix: str) -> str:
 	return f"{prefix}_{uuid.uuid4().hex[:8]}"
 
 
+def _proactive_source_id(deployment_id: str, task_id: str) -> str:
+	return f"deploy_proactive_{deployment_id}_{task_id}"
+
+
+_PROACTIVE_SOURCE_TYPES = {
+	"timer_source_flow",
+	"fswatch_source_flow",
+	"webhook_source_flow",
+	"browser_source_flow",
+	"channel_receive_flow",
+}
+
+
+def _build_proactive_source_node(
+	*,
+	deployment_id: str,
+	task: Dict[str, Any],
+	pos: Tuple[int, int],
+) -> Dict[str, Any]:
+	task_id = str(task.get("id") or task.get("task_id") or _generated_id("proactive"))
+	task_name = str(task.get("name") or "Proactive Trigger")
+	trigger_kind = str(task.get("trigger_kind") or "timer").strip().lower() or "timer"
+	trigger = dict(task.get("trigger") or {})
+	source_id = str(trigger.get("source_id") or _proactive_source_id(deployment_id, task_id))
+
+	if trigger_kind == "timer":
+		return _node_payload(
+			"timer_source_flow",
+			label=task_name,
+			pos=pos,
+			source_id=source_id,
+			interval_ms=max(30000, int(task.get("interval_sec") or 900) * 1000),
+			max_triggers=int(trigger.get("max_triggers", -1) or -1),
+			immediate=bool(trigger.get("immediate", False)),
+		)
+	if trigger_kind == "fswatch":
+		return _node_payload(
+			"fswatch_source_flow",
+			label=task_name,
+			pos=pos,
+			source_id=source_id,
+			path=str(trigger.get("path") or "."),
+			recursive=bool(trigger.get("recursive", True)),
+			patterns=trigger.get("patterns") or "*",
+			events=trigger.get("events") or "created,modified,deleted,moved",
+			debounce_ms=max(0, int(trigger.get("debounce_ms") or 100)),
+		)
+	if trigger_kind == "webhook":
+		return _node_payload(
+			"webhook_source_flow",
+			label=task_name,
+			pos=pos,
+			source_id=source_id,
+			endpoint=str(trigger.get("endpoint") or f"/hook/{source_id}"),
+			methods=trigger.get("methods") or "POST",
+			secret=trigger.get("secret"),
+		)
+	if trigger_kind == "channel":
+		return _node_payload(
+			"channel_receive_flow",
+			label=task_name,
+			pos=pos,
+			source_id=source_id,
+			channel_id=str(trigger.get("channel_id") or ""),
+			channel_types=trigger.get("channel_types") or "",
+			sender_filter=trigger.get("sender_filter"),
+		)
+	if trigger_kind == "browser":
+		return _node_payload(
+			"browser_source_flow",
+			label=task_name,
+			pos=pos,
+			source_id=source_id,
+			device_type=str(trigger.get("device_type") or "webcam"),
+			mode=str(trigger.get("mode") or "event"),
+			interval_ms=max(100, int(trigger.get("interval_ms") or 1000)),
+			resolution=trigger.get("resolution"),
+			audio_format=trigger.get("audio_format"),
+		)
+	return _node_payload(
+		"timer_source_flow",
+		label=task_name,
+		pos=pos,
+		source_id=source_id,
+		interval_ms=max(30000, int(task.get("interval_sec") or 900) * 1000),
+		max_triggers=-1,
+		immediate=False,
+	)
+
+
+def _trigger_from_source_node(node: Dict[str, Any]) -> tuple[str, Optional[Dict[str, Any]], int]:
+	node_type = str(node.get("type") or "").strip()
+	if node_type == "timer_source_flow":
+		interval_ms = max(30000, int(node.get("interval_ms") or 30000))
+		return (
+			"timer",
+			{
+				"immediate": bool(node.get("immediate", False)),
+				"max_triggers": int(node.get("max_triggers", -1) or -1),
+			},
+			max(30, int(interval_ms / 1000)),
+		)
+	if node_type == "fswatch_source_flow":
+		return (
+			"fswatch",
+			{
+				"path": str(node.get("path") or "."),
+				"recursive": bool(node.get("recursive", True)),
+				"patterns": node.get("patterns") or "*",
+				"events": node.get("events") or "created,modified,deleted,moved",
+				"debounce_ms": max(0, int(node.get("debounce_ms") or 100)),
+			},
+			0,
+		)
+	if node_type == "webhook_source_flow":
+		trigger = {
+			"endpoint": str(node.get("endpoint") or ""),
+			"methods": node.get("methods") or "POST",
+		}
+		if node.get("secret") not in (None, ""):
+			trigger["secret"] = node.get("secret")
+		return (
+			"webhook",
+			trigger,
+			0,
+		)
+	if node_type == "channel_receive_flow":
+		trigger = {
+			"channel_id": str(node.get("channel_id") or ""),
+			"channel_types": node.get("channel_types") or "",
+		}
+		if node.get("sender_filter") not in (None, ""):
+			trigger["sender_filter"] = node.get("sender_filter")
+		return (
+			"channel",
+			trigger,
+			0,
+		)
+	if node_type == "browser_source_flow":
+		trigger = {
+			"device_type": str(node.get("device_type") or "webcam"),
+			"mode": str(node.get("mode") or "event"),
+			"interval_ms": max(100, int(node.get("interval_ms") or 1000)),
+		}
+		if node.get("resolution") not in (None, ""):
+			trigger["resolution"] = node.get("resolution")
+		if node.get("audio_format") not in (None, ""):
+			trigger["audio_format"] = node.get("audio_format")
+		return (
+			"browser",
+			trigger,
+			0,
+		)
+	raise ValueError(f"Unsupported proactive source node type: {node_type or '(missing)'}")
+
+
 def build_assistant_network_workflow(
 	*,
 	deployments: List[Dict[str, Any]],
@@ -209,16 +365,35 @@ def build_assistant_network_workflow(
 		proactive_keys = used_route_keys.setdefault(f"{deployment_id}:proactive", set())
 		for task_index, task in enumerate(deployment.get("proactive_tasks") or []):
 			task_runtime = task.get("runtime") or {}
+			source_node_index = len(nodes)
+			nodes.append(
+				_build_proactive_source_node(
+					deployment_id=deployment_id,
+					task=task,
+					pos=(source_x - 270, source_y + 170 + task_index * 150),
+				)
+			)
+			listener_index = len(nodes)
+			nodes.append(
+				_node_payload(
+					"event_listener_flow",
+					label=f"{str(task.get('name') or 'Proactive Task')} Listener",
+					pos=(source_x - 30, source_y + 170 + task_index * 150),
+					mode="any",
+				)
+			)
 			node_index = len(nodes)
 			nodes.append(
 				_node_payload(
 					"assistant_proactive_runtime_config",
 					label=str(task.get("name") or "Proactive Task"),
-					pos=(source_x, source_y + 170 + task_index * 150),
+					pos=(source_x + 240, source_y + 170 + task_index * 150),
 					task_id=str(task.get("id") or f"task_{deployment_id}_{task_index}"),
 					name=str(task.get("name") or ""),
 					prompt=str(task.get("prompt") or "") or None,
-					interval_sec=int(task.get("interval_sec") or 900),
+					interval_sec=int(task.get("interval_sec")) if task.get("interval_sec") not in (None, "") else (900 if str(task.get("trigger_kind") or "timer").strip().lower() == "timer" else 0),
+					trigger_kind=str(task.get("trigger_kind") or "timer"),
+					trigger=dict(task.get("trigger") or {}) or None,
 					channel_id=str(task.get("channel_id") or "") or None,
 					recipient_id=str(task.get("recipient_id") or "") or None,
 					enabled=bool(task.get("enabled", True)),
@@ -236,6 +411,38 @@ def build_assistant_network_workflow(
 					"target": source_index,
 					"source_slot": "config",
 					"target_slot": f"proactive_tasks.{task_key}",
+				}
+			)
+			edges.append(
+				{
+					"source": source_node_index,
+					"target": listener_index,
+					"source_slot": "registered_id",
+					"target_slot": "sources.trigger",
+				}
+			)
+			edges.append(
+				{
+					"source": source_node_index,
+					"target": listener_index,
+					"source_slot": "flow_out",
+					"target_slot": "flow_in",
+				}
+			)
+			edges.append(
+				{
+					"source": listener_index,
+					"target": node_index,
+					"source_slot": "event",
+					"target_slot": "trigger_event",
+				}
+			)
+			edges.append(
+				{
+					"source": listener_index,
+					"target": node_index,
+					"source_slot": "source_id",
+					"target_slot": "trigger_source_id",
 				}
 			)
 
@@ -306,6 +513,8 @@ def parse_assistant_network_workflow_import(workflow: Dict[str, Any]) -> Dict[st
 	route_nodes: Dict[int, Dict[str, Any]] = {}
 	task_nodes: Dict[int, Dict[str, Any]] = {}
 	approval_nodes: Dict[int, Dict[str, Any]] = {}
+	listener_nodes: Dict[int, Dict[str, Any]] = {}
+	source_nodes: Dict[int, Dict[str, Any]] = {}
 
 	seen_deployment_ids: set[str] = set()
 	seen_channel_ids: set[str] = set()
@@ -376,16 +585,28 @@ def parse_assistant_network_workflow_import(workflow: Dict[str, Any]) -> Dict[st
 			if task_id in seen_task_ids:
 				raise ValueError(f"Proactive task id '{task_id}' appears more than once in the workflow.")
 			seen_task_ids.add(task_id)
+			trigger = raw.get("trigger")
+			if trigger is not None and not isinstance(trigger, dict):
+				raise ValueError(f"Proactive task '{task_id}' has a non-dict trigger payload.")
 			task_nodes[index] = {
 				"id": task_id,
 				"name": _optional_text(raw.get("name")) or _node_label(raw, "Proactive Task"),
 				"prompt": _optional_text(raw.get("prompt")) or "",
-				"interval_sec": max(30, int(raw.get("interval_sec") or 0)),
+				"interval_sec": max(0, int(raw.get("interval_sec") or 0)),
+				"trigger_kind": _optional_text(raw.get("trigger_kind")) or "timer",
+				"trigger": dict(trigger or {}) or None,
 				"channel_id": _optional_text(raw.get("channel_id")),
 				"recipient_id": _optional_text(raw.get("recipient_id")),
 				"enabled": bool(raw.get("enabled", True)),
 				"send_response": bool(raw.get("send_response", True)),
 			}
+		elif node_type == "event_listener_flow":
+			listener_nodes[index] = {
+				"id": _optional_text(raw.get("id")) or f"listener_{index}",
+				"mode": _optional_text(raw.get("mode")) or "any",
+			}
+		elif node_type in _PROACTIVE_SOURCE_TYPES:
+			source_nodes[index] = dict(raw)
 		elif node_type == "assistant_approval_runtime_config":
 			approval_nodes[index] = {"id": _optional_text(raw.get("approval_id")) or _generated_id("approval")}
 
@@ -396,6 +617,8 @@ def parse_assistant_network_workflow_import(workflow: Dict[str, Any]) -> Dict[st
 	route_sources: Dict[int, int] = {}
 	route_targets: Dict[int, int] = {}
 	task_bindings: Dict[int, int] = {}
+	task_listeners: Dict[int, int] = {}
+	listener_sources: Dict[int, List[int]] = {}
 	ignored_approvals = 0
 
 	for edge in edges:
@@ -432,6 +655,13 @@ def parse_assistant_network_workflow_import(workflow: Dict[str, Any]) -> Dict[st
 			if existing is not None and existing != target:
 				raise ValueError("A proactive task cannot be attached to more than one deployment in the assistant network workflow.")
 			task_bindings[source] = target
+		elif source_type in _PROACTIVE_SOURCE_TYPES and target_type == "event_listener_flow" and target_slot.startswith("sources."):
+			listener_sources.setdefault(target, []).append(source)
+		elif source_type == "event_listener_flow" and target_type == "assistant_proactive_runtime_config" and target_slot in {"trigger_event", "trigger_source_id"}:
+			existing = task_listeners.get(target)
+			if existing is not None and existing != source:
+				raise ValueError("A proactive task cannot be connected to more than one event listener in the assistant network workflow.")
+			task_listeners[target] = source
 		elif source_type == "assistant_approval_runtime_config" and target_type == "assistant_deployment_runtime_config" and target_slot.startswith("pending_approvals."):
 			ignored_approvals += 1
 
@@ -469,6 +699,26 @@ def parse_assistant_network_workflow_import(workflow: Dict[str, Any]) -> Dict[st
 		if deployment_index is None:
 			warnings.append(f"Ignored proactive task '{task['name'] or task['id']}' because it is not connected to a deployment.")
 			continue
+		listener_index = task_listeners.get(task_index)
+		if listener_index is not None:
+			source_indexes = [idx for idx in listener_sources.get(listener_index, []) if idx in source_nodes]
+			if len(source_indexes) > 1:
+				warnings.append(
+					f"Proactive task '{task['name'] or task['id']}' is connected to multiple trigger sources; using the first one."
+				)
+			if source_indexes:
+				trigger_kind, trigger_payload, derived_interval = _trigger_from_source_node(source_nodes[source_indexes[0]])
+				if task.get("trigger_kind") and str(task.get("trigger_kind")) != trigger_kind:
+					warnings.append(
+						f"Proactive task '{task['name'] or task['id']}' used its connected source node instead of the inline trigger_kind."
+					)
+				task["trigger_kind"] = trigger_kind
+				task["trigger"] = trigger_payload
+				task["interval_sec"] = derived_interval
+			else:
+				warnings.append(
+					f"Proactive task '{task['name'] or task['id']}' is connected to an event listener with no source nodes; keeping inline trigger settings."
+				)
 		deployment_nodes[deployment_index]["proactive_tasks"].append(dict(task))
 
 	if ignored_approvals or approval_nodes:
