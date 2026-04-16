@@ -206,6 +206,7 @@ Start with:
 
 - [docs/assistant-deployments.md](docs/assistant-deployments.md)
 - [docs/tutorial-11-assistant-deployments.md](docs/tutorial-11-assistant-deployments.md)
+- [docs/tutorial-12-workflow-backed-runtime.md](docs/tutorial-12-workflow-backed-runtime.md)
 
 If you are thinking about how multiple deployments and remote agents could work together later, also see:
 
@@ -285,6 +286,7 @@ One useful way to think about Numel is:
 - For a general introduction, see [docs/introduction.md](docs/introduction.md)
 - For the product direction, see [docs/product-roadmap.md](docs/product-roadmap.md)
 - For assistant operations, see [docs/assistant-deployments.md](docs/assistant-deployments.md)
+- For the current workflow-backed runtime model, see [docs/workflow-backed-surfaces.md](docs/workflow-backed-surfaces.md)
 - For a positioning comparison with other tools, see [docs/competitive-landscape.md](docs/competitive-landscape.md)
 
 If you only remember one thing, make it this:

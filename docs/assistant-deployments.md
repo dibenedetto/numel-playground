@@ -205,8 +205,10 @@ Right now, tool approval is deployment-wide: if enabled, tool calls from that de
   - `Assistant Deployments: Ops Workbench`
 - Architecture:
   - [assistant-network-architecture.md](assistant-network-architecture.md)
+  - [workflow-backed-surfaces.md](workflow-backed-surfaces.md)
 - Tutorial:
   - [tutorial-11-assistant-deployments.md](tutorial-11-assistant-deployments.md)
+  - [tutorial-12-workflow-backed-runtime.md](tutorial-12-workflow-backed-runtime.md)
 - Example deployment configs:
   - [assistant-deployment-front-door.json](../examples/assistant-deployment-front-door.json)
   - [assistant-deployment-ops-proactive.json](../examples/assistant-deployment-ops-proactive.json)

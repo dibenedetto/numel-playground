@@ -351,6 +351,12 @@ There is already a simple built-in gallery starter you can inspect:
 
 - `Assistant Network: Consult Specialist`
 
+For the broader convergence story around console, planner turns, deployments,
+and operational graphs becoming workflow-backed surfaces, also see:
+
+- [workflow-backed-surfaces.md](workflow-backed-surfaces.md)
+- [tutorial-12-workflow-backed-runtime.md](tutorial-12-workflow-backed-runtime.md)
+
 ## Bottom Line
 
 Yes, the final goal makes sense.

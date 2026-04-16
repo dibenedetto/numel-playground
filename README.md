@@ -87,6 +87,9 @@ For the assistant deployment model, including routing, proactive jobs, approvals
 and operator flows, see [docs/assistant-deployments.md](docs/assistant-deployments.md).
 For the longer-term assistant network and remote agent architecture, including
 Agent Endpoints and A2A fit, see [docs/assistant-network-architecture.md](docs/assistant-network-architecture.md).
+For the current convergence model around console, deployments, planner turns,
+and live networks becoming workflow-backed surfaces, see
+[docs/workflow-backed-surfaces.md](docs/workflow-backed-surfaces.md).
 For a market and positioning comparison against LangChain, n8n, and OpenClaw,
 see [docs/competitive-landscape.md](docs/competitive-landscape.md).
 Concrete UI concepts for review live in
@@ -212,10 +215,11 @@ Web console users authenticated via the login modal are auto-linked — no expli
 
 ### Assistant Deployments
 - Create named AI services with their own model, instructions, toolkits, skills, channels, and linked workbench
-- Route from a front-door deployment to specialist deployments
-- Add proactive jobs that run on a schedule
+- Route from a front-door deployment to specialist deployments, with `hybrid` semantic handoff selection now the default
+- Add proactive jobs that run on a schedule or from event-driven triggers
 - Require approval before proactive delivery and/or before tool execution
 - Operate everything from the Assistant Deployments panel with activity, failures, pending approvals, and linked-workbench navigation
+- Export the live deployment network into the workbench and apply edited network graphs back into runtime
 - Let less technical users operate a prepared deployment from one panel, while more technical users keep refining the underlying workbench
 
 ### Published Apps
@@ -239,6 +243,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 - **Multi-user support** — multiple users connecting to the same server each get their own agent instance via `ChannelAgentPool`
 - **Proactive suggestions** via WebSocket
 - **`/gen` command** — generate workflows from natural language
+- **Workflow bridge** — `Open In Workbench` exports the current Assistant into a real workflow, and `Use Current Workbench` applies a console-shaped workflow back into the live Assistant
 
 ### User Management & Admin
 - **Multi-user auth** with registration, login, roles, and quotas
@@ -955,6 +960,8 @@ Gallery items load into the current space and replace the current canvas/workflo
 8. [Generating Workflows](docs/tutorial-08-generate.md) — `/gen` command
 9. [File Tools](docs/tutorial-09-file-tools.md) — Tool Config + Tool Flow
 10. [Skills](docs/tutorial-10-skills.md) — Skill Config + Agent instructions
+11. [Assistant Deployments](docs/tutorial-11-assistant-deployments.md) — Channel-facing assistants, routing, proactive jobs, and approvals
+12. [Workflow-Backed Runtime](docs/tutorial-12-workflow-backed-runtime.md) — Console and deployment-network round-trip through the workbench
 
 ---
 
@@ -1029,6 +1036,8 @@ All endpoints use **POST** method unless otherwise noted.
 | `/console/planner/config` | Update planner settings (timeout, max_iter, profile) |
 | `/console/planner/reset` | Reset planner turn count |
 | `/console/planner/apply` | Apply workflow JSON directly |
+| `/console/workflow` | Export the current Assistant as a workflow |
+| `/console/workflow/apply` | Apply a console-shaped workflow back into the live Assistant |
 | `/console/memory/search` | Search agent memory |
 | `/console/memory/add` | Add a memory entry |
 | `/console/memory/recent` | Get recent memories |
@@ -1057,6 +1066,21 @@ All endpoints use **POST** method unless otherwise noted.
 | `/channels/status` | Get channel status |
 | `/channels/pool/config` | Get/set agent pool settings (idle_timeout) |
 | `/channels/webhook/{id}` | Webhook ingress for external platforms |
+
+### Assistant Deployments
+| Endpoint | Description |
+|----------|-------------|
+| `/assistant-deployments/list` | List deployments with runtime/operator state |
+| `/assistant-deployments/get` | Get one deployment and its operator details |
+| `/assistant-deployments/create` | Create a deployment |
+| `/assistant-deployments/update` | Update a deployment |
+| `/assistant-deployments/remove` | Remove a deployment |
+| `/assistant-deployments/start` | Enable a deployment |
+| `/assistant-deployments/stop` | Disable a deployment |
+| `/assistant-deployments/run-proactive` | Run proactive tasks immediately |
+| `/assistant-deployments/refresh-runtime` | Refresh runtime/operator state |
+| `/assistant-deployments/network-workflow` | Export the live deployment network as a workflow |
+| `/assistant-deployments/network-workflow/apply` | Apply an operational network workflow back into runtime |
 
 ### Agent Tasks
 | Endpoint | Description |
