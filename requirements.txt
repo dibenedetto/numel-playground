@@ -1,4 +1,6 @@
 # requirements.txt
+#
+# This file mirrors [project.dependencies] in pyproject.toml for pip-based installs.
 
 # general dependencies
 aiofiles
@@ -34,6 +36,11 @@ sqlalchemy
 ddgs
 duckduckgo-search
 python-telegram-bot
+
+# pytorch
+torch==2.10.0
+torchvision==0.25.0
+torchaudio==2.10.0
 
 # ai/ml frameworks
 agno
