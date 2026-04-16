@@ -198,6 +198,8 @@ class PlannerState:
 		"max_turns", "timeout", "session_timeout", "session_start",
 		"debounce", "timer", "pending", "subs", "instructions", "profile",
 		"browser_session_id", "pause_until", "suppress_added_until",
+		"debounce_until", "last_event_type", "last_event_at", "last_processed_at",
+		"last_pause_reason", "last_suppressed_event",
 	)
 
 	def __init__(self, key: str, user_id: Optional[str] = None, browser_session_id: Optional[str] = None):
@@ -220,11 +222,23 @@ class PlannerState:
 		self.profile: str           = ""
 		self.pause_until: float     = 0.0
 		self.suppress_added_until: float = 0.0
+		self.debounce_until: float  = 0.0
+		self.last_event_type: str   = ""
+		self.last_event_at: float   = 0.0
+		self.last_processed_at: float = 0.0
+		self.last_pause_reason: str = ""
+		self.last_suppressed_event: str = ""
 
 	def reset(self):
 		self.turn_count = 0
 		self.session_id = f"planner-{self.key[:16]}-{uuid.uuid4().hex[:8]}"
 		self.pending.clear()
+		self.debounce_until = 0.0
+		self.last_event_type = ""
+		self.last_event_at = 0.0
+		self.last_processed_at = 0.0
+		self.last_pause_reason = ""
+		self.last_suppressed_event = ""
 
 
 # ── Manager ────────────────────────────────────────────────────
@@ -320,6 +334,94 @@ class ConsoleAgentManager:
 		if len(candidates) == 1:
 			return candidates[0]
 		return candidates[0] if candidates else None
+
+	@staticmethod
+	def _planner_remaining(now: float, deadline: float) -> float:
+		return max(0.0, float(deadline or 0.0) - now)
+
+	def _planner_status_payload(self, ps: Optional[PlannerState]) -> Dict[str, Any]:
+		now = time.time()
+		if ps is None:
+			return {
+				"enabled": False,
+				"active": False,
+				"turn_count": 0,
+				"max_turns": 10,
+				"session_id": None,
+				"subscribed_events": [],
+				"browser_session_id": None,
+				"pending_events": [],
+				"pending_event_count": 0,
+				"pending_event_types": [],
+				"pause_remaining_s": 0.0,
+				"suppress_added_remaining_s": 0.0,
+				"debounce_remaining_s": 0.0,
+				"last_event_type": None,
+				"last_event_at": None,
+				"last_processed_at": None,
+				"last_pause_reason": "",
+				"last_suppressed_event": "",
+			}
+		pending_rows = list(ps.pending or [])
+		return {
+			"enabled": ps.enabled,
+			"active": ps.active,
+			"turn_count": ps.turn_count,
+			"max_turns": ps.max_turns,
+			"session_id": ps.session_id,
+			"browser_session_id": ps.browser_session_id,
+			"subscribed_events": list(ps.subs),
+			"pending_events": [
+				{
+					"type": str(row.get("type", "") or ""),
+					"count": int(row.get("count", 1) or 1),
+				}
+				for row in pending_rows
+			],
+			"pending_event_count": sum(int(row.get("count", 1) or 1) for row in pending_rows),
+			"pending_event_types": [str(row.get("type", "") or "") for row in pending_rows],
+			"pause_remaining_s": round(self._planner_remaining(now, ps.pause_until), 3),
+			"suppress_added_remaining_s": round(self._planner_remaining(now, ps.suppress_added_until), 3),
+			"debounce_remaining_s": round(self._planner_remaining(now, ps.debounce_until), 3),
+			"last_event_type": ps.last_event_type or None,
+			"last_event_at": datetime.fromtimestamp(ps.last_event_at).isoformat() if ps.last_event_at else None,
+			"last_processed_at": datetime.fromtimestamp(ps.last_processed_at).isoformat() if ps.last_processed_at else None,
+			"last_pause_reason": ps.last_pause_reason,
+			"last_suppressed_event": ps.last_suppressed_event,
+		}
+
+	def _queue_planner_event(self, ps: PlannerState, evt_type: str, evt_data: Dict[str, Any]) -> None:
+		now = time.time()
+		ps.last_event_type = evt_type
+		ps.last_event_at = now
+		for existing in ps.pending:
+			if str(existing.get("type", "") or "") != evt_type:
+				continue
+			existing["data"] = dict(evt_data)
+			existing["count"] = int(existing.get("count", 1) or 1) + 1
+			existing["last_received_at"] = now
+			return
+		ps.pending.append({
+			"type": evt_type,
+			"data": dict(evt_data),
+			"count": 1,
+			"last_received_at": now,
+		})
+
+	def _schedule_planner_processing(self, ps: PlannerState, *, delay: Optional[float] = None) -> None:
+		if not ps.enabled:
+			return
+		if ps.timer:
+			ps.timer.cancel()
+			ps.timer = None
+		actual_delay = max(0.0, ps.debounce if delay is None else float(delay))
+		ps.debounce_until = time.time() + actual_delay if actual_delay > 0 else 0.0
+		loop = asyncio.get_event_loop()
+		pkey = ps.key
+		ps.timer = loop.call_later(
+			actual_delay,
+			lambda k=pkey: asyncio.ensure_future(self._process_planner_events(k))
+		)
 
 	def _request_headers(self, user_id: Optional[str] = None) -> Dict[str, str]:
 		headers: Dict[str, str] = {}
@@ -875,6 +977,7 @@ class ConsoleAgentManager:
 		ps.active  = False
 		ps.pause_until = 0.0
 		ps.suppress_added_until = 0.0
+		ps.debounce_until = 0.0
 		ps.pending.clear()
 		if ps.timer:
 			ps.timer.cancel()
@@ -888,10 +991,12 @@ class ConsoleAgentManager:
 		if not ps or not ps.enabled:
 			return False
 		ps.pause_until = time.time() + max(10, int(duration_s))
+		ps.last_pause_reason = "manual_run"
 		ps.pending.clear()
 		if ps.timer:
 			ps.timer.cancel()
 			ps.timer = None
+		ps.debounce_until = 0.0
 		log_print(f"Planner [{ps.key[:20]}] paused for manual run ({duration_s}s)")
 		return True
 
@@ -903,6 +1008,7 @@ class ConsoleAgentManager:
 		if not ps or not ps.enabled:
 			return False
 		ps.suppress_added_until = time.time() + max(2, int(duration_s))
+		ps.last_pause_reason = "planner_apply"
 		log_print(f"Planner [{ps.key[:20]}] suppressing workflow_added for {duration_s}s")
 		return True
 
@@ -910,113 +1016,123 @@ class ConsoleAgentManager:
 		"""EventBus callback — dispatch event to ALL active planners with debounce."""
 		evt_type = getattr(event, 'event_type', str(event))
 		evt_data = {"type": evt_type, "data": getattr(event, 'data', {})}
+		now = time.time()
 
 		for ps in list(self._planners.values()):
-			if not ps.enabled or ps.active:
+			if not ps.enabled:
 				continue
-			if evt_type == "manager.workflow_added" and time.time() < ps.suppress_added_until:
+			if evt_type == "manager.workflow_added" and now < ps.suppress_added_until:
+				ps.last_suppressed_event = evt_type
 				log_print(f"Planner [{ps.key[:20]}] ignored {evt_type} after planner apply")
 				continue
-			if evt_type in {"workflow.completed", "workflow.failed", "manager.workflow_added"} and time.time() < ps.pause_until:
+			if evt_type in {"workflow.completed", "workflow.failed", "manager.workflow_added"} and now < ps.pause_until:
+				ps.last_suppressed_event = evt_type
 				log_print(f"Planner [{ps.key[:20]}] ignored {evt_type} during manual-run pause window")
 				continue
-			ps.pending.append(evt_data)
-			# Cancel existing debounce for this planner
-			if ps.timer:
-				ps.timer.cancel()
-			loop = asyncio.get_event_loop()
-			pkey = ps.key
-			ps.timer = loop.call_later(
-				ps.debounce,
-				lambda k=pkey: asyncio.ensure_future(self._process_planner_events(k))
-			)
+			self._queue_planner_event(ps, evt_type, evt_data)
+			if not ps.active:
+				self._schedule_planner_processing(ps)
 
 	async def _process_planner_events(self, planner_key: str):
 		"""Process queued events for a specific planner session."""
 		ps = self._planners.get(planner_key)
-		if not ps or not ps.enabled or not ps.pending:
+		if not ps:
 			return
-		if ps.active:
-			return
+		if ps.timer:
+			ps.timer.cancel()
+			ps.timer = None
+		ps.debounce_until = 0.0
 
-		if ps.turn_count >= ps.max_turns:
-			await self.push_proactive(
-				f"Planner reached max iterations ({ps.max_turns}). Send a message to continue.",
-				"planner_paused",
-				session_id=ps.browser_session_id,
-			)
-			return
+		async with self._planner_lock:
+			ps = self._planners.get(planner_key)
+			if not ps or not ps.enabled or not ps.pending or ps.active:
+				return
 
-		elapsed = time.time() - ps.session_start
-		if elapsed >= ps.session_timeout:
-			await self.push_proactive(
-				f"Planner session timed out after {int(elapsed)}s (limit: {ps.session_timeout}s). Disabling.",
-				"planner_error",
-				session_id=ps.browser_session_id,
-			)
-			self.disable_planner(ps.user_id, ps.browser_session_id)
-			return
+			if ps.turn_count >= ps.max_turns:
+				await self.push_proactive(
+					f"Planner reached max iterations ({ps.max_turns}). Send a message to continue.",
+					"planner_paused",
+					session_id=ps.browser_session_id,
+				)
+				return
 
-		ps.active = True
-		try:
-			events = ps.pending[:]
-			ps.pending.clear()
+			elapsed = time.time() - ps.session_start
+			if elapsed >= ps.session_timeout:
+				await self.push_proactive(
+					f"Planner session timed out after {int(elapsed)}s (limit: {ps.session_timeout}s). Disabling.",
+					"planner_error",
+					session_id=ps.browser_session_id,
+				)
+				self.disable_planner(ps.user_id, ps.browser_session_id)
+				return
 
-			event_summary = "\n".join(
-				f"- {e['type']}: {json.dumps(e['data'], default=str)[:200]}"
-				for e in events
-			)
-			event_types = [str(e.get("type", "") or "") for e in events]
-			unique_event_types: List[str] = []
-			for event_type in event_types:
-				if event_type and event_type not in unique_event_types:
-					unique_event_types.append(event_type)
-			if unique_event_types:
-				reason = "Planner triggered by " + ", ".join(unique_event_types) + "."
-				await self.push_proactive(reason, "planner_reason", session_id=ps.browser_session_id)
-			await self.push_proactive("", "planner_thinking", session_id=ps.browser_session_id)
-			message = (
-				f"[Planner Event]\n{event_summary}\n\n"
-				"Analyze the results. If the score is below 0.7 or there are workflow logic errors, "
-				"output a FIXED workflow as a ```json code block. The system will load it automatically.\n"
-				"IMPORTANT: If the error is about port conflicts, timeouts, or server issues, "
-				"do NOT modify the workflow — just report the infrastructure error and stop."
-			)
+			ps.active = True
+			try:
+				events = ps.pending[:]
+				ps.pending.clear()
 
-			# Acquire workflow lock for exclusive access during planner modifications
-			async with self._workflow_lock:
-				try:
-					result = await asyncio.wait_for(
-						self._run_workflow_backed_console_turn(
-							message=message,
-							user_id=ps.user_id,
-							extra_instructions=[PLANNER_MODE_DIRECTIVE],
-							workflow_name="Planner Event Turn",
-							sender_name="Planner",
-							include_context=True,
-						),
-						timeout=ps.timeout,
+				summary_lines: List[str] = []
+				for e in events:
+					count = int(e.get("count", 1) or 1)
+					count_suffix = f" x{count}" if count > 1 else ""
+					summary_lines.append(
+						f"- {e['type']}{count_suffix}: {json.dumps(e['data'], default=str)[:200]}"
 					)
-					ps.turn_count += 1
-					response = result.get("response", "")
-					if response:
-						await self.push_proactive(response, "planner_action", session_id=ps.browser_session_id)
-					else:
-						await self.push_proactive("Planner turn completed (no output).", "planner_action", session_id=ps.browser_session_id)
-				except asyncio.TimeoutError:
-					log_print(f"Planner [{planner_key[:20]}] timed out after {ps.timeout}s")
-					await self.push_proactive(
-						f"Planner turn timed out after {ps.timeout}s. Disabling.",
-						"planner_error",
-						session_id=ps.browser_session_id,
-					)
-					self.disable_planner(ps.user_id, ps.browser_session_id)
-				except Exception as e:
-					log_print(f"Planner [{planner_key[:20]}] error: {e}")
-					await self.push_proactive(f"Planner error: {e}", "planner_error", session_id=ps.browser_session_id)
-		finally:
-			ps.active = False
-			await self.push_proactive("", "planner_done", session_id=ps.browser_session_id)
+				event_summary = "\n".join(summary_lines)
+				event_types = [str(e.get("type", "") or "") for e in events]
+				unique_event_types: List[str] = []
+				for event_type in event_types:
+					if event_type and event_type not in unique_event_types:
+						unique_event_types.append(event_type)
+				if unique_event_types:
+					reason = "Planner triggered by " + ", ".join(unique_event_types) + "."
+					await self.push_proactive(reason, "planner_reason", session_id=ps.browser_session_id)
+				await self.push_proactive("", "planner_thinking", session_id=ps.browser_session_id)
+				message = (
+					f"[Planner Event]\n{event_summary}\n\n"
+					"Analyze the results. If the score is below 0.7 or there are workflow logic errors, "
+					"output a FIXED workflow as a ```json code block. The system will load it automatically.\n"
+					"IMPORTANT: If the error is about port conflicts, timeouts, or server issues, "
+					"do NOT modify the workflow — just report the infrastructure error and stop."
+				)
+
+				# Acquire workflow lock for exclusive access during planner modifications
+				async with self._workflow_lock:
+					try:
+						result = await asyncio.wait_for(
+							self._run_workflow_backed_console_turn(
+								message=message,
+								user_id=ps.user_id,
+								extra_instructions=[PLANNER_MODE_DIRECTIVE],
+								workflow_name="Planner Event Turn",
+								sender_name="Planner",
+								include_context=True,
+							),
+							timeout=ps.timeout,
+						)
+						ps.turn_count += 1
+						ps.last_processed_at = time.time()
+						response = result.get("response", "")
+						if response:
+							await self.push_proactive(response, "planner_action", session_id=ps.browser_session_id)
+						else:
+							await self.push_proactive("Planner turn completed (no output).", "planner_action", session_id=ps.browser_session_id)
+					except asyncio.TimeoutError:
+						log_print(f"Planner [{planner_key[:20]}] timed out after {ps.timeout}s")
+						await self.push_proactive(
+							f"Planner turn timed out after {ps.timeout}s. Disabling.",
+							"planner_error",
+							session_id=ps.browser_session_id,
+						)
+						self.disable_planner(ps.user_id, ps.browser_session_id)
+					except Exception as e:
+						log_print(f"Planner [{planner_key[:20]}] error: {e}")
+						await self.push_proactive(f"Planner error: {e}", "planner_error", session_id=ps.browser_session_id)
+			finally:
+				ps.active = False
+				await self.push_proactive("", "planner_done", session_id=ps.browser_session_id)
+				if ps.enabled and ps.pending and time.time() >= ps.pause_until:
+					self._schedule_planner_processing(ps, delay=0.05)
 
 	def reset_planner(self, user_id: Optional[str] = None,
 					  session_id: Optional[str] = None):
@@ -1922,14 +2038,9 @@ def setup_console_api(app: FastAPI, console_mgr: ConsoleAgentManager,
 		user_id = user.id if user else None
 		session_id = body.get("session_id")
 		ps = console_mgr._resolve_planner_state(user_id, session_id)
-		return {
-			"enabled":    ps.enabled if ps else False,
-			"turn_count": ps.turn_count if ps else 0,
-			"max_turns":  ps.max_turns if ps else 10,
-			"session_id": ps.session_id if ps else None,
-			"subscribed_events": ps.subs if ps else [],
-			"active_planners": sum(1 for p in console_mgr._planners.values() if p.enabled),
-		}
+		payload = console_mgr._planner_status_payload(ps)
+		payload["active_planners"] = sum(1 for p in console_mgr._planners.values() if p.enabled)
+		return payload
 
 	@app.post("/console/planner/config")
 	async def console_planner_config(request: Request):
