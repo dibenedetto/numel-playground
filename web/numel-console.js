@@ -807,11 +807,11 @@ class AgentConsoleManager {
 				throw new Error('Workbench loader is not available.');
 			}
 			await window.loadWorkflowFromServer(workflow, name, { source: 'assistant' });
-			const omitted = Array.isArray(data?.omitted_toolkits)
-				? data.omitted_toolkits.filter(Boolean)
+			const runtimeBound = Array.isArray(data?.runtime_bound_toolkits)
+				? data.runtime_bound_toolkits.filter(Boolean)
 				: [];
-			const suffix = omitted.length
-				? ` Runtime-only toolkits omitted: ${omitted.join(', ')}.`
+			const suffix = runtimeBound.length
+				? ` Runtime-bound toolkits preserved in the graph and rebound by Numel at runtime: ${runtimeBound.join(', ')}.`
 				: '';
 			this._addMessage('system', `Loaded "${name}" into the current workbench.${suffix}`);
 		} catch (err) {

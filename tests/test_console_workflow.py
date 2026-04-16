@@ -56,11 +56,26 @@ class ConsoleWorkflowExportTests(unittest.TestCase):
 		self.assertIn("skill_config", node_types)
 
 		toolkit_nodes = [node for node in workflow["nodes"] if node["type"] == "toolkit_config"]
-		self.assertEqual(len(toolkit_nodes), 1)
-		self.assertEqual(toolkit_nodes[0]["name"], "file_toolkit")
-		self.assertEqual(toolkit_nodes[0]["args"], {"root": "."})
-		self.assertIn("console_toolkit", exported["omitted_toolkits"])
-		self.assertIn("agent_endpoint_toolkit", exported["omitted_toolkits"])
+		self.assertEqual(
+			[node["name"] for node in toolkit_nodes],
+			["console_toolkit", "file_toolkit", "agent_endpoint_toolkit"],
+		)
+		self.assertIsNone(toolkit_nodes[0].get("args"))
+		self.assertEqual(toolkit_nodes[1]["args"], {"root": "."})
+		self.assertIsNone(toolkit_nodes[2].get("args"))
+		self.assertEqual(
+			toolkit_nodes[0].get("runtime_binding", {}).get("binding_kind"),
+			"numel_runtime",
+		)
+		self.assertEqual(
+			toolkit_nodes[2].get("runtime_binding", {}).get("toolkit"),
+			"agent_endpoint_toolkit",
+		)
+		self.assertEqual(exported["omitted_toolkits"], [])
+		self.assertEqual(
+			exported["runtime_bound_toolkits"],
+			["console_toolkit", "agent_endpoint_toolkit"],
+		)
 
 	def test_build_workflow_export_omits_memory_nodes_when_disabled(self) -> None:
 		manager = self._manager()
@@ -77,6 +92,7 @@ class ConsoleWorkflowExportTests(unittest.TestCase):
 
 		self.assertNotIn("memory_manager_config", node_types)
 		self.assertNotIn("session_manager_config", node_types)
+		self.assertIn("console_toolkit", [node["name"] for node in exported["workflow"]["nodes"] if node["type"] == "toolkit_config"])
 		self.assertIn("code_toolkit", [node["name"] for node in exported["workflow"]["nodes"] if node["type"] == "toolkit_config"])
 
 	def test_parse_console_workflow_import_round_trips_console_shape(self) -> None:
@@ -102,7 +118,7 @@ class ConsoleWorkflowExportTests(unittest.TestCase):
 		self.assertEqual(parsed["backend_name"], "agno")
 		self.assertEqual(parsed["model_source"], "openai")
 		self.assertEqual(parsed["model_name"], "gpt-4o")
-		self.assertEqual(parsed["toolkit_names"], ["file_toolkit"])
+		self.assertEqual(parsed["toolkit_names"], ["console_toolkit", "file_toolkit"])
 		self.assertEqual(parsed["toolkit_args"], {"file_toolkit": {"root": "."}})
 		self.assertEqual(parsed["skill_names"], ["web-search"])
 		self.assertTrue(parsed["use_backend_memory"])
@@ -130,6 +146,27 @@ class ConsoleWorkflowExportTests(unittest.TestCase):
 
 		with self.assertRaises(ValueError):
 			parse_console_workflow_import(exported["workflow"])
+
+	def test_parse_console_workflow_import_strips_runtime_bound_toolkit_args(self) -> None:
+		manager = self._manager()
+		manager._started = True
+		manager._model_source = "openai"
+		manager._model_name = "gpt-4o-mini"
+		manager._toolkit_names = ["workspace_toolkit"]
+		manager._toolkit_args = {}
+		manager._skill_names = []
+		manager._use_backend_memory = False
+
+		exported = manager.build_workflow_export()
+		for node in exported["workflow"]["nodes"]:
+			if node.get("type") == "toolkit_config" and node.get("name") == "workspace_toolkit":
+				node["args"] = {"base_url": "http://evil", "workflow_name": "keep_me"}
+				break
+
+		parsed = parse_console_workflow_import(exported["workflow"])
+		self.assertEqual(parsed["toolkit_names"], ["console_toolkit", "workspace_toolkit"])
+		self.assertEqual(parsed["toolkit_args"], {"workspace_toolkit": {"workflow_name": "keep_me"}})
+		self.assertTrue(any("runtime-only args were ignored" in warning for warning in parsed["warnings"]))
 
 
 if __name__ == "__main__":

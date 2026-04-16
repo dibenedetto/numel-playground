@@ -564,9 +564,10 @@ DEFAULT_TOOL_FALLBACK               : bool = False
 @node_info(visible=False, layer=1)
 class ToolBaseConfig(ConfigType):
 	"""Base class for tool and toolkit configurations."""
-	type : Annotated[Literal["tool_base_config"], FieldRole.CONSTANT] = "tool_base_config"
-	name : Annotated[str                        , FieldRole.INPUT   ] = Field(default="", json_schema_extra={"options_source": "toolkit_modules"}, description="Python import path to the tool function or toolkit module")
-	args : Annotated[Optional[Dict[str, Any]]   , FieldRole.INPUT   ] = Field(default=None, json_schema_extra={"editor": "toolkit_args"}, description="Optional arguments passed to the tool or toolkit constructor")
+	type            : Annotated[Literal["tool_base_config"], FieldRole.CONSTANT] = "tool_base_config"
+	name            : Annotated[str                        , FieldRole.INPUT   ] = Field(default="", json_schema_extra={"options_source": "toolkit_modules"}, description="Python import path to the tool function or toolkit module")
+	args            : Annotated[Optional[Dict[str, Any]]   , FieldRole.INPUT   ] = Field(default=None, json_schema_extra={"editor": "toolkit_args"}, description="Optional declarative arguments passed to the tool or toolkit constructor")
+	runtime_binding : Annotated[Optional[Dict[str, Any]]   , FieldRole.INPUT   ] = Field(default=None, description="Optional Numel-managed runtime binding metadata. Use this when the graph should express a capability whose live constructor bindings are injected by Numel at runtime rather than stored as static args.")
 
 	@property
 	def config(self) -> Annotated[ToolBaseConfig, FieldRole.OUTPUT]:

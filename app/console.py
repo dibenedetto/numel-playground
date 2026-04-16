@@ -478,7 +478,7 @@ class ConsoleAgentManager:
 					auth_token=getattr(self, "_auth_token", ""),
 					local_app=self._fastapi_app,
 				).items():
-					tk_args.setdefault(key, value)
+					tk_args[key] = value
 				native_toolkit = _load_native_toolkit(tk_name, tk_args or None)
 				if native_toolkit is not None:
 					tools.append(native_toolkit)
@@ -1435,7 +1435,7 @@ class ChannelAgentPool:
 					local_app=self._fastapi_app,
 					deployment_id=deployment_id,
 				).items():
-					tk_args.setdefault(key, value)
+					tk_args[key] = value
 				native_toolkit = _load_native_toolkit(
 					tk_name,
 					tk_args or None,

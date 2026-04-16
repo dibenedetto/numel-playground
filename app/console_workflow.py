@@ -5,11 +5,26 @@ from typing import Any, Dict, List, Optional, Tuple
 from schema import DEFAULT_BACKEND_NAME
 
 
-_RUNTIME_ONLY_TOOLKITS = {
+_RUNTIME_BOUND_TOOLKITS = {
 	"console_toolkit",
 	"channel_toolkit",
 	"workspace_toolkit",
 	"agent_endpoint_toolkit",
+}
+
+_RUNTIME_ONLY_TOOLKIT_ARG_KEYS = {
+	"base_url",
+	"auth_token",
+	"internal_token",
+	"user_id",
+	"local_app",
+	"channel_registry",
+	"channel_pool",
+	"deployment_id",
+}
+
+_DECLARATIVE_RUNTIME_BOUND_TOOLKIT_ARGS = {
+	"workspace_toolkit": {"workflow_name"},
 }
 
 
@@ -38,6 +53,32 @@ def _slug_key(value: str, *, fallback: str, used: set[str]) -> str:
 	return key
 
 
+def _runtime_binding_hint(toolkit_name: str) -> Optional[Dict[str, Any]]:
+	if toolkit_name not in _RUNTIME_BOUND_TOOLKITS:
+		return None
+	return {
+		"binding_kind": "numel_runtime",
+		"toolkit": toolkit_name,
+		"injected_args": sorted(_RUNTIME_ONLY_TOOLKIT_ARG_KEYS),
+	}
+
+
+def _export_toolkit_args(toolkit_name: str, raw_args: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+	args = dict(raw_args or {})
+	if not args:
+		return None
+	if toolkit_name in _RUNTIME_BOUND_TOOLKITS:
+		allowed = _DECLARATIVE_RUNTIME_BOUND_TOOLKIT_ARGS.get(toolkit_name)
+		if allowed is None:
+			return None
+		args = {
+			key: value
+			for key, value in args.items()
+			if key not in _RUNTIME_ONLY_TOOLKIT_ARG_KEYS and key in allowed
+		}
+	return args or None
+
+
 def build_console_workflow_export(
 	*,
 	config: Dict[str, Any],
@@ -58,20 +99,22 @@ def build_console_workflow_export(
 	selected_skills = [str(name).strip() for name in (skill_names or []) if str(name).strip()]
 	toolkit_args = dict(toolkit_args or {})
 
-	persisted_toolkits: List[str] = []
-	omitted_toolkits: List[str] = []
-	for tk_name in selected_toolkits:
-		if tk_name in _RUNTIME_ONLY_TOOLKITS:
-			omitted_toolkits.append(tk_name)
-			continue
-		persisted_toolkits.append(tk_name)
+	runtime_bound_toolkits = [
+		tk_name
+		for tk_name in selected_toolkits
+		if tk_name in _RUNTIME_BOUND_TOOLKITS
+	]
 
 	workflow_description = (
 		"Workflow-backed view of the current assistant console configuration. "
 		"The interactive Agent Chat node is the closest workbench equivalent of the console panel."
 	)
-	if omitted_toolkits:
-		workflow_description += " Runtime-only console toolkits were omitted from export: " + ", ".join(omitted_toolkits) + "."
+	if runtime_bound_toolkits:
+		workflow_description += (
+			" Runtime-bound toolkits are preserved in the graph and rebound by Numel at runtime: "
+			+ ", ".join(runtime_bound_toolkits)
+			+ "."
+		)
 
 	nodes: List[Dict[str, Any]] = [
 		_node_payload(
@@ -166,17 +209,19 @@ def build_console_workflow_export(
 	used_keys: set[str] = set()
 	next_x = 40
 	next_y = 260
-	for tk_name in persisted_toolkits:
+	for tk_name in selected_toolkits:
 		node_index = len(nodes)
-		nodes.append(
-			_node_payload(
-				"toolkit_config",
-				label=tk_name,
-				pos=(next_x, next_y),
-				name=tk_name,
-				args=dict(toolkit_args.get(tk_name) or {}) or None,
-			)
+		node = _node_payload(
+			"toolkit_config",
+			label=tk_name,
+			pos=(next_x, next_y),
+			name=tk_name,
+			args=_export_toolkit_args(tk_name, toolkit_args.get(tk_name)),
 		)
+		runtime_binding = _runtime_binding_hint(tk_name)
+		if runtime_binding is not None:
+			node["runtime_binding"] = runtime_binding
+		nodes.append(node)
 		toolkit_key = _slug_key(tk_name.split(".")[-1], fallback="toolkit", used=used_keys)
 		edges.append(
 			{
@@ -188,7 +233,7 @@ def build_console_workflow_export(
 		)
 		next_x += 220
 
-	if persisted_toolkits:
+	if selected_toolkits:
 		next_y += 170
 		next_x = 40
 
@@ -226,8 +271,9 @@ def build_console_workflow_export(
 	return {
 		"name": workflow_name,
 		"workflow": workflow,
-		"omitted_toolkits": omitted_toolkits,
-		"runtime_only_toolkits": sorted(_RUNTIME_ONLY_TOOLKITS),
+		"omitted_toolkits": [],
+		"runtime_bound_toolkits": runtime_bound_toolkits,
+		"runtime_only_toolkits": sorted(_RUNTIME_BOUND_TOOLKITS),
 	}
 
 
@@ -445,6 +491,7 @@ def parse_console_workflow_import(
 
 	toolkit_names: List[str] = []
 	toolkit_args: Dict[str, Dict[str, Any]] = {}
+	warnings: List[str] = []
 	for _, toolkit_node, _ in toolkit_entries:
 		tk_name = _clean_string(toolkit_node.get("name"))
 		if not tk_name:
@@ -452,7 +499,15 @@ def parse_console_workflow_import(
 		toolkit_names.append(tk_name)
 		args = toolkit_node.get("args")
 		if isinstance(args, dict) and args:
-			toolkit_args[tk_name] = dict(args)
+			exported_args = _export_toolkit_args(tk_name, args)
+			if exported_args:
+				toolkit_args[tk_name] = dict(exported_args)
+			if tk_name in _RUNTIME_BOUND_TOOLKITS:
+				stripped = sorted(set(args.keys()) - set((exported_args or {}).keys()))
+				if stripped:
+					warnings.append(
+						f"{tk_name} runtime-only args were ignored on import: " + ", ".join(stripped) + "."
+					)
 
 	skill_names = [name for name in (_clean_string(node.get("name")) for _, node, _ in skill_entries) if name]
 
@@ -468,7 +523,6 @@ def parse_console_workflow_import(
 		"markdown": bool(options_payload.get("markdown", True)),
 	}
 
-	warnings: List[str] = []
 	if options_payload.get("prompt_override"):
 		warnings.append("agent_options_config.prompt_override is not currently applied by the console bridge and was ignored.")
 

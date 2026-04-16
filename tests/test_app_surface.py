@@ -2104,7 +2104,9 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("agent_options_config", node_types)
         self.assertIn("agent_config", node_types)
         self.assertIn("agent_chat", node_types)
-        self.assertIn("console_toolkit", data["omitted_toolkits"])
+        toolkit_names = [node.get("name") for node in workflow["nodes"] if node.get("type") == "toolkit_config"]
+        self.assertIn("console_toolkit", toolkit_names)
+        self.assertIn("console_toolkit", data["runtime_bound_toolkits"])
 
     async def test_console_workflow_apply_endpoint_reconfigures_console(self) -> None:
         exported = await self._client.post("/console/workflow", json={})
