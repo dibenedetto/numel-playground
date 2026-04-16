@@ -53,6 +53,155 @@ def build_backend_toolkit(toolkit_record, backend_name: Optional[str] = None, **
 	raise ValueError(f"Unsupported backend: {name}")
 
 
+def build_chat_agent(
+	*,
+	model_source: str,
+	model_name: str,
+	name: str,
+	description: str,
+	instructions,
+	markdown: bool,
+	tools=None,
+	skills=None,
+	memory_db_path: Optional[str] = None,
+	session_history: Optional[int] = None,
+	backend_name: Optional[str] = None,
+):
+	backend = normalize_backend_name(backend_name)
+	if backend == "agno":
+		from impl_agno import build_chat_agent_agno
+		return build_chat_agent_agno(
+			model_source=model_source,
+			model_name=model_name,
+			name=name,
+			description=description,
+			instructions=list(instructions or []),
+			markdown=markdown,
+			tools=tools,
+			skills=skills,
+			memory_db_path=memory_db_path,
+			session_history=session_history,
+		)
+	raise ValueError(f"Unsupported backend: {backend}")
+
+
+def build_chat_runtime(
+	*,
+	model_source: str,
+	model_name: str,
+	name: str,
+	description: str,
+	instructions,
+	markdown: bool,
+	tools=None,
+	skills=None,
+	memory_db_path: Optional[str] = None,
+	session_history: Optional[int] = None,
+	backend_name: Optional[str] = None,
+):
+	backend = normalize_backend_name(backend_name)
+	if backend == "agno":
+		from impl_agno import build_chat_runtime_agno
+		return build_chat_runtime_agno(
+			model_source=model_source,
+			model_name=model_name,
+			name=name,
+			description=description,
+			instructions=list(instructions or []),
+			markdown=markdown,
+			tools=tools,
+			skills=skills,
+			memory_db_path=memory_db_path,
+			session_history=session_history,
+		)
+	raise ValueError(f"Unsupported backend: {backend}")
+
+
+async def run_chat_agent(
+	agent,
+	message: str,
+	*,
+	session_id: Optional[str] = None,
+	user_id: Optional[str] = None,
+	backend_name: Optional[str] = None,
+):
+	backend = normalize_backend_name(backend_name)
+	if backend == "agno":
+		from impl_agno import run_chat_agent_agno
+		return await run_chat_agent_agno(
+			agent,
+			message,
+			session_id=session_id,
+			user_id=user_id,
+		)
+	raise ValueError(f"Unsupported backend: {backend}")
+
+
+async def continue_chat_run(
+	agent,
+	*,
+	run_response,
+	approved: bool,
+	note: Optional[str] = None,
+	user_id: Optional[str] = None,
+	session_id: Optional[str] = None,
+	backend_name: Optional[str] = None,
+):
+	backend = normalize_backend_name(backend_name)
+	if backend == "agno":
+		from impl_agno import continue_chat_run_agno
+		return await continue_chat_run_agno(
+			agent,
+			run_response=run_response,
+			approved=approved,
+			note=note,
+			user_id=user_id,
+			session_id=session_id,
+		)
+	raise ValueError(f"Unsupported backend: {backend}")
+
+
+def extract_chat_response_text(response, *, backend_name: Optional[str] = None) -> str:
+	backend = normalize_backend_name(backend_name)
+	if backend == "agno":
+		from impl_agno import extract_chat_response_text_agno
+		return extract_chat_response_text_agno(response)
+	raise ValueError(f"Unsupported backend: {backend}")
+
+
+def extract_chat_tool_calls(response, *, backend_name: Optional[str] = None):
+	backend = normalize_backend_name(backend_name)
+	if backend == "agno":
+		from impl_agno import extract_chat_tool_calls_agno
+		return extract_chat_tool_calls_agno(response)
+	raise ValueError(f"Unsupported backend: {backend}")
+
+
+def is_chat_response_paused(response, *, backend_name: Optional[str] = None) -> bool:
+	backend = normalize_backend_name(backend_name)
+	if backend == "agno":
+		from impl_agno import is_chat_response_paused_agno
+		return is_chat_response_paused_agno(response)
+	raise ValueError(f"Unsupported backend: {backend}")
+
+
+def get_pending_tool_approval(response, *, backend_name: Optional[str] = None):
+	backend = normalize_backend_name(backend_name)
+	if backend == "agno":
+		from impl_agno import get_pending_tool_approval_agno
+		return get_pending_tool_approval_agno(response)
+	raise ValueError(f"Unsupported backend: {backend}")
+
+
+def clear_chat_memory(agent, *, backend_name: Optional[str] = None) -> None:
+	backend = normalize_backend_name(backend_name)
+	if backend == "agno":
+		from impl_agno import clear_chat_memory_agno
+		clear_chat_memory_agno(agent)
+		return
+	raise ValueError(f"Unsupported backend: {backend}")
+
+
 def get_text_generation_sources(name: Optional[str] = None) -> list[str]:
 	backend_name = normalize_backend_name(name)
 	if backend_name == "agno":

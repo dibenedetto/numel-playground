@@ -3,6 +3,7 @@
 import copy
 import os
 import tempfile
+import uuid
 
 
 from   importlib                       import import_module
@@ -72,6 +73,257 @@ def _patch_agno_tool_call_id():
 		pass
 
 _patch_agno_tool_call_id()
+
+
+def _patch_agno_session_summary_warnings():
+	try:
+		import agno.utils.log as _agno_log
+		if getattr(_agno_log.logger.warning, "_numel_filtered", False):
+			return
+		session_noise = frozenset([
+			"Failed to parse cleaned JSON",
+			"All parsing attempts failed",
+			"Failed to parse session summary response",
+		])
+		orig_logger_warning = _agno_log.logger.warning
+
+		def _logger_warning_filtered(msg, *args, **kwargs):
+			if isinstance(msg, str) and any(msg.startswith(noise) for noise in session_noise):
+				return
+			return orig_logger_warning(msg, *args, **kwargs)
+
+		_logger_warning_filtered._numel_filtered = True
+		_agno_log.logger.warning = _logger_warning_filtered
+	except Exception:
+		pass
+
+
+_patch_agno_session_summary_warnings()
+
+
+def _build_chat_model_agno(source: str, name: str):
+	"""Instantiate an Agno chat model from source/name strings."""
+	if source == "ollama":
+		return Ollama(id=name)
+	if source == "openai":
+		# parallel_tool_calls=False prevents the AGUI streaming protocol from
+		# breaking when the model would otherwise issue concurrent tool calls.
+		return OpenAIChat(id=name, request_params={"parallel_tool_calls": False})
+	if source == "anthropic":
+		from agno.models.anthropic import Claude
+		return Claude(id=name)
+	raise ValueError(f"Unsupported Agno chat model source: {source}")
+
+
+def _build_chat_memory_db_agno(memory_db_path: str):
+	return SqliteDb(db_file=memory_db_path)
+
+
+def _build_bg_session_summary_manager_agno(model):
+	class _BgSessionSummaryManager(SessionSummaryManager):
+		"""Fire-and-forget wrapper so summary generation never blocks response end."""
+		async def acreate_session_summary(self, session, run_metrics=None):
+			import asyncio
+			asyncio.get_event_loop().create_task(
+				super().acreate_session_summary(session, run_metrics)
+			)
+			return None
+
+	return _BgSessionSummaryManager(model=model)
+
+
+def build_chat_agent_agno(
+	*,
+	model_source: str,
+	model_name: str,
+	name: str,
+	description: str,
+	instructions: List[str],
+	markdown: bool,
+	tools=None,
+	skills=None,
+	memory_db_path: str | None = None,
+	session_history: int | None = None,
+):
+	model = _build_chat_model_agno(model_source, model_name)
+	db = None
+	enable_agentic_memory = False
+	add_memories_to_context = False
+	search_session_history = False
+	num_history_sessions = None
+	session_summary_manager = None
+	if memory_db_path:
+		db = _build_chat_memory_db_agno(memory_db_path)
+		enable_agentic_memory = True
+		add_memories_to_context = True
+		search_session_history = True
+		num_history_sessions = session_history
+		session_summary_manager = _build_bg_session_summary_manager_agno(model)
+	return Agent(
+		name=name,
+		model=model,
+		description=description,
+		instructions=list(instructions or []),
+		markdown=bool(markdown),
+		tools=list(tools or []),
+		skills=skills,
+		db=db,
+		enable_agentic_memory=enable_agentic_memory,
+		add_memories_to_context=add_memories_to_context,
+		search_session_history=search_session_history,
+		num_history_sessions=num_history_sessions,
+		session_summary_manager=session_summary_manager,
+	)
+
+
+def build_chat_runtime_agno(
+	*,
+	model_source: str,
+	model_name: str,
+	name: str,
+	description: str,
+	instructions: List[str],
+	markdown: bool,
+	tools=None,
+	skills=None,
+	memory_db_path: str | None = None,
+	session_history: int | None = None,
+):
+	agent = build_chat_agent_agno(
+		model_source=model_source,
+		model_name=model_name,
+		name=name,
+		description=description,
+		instructions=instructions,
+		markdown=markdown,
+		tools=tools,
+		skills=skills,
+		memory_db_path=memory_db_path,
+		session_history=session_history,
+	)
+	app = AgentOS(
+		agents=[agent],
+		interfaces=[AGUI(agent=agent)],
+	).get_app()
+	add_middleware(app)
+	return agent, app
+
+
+async def run_chat_agent_agno(agent, message: str, *, session_id: str | None = None, user_id: str | None = None):
+	kwargs = {}
+	if user_id is not None:
+		kwargs["user_id"] = user_id
+	if session_id is not None:
+		kwargs["session_id"] = session_id
+	return await agent.arun(message, **kwargs)
+
+
+async def continue_chat_run_agno(
+	agent,
+	*,
+	run_response,
+	approved: bool,
+	note: str | None = None,
+	user_id: str | None = None,
+	session_id: str | None = None,
+):
+	requirements = list(getattr(run_response, "requirements", []) or [])
+	for requirement in requirements:
+		if not getattr(requirement, "needs_confirmation", False):
+			continue
+		if approved:
+			requirement.confirm()
+		else:
+			requirement.reject(note)
+	kwargs = {
+		"run_response": run_response,
+		"requirements": requirements,
+	}
+	if user_id is not None:
+		kwargs["user_id"] = user_id
+	if session_id is not None:
+		kwargs["session_id"] = session_id
+	return await agent.acontinue_run(**kwargs)
+
+
+def extract_chat_response_text_agno(response) -> str:
+	content = ""
+	if response and getattr(response, "content", None):
+		content = response.get_content_as_string() if hasattr(response, "get_content_as_string") else str(response.content)
+	if not content and response and getattr(response, "messages", None):
+		for msg in reversed(response.messages):
+			if getattr(msg, "role", None) == "assistant" and getattr(msg, "content", None):
+				content = msg.content
+				break
+	return content
+
+
+def extract_chat_tool_calls_agno(response) -> List[Dict[str, Any]]:
+	tool_calls: List[Dict[str, Any]] = []
+	if response and getattr(response, "messages", None):
+		for msg in response.messages:
+			if getattr(msg, "role", None) == "tool":
+				tool_calls.append({
+					"name": getattr(msg, "tool_name", None) or getattr(msg, "tool_call_id", None),
+					"result": (msg.content[:200] if msg.content else None) if hasattr(msg, "content") else None,
+				})
+	if response and getattr(response, "tools", None) and not tool_calls:
+		for tool_call in response.tools:
+			tool_calls.append({
+				"name": getattr(tool_call, "tool_name", None) or getattr(tool_call, "name", None),
+				"result": None,
+			})
+	return tool_calls
+
+
+def is_chat_response_paused_agno(response) -> bool:
+	return bool(getattr(response, "is_paused", False))
+
+
+def get_pending_tool_approval_agno(run_response) -> Dict[str, Any] | None:
+	requirement = None
+	for candidate in list(getattr(run_response, "active_requirements", []) or []):
+		if getattr(candidate, "tool_execution", None) is not None:
+			requirement = candidate
+			break
+	if requirement is None:
+		for candidate in list(getattr(run_response, "requirements", []) or []):
+			if getattr(candidate, "tool_execution", None) is not None:
+				requirement = candidate
+				break
+	if requirement is None:
+		return None
+	tool_execution = getattr(requirement, "tool_execution", None)
+	if tool_execution is None:
+		return None
+	approval_id = str(getattr(tool_execution, "approval_id", None) or f"tool_approval_{uuid.uuid4().hex[:10]}")
+	tool_execution.approval_id = approval_id
+	args = getattr(tool_execution, "tool_args", None)
+	return {
+		"approval_id": approval_id,
+		"tool_name": str(getattr(tool_execution, "tool_name", None) or "tool"),
+		"tool_args": args if isinstance(args, dict) else None,
+		"approval_type": getattr(tool_execution, "approval_type", None) or "required",
+	}
+
+
+def clear_chat_memory_agno(agent) -> None:
+	db = getattr(agent, "db", None)
+	if not db:
+		return
+	try:
+		from agno.db.base import SessionType
+		sessions = db.get_sessions(session_type=SessionType.AGENT) or []
+		session_ids = [session.session_id for session in sessions]
+		if session_ids:
+			db.delete_sessions(session_ids)
+	except Exception:
+		pass
+	try:
+		if hasattr(db, "clear_memories"):
+			db.clear_memories()
+	except Exception:
+		pass
 
 
 def get_text_generation_sources_agno() -> List[str]:

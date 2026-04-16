@@ -15,33 +15,22 @@ from   fastapi                         import FastAPI, HTTPException, Request, W
 from   pydantic                        import BaseModel
 from   typing                          import Any, Dict, List, Optional, Set
 
-from   agno.agent                      import Agent
-from   agno.models.ollama              import Ollama
-from   agno.models.openai              import OpenAIChat
-from   agno.os                         import AgentOS
-from   agno.os.interfaces.agui         import AGUI
 from   workflow_validation             import validate_workflow_payload
 
-# Suppress agno's harmless SessionSummaryManager parse warnings (local models
-# often return non-JSON for summary requests).  summary.py does
-# `from agno.utils.log import log_warning` — a direct binding that our
-# module-attr patch can't reach.  But log_warning internally calls
-# `logger.warning()` through the shared global, so patching that method works.
-import agno.utils.log as _agno_log
-_SESSION_NOISE = frozenset([
-    "Failed to parse cleaned JSON",
-    "All parsing attempts failed",
-    "Failed to parse session summary response",
-])
-_orig_logger_warning = _agno_log.logger.warning
-def _logger_warning_filtered(msg, *args, **kwargs):
-    if isinstance(msg, str) and any(msg.startswith(n) for n in _SESSION_NOISE):
-        return
-    _orig_logger_warning(msg, *args, **kwargs)
-_agno_log.logger.warning = _logger_warning_filtered
-
 from   event_bus                       import EventBus
-from   backend_factory                 import build_backend_skills, build_backend_toolkit
+from   backend_factory                 import (
+	build_backend_skills,
+	build_backend_toolkit,
+	build_chat_agent,
+	build_chat_runtime,
+	clear_chat_memory,
+	continue_chat_run,
+	extract_chat_response_text,
+	extract_chat_tool_calls,
+	get_pending_tool_approval,
+	is_chat_response_paused,
+	run_chat_agent,
+)
 from   console_workflow               import build_console_workflow_export, parse_console_workflow_import
 from   memory                          import MemoryStore
 from   prompt_stack                    import PLANNER_MODE_DIRECTIVE, extend_instruction_block
@@ -49,27 +38,10 @@ from   runtime_settings                import get_runtime_settings
 from   schema                          import DEFAULT_BACKEND_NAME
 from   toolkit_runtime                 import build_toolkit_record_from_instance, load_numel_toolkit
 from   toolkits.console_toolkit        import ConsoleToolkit
-from   utils                           import add_middleware, log_print
+from   utils                           import log_print
 
 
 _CONFIG_PATH = str(get_runtime_settings().console_agent_config_path)
-
-
-# ── Helpers ────────────────────────────────────────────────────
-
-def _build_model(source: str, name: str):
-	"""Instantiate an agno model from source/name strings."""
-	if source == "ollama":
-		return Ollama(id=name)
-	elif source == "openai":
-		# parallel_tool_calls=False prevents the AGUI streaming protocol from
-		# breaking when the model would otherwise issue concurrent tool calls.
-		return OpenAIChat(id=name, request_params={"parallel_tool_calls": False})
-	elif source == "anthropic":
-		from agno.models.anthropic import Claude
-		return Claude(id=name)
-	else:
-		raise ValueError(f"Unsupported console agent model source: {source}")
 
 
 def _describe_attachments(message: str, attachments: list) -> str:
@@ -459,7 +431,6 @@ class ConsoleAgentManager:
 		if self._started:
 			await self.stop()
 
-		model = _build_model(source, name)
 		self._model_source  = source
 		self._model_name    = name
 		self._toolkit_names = toolkits
@@ -514,44 +485,22 @@ class ConsoleAgentManager:
 
 		log_print(f"Console agent tools: {[getattr(t, 'name', getattr(t, '__name__', str(t))) for t in tools]}")
 
-		# Memory: backend (SqliteDb) or manual MemoryStore
+		# Memory: backend-managed SQLite or manual MemoryStore
 		mem_cfg = effective_config.get("memory", {})
 		# use_backend_memory param overrides the config file value
 		use_backend = requested_use_backend
 		self._use_backend_memory = use_backend
 
-		db                      = None
-		enable_agentic_memory   = False
-		add_memories_to_context = False
-		search_session_history  = False
-		num_history_sessions    = None
-		session_summary_manager = None
+		memory_db_path = None
+		session_history = None
 		if use_backend:
-			from agno.db.sqlite import SqliteDb
 			if self._user_memory_db and user_id:
-				db_path = self._user_memory_db.get_db_path(user_id)
+				memory_db_path = self._user_memory_db.get_db_path(user_id)
 			else:
-				db_path = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
-			db_path = _prepare_agno_memory_db_path(db_path)
-			db                      = SqliteDb(db_file=db_path)
-			enable_agentic_memory   = True
-			add_memories_to_context = True
-			search_session_history  = True
-			num_history_sessions    = mem_cfg.get("session_history", 5)
-
-			from agno.session.summary import SessionSummaryManager
-
-			class _BgSessionSummaryManager(SessionSummaryManager):
-				"""Fire-and-forget wrapper: runs the summary in a background task
-				so it never blocks the response end-event."""
-				async def acreate_session_summary(self, session, run_metrics=None):
-					asyncio.get_event_loop().create_task(
-						super().acreate_session_summary(session, run_metrics)
-					)
-					return None
-
-			session_summary_manager = _BgSessionSummaryManager(model=model)
-			log_print(f"Console agent: using backend memory ({db_path})")
+				memory_db_path = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
+			memory_db_path = _prepare_agno_memory_db_path(memory_db_path)
+			session_history = mem_cfg.get("session_history", 5)
+			log_print(f"Console agent: using backend memory ({memory_db_path})")
 		else:
 			log_print("Console agent: using manual MemoryStore")
 
@@ -567,29 +516,19 @@ class ConsoleAgentManager:
 		if native_skills is not None:
 			log_print(f"Console agent: attached {len(native_skills.skills)} native skill(s)")
 
-		self._agent = Agent(
+		self._agent, self._app = build_chat_runtime(
+			backend_name=DEFAULT_BACKEND_NAME,
 			name                    = opts.get("name", "Numel Assistant"),
-			model                   = model,
+			model_source            = source,
+			model_name              = name,
 			description             = opts.get("description", ""),
 			instructions            = instructions,
 			markdown                = opts.get("markdown", True),
 			tools                   = tools,
 			skills                  = native_skills,
-
-			db                      = db,
-			enable_agentic_memory   = enable_agentic_memory,
-			add_memories_to_context = add_memories_to_context,
-			search_session_history  = search_session_history,
-			num_history_sessions    = num_history_sessions,
-			session_summary_manager = session_summary_manager,
+			memory_db_path          = memory_db_path,
+			session_history         = session_history,
 		)
-
-		# Build AGUI app
-		self._app = AgentOS(
-			agents     = [self._agent],
-			interfaces = [AGUI(agent=self._agent)]
-		).get_app()
-		add_middleware(self._app)
 
 		# Start uvicorn server and wait for it to actually bind the port
 		import uvicorn
@@ -628,22 +567,9 @@ class ConsoleAgentManager:
 
 	def clear_memory(self):
 		"""Clear all agent memory: sessions, agno memories, and in-memory history."""
-		# 1. Clear agno backend DB via public API (if agent was started with backend)
-		if self._agent and getattr(self._agent, 'db', None):
-			db = self._agent.db
-			try:
-				from agno.db.base import SessionType
-				sessions = db.get_sessions(session_type=SessionType.AGENT) or []
-				session_ids = [s.session_id for s in sessions]
-				if session_ids:
-					db.delete_sessions(session_ids)
-			except Exception:
-				pass
-			try:
-				if hasattr(db, 'clear_memories'):
-					db.clear_memories()
-			except Exception:
-				pass
+		# 1. Clear backend-managed memory if the runtime exposes it
+		if self._agent:
+			clear_chat_memory(self._agent, backend_name=DEFAULT_BACKEND_NAME)
 		# 2. Clear custom MemoryStore
 		if self._memory:
 			self._memory.clear()
@@ -1098,7 +1024,12 @@ class ConsoleAgentManager:
 		tool_names = [getattr(t, '__name__', getattr(t, 'name', str(t))) for t in (self._agent.tools or [])]
 		log_print(f"Console chat: running agent (session={session_id[:8]}..., tools={tool_names}, msg={message[:60]}...)")
 		try:
-			response = await self._agent.arun(augmented, session_id=session_id)
+			response = await run_chat_agent(
+				self._agent,
+				augmented,
+				session_id=session_id,
+				backend_name=DEFAULT_BACKEND_NAME,
+			)
 		except Exception as e:
 			log_print(f"ERROR    Error in Agent run: {e}")
 			return {"session_id": session_id, "error": str(e), "tool_calls": []}
@@ -1106,32 +1037,8 @@ class ConsoleAgentManager:
 
 		# Extract the assistant response
 		assistant_content = ""
-		tool_calls = []
-
-		# Try response.content first (the main output)
-		if response and response.content:
-			assistant_content = response.get_content_as_string() if hasattr(response, 'get_content_as_string') else str(response.content)
-
-		# Extract tool call info from messages
-		if response and response.messages:
-			for msg in response.messages:
-				role = getattr(msg, 'role', None)
-				if role == "tool":
-					tool_calls.append({
-						"name": getattr(msg, 'tool_name', None) or getattr(msg, 'tool_call_id', None),
-						"result": (msg.content[:200] if msg.content else None) if hasattr(msg, 'content') else None,
-					})
-				# Fallback: if content is empty, grab from last assistant message
-				if not assistant_content and role == "assistant" and getattr(msg, 'content', None):
-					assistant_content = msg.content
-
-		# Extract tool calls from response.tools if available
-		if response and response.tools and not tool_calls:
-			for tc in response.tools:
-				tool_calls.append({
-					"name": getattr(tc, 'tool_name', None) or getattr(tc, 'name', None),
-					"result": None,
-				})
+		tool_calls = extract_chat_tool_calls(response, backend_name=DEFAULT_BACKEND_NAME)
+		assistant_content = extract_chat_response_text(response, backend_name=DEFAULT_BACKEND_NAME)
 
 		# Planner responses may include workflow JSON, but web/app clients are responsible
 		# for validating and applying it through the explicit planner-apply route.
@@ -1337,7 +1244,7 @@ class ConsoleAgentManager:
 # Idle agents are cleaned up after a configurable timeout.
 
 class ChannelAgentPool:
-	"""Manages per-session Agent instances for channel message handling."""
+	"""Manages per-session backend chat-agent instances for channel messages."""
 
 	def __init__(self, config_path: str = _CONFIG_PATH,
 				 workspace_mgr=None, memory_store=None,
@@ -1356,7 +1263,7 @@ class ChannelAgentPool:
 		self._internal_token = internal_token
 		self._fastapi_app    = fastapi_app
 		self._skill_mgr      = None                  # set via set_skill_mgr()
-		self._agents: Dict[str, Agent]      = {}    # session_id → Agent
+		self._agents: Dict[str, Any]        = {}    # session_id → backend agent handle
 		self._agent_tks: Dict[str, List[str]] = {}  # session_id → toolkit names used at build
 		self._agent_uids: Dict[str, str]    = {}    # session_id → user_id used at build
 		self._agent_specs: Dict[str, Dict[str, Any]] = {}  # session_id → build overrides
@@ -1383,8 +1290,8 @@ class ChannelAgentPool:
 							 tool_confirmation_mode: Optional[str] = None,
 							 assistant_name: Optional[str] = None,
 							 assistant_description: Optional[str] = None,
-							 deployment_id: Optional[str] = None) -> Agent:
-		"""Return (or lazily build) the Agent for this session."""
+							 deployment_id: Optional[str] = None):
+		"""Return (or lazily build) the backend chat agent for this session."""
 		async with self._lock:
 			# Update stored token if a fresh one is provided
 			if auth_token:
@@ -1468,8 +1375,8 @@ class ChannelAgentPool:
 						   tool_confirmation_mode: Optional[str] = None,
 						   assistant_name: Optional[str] = None,
 						   assistant_description: Optional[str] = None,
-						   deployment_id: Optional[str] = None) -> Agent:
-		"""Build a lightweight Agent from console_agent.json defaults."""
+						   deployment_id: Optional[str] = None):
+		"""Build a lightweight backend chat agent from console defaults."""
 		import credentials as _creds
 		config = _creds.load_json(self._config_path)
 		effective_config = ConsoleAgentManager._build_effective_console_config(
@@ -1479,7 +1386,6 @@ class ChannelAgentPool:
 		model_cfg = effective_config.get("model", {})
 		source    = model_source or model_cfg.get("source", "ollama")
 		name      = model_name or model_cfg.get("name", "mistral")
-		model     = _build_model(source, name)
 
 		# Build tools — use per-user toolkit list if provided, else config defaults
 		tk_names = toolkits if toolkits is not None else effective_config.get("toolkits", ["console_toolkit"])
@@ -1542,17 +1448,15 @@ class ChannelAgentPool:
 		# Memory — per-user isolation via UserMemoryDB
 		mem_cfg     = effective_config.get("memory", {})
 		use_backend = mem_cfg.get("backend", True)
-		db          = None
+		memory_db_path = None
 		if use_backend:
-			from agno.db.sqlite import SqliteDb
 			if self._user_memory_db and user_id:
-				db_path = self._user_memory_db.get_db_path(user_id, is_guest=is_guest)
+				memory_db_path = self._user_memory_db.get_db_path(user_id, is_guest=is_guest)
 			else:
 				# Fallback: shared db (no user isolation available)
-				db_path = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
-			db_path = _prepare_agno_memory_db_path(db_path)
-			db = SqliteDb(db_file=db_path)
-			log_print(f"ChannelAgentPool: memory db → {os.path.basename(db_path)}")
+				memory_db_path = os.path.join(os.path.dirname(self._config_path), "console_memory.db")
+			memory_db_path = _prepare_agno_memory_db_path(memory_db_path)
+			log_print(f"ChannelAgentPool: memory db → {os.path.basename(memory_db_path)}")
 
 		opts = effective_config.get("options", {})
 		instructions = list(opts.get("instructions", []))
@@ -1569,19 +1473,18 @@ class ChannelAgentPool:
 		if extra_instructions:
 			instructions.extend(extra_instructions)
 
-		return Agent(
+		return build_chat_agent(
+			backend_name            = DEFAULT_BACKEND_NAME,
 			name                    = assistant_name or opts.get("name", "Numel Assistant"),
-			model                   = model,
+			model_source            = source,
+			model_name              = name,
 			description             = assistant_description if assistant_description is not None else opts.get("description", ""),
 			instructions            = instructions,
 			markdown                = opts.get("markdown", True),
 			tools                   = tools,
 			skills                  = native_skills,
-			db                      = db,
-			enable_agentic_memory   = bool(db),
-			add_memories_to_context = bool(db),
-			search_session_history  = bool(db),
-			num_history_sessions    = mem_cfg.get("session_history", 5) if db else None,
+			memory_db_path          = memory_db_path,
+			session_history         = mem_cfg.get("session_history", 5) if memory_db_path else None,
 		)
 
 	async def chat(self, message: str, session_id: str,
@@ -1623,15 +1526,21 @@ class ChannelAgentPool:
 			message = _describe_attachments(message, attachments)
 
 		try:
-			response = await agent.arun(message, user_id=user_id, session_id=session_id)
+			response = await run_chat_agent(
+				agent,
+				message,
+				user_id=user_id,
+				session_id=session_id,
+				backend_name=DEFAULT_BACKEND_NAME,
+			)
 		except Exception as e:
 			log_print(f"ChannelAgentPool: agent run failed for {session_id[:16]}: {e}")
 			return {"session_id": session_id, "error": str(e), "tool_calls": []}
 
-		content = self._extract_response_text(response)
-		tool_calls = self._extract_tool_calls(response)
+		content = extract_chat_response_text(response, backend_name=DEFAULT_BACKEND_NAME)
+		tool_calls = extract_chat_tool_calls(response, backend_name=DEFAULT_BACKEND_NAME)
 
-		if getattr(response, "is_paused", False):
+		if is_chat_response_paused(response, backend_name=DEFAULT_BACKEND_NAME):
 			pending_tool_approval = self._register_pending_tool_approval(
 				session_id=session_id,
 				deployment_id=deployment_id,
@@ -1661,39 +1570,6 @@ class ChannelAgentPool:
 		self._last_used[session_id] = time.time()
 		return {"session_id": session_id, "response": content, "tool_calls": tool_calls}
 
-	def _extract_response_text(self, response) -> str:
-		content = ""
-		if response and getattr(response, "content", None):
-			content = response.get_content_as_string() if hasattr(response, "get_content_as_string") else str(response.content)
-		if not content and response and getattr(response, "messages", None):
-			for msg in reversed(response.messages):
-				if getattr(msg, "role", None) == "assistant" and getattr(msg, "content", None):
-					content = msg.content
-					break
-		return content
-
-	def _extract_tool_calls(self, response) -> List[Dict[str, Any]]:
-		tool_calls: List[Dict[str, Any]] = []
-		if response and getattr(response, "messages", None):
-			for msg in response.messages:
-				if getattr(msg, "role", None) == "tool":
-					tool_calls.append({
-						"name": getattr(msg, "tool_name", None) or getattr(msg, "tool_call_id", None),
-						"result": (msg.content[:200] if msg.content else None) if hasattr(msg, "content") else None,
-					})
-		return tool_calls
-
-	def _find_pending_requirement(self, run_response) -> Optional[Any]:
-		for requirement in list(getattr(run_response, "active_requirements", []) or []):
-			tool_execution = getattr(requirement, "tool_execution", None)
-			if tool_execution is not None:
-				return requirement
-		for requirement in list(getattr(run_response, "requirements", []) or []):
-			tool_execution = getattr(requirement, "tool_execution", None)
-			if tool_execution is not None:
-				return requirement
-		return None
-
 	def _register_pending_tool_approval(
 		self,
 		*,
@@ -1703,12 +1579,8 @@ class ChannelAgentPool:
 		message: str,
 		run_response,
 	) -> Dict[str, Any]:
-		requirement = self._find_pending_requirement(run_response)
-		tool_execution = getattr(requirement, "tool_execution", None) if requirement is not None else None
-		approval_id = str(getattr(tool_execution, "approval_id", None) or f"tool_approval_{uuid.uuid4().hex[:10]}")
-		if tool_execution is not None:
-			tool_execution.approval_id = approval_id
-		args = getattr(tool_execution, "tool_args", None)
+		pending = get_pending_tool_approval(run_response, backend_name=DEFAULT_BACKEND_NAME) or {}
+		approval_id = str(pending.get("approval_id") or f"tool_approval_{uuid.uuid4().hex[:10]}")
 		row = {
 			"id": approval_id,
 			"deployment_id": deployment_id,
@@ -1716,9 +1588,9 @@ class ChannelAgentPool:
 			"user_id": user_id,
 			"message": message,
 			"created_at": datetime.now().isoformat(),
-			"tool_name": str(getattr(tool_execution, "tool_name", None) or "tool"),
-			"tool_args": args if isinstance(args, dict) else None,
-			"approval_type": getattr(tool_execution, "approval_type", None) or "required",
+			"tool_name": str(pending.get("tool_name") or "tool"),
+			"tool_args": pending.get("tool_args"),
+			"approval_type": pending.get("approval_type") or "required",
 			"pause_type": "confirmation",
 			"run_response": run_response,
 		}
@@ -1757,21 +1629,15 @@ class ChannelAgentPool:
 				"error": "The paused tool approval is no longer available.",
 			}
 
-		requirements = list(getattr(run_response, "requirements", []) or [])
-		for requirement in requirements:
-			if not getattr(requirement, "needs_confirmation", False):
-				continue
-			if approved:
-				requirement.confirm()
-			else:
-				requirement.reject(note)
-
 		try:
-			continued = await agent.acontinue_run(
+			continued = await continue_chat_run(
+				agent,
 				run_response=run_response,
-				requirements=requirements,
+				approved=approved,
+				note=note,
 				user_id=user_id,
 				session_id=session_id,
+				backend_name=DEFAULT_BACKEND_NAME,
 			)
 		except Exception as exc:
 			log_print(f"ChannelAgentPool: continue_run failed for {session_id[:16]}: {exc}")
@@ -1783,8 +1649,8 @@ class ChannelAgentPool:
 		self._pending_tool_approvals.pop(approval_id, None)
 		self._last_used[session_id] = time.time()
 
-		content = self._extract_response_text(continued)
-		tool_calls = self._extract_tool_calls(continued)
+		content = extract_chat_response_text(continued, backend_name=DEFAULT_BACKEND_NAME)
+		tool_calls = extract_chat_tool_calls(continued, backend_name=DEFAULT_BACKEND_NAME)
 		result = {
 			"approval_id": approval_id,
 			"approved": approved,
@@ -1792,7 +1658,7 @@ class ChannelAgentPool:
 			"response": content,
 			"tool_calls": tool_calls,
 		}
-		if getattr(continued, "is_paused", False):
+		if is_chat_response_paused(continued, backend_name=DEFAULT_BACKEND_NAME):
 			next_pending = self._register_pending_tool_approval(
 				session_id=session_id,
 				deployment_id=str(pending.get("deployment_id") or "") or None,
