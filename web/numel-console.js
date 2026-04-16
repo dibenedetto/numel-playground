@@ -793,7 +793,7 @@ class AgentConsoleManager {
 	async _openConsoleWorkflowInWorkbench() {
 		if (!this.api?.consoleWorkflow) return;
 		const btn = this._openWorkflowBtn;
-		const originalLabel = btn?.textContent || 'Open In Workbench';
+		const originalLabel = btn?.textContent || 'Open Assistant In Workbench';
 		if (btn) {
 			btn.disabled = true;
 			btn.textContent = 'Loading...';
@@ -813,7 +813,7 @@ class AgentConsoleManager {
 			const suffix = runtimeBound.length
 				? ` Runtime-bound toolkits preserved in the graph and rebound by Numel at runtime: ${runtimeBound.join(', ')}.`
 				: '';
-			this._addMessage('system', `Loaded "${name}" into the current workbench.${suffix}`);
+			this._addMessage('system', `Loaded "${name}" into the current workbench as a workflow-backed Assistant.${suffix}`);
 		} catch (err) {
 			this._addMessage('error', `Failed to open console workflow: ${err.message}`);
 		} finally {
@@ -871,7 +871,7 @@ class AgentConsoleManager {
 	async _applyWorkbenchWorkflowToConsole() {
 		if (!this.api?.consoleApplyWorkflow) return;
 		const btn = this._applyWorkflowBtn;
-		const originalLabel = btn?.textContent || 'Use Current Workbench';
+		const originalLabel = btn?.textContent || 'Apply Workbench To Assistant';
 		if (btn) {
 			btn.disabled = true;
 			btn.textContent = 'Applying...';
@@ -886,12 +886,12 @@ class AgentConsoleManager {
 			const data = await this.api.consoleApplyWorkflow(workflow);
 			await this._applyConsoleWorkflowState(data);
 			const assistantName = data?.options?.name ? ` as "${data.options.name}"` : '';
-			this._addMessage('system', `Applied "${data?.workflow_name || 'Workbench'}" to the Assistant${assistantName}.`);
+			this._addMessage('system', `Applied "${data?.workflow_name || 'Workbench'}" from the current workbench to the live Assistant${assistantName}.`);
 			for (const warning of (data?.warnings || [])) {
 				this._addMessage('system', `Console workflow note: ${warning}`);
 			}
 		} catch (err) {
-			this._addMessage('error', `Failed to apply current workbench to the Assistant: ${err.message}`);
+			this._addMessage('error', `Failed to apply the current workbench to the Assistant: ${err.message}`);
 		} finally {
 			if (btn) {
 				btn.disabled = false;

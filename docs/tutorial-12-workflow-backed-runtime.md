@@ -26,7 +26,7 @@ If you have not used deployments before, do [tutorial-11-assistant-deployments.m
 
 1. Open the Assistant panel.
 2. Open the Assistant settings area.
-3. Click **Open In Workbench**.
+3. Click **Open Assistant In Workbench**.
 
 Numel will materialize the current console shape as a real workflow.
 
@@ -51,7 +51,7 @@ If the Assistant is using runtime-bound capabilities like `console_toolkit`, tho
    - model source or model name
 2. Save the space if you want.
 3. Go back to the Assistant settings.
-4. Click **Use Current Workbench**.
+4. Click **Apply Workbench To Assistant**.
 
 This applies the console-shaped workflow back to the live Assistant configuration.
 
@@ -63,7 +63,7 @@ So the direction now works both ways:
 ## Part 3: Open The Live Deployment Network In The Workbench
 
 1. Open **Assistant Deployments**.
-2. Click **Open Network In Workbench**.
+2. Click **Open Live Network In Workbench**.
 
 Numel will export the live operational network into a workbench workflow.
 
@@ -127,7 +127,7 @@ This means the handoff decision itself is no longer limited to exact keyword mat
    - adjust a selector mode
    - update a linked workflow name
 2. Return to **Assistant Deployments**.
-3. Click **Use Current Workbench**.
+3. Click **Apply Workbench To Network**.
 
 This applies the edited network graph back into the live runtime.
 

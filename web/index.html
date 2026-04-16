@@ -47,7 +47,7 @@
 				<span class="nw-brand">Numel</span> <span class="nw-title-word">Playground</span>
 				<span id="wsStatus" class="nw-ws-badge disconnected">●</span>
 			</h1>
-			<div class="nw-title-subtitle">Build, run, and refine agent workflows.</div>
+			<div class="nw-title-subtitle">Build, run, and operate workflow-backed AI systems.</div>
 			<input type="hidden" id="serverUrl" autocomplete="off">
 
 			<!-- User sub-panel — visible when auth is enabled -->
@@ -88,7 +88,7 @@
 					</div>
 				</div>
 				<div id="workbenchSpacesList" class="nw-space-stack"></div>
-				<div class="nw-field-hint">Spaces are your project workbenches. Each one holds one live workflow, its runs, and anything that workflow needs.</div>
+				<div class="nw-field-hint">Spaces are your project containers. The workbench is the working surface for the selected space, including its live workflow, runs, and supporting assets.</div>
 				<div class="nw-workbench-space-row nw-workbench-space-row-hidden">
 					<div class="nw-layout-field nw-workbench-space-field nw-workbench-space-field-hidden">
 						<select id="spaceSelect" class="nw-select" disabled aria-label="Current space">
@@ -535,9 +535,9 @@
 					</div>
 					<div class="nw-console-settings-row">
 						<label>Workflow</label>
-						<button id="consoleOpenWorkflowBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button">Open In Workbench</button>
-						<button id="consoleApplyWorkflowBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button">Use Current Workbench</button>
-						<span class="nw-console-inline-hint">Materialize the current assistant console as a workflow in the current workbench.</span>
+						<button id="consoleOpenWorkflowBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button">Open Assistant In Workbench</button>
+						<button id="consoleApplyWorkflowBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button">Apply Workbench To Assistant</button>
+						<span class="nw-console-inline-hint">Export the live Assistant into the current workbench, or apply the current workbench back to the live Assistant.</span>
 					</div>
 					<div class="nw-console-settings-row">
 						<label for="consoleTtsToggle">Voice</label>
@@ -790,8 +790,8 @@
 			<div class="nw-admin-body">
 				<div class="nw-admin-toolbar">
 					<button id="assistantDeploymentRefreshBtn" class="nw-btn nw-btn-sm">Refresh</button>
-					<button id="assistantDeploymentOpenWorkflowBtn" class="nw-btn nw-btn-sm nw-btn-secondary">Open Network In Workbench</button>
-					<button id="assistantDeploymentApplyWorkflowBtn" class="nw-btn nw-btn-sm nw-btn-secondary">Use Current Workbench</button>
+					<button id="assistantDeploymentOpenWorkflowBtn" class="nw-btn nw-btn-sm nw-btn-secondary">Open Live Network In Workbench</button>
+					<button id="assistantDeploymentApplyWorkflowBtn" class="nw-btn nw-btn-sm nw-btn-secondary">Apply Workbench To Network</button>
 					<button id="assistantDeploymentAddBtn" class="nw-btn nw-btn-sm nw-btn-success">+ Add Deployment</button>
 					<select id="assistantDeploymentStatusFilter" class="nw-select nw-admin-status-filter">
 						<option value="all">All statuses</option>
@@ -807,7 +807,7 @@
 						Pending approvals only
 					</label>
 				</div>
-				<div class="nw-ext-note">Deploy named assistants to one or more channels with their own model, instructions, toolkits, skills, routing rules, proactive jobs, and linked workbench context.</div>
+				<div class="nw-ext-note">Operate named assistants across channels with their own model, instructions, toolkits, skills, handoff policy, proactive tasks, safety rules, and linked workbench context.</div>
 				<div id="assistantDeploymentSummary" class="nw-assist-ops-summary"></div>
 				<div id="assistantDeploymentList" class="nw-admin-list"></div>
 			</div>

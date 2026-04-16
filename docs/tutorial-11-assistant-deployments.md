@@ -83,7 +83,7 @@ Recommended starter values:
 
 - **Name**: `Support Front Door`
 - **Profile**: `triage`
-- **Use Current Workbench**: click the helper button
+- **Fill From Current Workbench**: click the helper button
 - **Toolkits**: `channel_toolkit,knowledge_toolkit`
 - **Channels**: select your test channel
 - **Tool Execution**: `Require approval before each tool call`

@@ -215,11 +215,12 @@ Web console users authenticated via the login modal are auto-linked — no expli
 
 ### Assistant Deployments
 - Create named AI services with their own model, instructions, toolkits, skills, channels, and linked workbench
-- Route from a front-door deployment to specialist deployments, with `hybrid` semantic handoff selection now the default
-- Add proactive jobs that run on a schedule or from event-driven triggers
+- Route from a front-door deployment to specialist deployments, with conversation-level handoff that stays with the specialist until another handoff happens
+- Choose handoff selector policies: `keyword`, `hybrid`, or fully `workflow`, with `hybrid` semantic handoff selection now the default
+- Add proactive jobs that run on a schedule or from event-driven triggers such as webhook, channel, file watch, and browser sources
 - Require approval before proactive delivery and/or before tool execution
 - Operate everything from the Assistant Deployments panel with activity, failures, pending approvals, and linked-workbench navigation
-- Export the live deployment network into the workbench and apply edited network graphs back into runtime
+- Export the live deployment network into the workbench with `Open Live Network In Workbench` and apply edited network graphs back into runtime with `Apply Workbench To Network`
 - Let less technical users operate a prepared deployment from one panel, while more technical users keep refining the underlying workbench
 
 ### Published Apps
@@ -234,6 +235,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 - **AI chat panel** with streaming (AGUI) and REST fallback
 - **Unified channel architecture** — the web console is treated as a channel, sharing the same command handler, agent pool, and memory isolation as Telegram/Discord/etc.
 - **`/` commands** — `/help`, `/me`, `/toolkits`, `/toolkit`, `/planner`, `/password` all work in the web console
+- **Workflow-backed planner turns** — planner turns now execute through the same workflow-backed runtime direction as the rest of Numel, while tab/session debounce remains control-plane logic
 - **Model selection** dropdown (switch LLMs on the fly)
 - **Toolkit picker** — enable/disable toolkits per session (also via `/toolkit` command)
 - **Extensions panel** — inspect shared toolkits, upload/remove contrib toolkits, and view/add/setup/remove skills from the GUI
@@ -243,7 +245,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 - **Multi-user support** — multiple users connecting to the same server each get their own agent instance via `ChannelAgentPool`
 - **Proactive suggestions** via WebSocket
 - **`/gen` command** — generate workflows from natural language
-- **Workflow bridge** — `Open In Workbench` exports the current Assistant into a real workflow, and `Use Current Workbench` applies a console-shaped workflow back into the live Assistant
+- **Workflow bridge** — `Open Assistant In Workbench` exports the current Assistant into a real workflow, `Apply Workbench To Assistant` applies a console-shaped workflow back into the live Assistant, and runtime-bound toolkits remain visible in the graph and are rebound by Numel at runtime
 
 ### User Management & Admin
 - **Multi-user auth** with registration, login, roles, and quotas

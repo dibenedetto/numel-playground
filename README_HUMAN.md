@@ -80,9 +80,9 @@ Example:
 
 - a support front door assistant
 - a specialist billing assistant
-- a proactive operations assistant that sends summaries on a schedule
+- a proactive operations assistant that sends summaries on a schedule or when an event happens
 
-This is where **Assistant Deployments** matter: they turn something you designed in the workbench into a real named assistant that can run on channels, use approvals, and be supervised.
+This is where **Assistant Deployments** matter: they turn something you designed in the workbench into a real named assistant that can run on channels, use approvals, hand conversations off to specialists, and be supervised.
 
 ### 5. Publish a workflow as a web app
 
@@ -141,8 +141,10 @@ It answers questions like:
 - which channels this assistant runs on
 - which skills and toolkits it uses
 - whether it needs approval before doing something risky
-- whether it should run proactive jobs
+- whether it should run proactive tasks from schedules or events
 - which workbench it belongs to
+
+Assistant deployments can also be opened into the workbench as a live network graph and applied back from the workbench later. That means the operational side of Numel is increasingly using the same workflow language as the design side.
 
 ### Handoff
 
@@ -162,6 +164,14 @@ So:
 - **handoff** is the runtime transfer of conversation ownership to another deployment
 
 That is why handoff matters more than a simple keyword match: once the handoff happens, later messages in the same conversation can keep going to the specialist until another handoff occurs.
+
+Numel can choose that handoff in different ways:
+
+- by explicit keywords
+- by a hybrid mode that tries keywords first and then uses a smarter workflow-backed selector
+- by a workflow-backed selector directly
+
+The current default is **hybrid**, because it keeps obvious cases simple while still handling more natural user wording.
 
 ### Published App
 
@@ -207,6 +217,12 @@ Start with:
 - [docs/assistant-deployments.md](docs/assistant-deployments.md)
 - [docs/tutorial-11-assistant-deployments.md](docs/tutorial-11-assistant-deployments.md)
 - [docs/tutorial-12-workflow-backed-runtime.md](docs/tutorial-12-workflow-backed-runtime.md)
+
+That path now also covers:
+
+- opening the live assistant network in the workbench
+- applying the current workbench back to the live network
+- understanding how proactive tasks and handoff behavior appear in graph form
 
 If you are thinking about how multiple deployments and remote agents could work together later, also see:
 

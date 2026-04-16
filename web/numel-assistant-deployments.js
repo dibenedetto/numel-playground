@@ -627,7 +627,7 @@ async function _post(path, body = {}) {
 			return;
 		}
 		const btn = _openWorkflowBtn;
-		const originalLabel = btn?.textContent || 'Open Network In Workbench';
+		const originalLabel = btn?.textContent || 'Open Live Network In Workbench';
 		if (btn) {
 			btn.disabled = true;
 			btn.textContent = 'Loading...';
@@ -640,6 +640,7 @@ async function _post(path, body = {}) {
 				throw new Error('The assistant deployment network is empty.');
 			}
 			await window.loadWorkflowFromServer(workflow, name, { source: 'assistant-deployment-network' });
+			await NumelAlert('Assistant Deployment Network', `Opened "${_esc(name)}" in the current workbench as the live assistant network graph.`);
 			close();
 		} catch (err) {
 			await NumelAlert('Assistant Deployment Network', `Error: ${_esc(err.message)}`);
@@ -653,7 +654,7 @@ async function _post(path, body = {}) {
 
 	async function _applyWorkbenchNetwork() {
 		const btn = _applyWorkflowBtn;
-		const originalLabel = btn?.textContent || 'Use Current Workbench';
+		const originalLabel = btn?.textContent || 'Apply Workbench To Network';
 		if (btn) {
 			btn.disabled = true;
 			btn.textContent = 'Applying...';
@@ -675,7 +676,7 @@ async function _post(path, body = {}) {
 			const deletedChannels = Array.isArray(data?.deleted_channels) ? data.deleted_channels.length : 0;
 			const warningLines = Array.isArray(data?.warnings) ? data.warnings.filter(Boolean).slice(0, 8) : [];
 			const summary = [
-				`Applied "${_esc(data?.workflow_name || 'Assistant Deployment Network')}" to the live assistant network.`,
+				`Applied "${_esc(data?.workflow_name || 'Assistant Deployment Network')}" from the current workbench to the live assistant network.`,
 				`Deployments: ${createdDeployments} created, ${updatedDeployments} updated, ${deletedDeployments} deleted.`,
 				`Channels: ${createdChannels} created, ${updatedChannels} updated, ${deletedChannels} deleted.`,
 				...(warningLines.length ? ['', 'Notes:', ...warningLines.map((line) => `- ${line}`)] : []),
@@ -696,7 +697,7 @@ async function _post(path, body = {}) {
 		const visibleItems = _applyFilters(items);
 		_renderSummary(items, visibleItems);
 		if (!items.length) {
-			_listEl.innerHTML = '<div style="color:var(--sg-text-tertiary);font-size:12px;">No assistant deployments yet. Click "+ Add Deployment" to create one.</div>';
+			_listEl.innerHTML = '<div style="color:var(--sg-text-tertiary);font-size:12px;">No assistant deployments yet. Click "+ Add Deployment" to create a live assistant that can run across channels.</div>';
 			return;
 		}
 		if (!visibleItems.length) {
@@ -718,7 +719,7 @@ async function _post(path, body = {}) {
 				: 'No channels bound';
 			const routingSummary = Array.isArray(item.routing_rules) && item.routing_rules.length
 				? item.routing_rules.map((rule) => `${(rule.keywords || []).join(', ')} → ${rule.target_deployment_id}`).join(' · ')
-				: 'No routing rules';
+				: 'No keyword routing rules';
 			const selectorSummary = _handoffSelectorLabel(item.handoff_selector_mode);
 			const lastActivity = runtime.last_message_at ? _formatTimestamp(runtime.last_message_at) : 'No traffic yet';
 			const handoffSummary = handoffs.length
@@ -764,7 +765,7 @@ async function _post(path, body = {}) {
 					Toolkits: ${_esc((item.toolkit_names || []).join(', ') || 'default')}<br>
 					Skills: ${_esc((item.skill_names || []).join(', ') || 'active defaults')}<br>
 					Workbench: ${_esc(workbenchSummary)}<br>
-					Routing: ${_esc(selectorSummary)} · ${_esc(routingSummary)}<br>
+					Handoff: ${_esc(selectorSummary)} · ${_esc(routingSummary)}<br>
 					Proactive: ${_esc(proactiveSummary)}<br>
 					Safety: ${_esc(item.safety?.proactive_delivery_mode === 'approval' ? 'Approval before proactive delivery' : 'Auto proactive delivery')} · ${_esc(toolSafetyLabel)}<br>
 					Last activity: ${_esc(lastActivity)}${runtime.message_count ? ` · ${_esc(String(runtime.message_count))} message(s)` : ''}<br>
@@ -1040,7 +1041,7 @@ async function _post(path, body = {}) {
 					<section class="nw-assist-dialog-section">
 						<div class="nw-assist-dialog-section-head">
 							<h4>Identity</h4>
-							<p>Define the role and operator-facing personality of this deployment.</p>
+							<p>Define the role, tone, and operator-facing identity of this live assistant.</p>
 						</div>
 						<div class="nw-assist-dialog-field-grid">
 							<div class="nw-assist-dialog-field">
@@ -1065,7 +1066,7 @@ async function _post(path, body = {}) {
 					<section class="nw-assist-dialog-section">
 						<div class="nw-assist-dialog-section-head">
 							<h4>Linked Workbench</h4>
-							<p>Keep an operator-friendly link back to the space and workflow this deployment belongs to.</p>
+							<p>Keep a traceable link back to the space and workflow this deployment came from.</p>
 						</div>
 						<div class="nw-assist-dialog-field-grid">
 							<div class="nw-assist-dialog-field">
@@ -1082,14 +1083,14 @@ async function _post(path, body = {}) {
 							</div>
 						</div>
 						<div class="nw-assist-dialog-inline-actions">
-							<button type="button" class="nw-btn nw-btn-sm nw-btn-secondary" data-role="use-current-workbench">Use Current Workbench</button>
+							<button type="button" class="nw-btn nw-btn-sm nw-btn-secondary" data-role="use-current-workbench">Fill From Current Workbench</button>
 						</div>
 					</section>
 
 					<section class="nw-assist-dialog-section">
 						<div class="nw-assist-dialog-section-head">
 							<h4>Channels</h4>
-							<p>Bind this deployment to the channels it should serve directly.</p>
+							<p>Bind this deployment to the channels it should answer directly.</p>
 						</div>
 						<div class="nw-assist-dialog-help">A channel can be bound to only one deployment at a time. If you choose a channel already in use, Numel will ask before reassigning it.</div>
 						<div data-role="channel-list" class="nw-assist-channel-list">${_renderChannelCheckboxes(channels, selectedChannelIds, deployments, deploymentId)}</div>
@@ -1100,7 +1101,7 @@ async function _post(path, body = {}) {
 					<section class="nw-assist-dialog-section">
 						<div class="nw-assist-dialog-section-head">
 							<h4>Runtime</h4>
-							<p>Choose model and capability defaults for this deployed assistant.</p>
+							<p>Choose the model and capability defaults this deployment should run with.</p>
 						</div>
 						<div class="nw-assist-dialog-field-grid">
 							<div class="nw-assist-dialog-field">
@@ -1124,14 +1125,14 @@ async function _post(path, body = {}) {
 
 					<section class="nw-assist-dialog-section">
 						<div class="nw-assist-dialog-section-head">
-							<h4>Handoff And Safety</h4>
-							<p>Decide how this deployment routes conversations and when human approval is required.</p>
+							<h4>Handoff, Routing, And Safety</h4>
+							<p>Decide how this deployment chooses specialists, hands conversations off, and asks for approval.</p>
 						</div>
 						<div class="nw-assist-dialog-field-grid">
 							<div class="nw-assist-dialog-field nw-assist-dialog-field-span-2">
 								<label>Handoff Selector</label>
 								<select id="_assist_handoff_selector_mode">${_renderHandoffSelectorOptions(deployment?.handoff_selector_mode || 'hybrid')}</select>
-								<div class="nw-assist-dialog-help">Hybrid keeps deterministic keyword matches and asks the workflow-backed selector only when keywords do not decide the route.</div>
+								<div class="nw-assist-dialog-help">Hybrid uses keyword rules first and falls back to the workflow-backed selector only when the keywords do not settle the handoff.</div>
 							</div>
 							<div class="nw-assist-dialog-field nw-assist-dialog-field-span-2">
 								<label>Selector Guidance</label>
@@ -1152,9 +1153,9 @@ async function _post(path, body = {}) {
 								</select>
 							</div>
 							<div class="nw-assist-dialog-field nw-assist-dialog-field-span-2">
-								<label>Routing Rules</label>
+								<label>Keyword Routing Rules</label>
 								<textarea id="_assist_routing" rows="5" placeholder="billing,invoice => deploy_ab12cd34&#10;support triage: refund,chargeback => deploy_ef56gh78">${_esc(_routingRulesToText(deployment?.routing_rules || []))}</textarea>
-								<div class="nw-assist-dialog-help"><div class="nw-ext-note-pre">Target deployment IDs for routing or handoff selection:
+								<div class="nw-assist-dialog-help"><div class="nw-ext-note-pre">Target deployment IDs available for keyword routing or handoff selection:
 ${_esc(deploymentHint)}</div></div>
 							</div>
 						</div>
@@ -1163,7 +1164,7 @@ ${_esc(deploymentHint)}</div></div>
 					<section class="nw-assist-dialog-section">
 						<div class="nw-assist-dialog-section-head">
 							<h4>Proactive Tasks</h4>
-							<p>Attach scheduled or event-driven jobs that run with this deployment.</p>
+							<p>Attach schedule-driven or event-driven work that this deployment should run on its own.</p>
 						</div>
 						<div class="nw-assist-dialog-help">Starting or stopping the deployment pauses and resumes its proactive tasks.</div>
 						<div data-role="proactive-tasks" class="nw-assist-task-stack"></div>
@@ -1236,7 +1237,7 @@ ${_esc(deploymentHint)}</div></div>
 				<div class="nw-assist-dialog-header">
 					<div class="nw-assist-dialog-title-wrap">
 						<h3>${title}</h3>
-						<div class="nw-assist-dialog-subtitle">Deployable assistant settings, routing, safety, and proactive behavior in one place.</div>
+						<div class="nw-assist-dialog-subtitle">Configure how this assistant runs as a live service across channels, handoffs, safety rules, and proactive tasks.</div>
 					</div>
 					<button class="nw-assist-dialog-close" type="button" aria-label="Close" data-role="cancel">&times;</button>
 				</div>

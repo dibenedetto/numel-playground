@@ -37,9 +37,9 @@ The console is no longer only a separate runtime shell.
 
 It now supports:
 
-- **Open In Workbench**
+- **Open Assistant In Workbench**
   Export the current console configuration as a real workflow.
-- **Use Current Workbench**
+- **Apply Workbench To Assistant**
   Apply a console-shaped workflow back into the live Assistant settings.
 
 So the console now has a real workflow bridge in both directions.
@@ -179,10 +179,10 @@ It also makes it easier to explain Numel:
 
 If you want to feel this model directly, try these in order:
 
-1. Open the Assistant console and use **Open In Workbench**.
-2. Edit the resulting workflow, then use **Use Current Workbench** to apply it back to the Assistant.
-3. Open **Assistant Deployments** and use **Open Network In Workbench**.
-4. Edit the operational graph and use **Use Current Workbench** there too.
+1. Open the Assistant console and use **Open Assistant In Workbench**.
+2. Edit the resulting workflow, then use **Apply Workbench To Assistant** to apply it back to the Assistant.
+3. Open **Assistant Deployments** and use **Open Live Network In Workbench**.
+4. Edit the operational graph and use **Apply Workbench To Network** there too.
 5. Create a proactive task with a non-timer trigger and inspect how it appears in the network workflow.
 6. Switch a deployment handoff selector between `keyword`, `hybrid`, and `workflow`.
 
