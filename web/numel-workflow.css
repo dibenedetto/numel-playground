@@ -4078,6 +4078,51 @@ body.nw-layout-project-workbench .nw-auth-title {
 	font-weight: 700;
 	letter-spacing: 0.02em;
 }
+.nw-assist-empty-state {
+	border: 1px dashed var(--nw-border-soft);
+	border-radius: 12px;
+	padding: 16px;
+	background: color-mix(in srgb, var(--sg-bg-secondary) 94%, white 6%);
+}
+.nw-assist-empty-title {
+	font-size: 13px;
+	font-weight: 700;
+	color: var(--sg-text-primary);
+}
+.nw-assist-empty-copy {
+	margin-top: 6px;
+	font-size: 12px;
+	line-height: 1.55;
+	color: var(--sg-text-secondary);
+}
+.nw-assist-empty-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 12px;
+}
+.nw-assist-guide-list {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+.nw-assist-guide-row {
+	border: 1px solid var(--nw-border-soft);
+	border-radius: 10px;
+	padding: 10px 12px;
+	background: color-mix(in srgb, var(--sg-bg-secondary) 94%, white 6%);
+}
+.nw-assist-guide-term {
+	font-size: 12px;
+	font-weight: 700;
+	color: var(--sg-text-primary);
+}
+.nw-assist-guide-copy {
+	margin-top: 4px;
+	font-size: 11px;
+	line-height: 1.5;
+	color: var(--sg-text-secondary);
+}
 .nw-assist-activity-block,
 .nw-assist-failure-stack {
 	margin-top: 10px;

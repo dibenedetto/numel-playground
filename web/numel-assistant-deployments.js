@@ -3,7 +3,7 @@
 
 // eslint-disable-next-line no-unused-vars
 const NumelAssistantDeployments = (() => {
-	let _panel, _closeBtn, _openBtn, _openInlineBtn, _refreshBtn, _inspectBtn, _openWorkflowBtn, _applyWorkflowBtn, _addBtn, _listEl, _summaryEl;
+	let _panel, _closeBtn, _openBtn, _openInlineBtn, _refreshBtn, _helpBtn, _inspectBtn, _openWorkflowBtn, _applyWorkflowBtn, _addBtn, _listEl, _summaryEl;
 	let _statusFilterEl, _searchEl, _pendingOnlyEl;
 	let _lastItems = [];
 	const _pendingOps = new Map();
@@ -343,6 +343,92 @@ async function _post(path, body = {}) {
 			</section>`;
 	}
 
+	function _renderStatusGuideBody() {
+		return `
+			<div class="nw-assist-dialog-layout nw-assist-inspect-layout">
+				<div class="nw-assist-dialog-column">
+					${_renderInspectSection(
+						'Lifecycle vs Runtime',
+						'These two signals are related, but they do not mean the same thing.',
+						`
+							<div class="nw-assist-guide-list">
+								<div class="nw-assist-guide-row">
+									<div class="nw-assist-guide-term">active / inactive</div>
+									<div class="nw-assist-guide-copy">Whether the deployment itself is enabled to operate as a live assistant.</div>
+								</div>
+								<div class="nw-assist-guide-row">
+									<div class="nw-assist-guide-term">running / stopped / error / partial</div>
+									<div class="nw-assist-guide-copy">What the runtime currently reports for the deployment and its linked live activity.</div>
+								</div>
+							</div>
+						`,
+					)}
+					${_renderInspectSection(
+						'Needs Attention',
+						'The panel flags deployments when something likely needs an operator to look at it.',
+						`
+							<div class="nw-assist-guide-list">
+								<div class="nw-assist-guide-row">
+									<div class="nw-assist-guide-term">runtime error</div>
+									<div class="nw-assist-guide-copy">The deployment runtime reported an error condition.</div>
+								</div>
+								<div class="nw-assist-guide-row">
+									<div class="nw-assist-guide-term">pending approvals</div>
+									<div class="nw-assist-guide-copy">The assistant is waiting for an operator before it can continue a tool call or deliver a proactive message.</div>
+								</div>
+								<div class="nw-assist-guide-row">
+									<div class="nw-assist-guide-term">recent failures</div>
+									<div class="nw-assist-guide-copy">A recent activity item failed and is worth inspecting in the deployment or network inspector.</div>
+								</div>
+							</div>
+						`,
+					)}
+				</div>
+				<div class="nw-assist-dialog-column">
+					${_renderInspectSection(
+						'First Run',
+						'The fastest reliable path to a working deployment.',
+						`
+							<div class="nw-assist-guide-list">
+								<div class="nw-assist-guide-row">
+									<div class="nw-assist-guide-term">1. Create a channel</div>
+									<div class="nw-assist-guide-copy">Set up Telegram, webhook, Discord, email, or another channel first.</div>
+								</div>
+								<div class="nw-assist-guide-row">
+									<div class="nw-assist-guide-term">2. Add a deployment</div>
+									<div class="nw-assist-guide-copy">Bind it to the channel, choose model/toolkits/skills, and save it inactive.</div>
+								</div>
+								<div class="nw-assist-guide-row">
+									<div class="nw-assist-guide-term">3. Start and inspect</div>
+									<div class="nw-assist-guide-copy">Start the deployment, send a real message through the channel, then inspect activity, approvals, or failures if needed.</div>
+								</div>
+							</div>
+						`,
+					)}
+					${_renderInspectSection(
+						'Operator Loop',
+						'The most useful actions in this panel once the network is live.',
+						`
+							<div class="nw-assist-guide-list">
+								<div class="nw-assist-guide-row">
+									<div class="nw-assist-guide-term">Inspect</div>
+									<div class="nw-assist-guide-copy">Open a single deployment or the whole network to see activity, handoffs, endpoint calls, proactive runs, approvals, and failures.</div>
+								</div>
+								<div class="nw-assist-guide-row">
+									<div class="nw-assist-guide-term">Refresh State</div>
+									<div class="nw-assist-guide-copy">Ask the backend for fresh runtime state when the UI feels stale.</div>
+								</div>
+								<div class="nw-assist-guide-row">
+									<div class="nw-assist-guide-term">Open / Apply Workbench</div>
+									<div class="nw-assist-guide-copy">Round-trip the live deployment network into the workbench when you want to inspect or edit it as a workflow.</div>
+								</div>
+							</div>
+						`,
+					)}
+				</div>
+			</div>`;
+	}
+
 	function _snapshotLine(label, value) {
 		const normalized = value == null || value === '' ? '—' : String(value);
 		return `${label}: ${normalized}`;
@@ -461,6 +547,27 @@ async function _post(path, body = {}) {
 				.map((item) => `- ${item?.name || item?.id || 'Deployment'} · messages ${Number(item?.runtime?.message_count || 0)} · endpoint calls ${Number(item?.runtime?.endpoint_call_count || 0)} · pending approvals ${Number(item?.runtime?.pending_approval_count || 0)}`),
 		];
 		return lines.join('\n');
+	}
+
+	function _renderEmptyStateCard({ title, body, actions = [] }) {
+		const wrap = document.createElement('div');
+		wrap.className = 'nw-assist-empty-state';
+		wrap.innerHTML = `
+			<div class="nw-assist-empty-title">${_esc(title)}</div>
+			<div class="nw-assist-empty-copy">${body}</div>
+			<div class="nw-assist-empty-actions">
+				${actions.map((action) => `<button type="button" class="${_esc(action.className || 'nw-btn nw-btn-sm nw-btn-secondary')}" data-role="${_esc(action.role)}">${_esc(action.label)}</button>`).join('')}
+			</div>`;
+		return wrap;
+	}
+
+	function _clearFilters() {
+		_filters.status = 'all';
+		_filters.search = '';
+		_filters.pendingOnly = false;
+		if (_statusFilterEl) _statusFilterEl.value = 'all';
+		if (_searchEl) _searchEl.value = '';
+		if (_pendingOnlyEl) _pendingOnlyEl.checked = false;
 	}
 
 	function _renderInspectDialogBody(item) {
@@ -1191,11 +1298,55 @@ async function _post(path, body = {}) {
 		const visibleItems = _applyFilters(items);
 		_renderSummary(items, visibleItems);
 		if (!items.length) {
-			_listEl.innerHTML = '<div style="color:var(--sg-text-tertiary);font-size:12px;">No assistant deployments yet. Click "+ Add Deployment" to create a live assistant that can run across channels.</div>';
+			const empty = _renderEmptyStateCard({
+				title: 'No assistant deployments yet',
+				body: 'Create a channel first if you need one, then add a deployment to turn a workbench into a live assistant that can run across channels, handoffs, and proactive tasks.',
+				actions: [
+					{ role: 'add-deployment', label: '+ Add Deployment', className: 'nw-btn nw-btn-sm nw-btn-success' },
+					{ role: 'open-channels', label: 'Open Channels', className: 'nw-btn nw-btn-sm nw-btn-secondary' },
+					{ role: 'status-guide', label: 'Status Guide', className: 'nw-btn nw-btn-sm nw-btn-secondary' },
+				],
+			});
+			empty.addEventListener('click', async (event) => {
+				const btn = event.target.closest('[data-role]');
+				if (!btn) return;
+				if (btn.dataset.role === 'add-deployment') {
+					await _showAddDialog();
+					return;
+				}
+				if (btn.dataset.role === 'open-channels') {
+					try { window.NumelChannels?.open?.(); } catch {}
+					return;
+				}
+				if (btn.dataset.role === 'status-guide') {
+					_showStatusGuideDialog();
+				}
+			});
+			_listEl.appendChild(empty);
 			return;
 		}
 		if (!visibleItems.length) {
-			_listEl.innerHTML = '<div style="color:var(--sg-text-tertiary);font-size:12px;">No deployments match the current filters.</div>';
+			const empty = _renderEmptyStateCard({
+				title: 'No deployments match the current filters',
+				body: 'Your deployment network still exists, but the current status/search filters are hiding it. Clear the filters or inspect the whole network directly.',
+				actions: [
+					{ role: 'clear-filters', label: 'Clear Filters', className: 'nw-btn nw-btn-sm nw-btn-success' },
+					{ role: 'inspect-network', label: 'Inspect Network', className: 'nw-btn nw-btn-sm nw-btn-secondary' },
+				],
+			});
+			empty.addEventListener('click', async (event) => {
+				const btn = event.target.closest('[data-role]');
+				if (!btn) return;
+				if (btn.dataset.role === 'clear-filters') {
+					_clearFilters();
+					_renderList(_lastItems);
+					return;
+				}
+				if (btn.dataset.role === 'inspect-network') {
+					await _showNetworkInspectDialog();
+				}
+			});
+			_listEl.appendChild(empty);
 			return;
 		}
 		for (const item of visibleItems) {
@@ -1798,6 +1949,20 @@ ${_esc(deploymentHint)}</div></div>
 		);
 	}
 
+	function _showStatusGuideDialog() {
+		_dialog(
+			'Assistant Deployment Status Guide',
+			_renderStatusGuideBody(),
+			() => true,
+			null,
+			{
+				subtitle: 'A quick operator guide to lifecycle, runtime state, attention signals, and the fastest first-run path.',
+				cancelLabel: 'Close',
+				hideSave: true,
+			},
+		);
+	}
+
 	function _dialog(title, bodyHtml, onSave, onReady, options = {}) {
 		const subtitle = options?.subtitle == null
 			? 'Configure how this assistant runs as a live service across channels, handoffs, safety rules, and proactive tasks.'
@@ -1856,6 +2021,7 @@ ${_esc(deploymentHint)}</div></div>
 		_openBtn = document.getElementById('assistantDeploymentPanelBtn');
 		_openInlineBtn = document.getElementById('assistantDeploymentPanelBtnInline');
 		_refreshBtn = document.getElementById('assistantDeploymentRefreshBtn');
+		_helpBtn = document.getElementById('assistantDeploymentHelpBtn');
 		_inspectBtn = document.getElementById('assistantDeploymentInspectBtn');
 		_openWorkflowBtn = document.getElementById('assistantDeploymentOpenWorkflowBtn');
 		_applyWorkflowBtn = document.getElementById('assistantDeploymentApplyWorkflowBtn');
@@ -1870,6 +2036,7 @@ ${_esc(deploymentHint)}</div></div>
 		if (_openBtn) _openBtn.onclick = toggle;
 		if (_openInlineBtn) _openInlineBtn.onclick = open;
 		if (_refreshBtn) _refreshBtn.onclick = refresh;
+		if (_helpBtn) _helpBtn.onclick = _showStatusGuideDialog;
 		if (_inspectBtn) _inspectBtn.onclick = _showNetworkInspectDialog;
 		if (_openWorkflowBtn) _openWorkflowBtn.onclick = _openNetworkInWorkbench;
 		if (_applyWorkflowBtn) _applyWorkflowBtn.onclick = _applyWorkbenchNetwork;
