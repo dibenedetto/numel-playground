@@ -16,12 +16,6 @@ import httpx
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WEB_DIR = PROJECT_ROOT / "web"
 PYTHON_EXE = PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"
-EDGE_PATHS = (
-    Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
-    Path(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
-)
-
-
 def _free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
@@ -31,7 +25,6 @@ def _free_port() -> int:
 @unittest.skipUnless(PYTHON_EXE.exists(), "repo virtualenv Python is required")
 @unittest.skipUnless(shutil.which("node"), "node is required for frontend starter smoke tests")
 @unittest.skipUnless((WEB_DIR / "node_modules" / "playwright").exists(), "Playwright must be installed in web/node_modules")
-@unittest.skipUnless(any(path.exists() for path in EDGE_PATHS), "Microsoft Edge is required for browser smoke tests")
 class FrontendStarterSmokeTests(unittest.TestCase):
     def setUp(self) -> None:
         self._root = PROJECT_ROOT / "storage" / "_test_runs" / f"starter_browser_{uuid.uuid4().hex[:8]}"
@@ -46,6 +39,9 @@ class FrontendStarterSmokeTests(unittest.TestCase):
         self._frontend_root = self._root / "web"
         self._frontend_port = _free_port()
         self._frontend_url = f"http://127.0.0.1:{self._frontend_port}"
+        self._username = "starter"
+        self._email = f"{self._username}@local"
+        self._password = "pass1234"
 
         self._platform_config.write_text(
             json.dumps(
@@ -79,6 +75,8 @@ class FrontendStarterSmokeTests(unittest.TestCase):
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             creationflags=creationflags,
         )
         self._static_server = subprocess.Popen(
@@ -89,9 +87,12 @@ class FrontendStarterSmokeTests(unittest.TestCase):
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             creationflags=creationflags,
         )
         self._wait_for_ready()
+        self._seed_user_and_space()
         self._wait_for_frontend()
 
     def tearDown(self) -> None:
@@ -200,17 +201,69 @@ class FrontendStarterSmokeTests(unittest.TestCase):
         output = self._static_server_output()
         self.fail(f"Frontend static server did not become ready at {self._frontend_url}: {last_error}\n{output}")
 
+    def _seed_user_and_space(self) -> None:
+        with httpx.Client(base_url=self._base_url, timeout=10.0) as client:
+            register = client.post(
+                "/auth/register",
+                json={
+                    "username": self._username,
+                    "email": self._email,
+                    "password": self._password,
+                },
+            )
+            if register.status_code != 200:
+                self.fail(f"Failed to seed smoke user: {register.status_code} {register.text}")
+            token = register.json().get("token")
+            if not token:
+                self.fail("Smoke user registration did not return a token")
+            create = client.post(
+                "/spaces/create",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "title": "Starter Space",
+                    "description": "Starter browser smoke space",
+                    "visibility": "private",
+                },
+            )
+            if create.status_code != 200:
+                self.fail(f"Failed to seed starter space: {create.status_code} {create.text}")
+
     def test_browser_starter_modal_and_hello_flow(self) -> None:
         env = os.environ.copy()
         env["NUMEL_TEST_BASE_URL"] = self._frontend_url
-        result = subprocess.run(
-            ["node", "tests/starter-smoke.mjs", self._frontend_url],
-            cwd=str(WEB_DIR),
-            env=env,
-            capture_output=True,
-            text=True,
-            timeout=180,
-        )
+        env["NUMEL_TEST_USERNAME"] = self._username
+        env["NUMEL_TEST_EMAIL"] = self._email
+        env["NUMEL_TEST_PASSWORD"] = self._password
+        env["NUMEL_TEST_AUTH_MODE"] = "login"
+
+        def _maybe_skip_for_browser_environment(stderr_text: str) -> None:
+            text = stderr_text or ""
+            if "spawn EPERM" in text:
+                self.skipTest("Playwright browser launch is blocked on this machine (spawn EPERM)")
+
+        try:
+            result = subprocess.run(
+                ["node", "tests/starter-smoke.mjs", self._frontend_url],
+                cwd=str(WEB_DIR),
+                env=env,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=180,
+            )
+        except subprocess.TimeoutExpired as exc:
+            server_output = self._server_output()
+            static_output = self._static_server_output()
+            _maybe_skip_for_browser_environment(exc.stderr or "")
+            self.fail(
+                "Starter browser smoke timed out\n"
+                f"stdout:\n{exc.stdout or ''}\n"
+                f"stderr:\n{exc.stderr or ''}\n"
+                f"server:\n{server_output}\n"
+                f"static:\n{static_output}"
+            )
+        _maybe_skip_for_browser_environment(result.stderr)
         if result.returncode != 0:
             server_output = self._server_output()
             static_output = self._static_server_output()

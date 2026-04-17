@@ -4,11 +4,16 @@ const baseUrl = process.argv[2] || process.env.NUMEL_TEST_BASE_URL || 'http://12
 const username = process.env.NUMEL_TEST_USERNAME || 'starter';
 const email = process.env.NUMEL_TEST_EMAIL || `${username}@local`;
 const password = process.env.NUMEL_TEST_PASSWORD || 'pass1234';
+const authMode = process.env.NUMEL_TEST_AUTH_MODE || 'register';
 
 function assert(condition, message) {
 	if (!condition) {
 		throw new Error(message);
 	}
+}
+
+function step(message) {
+	console.log(`[starter-smoke] ${message}`);
 }
 
 async function waitForEnabled(page, selector, timeout = 30000) {
@@ -18,11 +23,24 @@ async function waitForEnabled(page, selector, timeout = 30000) {
 	}, selector, { timeout });
 }
 
+async function launchBrowser() {
+	const attempts = [
+		{ label: 'playwright-chromium', options: { headless: true } },
+		{ label: 'system-edge', options: { channel: 'msedge', headless: true } },
+	];
+	const errors = [];
+	for (const attempt of attempts) {
+		try {
+			return await chromium.launch(attempt.options);
+		} catch (error) {
+			errors.push(`${attempt.label}: ${error?.message || error}`);
+		}
+	}
+	throw new Error(`Unable to launch browser. ${errors.join(' | ')}`);
+}
+
 async function main() {
-	const browser = await chromium.launch({
-		channel: 'msedge',
-		headless: true,
-	});
+	const browser = await launchBrowser();
 	const page = await browser.newPage();
 	page.setDefaultTimeout(90000);
 
@@ -37,15 +55,27 @@ async function main() {
 	});
 	page.on('request', (request) => {
 		const url = request.url();
-		if (url.startsWith(baseUrl)) requestEvents.push(`request:${request.resourceType()}:${url}`);
+		if (url.startsWith('http://127.0.0.1:') || url.startsWith('https://127.0.0.1:') || url.startsWith(baseUrl)) {
+			requestEvents.push(`request:${request.resourceType()}:${url}`);
+		}
 	});
 	page.on('requestfinished', (request) => {
 		const url = request.url();
-		if (url.startsWith(baseUrl)) requestEvents.push(`finished:${request.resourceType()}:${url}`);
+		if (url.startsWith('http://127.0.0.1:') || url.startsWith('https://127.0.0.1:') || url.startsWith(baseUrl)) {
+			requestEvents.push(`finished:${request.resourceType()}:${url}`);
+		}
 	});
 	page.on('requestfailed', (request) => {
 		const url = request.url();
-		if (url.startsWith(baseUrl)) requestEvents.push(`failed:${request.resourceType()}:${url}:${request.failure()?.errorText || 'unknown'}`);
+		if (url.startsWith('http://127.0.0.1:') || url.startsWith('https://127.0.0.1:') || url.startsWith(baseUrl)) {
+			requestEvents.push(`failed:${request.resourceType()}:${url}:${request.failure()?.errorText || 'unknown'}`);
+		}
+	});
+	page.on('response', async (response) => {
+		const url = response.url();
+		if (!(url.startsWith('http://127.0.0.1:') || url.startsWith('https://127.0.0.1:') || url.startsWith(baseUrl))) return;
+		if (!/\/(auth|spaces|schema|ping|workflow|channels|assistant-deployments)\b/.test(url)) return;
+		requestEvents.push(`response:${response.status()}:${url}`);
 	});
 	const stubPaths = new Set([
 		'/dist/agui-client.bundle.js',
@@ -70,23 +100,41 @@ async function main() {
 	});
 
 	try {
+		step('open app');
 		await page.goto(baseUrl, { waitUntil: 'commit' });
 
+		step(authMode === 'login' ? 'login account' : 'register account');
 		await page.waitForSelector('#authModal', { state: 'visible' });
-		await page.fill('#authRegUsername', username);
-		await page.fill('#authRegEmail', email);
-		await page.fill('#authRegPassword', password);
-		await page.fill('#authRegPasswordConfirm', password);
-		await page.click('#authRegisterBtn');
+		if (authMode === 'login') {
+			await page.fill('#authUsername', username);
+			await page.fill('#authPassword', password);
+			await page.click('#authLoginBtn');
+		} else {
+			await page.fill('#authRegUsername', username);
+			await page.fill('#authRegEmail', email);
+			await page.fill('#authRegPassword', password);
+			await page.fill('#authRegPasswordConfirm', password);
+			await page.click('#authRegisterBtn');
+		}
 
 		await page.waitForSelector('#authModal', { state: 'hidden' });
 		await page.waitForSelector('#spaceStarterPanel', { state: 'visible' });
 
+		const spacesEmpty = await page.evaluate(() => {
+			const list = document.getElementById('workbenchSpacesList');
+			return /No spaces yet/i.test(list?.textContent || '');
+		});
+		assert(!spacesEmpty, 'Starter space missing from seeded smoke environment');
+
+		step('verify starter panel');
 		const starterTitle = await page.textContent('#spaceStarterPanel .nw-starter-panel-title');
 		assert((starterTitle || '').includes('Start This Space'), 'Starter panel title did not appear');
 
 		const workbenchHint = await page.textContent('.nw-field-hint');
-		assert((workbenchHint || '').includes('project workbenches'), 'Space workbench hint missing');
+		assert(
+			(workbenchHint || '').includes('project containers') && (workbenchHint || '').includes('workbench'),
+			'Space workbench hint missing',
+		);
 
 		let usedStarterModal = false;
 		try {
@@ -94,23 +142,67 @@ async function main() {
 			usedStarterModal = true;
 		} catch {}
 		if (usedStarterModal) {
+			step('launch hello starter from modal');
 			await page.click('#nwStarterModal [data-starter-action="hello"]');
 			await page.waitForSelector('#nwStarterModal', { state: 'detached' });
 		} else {
+			step('launch hello starter from panel');
 			await page.click('#starterHelloBtn');
 		}
 
+		step('wait for hello workflow');
 		await page.waitForFunction(() => {
 			const el = document.getElementById('singleWorkflowName');
 			return !!el && /Hello Workflow/.test(el.textContent || '');
 		});
 
+		step('wait for starter panel to close');
 		await page.waitForFunction(() => {
 			const panel = document.getElementById('spaceStarterPanel');
 			return !!panel && getComputedStyle(panel).display === 'none';
 		});
 
+		step('open deployment panel');
+		await page.click('#assistantDeploymentPanelBtn');
+		await page.waitForSelector('#assistantDeploymentPanel.open');
+		await page.waitForSelector('#assistantDeploymentList .nw-assist-empty-state');
+
+		const emptyTitle = await page.textContent('#assistantDeploymentList .nw-assist-empty-title');
+		assert((emptyTitle || '').includes('No assistant deployments yet'), 'Assistant deployment empty state did not appear');
+
+		step('open deployment status guide');
+		await page.click('#assistantDeploymentHelpBtn');
+		await page.waitForSelector('.nw-assist-dialog[aria-label="Assistant Deployment Status Guide"]');
+		const guideTitle = await page.textContent('.nw-assist-dialog[aria-label="Assistant Deployment Status Guide"] h3');
+		assert((guideTitle || '').includes('Status Guide'), 'Assistant deployment status guide did not open');
+		await page.click('.nw-assist-dialog[aria-label="Assistant Deployment Status Guide"] [data-role="cancel"]');
+		await page.waitForSelector('.nw-assist-dialog[aria-label="Assistant Deployment Status Guide"]', { state: 'detached' });
+
+		step('open deployment network inspector');
+		await page.click('#assistantDeploymentInspectBtn');
+		await page.waitForSelector('.nw-assist-dialog[aria-label="Inspect Live Network"]');
+		await page.waitForSelector('.nw-assist-dialog[aria-label="Inspect Live Network"] [data-role="inspect-filter"]');
+		const networkTitle = await page.textContent('.nw-assist-dialog[aria-label="Inspect Live Network"] h3');
+		assert((networkTitle || '').includes('Inspect Live Network'), 'Assistant deployment network inspector did not open');
+		const networkFilterStatus = await page.textContent('.nw-assist-dialog[aria-label="Inspect Live Network"] [data-role="inspect-filter-count"]');
+		assert((networkFilterStatus || '').includes('trace row') || (networkFilterStatus || '').includes('No trace rows'), 'Network inspector filter status missing');
+		await page.click('.nw-assist-dialog[aria-label="Inspect Live Network"] [data-role="cancel"]');
+		await page.waitForSelector('.nw-assist-dialog[aria-label="Inspect Live Network"]', { state: 'detached' });
+
+		step('open status guide from empty state');
+		await page.click('#assistantDeploymentList [data-role="status-guide"]');
+		await page.waitForSelector('.nw-assist-dialog[aria-label="Assistant Deployment Status Guide"]');
+		await page.click('.nw-assist-dialog[aria-label="Assistant Deployment Status Guide"] [data-role="cancel"]');
+		await page.waitForSelector('.nw-assist-dialog[aria-label="Assistant Deployment Status Guide"]', { state: 'detached' });
+
+		step('open channels from empty state');
+		await page.click('#assistantDeploymentList [data-role="open-channels"]');
+		await page.waitForSelector('#channelPanel.open');
+		const deploymentStillOpen = await page.evaluate(() => document.getElementById('assistantDeploymentPanel')?.classList.contains('open'));
+		assert(!deploymentStillOpen, 'Assistant deployment panel should close when opening Channels');
+
 		assert(pageErrors.length === 0, `Page errors detected: ${pageErrors.join(' | ')}`);
+		step('done');
 		console.log(`Starter smoke passed for ${baseUrl}`);
 	} catch (error) {
 		let snapshot = null;
@@ -124,6 +216,9 @@ async function main() {
 				return {
 					readyState: document.readyState,
 					bodyClass: document.body?.className || '',
+					serverUrl: document.getElementById('serverUrl')?.value || null,
+					wsStatusClass: document.getElementById('wsStatus')?.className || null,
+					wsStatusText: document.getElementById('wsStatus')?.textContent || null,
 					authModalDisplay: authModal ? getComputedStyle(authModal).display : null,
 					authModalHtml: authModal?.outerHTML?.slice(0, 300) || null,
 					starterDisplay: starterPanel ? getComputedStyle(starterPanel).display : null,
@@ -136,6 +231,7 @@ async function main() {
 					spacesHtml: spacesList?.innerHTML?.slice(0, 500) || null,
 					singleWorkflowName: document.getElementById('singleWorkflowName')?.textContent || null,
 					hasNumelUser: typeof window._numelUser !== 'undefined' ? !!window._numelUser : null,
+					eventLogTail: document.getElementById('eventLog')?.textContent?.slice(-500) || null,
 					hasSchemaGraphApp: typeof window.SchemaGraphApp,
 					location: window.location.href,
 				};

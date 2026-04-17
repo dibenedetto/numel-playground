@@ -283,12 +283,9 @@ async def run_server(
 			or path.startswith("/web")
 			or path.startswith("/ws")
 			or path.startswith("/platform")):
-			# Resolve a session-based workspace for guests on public routes.
-			session_id = request.headers.get("x-session-id", "").strip()
-			if session_id:
-				request.state.workspace = await workspace_mgr.resolve_workspace(f"guest_{session_id}")
-			else:
-				request.state.workspace = workspace_mgr.get_default_workspace()
+			# Lightweight public routes such as auth, ping, and health checks
+			# should not pay the cost of resolving a per-session guest workspace.
+			request.state.workspace = workspace_mgr.get_default_workspace()
 			return await call_next(request)
 
 		token = request.headers.get("authorization", "").removeprefix("Bearer ").strip()

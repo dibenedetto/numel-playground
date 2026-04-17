@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import asyncio
 import importlib
 import json
 import os
@@ -418,6 +419,14 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         me = await self._client.post("/auth/me", json={}, headers=self._auth_headers(payload["token"]))
         self.assertEqual(me.status_code, 200, me.text)
         self.assertEqual(me.json()["user"]["username"], "alice")
+
+    async def test_ping_with_session_header_returns_promptly(self) -> None:
+        response = await asyncio.wait_for(
+            self._client.post("/ping", json={}, headers={"X-Session-Id": "sess_smoke"}),
+            timeout=2.0,
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["message"], "pong")
 
     async def test_spaces_workflow_and_execution_surface(self) -> None:
         register = await self._client.post(
