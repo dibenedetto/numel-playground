@@ -663,6 +663,13 @@ Available backends:
 
 The app reads this file at startup through `app/platform_loader.py`, and the same HTTP platform contract is used in both modes.
 
+Source of truth for `local` vs `prod`, in order of precedence:
+
+1. `NUMEL_PLATFORM_CONFIG` for the running process, if set
+2. otherwise `app/platform_backend.json`
+
+For the private production deployment, the mounted compose stack sets `NUMEL_PLATFORM_CONFIG` to `app/platform_prod/deploy/platform_backend.prod.json`, so that file becomes the source of truth for that deployed process.
+
 - Override the config file path with `NUMEL_PLATFORM_CONFIG=/path/to/platform_backend.json`
 - String values in the backend config support `${ENV_VAR}` expansion, so the same config shape can target local SQLite or a deployed PostgreSQL/Django/Docker stack without changing the app-facing interface
 - Relative `database.url`, `git.repos_root`, and `artifacts.root_path` values are normalized at startup

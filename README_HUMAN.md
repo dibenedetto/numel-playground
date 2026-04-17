@@ -75,6 +75,13 @@ So a practical way to think about it is:
 - **local** = fully working Numel with lighter guarantees
 - **prod** = the same Numel product surface with stronger guarantees underneath
 
+The source of truth for whether a running Numel process is using `local` or `prod` is:
+
+1. `NUMEL_PLATFORM_CONFIG`, if that environment variable was set when the process started
+2. otherwise [app/platform_backend.json](/c:/devel/numel-playground/app/platform_backend.json)
+
+The old `app/server_config.json` file is no longer part of backend selection.
+
 ## How To Run It Locally
 
 There are two normal ways to run Numel from this public repo.
