@@ -1,1 +1,0 @@
-"""Numel platform identity app."""

@@ -1,16 +1,20 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Numel Playground — Linux / macOS launcher
-# Installs uv (if missing), downloads Python 3.12, syncs dependencies,
-# then starts the application.
+# Numel Playground - Linux / macOS launcher
+# Installs uv (if missing), downloads Python 3.12, syncs dependencies from
+# uv.lock, then starts the application.
 # Usage:  ./run.sh [app arguments...]
 # =============================================================================
 set -euo pipefail
 
 UV_PYTHON="3.12"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export UV_CACHE_DIR="$SCRIPT_DIR/.uv-cache"
+export UV_PYTHON_INSTALL_DIR="$SCRIPT_DIR/.uv-python"
+mkdir -p "$UV_CACHE_DIR"
+mkdir -p "$UV_PYTHON_INSTALL_DIR"
 
-# ── 1. Ensure uv is available ─────────────────────────────────────────────────
+# 1. Ensure uv is available
 if ! command -v uv &>/dev/null; then
     echo "[numel] uv not found — installing..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -26,15 +30,15 @@ else
     echo "[numel] uv found: $(uv --version)"
 fi
 
-# ── 2. Ensure Python 3.12 is available ───────────────────────────────────────
+# 2. Ensure Python 3.12 is available
 cd "$SCRIPT_DIR"
 echo "[numel] Checking Python ${UV_PYTHON}..."
-uv python install "$UV_PYTHON" --quiet
+uv python install "$UV_PYTHON" --install-dir "$UV_PYTHON_INSTALL_DIR" --quiet
 
-# ── 3. Sync dependencies (create / update .venv) ─────────────────────────────
+# 3. Sync dependencies (create / update .venv)
 echo "[numel] Syncing dependencies..."
-uv sync --quiet
+uv sync --frozen --quiet
 
-# ── 4. Run the application ────────────────────────────────────────────────────
+# 4. Run the application
 echo "[numel] Starting Numel Playground..."
-exec uv run python app/app.py "$@"
+exec uv run --no-sync --frozen python app/app.py "$@"

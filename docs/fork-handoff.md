@@ -16,7 +16,8 @@ Numel now runs on a shared platform abstraction with two selectable backends:
 Backend selection is config-only:
 
 - local/dev default: [app/platform_backend.json](/c:/devel/numel-playground/app/platform_backend.json)
-- production deploy config: [deploy/platform_backend.prod.json](/c:/devel/numel-playground/deploy/platform_backend.prod.json)
+- production deploy config: private production repo only, typically at
+  `app/platform_prod/deploy/platform_backend.prod.json`
 
 From the app and frontend point of view, switching between `local` and `prod`
 does not change the public product surface.
@@ -84,31 +85,23 @@ Local/reference path:
 Production path:
 
 - PostgreSQL-backed platform metadata
-- in-repo Django identity service under
-  [services/identity_django](/c:/devel/numel-playground/services/identity_django)
 - Docker Engine API runtime adapter
 - CPU and CUDA runtime images under
   [runtime/numel_runtime](/c:/devel/numel-playground/runtime/numel_runtime)
-- real live prod compose stack under
-  [deploy/docker-compose.prod.yml](/c:/devel/numel-playground/deploy/docker-compose.prod.yml)
+- production deployment assets and compose stack in
+  `app/platform_prod/deploy/` in the private prod repo
 
 ## Verified Milestones
 
-These are already verified in this repo:
+These are already verified across the local repo plus the private prod slice:
 
 - full app works on `platform_local`
 - `platform_prod` boots with PostgreSQL + Django identity + Docker runtime
 - `numel-runtime:latest` executes a real workflow in-container
 - `numel-runtime:cuda` builds and smoke-runs
-- live prod compose smoke succeeded through:
+- live prod deployment smoke succeeded through:
   auth, current space, workflow save, credential save, workflow start,
   execution polling, and result retrieval
-
-Important deployment detail:
-
-- [deploy/runtime-builder.sh](/c:/devel/numel-playground/deploy/runtime-builder.sh)
-  now rebuilds inner runtime images when runtime-relevant sources change,
-  instead of only when the image is missing
 
 ## Key Decisions
 
@@ -131,8 +124,7 @@ Strong next candidates after the current state:
 - continue production hardening and operational tooling
 - add stronger observability and admin diagnostics
 - keep refining the platform domain around ownership, sharing, and permissions
-- extend the prod deployment story if you want a more turnkey setup than the
-  current compose bundle
+- extend the private prod deployment story if you want a more turnkey setup
 - follow [docs/product-roadmap.md](/c:/devel/numel-playground/docs/product-roadmap.md) for product-facing priorities like onboarding, templates, planner-first UX, and stronger space/project framing
 - use [docs/ui-exploration-plan.md](/c:/devel/numel-playground/docs/ui-exploration-plan.md)
   before the next major product-facing UI implementation wave

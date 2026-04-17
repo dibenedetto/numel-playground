@@ -75,14 +75,11 @@ Backend selection is now config-driven through `app/platform_backend.json`.
 That file selects `local` or `prod`, and `app/platform_loader.py` builds the
 matching stack at startup.
 
-For deployment, the repo now also includes a dedicated production bundle under
-`deploy/`, with:
-
-- `deploy/platform_backend.prod.json` using PostgreSQL + the prod adapters
-- `deploy/docker-compose.prod.yml` for PostgreSQL + Docker runtime wiring
-- `deploy/.env.prod.example` for environment-driven config values
-- `deploy/Dockerfile.identity` plus `services/identity_django/` for the in-repo Django identity service
-- `deploy/runtime-builder.sh` for content-aware inner runtime image rebuilds inside the production Docker daemon
+For deployment, the **private production repo** should carry the dedicated
+production bundle, with the prod backend config, compose wiring, environment
+examples, identity-service packaging, and runtime-image build/update scripts.
+When mounted at the shared submodule path, those now live under
+`app/platform_prod/deploy/` and `app/platform_prod/services/identity_django/`.
 
 The app-facing interface is intentionally unchanged across `local` and `prod`;
 the backend swap happens beneath the shared platform HTTP contract.
@@ -106,7 +103,7 @@ see [public-private-boundary.md](/c:/devel/numel-playground/docs/public-private-
 | Runtime | concrete local mock-runtime | `app/platform_local/docker_runtime.py` running through `WorkspaceManager + WorkflowEngine` | keep as the local reference path | local workspace engine |
 | Local platform assembly | concrete local implementation | `app/platform_local/local_stack.py`, `app.state.platform_stack` | start consuming this stack from APIs incrementally | main platform composition root |
 | Future db+git assembly | partial mock | `app/platform_prod/stack.py` | replace remaining secrets and finalize deployment integration | db + git + docker |
-| Django identity adapter | concrete prod implementation | `app/platform_prod/django_identity.py` plus `services/identity_django/` | keep the Django contract aligned with the local identity semantics | Django |
+| Django identity adapter | concrete prod implementation | `app/platform_prod/django_identity.py` | keep the Django contract aligned with the local identity semantics | Django |
 | Docker runtime adapter | concrete external adapter | `app/platform_prod/docker_runtime.py`, `app/platform_prod/runtime_contract.py`, `runtime/numel_runtime/` | connect to the real Docker deployment and keep hardening the final image policy | Docker Engine API |
 | Role-based ACL subjects | not implementable correctly yet | modeled in the domain, not enforced in the local space provider | wire role resolution from the identity layer | Django + DB |
 | Owner/admin mutation enforcement inside `SpaceProvider` | structurally incomplete | limitation of the current interface shape | pass acting user through the interface | domain and API refactor |

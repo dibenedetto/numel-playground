@@ -43,6 +43,120 @@ You do not need to understand every node type on day one. A good way to start is
 
 That is enough to start building intuition.
 
+## Local And Production
+
+This public repo gives you the **local/reference slice** of Numel, and it is a
+real product, not a fake shell.
+
+That means locally you already have:
+
+- authenticated users
+- spaces and workflows
+- assistants, planner, and deployments
+- tools, skills, and knowledge
+- published apps
+- a fully usable workbench
+
+There is also a stronger **production slice**, but its deployment files live in
+the private production repo, not here. When that repo is mounted at the same
+`app/platform_prod` path, its deployment bundle lives under
+`app/platform_prod/deploy/`.
+
+That private production slice is where Numel adds stronger operational pieces
+such as:
+
+- **Django** identity
+- **PostgreSQL**
+- real **Docker-isolated** execution
+- stronger secrets, backup, and operations tooling
+
+So a practical way to think about it is:
+
+- **local** = fully working Numel with lighter guarantees
+- **prod** = the same Numel product surface with stronger guarantees underneath
+
+## How To Run It Locally
+
+There are two normal ways to run Numel from this public repo.
+
+### 1. Run It Directly With Python
+
+This is the easiest path and the one I would recommend first.
+
+Use the root launcher scripts you prepared.
+
+On Windows PowerShell:
+
+```powershell
+.\run.bat
+```
+
+On Linux or macOS:
+
+```bash
+bash ./run.sh
+```
+
+Then open:
+
+```text
+http://localhost:11360
+```
+
+Those scripts use **uv** under the hood. They:
+
+- install `uv` if needed
+- ensure Python 3.12
+- sync the environment
+- start Numel
+
+If you prefer the same flow manually with `uv`, use:
+
+```bash
+uv python install 3.12
+uv sync
+uv run python app/app.py
+```
+
+This runs the real **local/reference slice**:
+
+- local accounts and sign-in
+- local database storage
+- spaces, workflows, assistants, deployments, and apps
+
+### 2. Run It With Docker
+
+If you prefer containers, the root [Dockerfile](Dockerfile) and
+[docker-compose.yml](docker-compose.yml) let you run that same
+**local/reference slice** in Docker.
+
+App container only:
+
+```bash
+docker build -t numel-playground .
+docker run -p 11360:11360 numel-playground
+```
+
+App plus Ollama:
+
+```bash
+docker compose up --build
+```
+
+Then open:
+
+```text
+http://localhost:11360
+```
+
+The important distinction is:
+
+- using Docker here does **not** mean “use the private production slice”
+- it only means “run the public local slice in containers”
+
+So if you want the simplest path, use Python directly.
+If you want a containerized local setup, use the root Docker files.
+
 ## What You Can Do With It
 
 Here are the most practical use cases:

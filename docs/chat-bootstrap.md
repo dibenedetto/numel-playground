@@ -42,8 +42,9 @@ Important project context:
 - Follow docs/ui-exploration-plan.md for the current UI/product exploration direction before the next large frontend/product-facing pass.
 - The product model is space-centric with one current workflow per current space.
 - Production currently uses PostgreSQL + Django identity + Docker runtime containers.
-- Runtime images live under runtime/numel_runtime.
-- deploy/runtime-builder.sh is responsible for content-aware inner runtime image rebuilds in prod compose.
+- Runtime images and production deploy assets belong to the private prod repo,
+  typically under `app/platform_prod/deploy/` and
+  `app/platform_prod/services/identity_django/`.
 - Database-backed secrets are the current default production choice.
 - Legacy provider-era code and legacy workflow routes were intentionally removed.
 

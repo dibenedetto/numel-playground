@@ -48,7 +48,7 @@ The public repo should keep:
 - the local database + Git + local runtime implementation
 - the local auth/user/quota/friend/space/secrets flow
 - the local admin bootstrap flow
-- the shared deploy/docs/handoff material needed to understand the architecture
+- the shared docs/handoff material needed to understand the architecture
 
 In other words, the public repo should still let someone:
 
@@ -68,11 +68,18 @@ The private production slice should own:
 - Django identity and related production auth deployment
 - PostgreSQL-backed production metadata deployment
 - Docker-isolated production runtime behavior
+- all production-only deploy/config/container files
 - production secrets backend choices and hardening
 - stronger container isolation policy
 - enterprise or production-only admin/ops behavior
 - production observability, deployment, and operational tooling
 - any proprietary or commercially sensitive hardening logic
+
+When the private repo is mounted at the shared submodule path, the concrete home
+for those deployable assets should be:
+
+- `app/platform_prod/deploy/`
+- `app/platform_prod/services/identity_django/`
 
 This is where Numel becomes production-grade, not where Numel becomes
 understandable.

@@ -118,14 +118,21 @@ This is the **reference production runtime image** for workflow executions.
 
 It belongs to the runtime contract and production execution story, not to the simple root local app packaging story.
 
-### `deploy/docker-compose.prod.yml`
+### Private Production Deployment Files
 
-This is the **production-oriented compose bundle**.
+The production-oriented compose bundle and related deployment files should live
+only in the **private production repo**, not in this public repo.
 
-It is where the stronger deployment shape becomes concrete:
+When that repo is mounted at the same `app/platform_prod` path, the deployable
+bundle lives under:
+
+- `app/platform_prod/deploy/`
+- `app/platform_prod/services/identity_django/`
+
+That private bundle is where the stronger deployment shape becomes concrete:
 
 - app container
-- Django identity service
+- identity service
 - PostgreSQL
 - runtime image build/update flow
 - Docker-backed runtime wiring

@@ -68,7 +68,117 @@ For a more approachable introduction aimed at real users rather than a technical
 - For AI agents: [Ollama](https://ollama.com) running locally, or API keys for OpenAI / Anthropic / Groq / Google
 - A modern web browser (Chrome, Firefox, Edge)
 
+### Run Locally Without Docker
+
+This is the simplest way to run Numel's **local/reference slice**.
+
+Recommended path: use the root launcher scripts you prepared.
+
+On Windows PowerShell or Command Prompt:
+
+```powershell
+.\run.bat
+```
+
+On Linux or macOS:
+
+```bash
+bash ./run.sh
+```
+
+Those scripts:
+
+- install **uv** if it is missing
+- ensure Python **3.12**
+- run `uv sync`
+- start `app/app.py`
+
+If you want to pass app flags, add them after the script name, for example:
+
+```powershell
+.\run.bat --tunnel
+```
+
+```bash
+bash ./run.sh --tunnel
+```
+
+If you prefer to do the same flow manually with **uv**:
+
+```bash
+uv python install 3.12
+uv sync
+uv run python app/app.py
+```
+
+Or with a traditional virtualenv:
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+python app/app.py
+```
+
+On Windows PowerShell:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python .\app\app.py
+```
+
+Then open:
+
+```text
+http://localhost:11360
+```
+
+This path uses the public local backend: local identity, `sqlite`, Git-backed
+spaces, local storage under `storage/`, and the normal Numel UI.
+
+### Run Locally With Docker
+
+The root [Dockerfile](Dockerfile) and [docker-compose.yml](docker-compose.yml)
+also run the **local/reference slice**, just inside containers.
+
+Build and run the app container directly:
+
+```bash
+docker build -t numel-playground .
+docker run -p 11360:11360 numel-playground
+```
+
+Or use Docker Compose to start Numel plus a local Ollama container:
+
+```bash
+docker compose up --build
+```
+
+Detached mode:
+
+```bash
+docker compose up -d --build
+```
+
+Then open:
+
+```text
+http://localhost:11360
+```
+
+Important distinction:
+
+- root Docker files = **local Numel in containers**
+- private `app/platform_prod` slice = **production-oriented backend and deployment path**
+
+So using Docker here does **not** switch Numel to the private `prod` backend.
+It only changes how you run the local slice.
+
 ### Starting the Server
+
+If you already have the environment prepared and just want the shortest command:
 
 ```bash
 cd app
@@ -565,42 +675,30 @@ The app reads this file at startup through `app/platform_loader.py`, and the sam
 - The runtime container contract is documented in `docs/runtime-container-contract.md`
 - In `prod`, runtime startup now resolves user and space-scoped credentials for the execution environment, enforces quota-aware concurrent-run and timeout limits, redacts injected env vars in host-side `job_spec.json`, removes terminal containers, prunes materialized snapshots on completion, expires old artifact directories by retention policy, and defaults to a stricter container posture with a read-only root filesystem, dropped Linux capabilities, `no-new-privileges`, `tmpfs` scratch mounts, and a PID limit
 
-### Production Compose Stack
+### Production Deployment
 
-Numel now ships a dedicated production-oriented compose bundle under `deploy/`:
+Production deployment assets no longer live in this public repo.
 
-- `deploy/docker-compose.prod.yml`
-- `deploy/platform_backend.prod.json`
-- `deploy/.env.prod.example`
-- `deploy/Dockerfile.app`
+If you want the `prod` backend, use the private production repo mounted at the
+same `app/platform_prod` path. In that private repo, keep the deployment bundle
+under `app/platform_prod/deploy/` and the Django identity service under
+`app/platform_prod/services/identity_django/`.
 
-This stack keeps the same Numel HTTP/product surface as `local`, but swaps the backing services underneath:
+That private production slice is where Numel's stronger guarantees live:
 
-- PostgreSQL for platform metadata
-- an in-repo Django identity service under `services/identity_django/`
-- Docker Engine API via an internal `docker:dind` service
-- the same shared runtime container contract for executions
+- **Django** identity and account-facing production auth
+- **PostgreSQL**-backed platform metadata
+- real **Docker-isolated** workflow execution
+- stronger secrets, backup, observability, and operational tooling
+- production deployment packaging and runtime hardening
 
-Quick start:
+From the app/interface point of view, switching between `local` and `prod`
+remains config-only: the frontend, `/platform`, `/spaces`, `/workflow`, and
+`/executions` surfaces do not change.
 
-```bash
-cp deploy/.env.prod.example deploy/.env.prod
-docker compose --env-file deploy/.env.prod -f deploy/docker-compose.prod.yml up --build
-```
-
-Notes:
-
-- The default prod backend config is `deploy/platform_backend.prod.json`, selected through `NUMEL_PLATFORM_CONFIG`
-- The compose stack builds `numel-runtime:latest` inside the internal Docker daemon before the app starts
-- `deploy/runtime-builder.sh` hashes the runtime-relevant source tree and only rebuilds the inner runtime images when that hash changes or the image is missing
-- The compose stack also builds the Django identity service locally from `deploy/Dockerfile.identity` and `services/identity_django/`
-- Use `docker compose --env-file deploy/.env.prod -f deploy/docker-compose.prod.yml --profile gpu up --build` to also build the CUDA runtime image
-- `app/platform_prod` may be provided as a private git submodule; when present, keep it mounted at that same path
-- The app still talks to identity through the same adapter contract in `app/platform_prod/django_identity.py`
-- The Django service uses the same logical user/profile/quota/token model as `platform_local`, so switching between `local` and `prod` remains seamless at the Numel interface level
-- From an interface point of view, switching between `local` and `prod` remains config-only: the frontend, `/platform`, `/spaces`, `/workflow`, and `/executions` surfaces do not change
-- See `docs/public-private-boundary.md` for the recommended commercial split: keep the working local/reference product public, and keep production guarantees in the private prod slice
-- See `docs/product-roadmap.md` for the current product-priority direction: onboarding, templates, planner-first UX, stronger space/project framing, and multimodal agent positioning
+See [docs/public-private-boundary.md](docs/public-private-boundary.md) for the
+intended split: keep the working local/reference product public, and keep
+production guarantees plus deployment assets in the private prod slice.
 
 ### Deployable Runtime Layout
 

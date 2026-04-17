@@ -11,9 +11,12 @@ shared files **inside both repos**, using the **same relative paths**.
 Recommended rule:
 
 - keep the docs in `docs/` in both repos
-- keep backend/config files in `app/` and `deploy/` in both repos
+- keep shared backend/config files in `app/` in both repos
 - if `app/platform_prod` is a private git submodule, keep the submodule mounted
   at that same path in both repos
+- keep production-only deploy files only in the private prod repo, typically
+  under `app/platform_prod/deploy/` plus
+  `app/platform_prod/services/identity_django/`
 - do not move these files to arbitrary folders if you want the bootstrap prompt
   to keep working unchanged
 
@@ -35,11 +38,6 @@ paths in both repos:
 - `docs/runtime-container-contract.md`
 - `docs/shared-context-files.md`
 - `app/platform_backend.json`
-- `deploy/platform_backend.prod.json`
-- `deploy/docker-compose.prod.yml`
-- `deploy/runtime-builder.sh`
-- `deploy/Dockerfile.app`
-- `deploy/Dockerfile.identity`
 - `README.md`
 
 ## How This Helps Chats Stay Aligned
@@ -105,11 +103,6 @@ architecture and deployment context, not just the high-level handoff.
 - [ui-exploration-plan.md](/c:/devel/numel-playground/docs/ui-exploration-plan.md)
 - [runtime-container-contract.md](/c:/devel/numel-playground/docs/runtime-container-contract.md)
 - [platform_backend.json](/c:/devel/numel-playground/app/platform_backend.json)
-- [platform_backend.prod.json](/c:/devel/numel-playground/deploy/platform_backend.prod.json)
-- [docker-compose.prod.yml](/c:/devel/numel-playground/deploy/docker-compose.prod.yml)
-- [runtime-builder.sh](/c:/devel/numel-playground/deploy/runtime-builder.sh)
-- [Dockerfile.app](/c:/devel/numel-playground/deploy/Dockerfile.app)
-- [Dockerfile.identity](/c:/devel/numel-playground/deploy/Dockerfile.identity)
 - [README.md](/c:/devel/numel-playground/README.md)
 
 ## What Each Group Is For
@@ -127,7 +120,7 @@ Recommended shared set:
 - keeps the product-priority direction explicit
 - keeps the current UI/product exploration direction explicit
 - keeps the backend-selection model aligned
-- keeps the current production deployment story aligned
+- keeps the public/private boundary aligned
 - keeps the submodule-based prod/backend split easier to explain in future chats
 - is better if both repos will continue evolving in parallel
 

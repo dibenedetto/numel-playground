@@ -17,7 +17,6 @@ from platform_local import (
     SecretsConfig,
     build_local_platform_stack,
 )
-from platform_prod import DjangoIdentityConfig, build_db_git_platform_stack
 from runtime_settings import get_runtime_settings
 
 
@@ -154,6 +153,13 @@ def build_platform_stack_from_config(
             docker_config=runtime_config,
             workspace_manager=workspace_manager,
         )
+
+    try:
+        from platform_prod import DjangoIdentityConfig, build_db_git_platform_stack
+    except ModuleNotFoundError as exc:
+        raise ModuleNotFoundError(
+            "The 'prod' backend requires the private production slice mounted at app/platform_prod."
+        ) from exc
 
     identity_config = _build_dataclass(DjangoIdentityConfig, _section(section, "identity"))
     return build_db_git_platform_stack(
