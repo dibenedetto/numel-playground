@@ -132,7 +132,7 @@ async def main():
 		try:
 			start = await c.console_start(
 				model_source="ollama",
-				model_name="mistral",
+				model_name="mistral:latest",
 				toolkit_names=["console_toolkit", "code_toolkit"],
 			)
 			print(f"\nAgent started on port {start['port']}")

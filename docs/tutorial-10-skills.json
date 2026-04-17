@@ -8,7 +8,7 @@
     {
       "type": "model_config",
       "source": "ollama",
-      "name": "mistral",
+      "name": "mistral::latest",
       "extra": {
         "name": "Model (Ollama/Mistral)"
       }

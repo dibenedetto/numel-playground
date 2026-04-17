@@ -915,7 +915,7 @@ def parse_console_workflow_import(
 		"workflow_name": _clean_string(workflow_options.get("name")) or assistant_name,
 		"backend_name": parsed_backend,
 		"model_source": _clean_string(model_node.get("source")) or "ollama",
-		"model_name": _clean_string(model_node.get("name")) or "mistral",
+		"model_name": _clean_string(model_node.get("name")) or "mistral:latest",
 		"toolkit_names": toolkit_names,
 		"toolkit_args": toolkit_args,
 		"skill_names": skill_names,

@@ -308,7 +308,7 @@ class BackendConfig(ConfigType):
 
 
 DEFAULT_MODEL_SOURCE   : str  = "ollama"
-DEFAULT_MODEL_NAME     : str  = "mistral"
+DEFAULT_MODEL_NAME     : str  = "mistral:latest"
 DEFAULT_MODEL_VERSION  : str  = ""
 DEFAULT_MODEL_FALLBACK : bool = False
 
@@ -335,7 +335,7 @@ class ModelConfig(ConfigType):
 
 
 DEFAULT_EMBEDDING_SOURCE   : str  = "ollama"
-DEFAULT_EMBEDDING_NAME     : str  = "mistral"
+DEFAULT_EMBEDDING_NAME     : str  = "nomic-embed-text:latest"
 DEFAULT_EMBEDDING_VERSION  : str  = ""
 DEFAULT_EMBEDDING_FALLBACK : bool = False
 

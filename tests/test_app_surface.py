@@ -221,7 +221,7 @@ def _agent_edge_workflow_payload() -> dict:
             {
                 "type": "model_config",
                 "source": "ollama",
-                "name": "mistral",
+                "name": "mistral:latest",
                 "extra": {"pos": [40, 100], "name": "Model"},
             },
             {

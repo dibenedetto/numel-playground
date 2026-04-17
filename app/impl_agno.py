@@ -429,7 +429,7 @@ def get_text_generation_sources_agno() -> List[str]:
 
 def get_text_generation_models_agno(model_source: str | None = None) -> List[str]:
 	by_source = {
-		"ollama": ["qwen3.5:cloud", "mistral", "llama3", "qwen2.5"],
+		"ollama": ["qwen3.5:cloud", "mistral:latest", "llama3:latest", "qwen3.5:latest"],
 		"openai": ["gpt-4o-mini", "gpt-4o"],
 		"anthropic": ["claude-sonnet-4-20250514"],
 	}

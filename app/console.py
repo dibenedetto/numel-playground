@@ -468,7 +468,7 @@ class ConsoleAgentManager:
 
 		model_cfg = effective_config.get("model", {})
 		source = model_source or model_cfg.get("source", "ollama")
-		name   = model_name   or model_cfg.get("name", "mistral")
+		name   = model_name   or model_cfg.get("name", "mistral:latest")
 
 		# Default toolkits: console_toolkit is always included
 		cfg_toolkits = effective_config.get("toolkits", ["console_toolkit"])
@@ -692,7 +692,7 @@ class ConsoleAgentManager:
 			"config": config,
 			"effective_config": effective_config,
 			"model_source": self._model_source or model_cfg.get("source", "ollama"),
-			"model_name": self._model_name or model_cfg.get("name", "mistral"),
+			"model_name": self._model_name or model_cfg.get("name", "mistral:latest"),
 			"toolkit_names": toolkit_names,
 			"toolkit_args": dict(self._toolkit_args or {}),
 			"skill_names": list(self._skill_names or []),
@@ -776,7 +776,7 @@ class ConsoleAgentManager:
 		)
 		model_cfg = dict(config.get("model") or {})
 		source = self._model_source or model_cfg.get("source", "ollama")
-		name = self._model_name or model_cfg.get("name", "mistral")
+		name = self._model_name or model_cfg.get("name", "mistral:latest")
 		toolkit_names = list(self._toolkit_names or config.get("toolkits", ["console_toolkit"]))
 		if "console_toolkit" not in toolkit_names:
 			toolkit_names = ["console_toolkit"] + list(toolkit_names)
@@ -1524,7 +1524,7 @@ class ChannelAgentPool:
 
 		model_cfg = effective_config.get("model", {})
 		source    = model_source or model_cfg.get("source", "ollama")
-		name      = model_name or model_cfg.get("name", "mistral")
+		name      = model_name or model_cfg.get("name", "mistral:latest")
 
 		# Build tools — use per-user toolkit list if provided, else config defaults
 		tk_names = toolkits if toolkits is not None else effective_config.get("toolkits", ["console_toolkit"])

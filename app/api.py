@@ -2525,7 +2525,7 @@ Example (mesh processing with toolkit):
 		mcfg = request.model or {}
 		nodes.append(ModelConfig(
 			source  = mcfg.get("source", "ollama"),
-			name    = mcfg.get("name", "mistral"),
+			name    = mcfg.get("name", "mistral:latest"),
 			version = mcfg.get("version", ""),
 		))
 		model_idx = 0
@@ -2607,7 +2607,7 @@ Example (mesh processing with toolkit):
 			# EmbeddingConfig (uses same source as model)
 			nodes.append(EmbeddingConfig(
 				source = mcfg.get("source", "ollama"),
-				name   = mcfg.get("name", "mistral"),
+				name   = mcfg.get("name", "mistral:latest"),
 			))
 			embed_idx = next_idx
 			next_idx += 1

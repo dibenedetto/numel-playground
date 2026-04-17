@@ -160,7 +160,7 @@
           },
           "2": {
             "type": "str",
-            "value": "mistral",
+            "value": "mistral:latest",
             "optional": false,
             "options": null,
             "optionsSource": "model_names",
@@ -257,7 +257,7 @@
           },
           "2": {
             "type": "str",
-            "value": "mistral",
+            "value": "mistral:latest",
             "optional": false,
             "options": null,
             "optionsSource": "model_names",

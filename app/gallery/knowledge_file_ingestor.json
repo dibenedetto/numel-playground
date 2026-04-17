@@ -118,7 +118,7 @@
       {
         "type": "model_config",
         "source": "ollama",
-        "name": "mistral",
+        "name": "mistral::latest",
         "extra": {
           "pos": [
             1440,
@@ -199,7 +199,7 @@
       {
         "type": "embedding_config",
         "source": "ollama",
-        "name": "mistral",
+        "name": "mistral::latest",
         "extra": {
           "pos": [
             2200,

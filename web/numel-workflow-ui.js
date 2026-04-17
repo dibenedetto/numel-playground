@@ -2752,6 +2752,20 @@ async function pasteWorkflowFromClipboard() {
 
 async function clearWorkflow() {
 	if (!visualizer.currentWorkflow) return;
+	const hasNodes = schemaGraph?.graph?.nodes?.length > 0;
+	const hasContent = !!(visualizer?.currentWorkflow && (hasNodes || currentWorkflowHasContent));
+	if (!hasContent) return;
+
+	const confirmClear = typeof window.NumelConfirm === 'function'
+		? await window.NumelConfirm(
+			'Clear Workflow',
+			'This will clear the current workflow from this workbench and save the empty result. Continue?',
+			'Clear Workflow',
+			true,
+			'Keep Workflow',
+		)
+		: window.confirm('Clear the current workflow from this workbench?');
+	if (!confirmClear) return;
 
 	// Snapshot the pre-clear graph state AND camera so a single undo
 	// restores both the workflow and the original view.
