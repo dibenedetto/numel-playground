@@ -1,0 +1,42 @@
+{
+  "type": "assistant_deployment_example",
+  "name": "Webhook Incident Triage",
+  "profile": "ops",
+  "description": "Wakes up on incoming webhook events, summarizes the incident payload, and keeps operator approval in the loop for outgoing messages.",
+  "instructions": "Treat incoming webhook events like operational incidents. Summarize the signal, call out urgency, and keep the update concise and practical.",
+  "linked_space_title": "Operations Workbench",
+  "linked_workflow_name": "Webhook Incident Workbench",
+  "model_source": "anthropic",
+  "model_name": "claude-sonnet-4-20250514",
+  "toolkit_names": ["workspace_toolkit", "channel_toolkit", "agent_endpoint_toolkit"],
+  "skill_names": [],
+  "channel_ids": ["replace_with_delivery_channel_id"],
+  "routing_rules": [],
+  "proactive_tasks": [
+    {
+      "name": "Inbound Incident Webhook",
+      "prompt": "Read the triggering webhook payload, identify what happened, summarize the impact, and suggest the next operator action.",
+      "interval_sec": 0,
+      "trigger_kind": "webhook",
+      "trigger": {
+        "endpoint": "/hook/incidents",
+        "methods": "POST",
+        "secret": "replace_with_shared_secret"
+      },
+      "channel_id": "replace_with_delivery_channel_id",
+      "recipient_id": "replace_with_recipient_id",
+      "enabled": true,
+      "send_response": true
+    }
+  ],
+  "safety": {
+    "proactive_delivery_mode": "approval",
+    "tool_execution_mode": "approval"
+  },
+  "auto_start": true,
+  "notes": [
+    "This example shows an event-driven proactive deployment instead of a timer-driven one.",
+    "Use the webhook trigger when another system should wake the assistant up.",
+    "Keep interval_sec at 0 for non-timer proactive tasks."
+  ]
+}

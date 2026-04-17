@@ -1067,6 +1067,7 @@ Gallery items load into the current space and replace the current canvas/workflo
 10. [Skills](docs/tutorial-10-skills.md) — Skill Config + Agent instructions
 11. [Assistant Deployments](docs/tutorial-11-assistant-deployments.md) — Channel-facing assistants, routing, proactive jobs, and approvals
 12. [Workflow-Backed Runtime](docs/tutorial-12-workflow-backed-runtime.md) — Console and deployment-network round-trip through the workbench
+13. [Event-Driven Proactive Deployments](docs/tutorial-13-event-driven-proactive-deployments.md) — Webhook-triggered assistants and workflow-backed proactive runtime
 
 ---
 

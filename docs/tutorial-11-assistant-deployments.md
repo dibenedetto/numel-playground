@@ -168,6 +168,7 @@ Two API-oriented example deployment configs are included here:
 
 - [assistant-deployment-front-door.json](../examples/assistant-deployment-front-door.json)
 - [assistant-deployment-ops-proactive.json](../examples/assistant-deployment-ops-proactive.json)
+- [assistant-deployment-webhook-proactive.json](../examples/assistant-deployment-webhook-proactive.json)
 
 They are not workflow files. They are deployment configuration examples you can adapt when creating deployments through the API or as operator references.
 
@@ -192,3 +193,4 @@ At the end of this tutorial, you have:
 That is the foundation of Numel’s assistant-deployment model: workflows remain the place where you build the intelligence, while deployments are the place where you run it for real users.
 
 For the day-to-day operator workflow after setup, see [assistant-deployment-operations.md](assistant-deployment-operations.md).
+For a concrete event-driven proactive example, continue with [tutorial-13-event-driven-proactive-deployments.md](tutorial-13-event-driven-proactive-deployments.md).

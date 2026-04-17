@@ -178,3 +178,4 @@ That is the current shape of the product direction:
 - [workflow-backed-surfaces.md](workflow-backed-surfaces.md)
 - [assistant-deployments.md](assistant-deployments.md)
 - [assistant-network-architecture.md](assistant-network-architecture.md)
+- [tutorial-13-event-driven-proactive-deployments.md](tutorial-13-event-driven-proactive-deployments.md)

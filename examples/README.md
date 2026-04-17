@@ -74,6 +74,29 @@ Test:
 
 ---
 
+## Assistant Deployment Config Examples
+
+These are **not** workflow files for the canvas. They are operator/API-oriented
+deployment reference configs you can adapt when creating assistant deployments.
+
+### assistant-deployment-front-door.json
+
+Shows a channel-facing front-door deployment that can hand conversations off to
+specialists.
+
+### assistant-deployment-ops-proactive.json
+
+Shows a timer-driven proactive ops deployment that runs on an interval and keeps
+approval in the loop for outgoing messages.
+
+### assistant-deployment-webhook-proactive.json
+
+Shows an **event-driven** proactive deployment that wakes up from a webhook
+instead of a timer. Useful when another system should trigger the assistant
+only when something actually happens.
+
+---
+
 ## microphone-audio-gate.json
 **Nodes**: `start` -> `browser_source` (microphone, 0.5s chunks) -> `loop_start` -> `event_listener` -> `gate` (threshold=6, fires every 3s) -> `transform` (check gate state) -> `preview` (JSON) -> `loop_end`
 

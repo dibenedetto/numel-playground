@@ -132,6 +132,21 @@ Deployments can now choose different selector policies for deciding that handoff
 
 Deployments can run recurring tasks on a timer and optionally deliver the resulting message to a channel recipient.
 
+They can now also run from event-driven triggers such as:
+
+- `webhook`
+- `channel`
+- `fswatch`
+- `browser`
+
+So “proactive” should now be read as:
+
+- the assistant runs on its own
+
+not only:
+
+- the assistant runs on a schedule
+
 ### Approval Flows
 
 There are now two approval surfaces:
@@ -218,6 +233,8 @@ Right now, tool approval is deployment-wide: if enabled, tool calls from that de
 - Tutorial:
   - [tutorial-11-assistant-deployments.md](tutorial-11-assistant-deployments.md)
   - [tutorial-12-workflow-backed-runtime.md](tutorial-12-workflow-backed-runtime.md)
+  - [tutorial-13-event-driven-proactive-deployments.md](tutorial-13-event-driven-proactive-deployments.md)
 - Example deployment configs:
   - [assistant-deployment-front-door.json](../examples/assistant-deployment-front-door.json)
   - [assistant-deployment-ops-proactive.json](../examples/assistant-deployment-ops-proactive.json)
+  - [assistant-deployment-webhook-proactive.json](../examples/assistant-deployment-webhook-proactive.json)

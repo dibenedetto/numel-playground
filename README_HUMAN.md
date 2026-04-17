@@ -198,6 +198,13 @@ Example:
 
 This is where **Assistant Deployments** matter: they turn something you designed in the workbench into a real named assistant that can run on channels, use approvals, hand conversations off to specialists, and be supervised.
 
+They are now not only timer-driven. A deployment can also wake up from real events like:
+
+- a webhook arriving
+- a channel event
+- a file-system event
+- a browser event
+
 ### 5. Publish a workflow as a web app
 
 Example:

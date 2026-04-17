@@ -3975,10 +3975,36 @@ body.nw-layout-project-workbench .nw-auth-title {
 .nw-assist-dialog-actions.is-readonly {
 	justify-content: flex-end;
 }
+.nw-assist-inspect-filterbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 10px;
+	margin: 0 0 14px;
+	padding: 12px;
+	border: 1px solid var(--nw-border-soft);
+	border-radius: 12px;
+	background: color-mix(in srgb, var(--sg-bg-secondary) 94%, white 6%);
+}
+.nw-assist-inspect-filterbar .nw-input {
+	flex: 1 1 320px;
+	min-width: 220px;
+}
+.nw-assist-inspect-filter-status {
+	font-size: 11px;
+	color: var(--sg-text-secondary);
+}
+.nw-assist-inspect-content {
+	display: flex;
+	flex-direction: column;
+}
 .nw-assist-inspect-stats {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));
 	gap: 10px;
+}
+.nw-assist-inspect-section.is-filter-hidden {
+	display: none;
 }
 .nw-assist-inspect-stat {
 	border: 1px solid var(--nw-border-soft);

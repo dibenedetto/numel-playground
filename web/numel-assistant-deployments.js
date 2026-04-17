@@ -316,8 +316,16 @@ async function _post(path, body = {}) {
 					const data = (typeof mapper === 'function' ? mapper(item) : null) || {};
 					const tone = ['error', 'approval_error', 'rejected'].includes(String(data.status || '').toLowerCase()) ? ' is-error' : '';
 					const meta = Array.isArray(data.meta) ? data.meta.filter(Boolean) : [];
+					const searchText = [
+						data.title,
+						data.kind,
+						data.detail,
+						data.preview,
+						data.status,
+						...meta,
+					].filter(Boolean).join(' ').toLowerCase();
 					return `
-						<div class="nw-assist-trace-row${tone}">
+						<div class="nw-assist-trace-row${tone}" data-inspect-entry="trace" data-inspect-text="${_esc(searchText)}">
 							<div class="nw-assist-trace-main">
 								<div class="nw-assist-trace-title">${_esc(data.title || data.kind || 'Event')}</div>
 								${data.detail ? `<div class="nw-assist-trace-detail">${_esc(data.detail)}</div>` : ''}
@@ -341,6 +349,58 @@ async function _post(path, body = {}) {
 				</div>
 				${contentHtml}
 			</section>`;
+	}
+
+	function _renderInspectFilterShell(contentHtml, placeholder = 'Filter activity, handoffs, approvals, failures...') {
+		return `
+			<div class="nw-assist-inspect-filterbar">
+				<input type="text" class="nw-input" data-role="inspect-filter" placeholder="${_esc(placeholder)}" autocomplete="off">
+				<div class="nw-assist-inspect-filter-status" data-role="inspect-filter-count">Showing all trace rows</div>
+			</div>
+			<div class="nw-assist-inspect-content">
+				${contentHtml}
+			</div>`;
+	}
+
+	function _bindInspectFilter(overlay) {
+		const input = overlay.querySelector('[data-role="inspect-filter"]');
+		if (!input) return;
+		const entries = Array.from(overlay.querySelectorAll('[data-inspect-entry]'));
+		const sections = Array.from(overlay.querySelectorAll('.nw-assist-inspect-section'));
+		const countEl = overlay.querySelector('[data-role="inspect-filter-count"]');
+		const update = () => {
+			const term = String(input.value || '').trim().toLowerCase();
+			let visibleCount = 0;
+			for (const entry of entries) {
+				const haystack = String(entry.dataset.inspectText || '').toLowerCase();
+				const visible = !term || haystack.includes(term);
+				entry.hidden = !visible;
+				if (visible) visibleCount += 1;
+			}
+			for (const section of sections) {
+				const sectionEntries = Array.from(section.querySelectorAll('[data-inspect-entry]'));
+				if (!sectionEntries.length) {
+					section.classList.remove('is-filter-hidden');
+					continue;
+				}
+				const hasVisible = sectionEntries.some((entry) => !entry.hidden);
+				section.classList.toggle('is-filter-hidden', !!term && !hasVisible);
+			}
+			if (!countEl) return;
+			if (!entries.length) {
+				countEl.textContent = 'No trace rows available';
+				return;
+			}
+			if (!term) {
+				countEl.textContent = `Showing all ${entries.length} trace row${entries.length === 1 ? '' : 's'}`;
+				return;
+			}
+			countEl.textContent = visibleCount
+				? `Showing ${visibleCount} of ${entries.length} trace row${entries.length === 1 ? '' : 's'}`
+				: `No trace rows match "${input.value}"`;
+		};
+		input.addEventListener('input', update);
+		update();
 	}
 
 	function _renderStatusGuideBody() {
@@ -1885,9 +1945,10 @@ ${_esc(deploymentHint)}</div></div>
 		const deployment = await _post('/assistant-deployments/get', { id: deploymentId });
 		_dialog(
 			`Inspect: ${deployment.name || deployment.id}`,
-			_renderInspectDialogBody(deployment),
+			_renderInspectFilterShell(_renderInspectDialogBody(deployment), 'Filter messages, endpoint calls, handoffs, approvals, proactive runs, and failures...'),
 			() => true,
 			(overlay) => {
+				_bindInspectFilter(overlay);
 				overlay.querySelector('[data-role="copy-snapshot"]')?.addEventListener('click', async () => {
 					try {
 						await _copyTextToClipboard(_deploymentSnapshotText(deployment));
@@ -1917,9 +1978,10 @@ ${_esc(deploymentHint)}</div></div>
 		}
 		_dialog(
 			'Inspect Live Network',
-			_renderNetworkInspectDialogBody(items),
+			_renderInspectFilterShell(_renderNetworkInspectDialogBody(items), 'Filter deployments, activity, failures, approvals, and attention reasons...'),
 			() => true,
 			(overlay) => {
+				_bindInspectFilter(overlay);
 				overlay.querySelector('[data-role="copy-snapshot"]')?.addEventListener('click', async () => {
 					try {
 						await _copyTextToClipboard(_networkSnapshotText(items));
