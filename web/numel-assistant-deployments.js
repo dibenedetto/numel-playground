@@ -279,6 +279,220 @@ async function _post(path, body = {}) {
 			</div>`;
 	}
 
+	function _renderInspectStatGrid(rows = []) {
+		const items = (Array.isArray(rows) ? rows : []).filter((row) => row && row.label);
+		if (!items.length) return '<div class="nw-assist-activity-empty">No runtime stats yet.</div>';
+		return `
+			<div class="nw-assist-inspect-stats">
+				${items.map((row) => `
+					<div class="nw-assist-inspect-stat">
+						<div class="nw-assist-inspect-stat-label">${_esc(row.label)}</div>
+						<div class="nw-assist-inspect-stat-value">${_esc(row.value == null || row.value === '' ? '—' : row.value)}</div>
+					</div>
+				`).join('')}
+			</div>`;
+	}
+
+	function _renderInspectTraceList(items = [], mapper, emptyLabel = 'No entries yet.') {
+		const rows = Array.isArray(items) ? items : [];
+		if (!rows.length) return `<div class="nw-assist-activity-empty">${_esc(emptyLabel)}</div>`;
+		return `
+			<div class="nw-assist-trace-stack">
+				${rows.slice(-8).reverse().map((item) => {
+					const data = (typeof mapper === 'function' ? mapper(item) : null) || {};
+					const tone = ['error', 'approval_error', 'rejected'].includes(String(data.status || '').toLowerCase()) ? ' is-error' : '';
+					const meta = Array.isArray(data.meta) ? data.meta.filter(Boolean) : [];
+					return `
+						<div class="nw-assist-trace-row${tone}">
+							<div class="nw-assist-trace-main">
+								<div class="nw-assist-trace-title">${_esc(data.title || data.kind || 'Event')}</div>
+								${data.detail ? `<div class="nw-assist-trace-detail">${_esc(data.detail)}</div>` : ''}
+								${data.preview ? `<div class="nw-assist-trace-preview">${_esc(data.preview)}</div>` : ''}
+							</div>
+							<div class="nw-assist-trace-meta">
+								${meta.map((entry) => `<span>${_esc(entry)}</span>`).join('')}
+							</div>
+						</div>`;
+				}).join('')}
+			</div>`;
+	}
+
+	function _renderInspectSection(title, subtitle, contentHtml) {
+		return `
+			<section class="nw-assist-dialog-section nw-assist-inspect-section">
+				<div class="nw-assist-dialog-section-head">
+					<h4>${_esc(title)}</h4>
+					${subtitle ? `<p>${_esc(subtitle)}</p>` : ''}
+				</div>
+				${contentHtml}
+			</section>`;
+	}
+
+	function _renderInspectDialogBody(item) {
+		const runtime = item?.runtime || {};
+		const channels = Array.isArray(item?.channels) ? item.channels : [];
+		const proactiveTasks = Array.isArray(item?.proactive_tasks) ? item.proactive_tasks : [];
+		const pendingApprovals = Array.isArray(item?.pending_proactive_approvals) ? item.pending_proactive_approvals : [];
+		const pendingToolApprovals = Array.isArray(item?.pending_tool_approvals) ? item.pending_tool_approvals : [];
+		const recentApprovals = Array.isArray(item?.recent_approvals) ? item.recent_approvals : [];
+		const recentMessages = Array.isArray(item?.recent_messages) ? item.recent_messages : [];
+		const recentEndpointCalls = Array.isArray(item?.recent_endpoint_calls) ? item.recent_endpoint_calls : [];
+		const recentHandoffs = Array.isArray(item?.recent_handoffs) ? item.recent_handoffs : [];
+		const recentProactiveRuns = Array.isArray(item?.recent_proactive_runs) ? item.recent_proactive_runs : [];
+		const recentActivity = Array.isArray(item?.recent_activity) ? item.recent_activity : [];
+		const recentFailures = Array.isArray(item?.recent_failures) ? item.recent_failures : [];
+		const approvalRows = [
+			...pendingApprovals.map((row) => ({ ...row, _approvalKind: 'proactive_pending', _timestamp: row.created_at })),
+			...pendingToolApprovals.map((row) => ({ ...row, _approvalKind: 'tool_pending', _timestamp: row.created_at })),
+			...recentApprovals.map((row) => ({ ...row, _approvalKind: row.tool_name ? 'tool_resolved' : 'proactive_resolved', _timestamp: row.resolved_at || row.created_at })),
+		];
+		const runtimeStats = [
+			{ label: 'Messages', value: String(runtime.message_count || 0) },
+			{ label: 'Endpoint calls', value: String(runtime.endpoint_call_count || 0) },
+			{ label: 'Pending approvals', value: String(runtime.pending_approval_count || 0) },
+			{ label: 'Last activity', value: runtime.last_message_at ? _formatTimestamp(runtime.last_message_at) : 'No traffic yet' },
+			{ label: 'Last endpoint', value: runtime.last_endpoint_call_at ? `${runtime.last_endpoint_mode || 'call'} → ${runtime.last_endpoint_target || runtime.last_endpoint_kind || 'endpoint'}` : 'No endpoint calls yet' },
+			{ label: 'Last handoff', value: runtime.last_handoff_at ? `${runtime.last_handoff_from || item.id} → ${runtime.last_handoff_target || item.id}` : 'No handoffs yet' },
+			{ label: 'Last proactive run', value: runtime.last_proactive_run_at ? _formatTimestamp(runtime.last_proactive_run_at) : 'No proactive runs yet' },
+			{ label: 'Last error', value: runtime.last_error || 'None' },
+		];
+		const overviewRows = [
+			{ label: 'Lifecycle', value: item.enabled ? 'active' : 'inactive' },
+			{ label: 'Runtime state', value: item.status || 'stopped' },
+			{ label: 'Handoff selector', value: _handoffSelectorLabel(item.handoff_selector_mode) },
+			{ label: 'Linked workbench', value: item.linked_space_title || item.linked_workflow_name ? `${item.linked_space_title || item.linked_space_id || 'Unlinked space'}${item.linked_workflow_name ? ` → ${item.linked_workflow_name}` : ''}` : 'Not linked yet' },
+			{ label: 'Channels', value: channels.length ? channels.map((channel) => `${channel.name || channel.id} (${channel.status || 'unknown'})`).join(' · ') : 'No channels bound' },
+			{ label: 'Capabilities', value: `${(item.toolkit_names || []).join(', ') || 'default'} · ${(item.skill_names || []).join(', ') || 'active defaults'}` },
+			{ label: 'Safety', value: `${item.safety?.proactive_delivery_mode === 'approval' ? 'Approval before proactive delivery' : 'Auto proactive delivery'} · ${item.safety?.tool_execution_mode === 'approval' ? 'Approve tool calls' : 'Run tool calls automatically'}` },
+			{ label: 'Proactive tasks', value: proactiveTasks.length ? proactiveTasks.map((task) => `${task.name} (${_taskTriggerLabel(task)})`).join(' · ') : 'No proactive tasks' },
+		];
+		return `
+			<div class="nw-assist-dialog-layout nw-assist-inspect-layout">
+				<div class="nw-assist-dialog-column">
+					${_renderInspectSection(
+						'Runtime Snapshot',
+						'Live counters and the latest operator-visible runtime signals for this deployment.',
+						`
+							<div class="nw-assist-ops-summary">
+								<div class="nw-assist-ops-chip">Messages <strong>${_esc(String(runtime.message_count || 0))}</strong></div>
+								<div class="nw-assist-ops-chip">Endpoint calls <strong>${_esc(String(runtime.endpoint_call_count || 0))}</strong></div>
+								<div class="nw-assist-ops-chip ${runtime.pending_approval_count ? 'is-alert' : ''}">Pending approvals <strong>${_esc(String(runtime.pending_approval_count || 0))}</strong></div>
+								<div class="nw-assist-ops-chip ${recentFailures.length ? 'is-alert' : ''}">Failures <strong>${_esc(String(recentFailures.length))}</strong></div>
+							</div>
+							${_renderInspectStatGrid(runtimeStats)}
+						`,
+					)}
+					${_renderInspectSection(
+						'Deployment Shape',
+						'What this deployment is linked to and which guardrails are active around it.',
+						_renderInspectStatGrid(overviewRows),
+					)}
+					${_renderInspectSection(
+						'Recent Messages',
+						'Inbound traffic and routed conversation turns attributed to this deployment.',
+						_renderInspectTraceList(recentMessages, (row) => ({
+							title: row.kind === 'handoff' ? `Handoff to ${row.target_deployment_id || 'specialist'}` : row.kind === 'routed_message' ? 'Routed message' : 'Message',
+							detail: [
+								row.channel_id ? `channel ${row.channel_id}` : '',
+								row.sender_id ? `sender ${row.sender_id}` : '',
+								row.selector_mode ? _handoffSelectorLabel(row.selector_mode) : '',
+								row.reason || '',
+							].filter(Boolean).join(' · '),
+							preview: row.preview || '',
+							status: row.status,
+							meta: [row.status || 'info', _formatTimestamp(row.timestamp)],
+						}), 'No messages recorded yet.'),
+					)}
+					${_renderInspectSection(
+						'Recent Activity',
+						'The same unified activity feed shown on the card, with a little more room to read it.',
+						_renderRecentActivity(recentActivity),
+					)}
+				</div>
+				<div class="nw-assist-dialog-column">
+					${_renderInspectSection(
+						'Endpoint Calls',
+						'Consult, delegate, and notify interactions made through agent endpoints.',
+						_renderInspectTraceList(recentEndpointCalls, (row) => ({
+							title: `${row.mode || 'endpoint'} → ${row.endpoint_name || row.endpoint_target || row.endpoint_kind || 'endpoint'}`,
+							detail: [
+								row.endpoint_kind || '',
+								row.remote_task_id ? `task ${row.remote_task_id}` : '',
+								row.session_id ? `session ${row.session_id}` : '',
+								row.error || '',
+							].filter(Boolean).join(' · '),
+							preview: row.preview || '',
+							status: row.status,
+							meta: [row.status || 'info', _formatTimestamp(row.timestamp)],
+						}), 'No endpoint calls yet.'),
+					)}
+					${_renderInspectSection(
+						'Handoffs',
+						'Conversation ownership transfers between the front door and specialists.',
+						_renderInspectTraceList(recentHandoffs, (row) => ({
+							title: `${row.source_deployment_id || 'unknown'} → ${row.target_deployment_id || 'unknown'}`,
+							detail: [
+								row.selector_mode ? _handoffSelectorLabel(row.selector_mode) : '',
+								row.reason || '',
+								row.channel_id ? `channel ${row.channel_id}` : '',
+								row.sender_id ? `sender ${row.sender_id}` : '',
+							].filter(Boolean).join(' · '),
+							preview: Array.isArray(row.matched_keywords) && row.matched_keywords.length ? `Matched: ${row.matched_keywords.join(', ')}` : '',
+							status: 'ok',
+							meta: [_formatTimestamp(row.timestamp)],
+						}), 'No handoffs recorded yet.'),
+					)}
+					${_renderInspectSection(
+						'Proactive Runs',
+						'Scheduled or event-driven assistant actions triggered without a direct user message.',
+						_renderInspectTraceList(recentProactiveRuns, (row) => ({
+							title: row.task_name || 'Proactive task',
+							detail: [
+								row.trigger_kind || '',
+								row.reason || '',
+								row.delivered ? 'delivered' : '',
+								row.error || '',
+							].filter(Boolean).join(' · '),
+							preview: row.preview || '',
+							status: row.status,
+							meta: [row.status || 'info', _formatTimestamp(row.timestamp)],
+						}), 'No proactive runs yet.'),
+					)}
+					${_renderInspectSection(
+						'Approvals',
+						'Pending and recently resolved proactive deliveries or tool calls.',
+						_renderInspectTraceList(approvalRows, (row) => ({
+							title: row._approvalKind === 'tool_pending' || row._approvalKind === 'tool_resolved'
+								? `Tool approval · ${row.tool_name || 'tool call'}`
+								: `Proactive approval · ${row.task_name || 'task'}`,
+							detail: [
+								row._approvalKind.includes('pending') ? 'pending' : (row.status || 'resolved'),
+								row.channel_id ? `channel ${row.channel_id}` : '',
+								row.recipient_id ? `recipient ${row.recipient_id}` : '',
+								row.delivery_error || row.error || '',
+							].filter(Boolean).join(' · '),
+							preview: row.response_text || _formatToolArgsPreview(row.tool_args) || row.preview || '',
+							status: row.status || (row._approvalKind.includes('pending') ? 'pending' : 'ok'),
+							meta: [row.status || (row._approvalKind.includes('pending') ? 'pending' : 'resolved'), _formatTimestamp(row._timestamp)],
+						}), 'No approval activity yet.'),
+					)}
+					${_renderInspectSection(
+						'Failures',
+						'The latest operator-relevant failures extracted from the activity stream.',
+						recentFailures.length
+							? `<div class="nw-assist-failure-stack">${recentFailures.slice(-6).reverse().map((row) => `
+								<div class="nw-assist-failure-row">
+									<div class="nw-assist-failure-row-title">${_esc(row.title || row.kind || 'Failure')}</div>
+									${row.detail ? `<div class="nw-assist-failure-row-detail">${_esc(row.detail)}</div>` : ''}
+									${row.preview ? `<div class="nw-assist-failure-row-preview">${_esc(row.preview)}</div>` : ''}
+								</div>
+							`).join('')}</div>`
+							: '<div class="nw-assist-activity-empty">No recent failures.</div>',
+					)}
+				</div>
+			</div>`;
+	}
+
 	function _renderSummary(allItems = [], visibleItems = []) {
 		if (!_summaryEl) return;
 		const total = allItems.length;
@@ -795,6 +1009,7 @@ async function _post(path, body = {}) {
 						? `<button class="nw-btn nw-btn-sm" data-action="open-workbench" data-id="${_esc(item.id)}" data-space-id="${_esc(item.linked_space_id)}" data-workflow-name="${_esc(item.linked_workflow_name || '')}">Open Workbench</button>`
 						: ''
 					}
+					<button class="nw-btn nw-btn-sm" data-action="inspect" data-id="${_esc(item.id)}">Inspect</button>
 					<button class="nw-btn nw-btn-sm nw-btn-secondary" data-action="edit" data-id="${_esc(item.id)}">Edit</button>
 					<button class="nw-btn nw-btn-sm nw-btn-danger" data-action="remove" data-id="${_esc(item.id)}" data-name="${_esc(item.name || item.id)}">Remove</button>
 				</div>`;
@@ -830,6 +1045,10 @@ async function _post(path, body = {}) {
 			}
 			if (action === 'edit') {
 				await _showEditDialog(deploymentId);
+				return;
+			}
+			if (action === 'inspect') {
+				await _showInspectDialog(deploymentId);
 				return;
 			}
 			if (action === 'run-proactive') {
@@ -1229,7 +1448,28 @@ ${_esc(deploymentHint)}</div></div>
 		});
 	}
 
-	function _dialog(title, bodyHtml, onSave, onReady) {
+	async function _showInspectDialog(deploymentId) {
+		const deployment = await _post('/assistant-deployments/get', { id: deploymentId });
+		_dialog(
+			`Inspect: ${deployment.name || deployment.id}`,
+			_renderInspectDialogBody(deployment),
+			() => true,
+			null,
+			{
+				subtitle: 'Inspect live runtime traces, handoffs, approvals, proactive runs, and endpoint activity for this deployment.',
+				cancelLabel: 'Close',
+				hideSave: true,
+			},
+		);
+	}
+
+	function _dialog(title, bodyHtml, onSave, onReady, options = {}) {
+		const subtitle = options?.subtitle == null
+			? 'Configure how this assistant runs as a live service across channels, handoffs, safety rules, and proactive tasks.'
+			: String(options.subtitle || '');
+		const cancelLabel = options?.cancelLabel || 'Cancel';
+		const saveLabel = options?.saveLabel || 'Save';
+		const hideSave = options?.hideSave === true;
 		const overlay = document.createElement('div');
 		overlay.className = 'nw-admin-dialog-overlay nw-assist-dialog-overlay';
 		overlay.innerHTML = `
@@ -1237,16 +1477,16 @@ ${_esc(deploymentHint)}</div></div>
 				<div class="nw-assist-dialog-header">
 					<div class="nw-assist-dialog-title-wrap">
 						<h3>${title}</h3>
-						<div class="nw-assist-dialog-subtitle">Configure how this assistant runs as a live service across channels, handoffs, safety rules, and proactive tasks.</div>
+						${subtitle ? `<div class="nw-assist-dialog-subtitle">${_esc(subtitle)}</div>` : ''}
 					</div>
 					<button class="nw-assist-dialog-close" type="button" aria-label="Close" data-role="cancel">&times;</button>
 				</div>
 				<div class="nw-assist-dialog-body">
 					${bodyHtml}
 				</div>
-				<div class="nw-admin-dialog-btns nw-assist-dialog-actions">
-					<button class="nw-btn nw-btn-sm nw-btn-secondary" data-role="cancel">Cancel</button>
-					<button class="nw-btn nw-btn-sm nw-btn-success" data-role="save">Save</button>
+				<div class="nw-admin-dialog-btns nw-assist-dialog-actions ${hideSave ? 'is-readonly' : ''}">
+					<button class="nw-btn nw-btn-sm nw-btn-secondary" data-role="cancel">${_esc(cancelLabel)}</button>
+					${hideSave ? '' : `<button class="nw-btn nw-btn-sm nw-btn-success" data-role="save">${_esc(saveLabel)}</button>`}
 				</div>
 			</div>`;
 		document.body.appendChild(overlay);
@@ -1255,16 +1495,19 @@ ${_esc(deploymentHint)}</div></div>
 		overlay.querySelectorAll('[data-role="cancel"]').forEach((btn) => {
 			btn.onclick = () => overlay.remove();
 		});
-		overlay.querySelector('[data-role="save"]').onclick = async () => {
-			try {
-				const result = await onSave(overlay);
-				if (result === false) return;
-				overlay.remove();
-				_tryRefreshChannels();
-			} catch (err) {
-				await NumelAlert('Assistant Deployment Error', `Error: ${_esc(err.message)}`);
-			}
-		};
+		const saveBtn = overlay.querySelector('[data-role="save"]');
+		if (saveBtn) {
+			saveBtn.onclick = async () => {
+				try {
+					const result = await onSave(overlay);
+					if (result === false) return;
+					overlay.remove();
+					_tryRefreshChannels();
+				} catch (err) {
+					await NumelAlert('Assistant Deployment Error', `Error: ${_esc(err.message)}`);
+				}
+			};
+		}
 		overlay.addEventListener('click', (event) => {
 			if (event.target === overlay) overlay.remove();
 		});
