@@ -258,6 +258,17 @@ It answers questions like:
 - whether it should run proactive tasks from schedules or events
 - which workbench it belongs to
 
+Once you start using deployments for real channels, the Assistant Deployments
+panel becomes a small operator console:
+
+- it shows status and attention signals
+- it lets you inspect one deployment or the whole live network
+- it lets you review failures and approvals
+- it can copy clean text snapshots for incidents or handoff notes
+
+If you want the operator-oriented explanation rather than the design-oriented
+one, see [docs/assistant-deployment-operations.md](docs/assistant-deployment-operations.md).
+
 Assistant deployments can also be opened into the workbench as a live network graph and applied back from the workbench later. That means the operational side of Numel is increasingly using the same workflow language as the design side.
 
 ### Handoff

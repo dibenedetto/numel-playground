@@ -149,11 +149,19 @@ The Assistant Deployments panel now acts as a lightweight operator console:
 
 - filters by status and attention
 - summary chips for running and pending approvals
+- a built-in status guide for first-run operators
+- richer empty states with direct actions
 - recent activity and recent failures
 - pending approval cards
+- per-deployment inspect dialog
+- network-wide inspect dialog
+- drill-down from the network inspector into one deployment
+- copyable deployment and network snapshots
 - linked workbench navigation
 - manual proactive-task execution
 - runtime refresh
+
+For the day-to-day operating model, see [assistant-deployment-operations.md](assistant-deployment-operations.md).
 
 ## Recommended Product Model
 
@@ -205,6 +213,7 @@ Right now, tool approval is deployment-wide: if enabled, tool calls from that de
   - `Assistant Deployments: Ops Workbench`
 - Architecture:
   - [assistant-network-architecture.md](assistant-network-architecture.md)
+  - [assistant-deployment-operations.md](assistant-deployment-operations.md)
   - [workflow-backed-surfaces.md](workflow-backed-surfaces.md)
 - Tutorial:
   - [tutorial-11-assistant-deployments.md](tutorial-11-assistant-deployments.md)

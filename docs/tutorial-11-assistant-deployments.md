@@ -141,12 +141,21 @@ This governs the outgoing proactive message itself, separately from tool executi
 Once the deployment is running, the panel gives you:
 
 - status
+- a built-in status guide
 - pending approvals
 - recent activity
 - recent failures
+- per-deployment `Inspect`
+- network-wide `Inspect Network`
 - linked workbench jump-back
 - manual `Run Tasks`
 - `Refresh State`
+
+The inspect views are now the fastest operator path:
+
+- `Inspect` for one deployment
+- `Inspect Network` for the whole live network
+- `Copy Snapshot` when you want a clean incident or handoff summary
 
 If tool execution approval is enabled, a live message can now pause before the assistant runs a tool. The operator can then:
 
@@ -181,3 +190,5 @@ At the end of this tutorial, you have:
 - operator-visible approvals and runtime supervision
 
 That is the foundation of Numel’s assistant-deployment model: workflows remain the place where you build the intelligence, while deployments are the place where you run it for real users.
+
+For the day-to-day operator workflow after setup, see [assistant-deployment-operations.md](assistant-deployment-operations.md).
