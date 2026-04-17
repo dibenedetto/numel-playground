@@ -510,7 +510,7 @@
 				<div id="consoleSettingsBody" class="nw-console-settings-body">
 					<div class="nw-console-settings-row">
 						<label for="consoleModelSelect">Model</label>
-						<select id="consoleModelSelect" class="nw-console-model-select">
+						<select id="consoleModelSelect" class="nw-console-model-select" title="Choose which model powers the live Assistant.">
 							<option value="ollama:qwen3.5:cloud">ollama / qwen3.5:cloud</option>
 							<option value="ollama:mistral">ollama / mistral</option>
 							<option value="ollama:llama3">ollama / llama3</option>
@@ -530,48 +530,44 @@
 					</div>
 					<div class="nw-console-settings-row">
 						<label>Manage</label>
-						<button id="extensionsOpenBtnConsole" class="nw-btn nw-btn-sm nw-btn-secondary" type="button">Extensions</button>
-						<span class="nw-console-inline-hint">Install, upload, inspect, and remove shared toolkits and skills.</span>
+						<button id="extensionsOpenBtnConsole" class="nw-btn nw-btn-sm nw-btn-secondary" type="button" title="Open the Extensions panel to install, inspect, upload, and remove toolkits and skills.">Extensions</button>
 					</div>
 					<div class="nw-console-settings-row">
 						<label>Workflow</label>
-						<button id="consoleOpenWorkflowBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button">Open Assistant In Workbench</button>
-						<button id="consoleApplyWorkflowBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button">Apply Workbench To Assistant</button>
-						<span class="nw-console-inline-hint">Export the live Assistant into the current workbench, or apply the current workbench back to the live Assistant.</span>
+						<div class="nw-console-button-stack">
+							<button id="consoleOpenWorkflowBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button" title="Export the live Assistant configuration into the current workbench.">Open Assistant In Workbench</button>
+							<button id="consoleApplyWorkflowBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button" title="Apply the current workbench back to the live Assistant.">Apply Workbench To Assistant</button>
+						</div>
 					</div>
 					<div class="nw-console-settings-row">
 						<label for="consoleTtsToggle">Voice</label>
-						<label class="nw-console-toggle">
+						<label class="nw-console-toggle" title="Speak Assistant responses aloud.">
 							<input type="checkbox" id="consoleTtsToggle">
 							<span class="nw-console-toggle-label">Speak responses</span>
 						</label>
-						<select id="consoleTtsVoice" class="nw-console-voice-select" style="display:none" aria-label="TTS voice">
+						<select id="consoleTtsVoice" class="nw-console-voice-select" style="display:none" aria-label="TTS voice" title="Choose the voice used for spoken Assistant responses.">
 						</select>
 					</div>
 					<div class="nw-console-settings-row">
 						<label for="consoleStreamToggle">Stream</label>
-						<label class="nw-console-toggle">
+						<label class="nw-console-toggle" title="Stream Assistant responses live over AGUI instead of waiting for the full reply.">
 							<input type="checkbox" id="consoleStreamToggle" checked>
 							<span class="nw-console-toggle-label">Stream responses (AGUI)</span>
 						</label>
 					</div>
-					<div class="nw-console-settings-row nw-console-settings-row-memory-note">
-						<label>Memory</label>
-						<span class="nw-console-inline-hint nw-console-memory-note">Assistant memory is backend-managed. Use the controls below to tune history, session, and long-term recall.</span>
-					</div>
 					<div class="nw-console-settings-row nw-console-settings-row-memory">
 						<label>History</label>
 						<div class="nw-console-memory-grid">
-							<label class="nw-console-toggle">
+							<label class="nw-console-toggle" title="Let the Assistant pull recent run history into the current turn as context.">
 								<input type="checkbox" id="consoleHistoryQueryToggle" checked>
 								<span class="nw-console-toggle-label">Use recent history as context</span>
 							</label>
 							<label class="nw-console-memory-field" for="consoleHistorySize">
 								<span>History runs</span>
 								<div class="nw-console-stepper">
-									<button type="button" class="nw-console-stepper-btn" data-step-target="consoleHistorySize" data-step-dir="-1" aria-label="Decrease history runs">-</button>
-									<input type="number" id="consoleHistorySize" class="nw-console-memory-input" min="1" max="50" step="1" value="5">
-									<button type="button" class="nw-console-stepper-btn" data-step-target="consoleHistorySize" data-step-dir="1" aria-label="Increase history runs">+</button>
+									<button type="button" class="nw-console-stepper-btn" data-step-target="consoleHistorySize" data-step-dir="-1" aria-label="Decrease history runs" title="Decrease how many past runs are considered.">-</button>
+									<input type="number" id="consoleHistorySize" class="nw-console-memory-input" min="1" max="50" step="1" value="5" title="How many past runs are considered when history context is enabled.">
+									<button type="button" class="nw-console-stepper-btn" data-step-target="consoleHistorySize" data-step-dir="1" aria-label="Increase history runs" title="Increase how many past runs are considered.">+</button>
 								</div>
 							</label>
 						</div>
@@ -579,20 +575,20 @@
 					<div class="nw-console-settings-row nw-console-settings-row-memory">
 						<label>Session</label>
 						<div class="nw-console-memory-grid">
-							<label class="nw-console-toggle">
+							<label class="nw-console-toggle" title="Let the Assistant search prior messages from the current session.">
 								<input type="checkbox" id="consoleSessionQueryToggle" checked>
 								<span class="nw-console-toggle-label">Search session history</span>
 							</label>
-							<label class="nw-console-toggle">
+							<label class="nw-console-toggle" title="Update backend-managed session summaries as the conversation evolves.">
 								<input type="checkbox" id="consoleSessionUpdateToggle" checked>
 								<span class="nw-console-toggle-label">Update session summaries</span>
 							</label>
 							<label class="nw-console-memory-field" for="consoleSessionHistorySize">
 								<span>Session history</span>
 								<div class="nw-console-stepper">
-									<button type="button" class="nw-console-stepper-btn" data-step-target="consoleSessionHistorySize" data-step-dir="-1" aria-label="Decrease session history">-</button>
-									<input type="number" id="consoleSessionHistorySize" class="nw-console-memory-input" min="1" max="50" step="1" value="5">
-									<button type="button" class="nw-console-stepper-btn" data-step-target="consoleSessionHistorySize" data-step-dir="1" aria-label="Increase session history">+</button>
+									<button type="button" class="nw-console-stepper-btn" data-step-target="consoleSessionHistorySize" data-step-dir="-1" aria-label="Decrease session history" title="Decrease how many session-history windows are searched.">-</button>
+									<input type="number" id="consoleSessionHistorySize" class="nw-console-memory-input" min="1" max="50" step="1" value="5" title="How many session-history windows are searched when session recall is enabled.">
+									<button type="button" class="nw-console-stepper-btn" data-step-target="consoleSessionHistorySize" data-step-dir="1" aria-label="Increase session history" title="Increase how many session-history windows are searched.">+</button>
 								</div>
 							</label>
 						</div>
@@ -600,15 +596,15 @@
 					<div class="nw-console-settings-row nw-console-settings-row-memory">
 						<label>Long-term</label>
 						<div class="nw-console-memory-grid">
-							<label class="nw-console-toggle">
+							<label class="nw-console-toggle" title="Let the Assistant recall long-term backend-managed memory.">
 								<input type="checkbox" id="consoleMemoryQueryToggle" checked>
 								<span class="nw-console-toggle-label">Recall long-term memory</span>
 							</label>
-							<label class="nw-console-toggle">
+							<label class="nw-console-toggle" title="Allow the Assistant to write new user memories to the backend.">
 								<input type="checkbox" id="consoleMemoryUpdateToggle">
 								<span class="nw-console-toggle-label">Write user memories</span>
 							</label>
-							<label class="nw-console-toggle">
+							<label class="nw-console-toggle" title="Use the backend memory manager to decide and organize memory updates.">
 								<input type="checkbox" id="consoleMemoryManagedToggle" checked>
 								<span class="nw-console-toggle-label">Use managed memory updates</span>
 							</label>
@@ -616,46 +612,46 @@
 					</div>
 					<div class="nw-console-settings-row">
 						<label for="consoleAutoGenToggle">Auto-gen</label>
-						<label class="nw-console-toggle">
+						<label class="nw-console-toggle" title="Automatically rewrite messages that start with generate into /gen requests.">
 							<input type="checkbox" id="consoleAutoGenToggle" checked>
 							<span class="nw-console-toggle-label">Rewrite "generate …" as /gen</span>
 						</label>
 					</div>
 					<div class="nw-console-settings-row">
 						<label for="consoleAutoSendToggle">Voice send</label>
-						<label class="nw-console-toggle">
+						<label class="nw-console-toggle" title="Send microphone input automatically after speech recognition finishes.">
 							<input type="checkbox" id="consoleAutoSendToggle" checked>
 							<span class="nw-console-toggle-label">Send automatically after speaking</span>
 						</label>
 					</div>
 					<div class="nw-console-settings-row" id="consoleSttLangRow" style="display:none">
 						<label for="consoleSttLang">Mic lang</label>
-						<select id="consoleSttLang" class="nw-console-voice-select" style="max-width:none;flex:1"></select>
+						<select id="consoleSttLang" class="nw-console-voice-select" style="max-width:none;flex:1" title="Choose the microphone recognition language."></select>
 					</div>
 					<div class="nw-console-settings-row">
 						<label for="consoleShowSysToggle">System</label>
-						<label class="nw-console-toggle">
+						<label class="nw-console-toggle" title="Show internal system messages in the Assistant chat stream.">
 							<input type="checkbox" id="consoleShowSysToggle">
 							<span class="nw-console-toggle-label">Show system messages</span>
 						</label>
 					</div>
 					<div class="nw-console-settings-row">
 						<label for="consolePlannerToggle">Planner</label>
-						<label class="nw-console-toggle">
+						<label class="nw-console-toggle" title="Enable autonomous planner mode for the current Assistant session.">
 							<input type="checkbox" id="consolePlannerToggle">
 							<span class="nw-console-toggle-label">Autonomous planner mode</span>
 						</label>
 					</div>
 					<div class="nw-console-settings-row" id="consolePlannerProfileRow" style="display:none">
 						<label for="consolePlannerProfile">Profile</label>
-						<select id="consolePlannerProfile" class="nw-console-voice-select" style="max-width:none;flex:1" autocomplete="off">
+						<select id="consolePlannerProfile" class="nw-console-voice-select" style="max-width:none;flex:1" autocomplete="off" title="Choose the planner behavior profile.">
 							<option value="workflow" selected>Workflow builder</option>
 							<option value="prompt_optimizer">Image prompt optimizer</option>
 						</select>
 					</div>
 					<div class="nw-console-settings-row" id="consolePlannerTimeoutRow" style="display:none">
 						<label for="consolePlannerTimeout">Turn timeout</label>
-						<select id="consolePlannerTimeout" class="nw-console-voice-select" style="max-width:none;flex:1">
+						<select id="consolePlannerTimeout" class="nw-console-voice-select" style="max-width:none;flex:1" title="Maximum time allowed for a single planner turn.">
 							<option value="30">30s</option>
 							<option value="60">60s</option>
 							<option value="120" selected>2 min</option>
@@ -665,7 +661,7 @@
 					</div>
 					<div class="nw-console-settings-row" id="consolePlannerSessionTimeoutRow" style="display:none">
 						<label for="consolePlannerSessionTimeout">Total timeout</label>
-						<select id="consolePlannerSessionTimeout" class="nw-console-voice-select" style="max-width:none;flex:1">
+						<select id="consolePlannerSessionTimeout" class="nw-console-voice-select" style="max-width:none;flex:1" title="Maximum wall-clock time for the whole planner session.">
 							<option value="120">2 min</option>
 							<option value="300">5 min</option>
 							<option value="600" selected>10 min</option>
@@ -676,7 +672,7 @@
 					</div>
 					<div class="nw-console-settings-row" id="consolePlannerMaxIterRow" style="display:none">
 						<label for="consolePlannerMaxIter">Max iterations</label>
-						<select id="consolePlannerMaxIter" class="nw-console-voice-select" style="max-width:none;flex:1">
+						<select id="consolePlannerMaxIter" class="nw-console-voice-select" style="max-width:none;flex:1" title="Maximum number of autonomous planner turns before the planner stops.">
 							<option value="3">3</option>
 							<option value="5">5</option>
 							<option value="10" selected>10</option>

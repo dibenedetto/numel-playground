@@ -673,6 +673,7 @@ class AgentConsoleManager {
 				cb.id = id;
 				cb.value = tk.name;
 				cb.checked = tk.enabled || tk.builtin;
+				cb.title = tk.description || tk.name;
 				if (tk.builtin) cb.disabled = true;
 				else cb.addEventListener('change', () => {
 					this._updateSettingsSummary();
@@ -718,6 +719,7 @@ class AgentConsoleManager {
 				cb.id = id;
 				cb.value = sk.name;
 				cb.checked = sk.enabled;
+				cb.title = sk.description || sk.name;
 				cb.addEventListener('change', async () => {
 					try {
 						if (cb.checked) await this.api.skillsEnable(sk.name);
