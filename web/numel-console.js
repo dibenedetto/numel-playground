@@ -85,6 +85,16 @@ class AgentConsoleManager {
 		this._plannerTurnDone = false;
 		this._plannerTimeoutMs = (parseInt(this._plannerTimeoutSel?.value, 10) || 120) * 1000;
 		this._assistantAbortRequested = false;
+		this._aguiAbortSubscription = null;
+		this._assistantStopMessageEl = null;
+		this._suppressAbortRejectionsUntil = 0;
+		this._onUnhandledRejection = (event) => {
+			const reason = event?.reason;
+			if (!this._shouldSuppressAbortRejection(reason)) return;
+			event.preventDefault();
+			console.info('[Console] Suppressed abort rejection:', reason?.message || String(reason));
+		};
+		window.addEventListener('unhandledrejection', this._onUnhandledRejection);
 
 		this._skillList = document.getElementById('consoleSkillList');
 
@@ -236,7 +246,14 @@ class AgentConsoleManager {
 
 		// Planner interrupt button
 		this._plannerStopBtn?.addEventListener('click', () => this._interruptPlanner());
-		this._stopBtn?.addEventListener('click', () => this._interruptAssistant());
+		this._stopBtn?.addEventListener('click', () => {
+			this._interruptAssistant().catch((err) => {
+				if (this._isAbortLikeError(err)) return;
+				this._assistantAbortRequested = false;
+				this._updateAssistantStopMessage(`Stop failed: ${err.message}`);
+				this._assistantStopMessageEl = null;
+			});
+		});
 	}
 
 	_syncPlannerUi() {
@@ -399,13 +416,27 @@ class AgentConsoleManager {
 	async _interruptAssistant() {
 		if (!this._busy || this._plannerBusy || !this._streamingMode || !this.handler?.agent?.abortRun) return;
 		this._assistantAbortRequested = true;
+		this._suppressAbortRejectionsUntil = Date.now() + 5000;
+		this._updateAssistantStopMessage('Stopping assistant...');
 		try {
-			this.handler.agent.abortRun();
+			await Promise.resolve()
+				.then(() => this.handler.agent.abortRun())
+				.catch((err) => {
+					if (!this._isAbortLikeError(err)) throw err;
+				});
 			this._setStatus('Stopping...');
+			this._updateInputPlaceholder();
 			this._syncAssistantStopUi();
 		} catch (err) {
+			if (this._isAbortLikeError(err)) {
+				this._setStatus('Stopping...');
+				this._updateInputPlaceholder();
+				this._syncAssistantStopUi();
+				return;
+			}
 			this._assistantAbortRequested = false;
-			this._addMessage('error', `Stop failed: ${err.message}`);
+			this._updateAssistantStopMessage(`Stop failed: ${err.message}`);
+			this._assistantStopMessageEl = null;
 		}
 	}
 
@@ -552,6 +583,9 @@ class AgentConsoleManager {
 		this.close();
 		this._disconnectAgent();
 		this._disconnectProactive();
+		if (this._onUnhandledRejection) {
+			window.removeEventListener('unhandledrejection', this._onUnhandledRejection);
+		}
 		this.agentPort = null;
 		this._sessionId = this.api?.sessionId || null;
 		this._history = [];
@@ -1049,11 +1083,24 @@ class AgentConsoleManager {
 
 		if (!connected) {
 			this._addMessage('error', 'Failed to connect to agent (AGUI not available).');
+		} else if (this.handler?.agent?.subscribe) {
+			this._aguiAbortSubscription = this.handler.agent.subscribe({
+				onRunFailed: ({ error }) => {
+					if (this._assistantAbortRequested || this._isAbortLikeError(error)) {
+						return { stopPropagation: true };
+					}
+					return {};
+				},
+			});
 		}
 		this._syncAssistantStopUi();
 	}
 
 	_disconnectAgent() {
+		if (this._aguiAbortSubscription?.unsubscribe) {
+			this._aguiAbortSubscription.unsubscribe();
+		}
+		this._aguiAbortSubscription = null;
 		if (this.handler) {
 			this.handler.disconnect();
 			this.handler = null;
@@ -1277,7 +1324,16 @@ class AgentConsoleManager {
 		try {
 			console.log('[Console] AGUI runAgent on port', this.agentPort);
 			await this.handler.agent.runAgent({});
+			if (this._busy) {
+				this._onRunFinished();
+			}
 		} catch (err) {
+			if (this._isAbortLikeError(err) || this._assistantAbortRequested) {
+				if (this._busy) {
+					this._onRunError(err);
+				}
+				return;
+			}
 			// AGUI protocol error (e.g. parallel tool calls) → fall back to REST
 			console.warn('[Console] AGUI error, falling back to REST:', err.message);
 			this._addMessage('system', `Streaming unavailable (${err.message}), retrying...`);
@@ -1291,6 +1347,8 @@ class AgentConsoleManager {
 	// ── AGUI Callbacks ───────────────────────────────────────────
 
 	_onRunFinished() {
+		if (!this._busy && !this._assistantAbortRequested && !this._hasStreamingAssistantMessages()) return;
+		this._finalizeStreamingAssistantMessages({ resumeThinking: false });
 		this._hideThinking();
 		this._busy = false;
 		this._setInputEnabled(true);
@@ -1317,9 +1375,11 @@ class AgentConsoleManager {
 			this._pendingGen = false;
 			const { source, name } = this._getSelectedModel();
 			this._setStatus(`${source}/${name}`);
-			this._addMessage('system', 'Assistant stopped.');
+			this._updateAssistantStopMessage('Assistant stopped.');
+			this._assistantStopMessageEl = null;
 			return;
 		}
+		this._assistantStopMessageEl = null;
 
 		// Handle /gen response
 		if (this._pendingGen) {
@@ -1338,20 +1398,25 @@ class AgentConsoleManager {
 	}
 
 	_onRunError(error) {
+		if (!this._busy && !this._assistantAbortRequested && !this._hasStreamingAssistantMessages()) return;
+		this._finalizeStreamingAssistantMessages({ resumeThinking: false });
 		this._hideThinking();
 		this._busy = false;
 		this._setInputEnabled(true);
 		this._pendingGen = false;
 		const msg = error?.message || String(error) || 'Agent error';
-		const aborted = this._assistantAbortRequested || /abort|cancel/i.test(msg);
+		const aborted = this._assistantAbortRequested || this._isAbortLikeError(error);
 		this._assistantAbortRequested = false;
-		console.error('[Console] Run error:', msg);
 		if (aborted) {
+			console.info('[Console] Run aborted:', msg);
 			const { source, name } = this._getSelectedModel();
 			this._setStatus(`${source}/${name}`);
-			this._addMessage('system', 'Assistant stopped.');
+			this._updateAssistantStopMessage('Assistant stopped.');
+			this._assistantStopMessageEl = null;
 			return;
 		}
+		this._assistantStopMessageEl = null;
+		console.error('[Console] Run error:', msg);
 		this._addMessage('error', msg);
 	}
 
@@ -1367,17 +1432,7 @@ class AgentConsoleManager {
 	}
 
 	_onTextEnd() {
-		const msgs = this._messages.querySelectorAll('.nw-console-msg.assistant.streaming');
-		for (const m of msgs) {
-			m.classList.remove('streaming');
-			if (m._rawContent?.trim()) {
-				this._speak(m._rawContent);
-			} else {
-				m.remove();  // drop empty assistant messages
-			}
-		}
-		// Run still active — re-show thinking dots until _onRunFinished
-		this._showThinking();
+		this._finalizeStreamingAssistantMessages({ resumeThinking: true });
 	}
 
 	async _plannerAutoApply(text) {
@@ -1578,6 +1633,37 @@ class AgentConsoleManager {
 		return last?._rawContent || null;
 	}
 
+	_isAbortLikeError(error) {
+		const msg = error?.message || String(error) || '';
+		return /abort|cancel|bodystreambuffer was aborted/i.test(msg);
+	}
+
+	_shouldSuppressAbortRejection(error) {
+		if (!this._isAbortLikeError(error)) return false;
+		return this._assistantAbortRequested || Date.now() < this._suppressAbortRejectionsUntil;
+	}
+
+	_hasStreamingAssistantMessages() {
+		return !!this._messages?.querySelector('.nw-console-msg.assistant.streaming');
+	}
+
+	_finalizeStreamingAssistantMessages({ resumeThinking = false } = {}) {
+		const msgs = this._messages.querySelectorAll('.nw-console-msg.assistant.streaming');
+		let finalized = false;
+		for (const m of msgs) {
+			finalized = true;
+			m.classList.remove('streaming');
+			if (m._rawContent?.trim()) {
+				this._speak(m._rawContent);
+			} else {
+				m.remove();
+			}
+		}
+		if (resumeThinking && finalized && this._busy) {
+			this._showThinking();
+		}
+	}
+
 	// ── Message Display ──────────────────────────────────────────
 
 	_showThinking() {
@@ -1610,6 +1696,20 @@ class AgentConsoleManager {
 		return el;
 	}
 
+	_updateAssistantStopMessage(content) {
+		if (!content) return null;
+		let el = this._assistantStopMessageEl;
+		if (!el || !el.isConnected) {
+			el = this._addMessage('status', content);
+			this._assistantStopMessageEl = el;
+			return el;
+		}
+		el.innerHTML = this._renderContent(content);
+		el._rawContent = content;
+		this._scrollToBottom();
+		return el;
+	}
+
 	_renderContent(content) {
 		if (!content) return '';
 		let html = content
@@ -1632,15 +1732,36 @@ class AgentConsoleManager {
 		if (this._status) this._status.textContent = text;
 	}
 
+	_updateInputPlaceholder() {
+		if (!this._input) return;
+		if (!this._input.disabled) {
+			this._input.placeholder = 'Ask about your workflow...';
+			return;
+		}
+		if (this._plannerBusy) {
+			this._input.placeholder = 'Planner is working...';
+			return;
+		}
+		if (this._assistantAbortRequested) {
+			this._input.placeholder = 'Stopping assistant...';
+			return;
+		}
+		if (this._busy) {
+			this._input.placeholder = 'Assistant is responding...';
+			return;
+		}
+		if (!this.agentPort || (this._streamingMode && !this.handler?.isConnected?.())) {
+			this._input.placeholder = 'Connecting to assistant...';
+			return;
+		}
+		this._input.placeholder = 'Assistant unavailable...';
+	}
+
 	_setInputEnabled(enabled) {
 		this._input.disabled = !enabled;
 		this._sendBtn.disabled = !enabled;
 		if (this._micBtn) this._micBtn.disabled = !enabled;
-		if (enabled) {
-			this._input.placeholder = 'Ask about your workflow...';
-		} else {
-			this._input.placeholder = 'Connecting to assistant...';
-		}
+		this._updateInputPlaceholder();
 		this._syncAssistantStopUi();
 	}
 

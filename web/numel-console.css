@@ -551,6 +551,14 @@
 	font-size: 12px;
 	border-left: 3px solid var(--sg-text-quaternary, #555);
 }
+.nw-console-msg.status {
+	align-self: center;
+	background: rgba(214, 143, 45, 0.14);
+	color: #f3c982;
+	font-style: italic;
+	font-size: 12px;
+	border-left: 3px solid #d68f2d;
+}
 .nw-console-messages.hide-system .nw-console-msg.system {
 	display: none;
 }
