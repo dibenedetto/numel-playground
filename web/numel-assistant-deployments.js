@@ -3,7 +3,7 @@
 
 // eslint-disable-next-line no-unused-vars
 const NumelAssistantDeployments = (() => {
-	let _panel, _closeBtn, _openBtn, _openInlineBtn, _refreshBtn, _openWorkflowBtn, _applyWorkflowBtn, _addBtn, _listEl, _summaryEl;
+	let _panel, _closeBtn, _openBtn, _openInlineBtn, _refreshBtn, _inspectBtn, _openWorkflowBtn, _applyWorkflowBtn, _addBtn, _listEl, _summaryEl;
 	let _statusFilterEl, _searchEl, _pendingOnlyEl;
 	let _lastItems = [];
 	const _pendingOps = new Map();
@@ -488,6 +488,117 @@ async function _post(path, body = {}) {
 								</div>
 							`).join('')}</div>`
 							: '<div class="nw-assist-activity-empty">No recent failures.</div>',
+					)}
+				</div>
+			</div>`;
+	}
+
+	function _renderNetworkInspectDialogBody(items = []) {
+		const rows = Array.isArray(items) ? items : [];
+		const total = rows.length;
+		const active = rows.filter((item) => item?.enabled).length;
+		const running = rows.filter((item) => String(item?.status || '').toLowerCase() === 'running').length;
+		const attention = rows.filter((item) => _hasAttention(item)).length;
+		const pendingApprovals = rows.flatMap((item) => [
+			...(Array.isArray(item?.pending_proactive_approvals) ? item.pending_proactive_approvals.map((row) => ({ ...row, _deploymentName: item.name || item.id, _approvalKind: 'proactive_pending', _timestamp: row.created_at })) : []),
+			...(Array.isArray(item?.pending_tool_approvals) ? item.pending_tool_approvals.map((row) => ({ ...row, _deploymentName: item.name || item.id, _approvalKind: 'tool_pending', _timestamp: row.created_at })) : []),
+		]);
+		const failures = rows.flatMap((item) =>
+			(Array.isArray(item?.recent_failures) ? item.recent_failures : []).map((row) => ({ ...row, _deploymentName: item.name || item.id })),
+		).sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+		const activity = rows.flatMap((item) =>
+			(Array.isArray(item?.recent_activity) ? item.recent_activity : []).map((row) => ({ ...row, _deploymentName: item.name || item.id })),
+		).sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+		const busiest = rows
+			.map((item) => ({
+				name: item?.name || item?.id || 'Deployment',
+				status: item?.status || 'stopped',
+				lifecycle: item?.enabled ? 'active' : 'inactive',
+				messages: Number(item?.runtime?.message_count || 0),
+				endpointCalls: Number(item?.runtime?.endpoint_call_count || 0),
+				pendingApprovals: Number(item?.runtime?.pending_approval_count || 0),
+				lastActivity: item?.runtime?.last_message_at || '',
+			}))
+			.sort((a, b) =>
+				(b.messages + b.endpointCalls + b.pendingApprovals) - (a.messages + a.endpointCalls + a.pendingApprovals)
+				|| String(b.lastActivity || '').localeCompare(String(a.lastActivity || '')),
+			)
+			.slice(0, 8);
+		const networkStats = [
+			{ label: 'Deployments', value: String(total) },
+			{ label: 'Active deployments', value: String(active) },
+			{ label: 'Running deployments', value: String(running) },
+			{ label: 'Needs attention', value: String(attention) },
+			{ label: 'Pending approvals', value: String(pendingApprovals.length) },
+			{ label: 'Recent failures', value: String(failures.length) },
+		];
+		return `
+			<div class="nw-assist-dialog-layout nw-assist-inspect-layout">
+				<div class="nw-assist-dialog-column">
+					${_renderInspectSection(
+						'Network Snapshot',
+						'How the deployment network looks right now across activity, approvals, and attention signals.',
+						`
+							<div class="nw-assist-ops-summary">
+								<div class="nw-assist-ops-chip">Deployments <strong>${_esc(String(total))}</strong></div>
+								<div class="nw-assist-ops-chip">Active <strong>${_esc(String(active))}</strong></div>
+								<div class="nw-assist-ops-chip">Running <strong>${_esc(String(running))}</strong></div>
+								<div class="nw-assist-ops-chip ${attention ? 'is-alert' : ''}">Needs attention <strong>${_esc(String(attention))}</strong></div>
+								<div class="nw-assist-ops-chip ${pendingApprovals.length ? 'is-alert' : ''}">Pending approvals <strong>${_esc(String(pendingApprovals.length))}</strong></div>
+							</div>
+							${_renderInspectStatGrid(networkStats)}
+						`,
+					)}
+					${_renderInspectSection(
+						'Busiest Deployments',
+						'The deployments currently carrying the most traffic, endpoint calls, or pending operator work.',
+						_renderInspectTraceList(busiest, (row) => ({
+							title: row.name,
+							detail: `messages ${row.messages} · endpoint calls ${row.endpointCalls} · pending approvals ${row.pendingApprovals}`,
+							preview: `${row.lifecycle} · ${row.status}`,
+							status: row.pendingApprovals ? 'pending' : row.status,
+							meta: [row.status, row.lifecycle],
+						}), 'No deployment traffic yet.'),
+					)}
+					${_renderInspectSection(
+						'Pending Approvals',
+						'Everything still waiting on an operator across the current network.',
+						_renderInspectTraceList(pendingApprovals, (row) => ({
+							title: `${row._deploymentName} · ${row._approvalKind === 'tool_pending' ? `Tool ${row.tool_name || 'call'}` : `Proactive ${row.task_name || 'task'}`}`,
+							detail: [
+								row.channel_id ? `channel ${row.channel_id}` : '',
+								row.recipient_id ? `recipient ${row.recipient_id}` : '',
+							].filter(Boolean).join(' · '),
+							preview: row.response_text || _formatToolArgsPreview(row.tool_args) || row.preview || '',
+							status: 'pending',
+							meta: ['pending', _formatTimestamp(row._timestamp)],
+						}), 'No pending approvals in the network.'),
+					)}
+				</div>
+				<div class="nw-assist-dialog-column">
+					${_renderInspectSection(
+						'Recent Failures',
+						'Latest failures across all deployments, sorted newest first.',
+						failures.length
+							? _renderInspectTraceList(failures, (row) => ({
+								title: `${row._deploymentName} · ${row.title || row.kind || 'Failure'}`,
+								detail: row.detail || '',
+								preview: row.preview || '',
+								status: row.status || 'error',
+								meta: [row.status || 'error', _formatTimestamp(row.timestamp)],
+							}))
+							: '<div class="nw-assist-activity-empty">No recent failures across the network.</div>',
+					)}
+					${_renderInspectSection(
+						'Recent Network Activity',
+						'A merged activity stream so you can see what is happening without opening each deployment individually.',
+						_renderInspectTraceList(activity.slice(0, 20), (row) => ({
+							title: `${row._deploymentName} · ${row.title || row.kind || 'Activity'}`,
+							detail: row.detail || '',
+							preview: row.preview || '',
+							status: row.status,
+							meta: [row.status || 'info', _formatTimestamp(row.timestamp)],
+						}), 'No recent activity across the network.'),
 					)}
 				</div>
 			</div>`;
@@ -1463,6 +1574,26 @@ ${_esc(deploymentHint)}</div></div>
 		);
 	}
 
+	async function _showNetworkInspectDialog() {
+		let items = Array.isArray(_lastItems) ? [..._lastItems] : [];
+		if (!items.length) {
+			items = await _post('/assistant-deployments/list');
+			items.sort((a, b) => String(a.name || a.id).localeCompare(String(b.name || b.id)));
+			_lastItems = items;
+		}
+		_dialog(
+			'Inspect Live Network',
+			_renderNetworkInspectDialogBody(items),
+			() => true,
+			null,
+			{
+				subtitle: 'Inspect the full deployment network across activity, failures, approvals, and the busiest live assistants.',
+				cancelLabel: 'Close',
+				hideSave: true,
+			},
+		);
+	}
+
 	function _dialog(title, bodyHtml, onSave, onReady, options = {}) {
 		const subtitle = options?.subtitle == null
 			? 'Configure how this assistant runs as a live service across channels, handoffs, safety rules, and proactive tasks.'
@@ -1519,6 +1650,7 @@ ${_esc(deploymentHint)}</div></div>
 		_openBtn = document.getElementById('assistantDeploymentPanelBtn');
 		_openInlineBtn = document.getElementById('assistantDeploymentPanelBtnInline');
 		_refreshBtn = document.getElementById('assistantDeploymentRefreshBtn');
+		_inspectBtn = document.getElementById('assistantDeploymentInspectBtn');
 		_openWorkflowBtn = document.getElementById('assistantDeploymentOpenWorkflowBtn');
 		_applyWorkflowBtn = document.getElementById('assistantDeploymentApplyWorkflowBtn');
 		_addBtn = document.getElementById('assistantDeploymentAddBtn');
@@ -1532,6 +1664,7 @@ ${_esc(deploymentHint)}</div></div>
 		if (_openBtn) _openBtn.onclick = toggle;
 		if (_openInlineBtn) _openInlineBtn.onclick = open;
 		if (_refreshBtn) _refreshBtn.onclick = refresh;
+		if (_inspectBtn) _inspectBtn.onclick = _showNetworkInspectDialog;
 		if (_openWorkflowBtn) _openWorkflowBtn.onclick = _openNetworkInWorkbench;
 		if (_applyWorkflowBtn) _applyWorkflowBtn.onclick = _applyWorkbenchNetwork;
 		if (_addBtn) _addBtn.onclick = _showAddDialog;
