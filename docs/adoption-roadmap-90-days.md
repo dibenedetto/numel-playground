@@ -1,0 +1,122 @@
+# 90-Day Adoption Roadmap
+
+This roadmap is the product-side follow-up to Numel's recent architecture work.
+
+The goal is not to make Numel broader first.
+The goal is to make Numel:
+
+- easier to start
+- easier to trust
+- easier to share
+
+That is the shortest path to a healthy adoption loop.
+
+## Success Goal
+
+At the end of 90 days, a new user should be able to:
+
+1. run Numel locally in minutes
+2. choose a strong starter instead of facing a blank workbench
+3. reach a useful first run quickly
+4. understand what happened during the run
+5. fork, reuse, or publish the result
+
+## Phase 1: First-Run Value
+
+Target: days 1-30
+
+Primary outcome:
+- a user reaches first value fast through clear starter choices
+
+Main work:
+- flagship starter spaces
+- onboarding improvements
+- stronger empty states
+- starter-specific docs and examples
+
+Flagship starter set:
+- Support front door
+- Repo or file assistant
+- Research assistant
+- Event-driven ops watcher
+- Publishable mini-app starter
+
+Exit criteria:
+- the starter surface highlights at least a few high-value use cases
+- the workbench no longer feels blank on first run
+- docs point users toward starters before deep architecture
+
+## Phase 2: Trust And Iteration
+
+Target: days 31-60
+
+Primary outcome:
+- users can understand and improve runs instead of guessing
+
+Main work:
+- execution replay
+- run comparison and diff
+- clearer per-run timeline
+- better eval visibility
+- better deployment analytics
+
+Exit criteria:
+- users can explain what changed between two runs
+- users can inspect failures and handoffs more easily
+- deployments feel more like operable systems than opaque cards
+
+## Phase 3: Sharing And Reuse
+
+Target: days 61-90
+
+Primary outcome:
+- users can turn a good result into a repeatable growth loop
+
+Main work:
+- template publishing
+- forkable spaces
+- version notes and snapshots
+- stronger publishable-app polish
+- starter metadata and curated gallery improvements
+
+Exit criteria:
+- a successful workflow can become a reusable template
+- users can fork and adapt an existing workbench cleanly
+- the gallery supports reuse instead of only browsing
+
+## Parallel Adoption Work
+
+Do this during all three phases:
+
+- one clear landing page or doc entry for each flagship starter
+- one short demo or walkthrough for each flagship starter
+- tighter product wording around space, workbench, deployment, and handoff
+- stronger gallery presentation
+
+## What Not To Prioritize First
+
+- broad connector-count competition
+- low-level primitives that do not improve adoption
+- broad ad spend before the starter and trust loops are strong
+- large ecosystem work before templates and sharing are solid
+
+## Recommended Metrics
+
+Watch these first:
+
+- time to first successful run
+- share of new spaces that load a starter
+- share of users who reach a second run
+- share of users who open Assistant Deployments after starting a support or ops workbench
+- share of workflows that get forked, templated, or published
+
+## Current Starting Point
+
+Numel already has strong foundations:
+
+- workflow-backed console and deployment surfaces
+- deployment network export and apply
+- handoff and proactive runtime
+- local-to-prod continuity
+
+So the next 90 days should convert those strengths into clearer user value.

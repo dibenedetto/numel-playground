@@ -37,8 +37,43 @@ const $ = id => document.getElementById(id);
 const STARTER_GALLERY_IDS = Object.freeze({
 	research: 'planner05',
 	media: '1d73d947',
+	support: 'assistant_support_workbench',
+	ops: 'assistant_ops_workbench',
 });
 const STARTER_ASSISTANT_PROMPT = '/gen A workflow that asks the user for input, transforms it into a short helpful response, and previews the result.';
+const STARTER_FOLLOWTHROUGH_CONFIGS = Object.freeze({
+	hello: {
+		title: 'Quick start is ready',
+		summary: 'Run it once to see the full edit-save-run loop, then ask the assistant to adapt it into your real first workflow.',
+		assistantPrompt: 'Review the current workflow and adapt it into a more useful starter for my real task. Keep it compact, runnable, and easy to understand.',
+		actions: ['run', 'assistant', 'gallery'],
+	},
+	research: {
+		title: 'Research starter loaded',
+		summary: 'Run the workflow to inspect the reporting path, then refine it with the assistant for your own research process.',
+		assistantPrompt: 'Review the current research workflow and suggest the smallest set of changes to make it more useful for my own research and reporting workflow.',
+		actions: ['run', 'assistant', 'gallery'],
+	},
+	media: {
+		title: 'Webcam starter loaded',
+		summary: 'Run it once to confirm browser media access, then tailor the flow if you want a more specific capture or analysis workflow.',
+		assistantPrompt: 'Review the current browser-media workflow and help me adapt it for my real camera or media use case while keeping it easy to run locally.',
+		actions: ['run', 'assistant', 'gallery'],
+	},
+	support: {
+		title: 'Support workbench ready',
+		summary: 'Run the workbench to inspect the assistant flow, then open Assistant Deployments when you are ready to bind it to channels and specialist handoffs.',
+		assistantPrompt: 'Review the current support workbench and propose the smallest set of improvements before I connect it to a real assistant deployment and channel.',
+		actions: ['run', 'assistant', 'deployments'],
+	},
+	ops: {
+		title: 'Ops workbench ready',
+		summary: 'Run the workbench to inspect the operator path, then open Assistant Deployments when you are ready to add proactive tasks or bind channels.',
+		assistantPrompt: 'Review the current ops workbench and propose the smallest set of improvements before I use it for proactive operational assistant deployments.',
+		actions: ['run', 'assistant', 'deployments'],
+	},
+});
+let _starterFollowthroughState = null;
 const GLOBAL_LAYOUT_PRESET_STORAGE_KEY = 'numel_global_layout_preset_v1';
 const PANEL_COLLAPSED_STORAGE_KEY = 'numel_left_panel_collapsed_v1';
 const SECTION_COLLAPSE_STORAGE_KEY = 'numel_left_panel_section_state_v1';
@@ -58,6 +93,84 @@ const ASSISTANT_DOCK_LAYOUTS = new Set(['workbench', 'project-workbench-assistan
 
 function _currentWorkflowLabel() {
 	return visualizer?.currentWorkflowName || $('singleWorkflowName')?.textContent || 'Workflow';
+}
+
+function _hideStarterFollowthrough() {
+	const card = $('starterFollowthrough');
+	if (!card || card.style.display === 'none') return;
+	card.style.display = 'none';
+	_starterFollowthroughState = null;
+	_pumpCanvasLayoutRefresh();
+}
+
+function _showStarterFollowthrough(starterKey) {
+	const config = STARTER_FOLLOWTHROUGH_CONFIGS[starterKey];
+	const card = $('starterFollowthrough');
+	const titleEl = $('starterFollowthroughTitle');
+	const summaryEl = $('starterFollowthroughSummary');
+	const actionsEl = $('starterFollowthroughActions');
+	if (!config || !card || !titleEl || !summaryEl || !actionsEl) return;
+	const actionMap = {
+		run: { label: 'Run Now', className: 'nw-btn nw-btn-success' },
+		assistant: { label: 'Refine With Assistant', className: 'nw-btn nw-btn-secondary' },
+		deployments: { label: 'Open Assistant Deployments', className: 'nw-btn nw-btn-secondary' },
+		gallery: { label: 'Browse More Starters', className: 'nw-btn nw-btn-secondary' },
+	};
+	titleEl.textContent = config.title;
+	summaryEl.textContent = config.summary;
+	actionsEl.innerHTML = '';
+	for (const actionId of config.actions || []) {
+		const meta = actionMap[actionId];
+		if (!meta) continue;
+		const btn = document.createElement('button');
+		btn.type = 'button';
+		btn.className = meta.className;
+		btn.textContent = meta.label;
+		btn.setAttribute('data-guide-action', actionId);
+		actionsEl.appendChild(btn);
+	}
+	_starterFollowthroughState = {
+		starterKey,
+		assistantPrompt: config.assistantPrompt || '',
+	};
+	card.style.display = '';
+	_pumpCanvasLayoutRefresh();
+}
+
+async function _handleStarterFollowthroughAction(actionId) {
+	try {
+		switch (actionId) {
+			case 'run':
+				if ($('startBtn')?.disabled) throw new Error('This workflow is not ready to run yet.');
+				$('startBtn')?.click();
+				addLog('info', '▶ Started the current starter workflow');
+				break;
+			case 'assistant':
+				if (!consoleManager) throw new Error('Assistant is not ready yet');
+				await consoleManager.launchStarterPrompt(
+					_starterFollowthroughState?.assistantPrompt || 'Review the current workflow and help me improve it.',
+					{ enablePlanner: false, autoSend: false },
+				);
+				addLog('info', '🤖 Assistant opened with a refinement prompt for the current starter');
+				break;
+			case 'deployments':
+				if (typeof NumelAssistantDeployments === 'undefined') throw new Error('Assistant Deployments is not available yet');
+				NumelAssistantDeployments.open();
+				addLog('info', '🧭 Opened Assistant Deployments');
+				break;
+			case 'gallery':
+				if (!galleryManager) throw new Error('Gallery is not ready yet');
+				await galleryManager.open();
+				addLog('info', '🖼 Opened workflow gallery');
+				break;
+			default:
+				return;
+		}
+		_hideStarterFollowthrough();
+	} catch (error) {
+		addLog('error', `❌ Starter guide action failed: ${error.message}`);
+		await NumelAlert('Starter Guide', error.message || 'Failed to continue from starter guide.');
+	}
 }
 
 function _readJsonStorage(key, fallback = {}) {
@@ -452,6 +565,14 @@ function _showStarterModal() {
 						<span class="nw-starter-action-title">Webcam Starter</span>
 						<span class="nw-starter-action-copy">Try a browser-media workflow with live camera input.</span>
 					</button>
+					<button class="nw-starter-action" data-starter-action="support" type="button">
+						<span class="nw-starter-action-title">Support Workbench</span>
+						<span class="nw-starter-action-copy">Open a deployment-ready support assistant with knowledge and file access.</span>
+					</button>
+					<button class="nw-starter-action" data-starter-action="ops" type="button">
+						<span class="nw-starter-action-title">Ops Workbench</span>
+						<span class="nw-starter-action-copy">Open an operator assistant workbench for proactive and diagnostic flows.</span>
+					</button>
 					<button class="nw-starter-action" data-starter-action="assistant" type="button">
 						<span class="nw-starter-action-title">Ask Assistant</span>
 						<span class="nw-starter-action-copy">Open Assistant with a prompt to draft a first workflow.</span>
@@ -488,6 +609,7 @@ function _updateStarterPanel() {
 	if (!panel) return;
 	const visible = !!api && _isAuthenticatedUser() && _isCurrentWorkflowEmptyState();
 	panel.style.display = visible ? '' : 'none';
+	if (visible) _hideStarterFollowthrough();
 	if (visible) {
 		const heroChanged = !!hero && hero.classList.contains('nw-hero-hidden');
 		const stageChanged = !!stageBar && !stageBar.classList.contains('nw-stagebar-hidden');
@@ -591,12 +713,12 @@ function _updateWorkbenchOverview() {
 		heroTitle = 'Pick a space to begin.';
 		heroSummary = 'Each space is a project workbench. Create one, choose a starter, and run it.';
 	} else if (isEmpty) {
-		overviewSummary = `"${spaceName}" is ready for its first workflow. Pick a starter, ask the assistant, or browse examples.`;
-		canvasSummary = `"${spaceName}" is ready. Choose a starter or ask for a first draft.`;
+		overviewSummary = `"${spaceName}" is ready for its first workflow. Pick a starter, open a support or ops workbench, or ask the assistant for a draft.`;
+		canvasSummary = `"${spaceName}" is ready. Choose a starter, load a workbench, or ask for a first draft.`;
 		nextTitle = 'Choose a starting point.';
-		nextCopy = 'Use a ready-made workflow, ask the assistant, or browse the gallery.';
+		nextCopy = 'Use a ready-made workflow, open a deployment workbench, ask the assistant, or browse the gallery.';
 		heroTitle = `"${spaceName}" is ready for its first workflow.`;
-		heroSummary = 'Choose a starter, ask the assistant to draft one, or browse the gallery.';
+		heroSummary = 'Choose a starter, open a support or ops workbench, ask the assistant to draft one, or browse the gallery.';
 	} else {
 		overviewSummary = `Working in "${spaceName}" — "${workflowName || 'Current Workflow'}" is ready to shape and run.`;
 		canvasSummary = `"${workflowName || 'Current Workflow'}" in "${spaceName}". Edit steps, save, and run when ready.`;
@@ -750,19 +872,33 @@ async function _loadStarterGalleryItem(id) {
 }
 
 async function _runStarterAction(action) {
+	let followthrough = null;
 	try {
 		switch (action) {
 			case 'hello':
 				await window.loadAndSyncWorkflow(_starterHelloWorkflow(), 'Hello Workflow');
 				addLog('success', '✨ Loaded Hello Workflow starter');
+				followthrough = 'hello';
 				break;
 			case 'research':
 				await _loadStarterGalleryItem(STARTER_GALLERY_IDS.research);
 				addLog('success', '✨ Loaded Research Starter');
+				followthrough = 'research';
 				break;
 			case 'media':
 				await _loadStarterGalleryItem(STARTER_GALLERY_IDS.media);
 				addLog('success', '✨ Loaded Webcam Starter');
+				followthrough = 'media';
+				break;
+			case 'support':
+				await _loadStarterGalleryItem(STARTER_GALLERY_IDS.support);
+				addLog('success', '✨ Loaded Support Workbench');
+				followthrough = 'support';
+				break;
+			case 'ops':
+				await _loadStarterGalleryItem(STARTER_GALLERY_IDS.ops);
+				addLog('success', '✨ Loaded Ops Workbench');
+				followthrough = 'ops';
 				break;
 			case 'assistant':
 				if (!consoleManager) throw new Error('Assistant is not ready yet');
@@ -785,6 +921,7 @@ async function _runStarterAction(action) {
 		_markStarterExperienceSeen();
 		_closeStarterModal(false);
 		_updateStarterExperience(false);
+		if (followthrough) _showStarterFollowthrough(followthrough);
 	} catch (error) {
 		addLog('error', `❌ Starter action failed: ${error.message}`);
 		await NumelAlert('Starter Flow', error.message || 'Failed to load starter flow.');
@@ -1529,8 +1666,16 @@ function setupEventListeners() {
 	$('starterHelloBtn')?.addEventListener('click', () => _runStarterAction('hello'));
 	$('starterResearchBtn')?.addEventListener('click', () => _runStarterAction('research'));
 	$('starterMediaBtn')?.addEventListener('click', () => _runStarterAction('media'));
+	$('starterSupportBtn')?.addEventListener('click', () => _runStarterAction('support'));
+	$('starterOpsBtn')?.addEventListener('click', () => _runStarterAction('ops'));
 	$('starterAssistantBtn')?.addEventListener('click', () => _runStarterAction('assistant'));
 	$('starterBrowseBtn')?.addEventListener('click', () => _runStarterAction('gallery'));
+	$('starterFollowthroughCloseBtn')?.addEventListener('click', () => _hideStarterFollowthrough());
+	$('starterFollowthroughActions')?.addEventListener('click', (event) => {
+		const button = event.target.closest('button[data-guide-action]');
+		if (!button) return;
+		_handleStarterFollowthroughAction(button.getAttribute('data-guide-action') || '');
+	});
 
 	// Hero close button — persist per-space dismissal
 	$('canvasHeroCloseBtn')?.addEventListener('click', () => {
@@ -2271,6 +2416,7 @@ async function syncWorkflow(workflow = null, _name = null, force = false) {
 // Global helper for console /gen — load + sync a workflow JSON object
 window.loadAndSyncWorkflow = async function(workflow, name) {
 	if (!visualizer || !schemaGraph) return;
+	_hideStarterFollowthrough();
 	let preparedWorkflow = workflow;
 	if (api?.validateWorkflow) {
 		const validation = await api.validateWorkflow(workflow, { apply_repairs: true });
@@ -2297,6 +2443,7 @@ window.loadAndSyncWorkflow = async function(workflow, name) {
 
 window.loadWorkflowFromServer = async function(workflow, name, { source = 'assistant' } = {}) {
 	if (!visualizer || !schemaGraph || !workflow) return false;
+	_hideStarterFollowthrough();
 	const chatState = saveChatState();
 	schemaGraph.closeAllPreviewTextOverlays?.();
 	agentChatManager?.disconnectAll();

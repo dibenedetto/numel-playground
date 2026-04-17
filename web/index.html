@@ -328,6 +328,24 @@
 								<span class="nw-starter-action-copy">A live browser-media workflow you can try in place.</span>
 							</span>
 						</button>
+						<button id="starterSupportBtn" class="nw-starter-action" type="button">
+							<span class="nw-starter-action-icon" aria-hidden="true">
+								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+							</span>
+							<span class="nw-starter-action-body">
+								<span class="nw-starter-action-title">Support workbench</span>
+								<span class="nw-starter-action-copy">A deployment-ready support assistant with knowledge and file access.</span>
+							</span>
+						</button>
+						<button id="starterOpsBtn" class="nw-starter-action" type="button">
+							<span class="nw-starter-action-icon" aria-hidden="true">
+								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+							</span>
+							<span class="nw-starter-action-body">
+								<span class="nw-starter-action-title">Ops workbench</span>
+								<span class="nw-starter-action-copy">An operator assistant starter for proactive and diagnostic flows.</span>
+							</span>
+						</button>
 						<button id="starterAssistantBtn" class="nw-starter-action" type="button">
 							<span class="nw-starter-action-icon" aria-hidden="true">
 								<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l1.9 5.8H20l-4.9 3.6L17 17l-5-3.6L7 17l1.9-5.6L4 7.8h6.1z"/></svg>
@@ -354,6 +372,15 @@
 					<button id="canvasSaveWorkflowBtn" class="nw-btn nw-btn-secondary" type="button">Save</button>
 					<button id="canvasStartRunBtn" class="nw-btn nw-btn-success" type="button">Run</button>
 				</div>
+			</div>
+			<div id="starterFollowthrough" class="nw-starter-followthrough" style="display:none;">
+				<div class="nw-starter-followthrough-copy">
+					<div id="starterFollowthroughKicker" class="nw-starter-followthrough-kicker">Next step</div>
+					<div id="starterFollowthroughTitle" class="nw-starter-followthrough-title">Starter loaded</div>
+					<div id="starterFollowthroughSummary" class="nw-starter-followthrough-summary">Run it once, inspect the graph, and keep shaping it from there.</div>
+				</div>
+				<div id="starterFollowthroughActions" class="nw-starter-followthrough-actions"></div>
+				<button id="starterFollowthroughCloseBtn" class="nw-starter-followthrough-close" type="button" title="Dismiss starter guide" aria-label="Dismiss starter guide">×</button>
 			</div>
 			<div class="sg-canvas-container">
 				<canvas id="sg-main-canvas"></canvas>

@@ -2150,6 +2150,71 @@ body.nw-layout-assistant-dock .nw-canvas-panel.sg-has-tabs .sg-canvas-container 
 	padding-bottom: 8px;
 }
 
+.nw-starter-followthrough {
+	display: flex;
+	align-items: flex-start;
+	gap: 12px;
+	padding: 10px 12px;
+	border: 1px solid var(--nw-border-soft);
+	border-top: 0;
+	background: color-mix(in srgb, var(--sg-bg-secondary) 97%, white 3%);
+}
+
+.nw-starter-followthrough-copy {
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.nw-starter-followthrough-kicker {
+	font-size: 10px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.14em;
+	color: var(--sg-text-secondary);
+}
+
+.nw-starter-followthrough-title {
+	font-size: 13px;
+	font-weight: 700;
+	color: var(--sg-text-primary);
+}
+
+.nw-starter-followthrough-summary {
+	font-size: 12px;
+	line-height: 1.45;
+	color: var(--sg-text-secondary);
+}
+
+.nw-starter-followthrough-actions {
+	margin-left: auto;
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 8px;
+}
+
+.nw-starter-followthrough-actions .nw-btn {
+	white-space: nowrap;
+}
+
+.nw-starter-followthrough-close {
+	border: 0;
+	background: transparent;
+	color: var(--sg-text-secondary);
+	font-size: 18px;
+	line-height: 1;
+	padding: 2px 4px;
+	border-radius: 6px;
+	cursor: pointer;
+}
+
+.nw-starter-followthrough-close:hover {
+	color: var(--sg-text-primary);
+	background: color-mix(in srgb, var(--sg-bg-primary) 76%, transparent);
+}
+
 .sg-canvas-container {
 	position: relative;
 	flex: 1;
@@ -2184,6 +2249,9 @@ body.nw-layout-project-workbench .nw-canvas-hero {
 	border-bottom-right-radius: 0;
 }
 body.nw-layout-project-workbench .nw-canvas-stagebar {
+	border-radius: 0;
+}
+body.nw-layout-project-workbench .nw-starter-followthrough {
 	border-radius: 0;
 }
 body.nw-layout-project-workbench .sg-canvas-container {
@@ -4363,6 +4431,15 @@ body.nw-layout-project-workbench .nw-auth-title {
 	.nw-starter-grid,
 	.nw-starter-modal-grid {
 		grid-template-columns: 1fr;
+	}
+
+	.nw-starter-followthrough {
+		flex-direction: column;
+	}
+
+	.nw-starter-followthrough-actions {
+		margin-left: 0;
+		justify-content: flex-start;
 	}
 
 	body.nw-layout-project-workbench-studio .nw-canvas-hero {
