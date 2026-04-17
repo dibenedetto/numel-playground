@@ -44,6 +44,23 @@ Improve empty-state and onboarding guidance so a user sees:
 
 Add roadmap docs and keep product docs aligned with the flagship starter strategy.
 
+## Phase 1 Progress
+
+Completed in this phase so far:
+
+- support and ops workbenches exposed as first-class starter actions
+- starter modal and inline starter panel improved
+- post-starter follow-through guidance added
+- per-user `Show on login` preference added for the starter modal
+- repo and file assistant starter added
+- publishable mini-app starter added
+- starter walkthrough doc added
+
+Still remaining in Phase 1:
+
+- tighter starter messaging and polish pass after end-to-end testing
+- any final empty-state and first-run tuning we discover during real UX testing
+
 ## Current Slice To Build First
 
 The first concrete implementation slice is:
@@ -74,3 +91,8 @@ or
 - add a publishable mini-app starter
 
 The choice should depend on which one feels more complete and demo-worthy in the current repo.
+
+Current status:
+
+- both of those next-slice candidates are now implemented
+- the next best Phase 1 follow-up is end-to-end starter testing and polish

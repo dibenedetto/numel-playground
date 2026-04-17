@@ -43,6 +43,11 @@ You do not need to understand every node type on day one. A good way to start is
 
 That is enough to start building intuition.
 
+If you want a more guided first run, see
+[docs/tutorial-14-first-run-starters.md](/c:/devel/numel-playground/docs/tutorial-14-first-run-starters.md).
+It walks through the built-in starter choices like `Repo Assistant`,
+`Mini App Starter`, `Support Workbench`, and `Ops Workbench`.
+
 ## Local And Production
 
 This public repo gives you the **local/reference slice** of Numel, and it is a

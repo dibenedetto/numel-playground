@@ -1,0 +1,198 @@
+{
+  "id": "repo_file_assistant",
+  "title": "Repo And File Assistant",
+  "description": "A starter assistant for exploring a local repo or workspace, reading files, and summarizing what to inspect next.",
+  "category": "assistant",
+  "tags": [
+    "assistant",
+    "repo",
+    "files",
+    "workspace",
+    "starter"
+  ],
+  "author": "system",
+  "created_at": 1776384000.0,
+  "workflow": {
+    "type": "workflow",
+    "options": {
+      "name": "Repo And File Assistant",
+      "description": "Inspect a local workspace, browse files, and answer questions grounded in the current repo."
+    },
+    "nodes": [
+      {
+        "type": "model_config",
+        "source": "ollama",
+        "name": "mistral:latest",
+        "extra": {
+          "pos": [
+            240,
+            60
+          ],
+          "name": "Model"
+        }
+      },
+      {
+        "type": "agent_options_config",
+        "instructions": [
+          "You are a repo and file assistant for the current local workspace.",
+          "Use the connected workspace and file tools to inspect real files before answering questions about the project.",
+          "Prefer compact, grounded answers that mention which files or folders matter most.",
+          "Do not make destructive changes unless the user explicitly asks for them."
+        ],
+        "extra": {
+          "pos": [
+            440,
+            60
+          ],
+          "name": "Repo Instructions"
+        }
+      },
+      {
+        "type": "toolkit_config",
+        "name": "toolkits.workspace_toolkit",
+        "extra": {
+          "pos": [
+            680,
+            80
+          ],
+          "name": "Workspace Toolkit"
+        }
+      },
+      {
+        "type": "toolkit_config",
+        "name": "toolkits.file_toolkit",
+        "extra": {
+          "pos": [
+            900,
+            80
+          ],
+          "name": "File Toolkit"
+        }
+      },
+      {
+        "type": "agent_config",
+        "extra": {
+          "pos": [
+            1160,
+            120
+          ],
+          "name": "Repo Assistant"
+        }
+      },
+      {
+        "type": "start_flow",
+        "extra": {
+          "pos": [
+            40,
+            260
+          ],
+          "name": "Start"
+        }
+      },
+      {
+        "type": "user_input_flow",
+        "query": "What should the repo assistant inspect or explain?",
+        "extra": {
+          "pos": [
+            320,
+            260
+          ],
+          "name": "Repo Prompt"
+        }
+      },
+      {
+        "type": "agent_flow",
+        "extra": {
+          "pos": [
+            620,
+            260
+          ],
+          "name": "Inspect Workspace"
+        }
+      },
+      {
+        "type": "preview_flow",
+        "hint": "text",
+        "extra": {
+          "pos": [
+            900,
+            260
+          ],
+          "name": "Assistant Preview"
+        }
+      },
+      {
+        "type": "end_flow",
+        "extra": {
+          "pos": [
+            1160,
+            260
+          ],
+          "name": "End"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": 0,
+        "target": 4,
+        "source_slot": "config",
+        "target_slot": "model"
+      },
+      {
+        "source": 1,
+        "target": 4,
+        "source_slot": "options",
+        "target_slot": "options"
+      },
+      {
+        "source": 2,
+        "target": 4,
+        "source_slot": "config",
+        "target_slot": "toolkits.workspace"
+      },
+      {
+        "source": 3,
+        "target": 4,
+        "source_slot": "config",
+        "target_slot": "toolkits.files"
+      },
+      {
+        "source": 4,
+        "target": 7,
+        "source_slot": "config",
+        "target_slot": "config"
+      },
+      {
+        "source": 5,
+        "target": 6,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 6,
+        "target": 7,
+        "source_slot": "message",
+        "target_slot": "request"
+      },
+      {
+        "source": 6,
+        "target": 7,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 7,
+        "target": 8,
+        "source_slot": "response",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 8,
+        "target": 9,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      }
+    ]
+  }
+}

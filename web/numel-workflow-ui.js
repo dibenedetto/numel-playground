@@ -38,6 +38,8 @@ const $ = id => document.getElementById(id);
 const STARTER_GALLERY_IDS = Object.freeze({
 	research: 'planner05',
 	media: '1d73d947',
+	repo: 'repo_file_assistant',
+	miniapp: 'publishable_mini_app_starter',
 	support: 'assistant_support_workbench',
 	ops: 'assistant_ops_workbench',
 });
@@ -60,6 +62,18 @@ const STARTER_FOLLOWTHROUGH_CONFIGS = Object.freeze({
 		summary: 'Run it once to confirm browser media access, then tailor the flow if you want a more specific capture or analysis workflow.',
 		assistantPrompt: 'Review the current browser-media workflow and help me adapt it for my real camera or media use case while keeping it easy to run locally.',
 		actions: ['run', 'assistant', 'gallery'],
+	},
+	repo: {
+		title: 'Repo assistant ready',
+		summary: 'Run it to inspect the current workspace and file-access flow, then refine it for the repo or project questions you want to answer first.',
+		assistantPrompt: 'Review the current repo and file assistant starter and suggest the smallest set of changes to make it more useful for my actual project or repository.',
+		actions: ['run', 'assistant', 'gallery'],
+	},
+	miniapp: {
+		title: 'Mini app starter ready',
+		summary: 'Run it once to inspect the end-user flow, then open Published Apps when you are ready to turn it into a lightweight standalone app.',
+		assistantPrompt: 'Review the current publishable mini app starter and suggest the smallest set of changes to make it more useful and polished before I publish it.',
+		actions: ['run', 'assistant', 'apps'],
 	},
 	support: {
 		title: 'Support workbench ready',
@@ -115,6 +129,7 @@ function _showStarterFollowthrough(starterKey) {
 		run: { label: 'Run Now', className: 'nw-btn nw-btn-success' },
 		assistant: { label: 'Refine With Assistant', className: 'nw-btn nw-btn-secondary' },
 		deployments: { label: 'Open Assistant Deployments', className: 'nw-btn nw-btn-secondary' },
+		apps: { label: 'Open Published Apps', className: 'nw-btn nw-btn-secondary' },
 		gallery: { label: 'Browse More Starters', className: 'nw-btn nw-btn-secondary' },
 	};
 	titleEl.textContent = config.title;
@@ -158,6 +173,11 @@ async function _handleStarterFollowthroughAction(actionId) {
 				if (typeof NumelAssistantDeployments === 'undefined') throw new Error('Assistant Deployments is not available yet');
 				NumelAssistantDeployments.open();
 				addLog('info', '🧭 Opened Assistant Deployments');
+				break;
+			case 'apps':
+				if (!appsManager) throw new Error('Published Apps is not ready yet');
+				await appsManager.open();
+				addLog('info', '📦 Opened Published Apps');
 				break;
 			case 'gallery':
 				if (!galleryManager) throw new Error('Gallery is not ready yet');
@@ -612,6 +632,14 @@ function _showStarterModal() {
 						<span class="nw-starter-action-title">Webcam Starter</span>
 						<span class="nw-starter-action-copy">Try a browser-media workflow with live camera input.</span>
 					</button>
+					<button class="nw-starter-action" data-starter-action="repo" type="button">
+						<span class="nw-starter-action-title">Repo Assistant</span>
+						<span class="nw-starter-action-copy">Open a local workspace assistant for file inspection and repo questions.</span>
+					</button>
+					<button class="nw-starter-action" data-starter-action="miniapp" type="button">
+						<span class="nw-starter-action-title">Mini App Starter</span>
+						<span class="nw-starter-action-copy">Open a compact assistant flow that is easy to publish as a standalone app.</span>
+					</button>
 					<button class="nw-starter-action" data-starter-action="support" type="button">
 						<span class="nw-starter-action-title">Support Workbench</span>
 						<span class="nw-starter-action-copy">Open a deployment-ready support assistant with knowledge and file access.</span>
@@ -775,12 +803,12 @@ function _updateWorkbenchOverview() {
 		heroTitle = 'Pick a space to begin.';
 		heroSummary = 'Each space is a project workbench. Create one, choose a starter, and run it.';
 	} else if (isEmpty) {
-		overviewSummary = `"${spaceName}" is ready for its first workflow. Pick a starter, open a support or ops workbench, or ask the assistant for a draft.`;
+		overviewSummary = `"${spaceName}" is ready for its first workflow. Pick a starter, open a repo, mini app, support, or ops workbench, or ask the assistant for a draft.`;
 		canvasSummary = `"${spaceName}" is ready. Choose a starter, load a workbench, or ask for a first draft.`;
 		nextTitle = 'Choose a starting point.';
-		nextCopy = 'Use a ready-made workflow, open a deployment workbench, ask the assistant, or browse the gallery.';
+		nextCopy = 'Use a ready-made workflow, open a repo, mini app, support, or ops workbench, ask the assistant, or browse the gallery.';
 		heroTitle = `"${spaceName}" is ready for its first workflow.`;
-		heroSummary = 'Choose a starter, open a support or ops workbench, ask the assistant to draft one, or browse the gallery.';
+		heroSummary = 'Choose a starter, open a repo, mini app, support, or ops workbench, ask the assistant to draft one, or browse the gallery.';
 	} else {
 		overviewSummary = `Working in "${spaceName}" — "${workflowName || 'Current Workflow'}" is ready to shape and run.`;
 		canvasSummary = `"${workflowName || 'Current Workflow'}" in "${spaceName}". Edit steps, save, and run when ready.`;
@@ -951,6 +979,16 @@ async function _runStarterAction(action) {
 				await _loadStarterGalleryItem(STARTER_GALLERY_IDS.media);
 				addLog('success', '✨ Loaded Webcam Starter');
 				followthrough = 'media';
+				break;
+			case 'repo':
+				await _loadStarterGalleryItem(STARTER_GALLERY_IDS.repo);
+				addLog('success', '✨ Loaded Repo Assistant Starter');
+				followthrough = 'repo';
+				break;
+			case 'miniapp':
+				await _loadStarterGalleryItem(STARTER_GALLERY_IDS.miniapp);
+				addLog('success', '✨ Loaded Publishable Mini App Starter');
+				followthrough = 'miniapp';
 				break;
 			case 'support':
 				await _loadStarterGalleryItem(STARTER_GALLERY_IDS.support);
@@ -1752,6 +1790,8 @@ function setupEventListeners() {
 	$('starterHelloBtn')?.addEventListener('click', () => _runStarterAction('hello'));
 	$('starterResearchBtn')?.addEventListener('click', () => _runStarterAction('research'));
 	$('starterMediaBtn')?.addEventListener('click', () => _runStarterAction('media'));
+	$('starterRepoBtn')?.addEventListener('click', () => _runStarterAction('repo'));
+	$('starterMiniAppBtn')?.addEventListener('click', () => _runStarterAction('miniapp'));
 	$('starterSupportBtn')?.addEventListener('click', () => _runStarterAction('support'));
 	$('starterOpsBtn')?.addEventListener('click', () => _runStarterAction('ops'));
 	$('starterAssistantBtn')?.addEventListener('click', () => _runStarterAction('assistant'));

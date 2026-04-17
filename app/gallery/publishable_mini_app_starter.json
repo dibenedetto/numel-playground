@@ -1,0 +1,163 @@
+{
+  "id": "publishable_mini_app_starter",
+  "title": "Publishable Mini App Starter",
+  "description": "A compact assistant workflow designed to be easy to run locally and easy to turn into a published mini app.",
+  "category": "published-apps",
+  "tags": [
+    "starter",
+    "published-app",
+    "mini-app",
+    "assistant"
+  ],
+  "author": "system",
+  "created_at": 1776387600.0,
+  "workflow": {
+    "type": "workflow",
+    "options": {
+      "name": "Publishable Mini App Starter",
+      "description": "A compact assistant workflow that can be published as a lightweight end-user app."
+    },
+    "nodes": [
+      {
+        "type": "start_flow",
+        "extra": {
+          "pos": [
+            40,
+            220
+          ],
+          "name": "Start"
+        }
+      },
+      {
+        "type": "model_config",
+        "source": "ollama",
+        "name": "mistral:latest",
+        "extra": {
+          "pos": [
+            240,
+            60
+          ],
+          "name": "Model"
+        }
+      },
+      {
+        "type": "agent_options_config",
+        "instructions": [
+          "You are the assistant behind a small published app.",
+          "Give concise, end-user-friendly answers that feel polished and immediately useful.",
+          "Structure the reply so it works well in a lightweight standalone app page.",
+          "Avoid internal implementation details unless the user explicitly asks for them."
+        ],
+        "extra": {
+          "pos": [
+            440,
+            60
+          ],
+          "name": "Mini App Instructions"
+        }
+      },
+      {
+        "type": "agent_config",
+        "extra": {
+          "pos": [
+            660,
+            120
+          ],
+          "name": "Mini App Assistant"
+        }
+      },
+      {
+        "type": "user_input_flow",
+        "query": "What should this mini app help with?",
+        "extra": {
+          "pos": [
+            280,
+            220
+          ],
+          "name": "App Input"
+        }
+      },
+      {
+        "type": "agent_flow",
+        "extra": {
+          "pos": [
+            540,
+            220
+          ],
+          "name": "Generate App Reply"
+        }
+      },
+      {
+        "type": "preview_flow",
+        "hint": "text",
+        "extra": {
+          "pos": [
+            820,
+            220
+          ],
+          "name": "App Preview"
+        }
+      },
+      {
+        "type": "end_flow",
+        "extra": {
+          "pos": [
+            1080,
+            220
+          ],
+          "name": "End"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": 0,
+        "target": 4,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 1,
+        "target": 3,
+        "source_slot": "config",
+        "target_slot": "model"
+      },
+      {
+        "source": 2,
+        "target": 3,
+        "source_slot": "options",
+        "target_slot": "options"
+      },
+      {
+        "source": 3,
+        "target": 5,
+        "source_slot": "config",
+        "target_slot": "config"
+      },
+      {
+        "source": 4,
+        "target": 5,
+        "source_slot": "message",
+        "target_slot": "request"
+      },
+      {
+        "source": 4,
+        "target": 5,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 5,
+        "target": 6,
+        "source_slot": "response",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 6,
+        "target": 7,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      }
+    ]
+  }
+}

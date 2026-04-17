@@ -194,6 +194,9 @@ Optional flags:
 For the current product-facing design direction, see
 [docs/ui-exploration-plan.md](docs/ui-exploration-plan.md) and
 [docs/product-roadmap.md](docs/product-roadmap.md).
+For the practical first-run starter paths, including repo, mini-app, support,
+and ops starters, see
+[docs/tutorial-14-first-run-starters.md](docs/tutorial-14-first-run-starters.md).
 For the assistant deployment model, including routing, proactive jobs, approvals,
 and operator flows, see [docs/assistant-deployments.md](docs/assistant-deployments.md).
 For the day-to-day operator surface around deployment inspection, statuses,
