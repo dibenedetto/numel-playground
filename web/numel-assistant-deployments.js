@@ -73,6 +73,20 @@ async function _post(path, body = {}) {
 			|| failures.length > 0;
 	}
 
+	function _attentionReasons(item) {
+		const reasons = [];
+		const status = String(item?.status || '').toLowerCase();
+		const runtime = item?.runtime || {};
+		const failures = Array.isArray(item?.recent_failures) ? item.recent_failures : [];
+		const pendingCount = Number(runtime.pending_approval_count || 0);
+		if (status === 'error') reasons.push('runtime error');
+		else if (status === 'partial') reasons.push('partial runtime');
+		else if (status === 'missing') reasons.push('missing runtime');
+		if (pendingCount > 0) reasons.push(`${pendingCount} pending approval${pendingCount === 1 ? '' : 's'}`);
+		if (failures.length > 0) reasons.push(`${failures.length} recent failure${failures.length === 1 ? '' : 's'}`);
+		return reasons;
+	}
+
 	function _splitCsv(value) {
 		return String(value || '')
 			.split(',')
@@ -311,6 +325,7 @@ async function _post(path, body = {}) {
 							</div>
 							<div class="nw-assist-trace-meta">
 								${meta.map((entry) => `<span>${_esc(entry)}</span>`).join('')}
+								${data.actionLabel && data.actionId ? `<button type="button" class="nw-btn nw-btn-sm nw-btn-secondary nw-assist-trace-action" data-role="${_esc(data.actionRole || 'trace-action')}" data-id="${_esc(data.actionId)}">${_esc(data.actionLabel)}</button>` : ''}
 							</div>
 						</div>`;
 				}).join('')}
@@ -326,6 +341,126 @@ async function _post(path, body = {}) {
 				</div>
 				${contentHtml}
 			</section>`;
+	}
+
+	function _snapshotLine(label, value) {
+		const normalized = value == null || value === '' ? '—' : String(value);
+		return `${label}: ${normalized}`;
+	}
+
+	async function _copyTextToClipboard(text) {
+		const value = String(text || '');
+		if (!value) throw new Error('Nothing to copy.');
+		if (navigator?.clipboard?.writeText) {
+			await navigator.clipboard.writeText(value);
+			return;
+		}
+		const textarea = document.createElement('textarea');
+		textarea.value = value;
+		textarea.setAttribute('readonly', 'readonly');
+		textarea.style.position = 'fixed';
+		textarea.style.top = '-9999px';
+		textarea.style.left = '-9999px';
+		document.body.appendChild(textarea);
+		textarea.select();
+		textarea.setSelectionRange(0, textarea.value.length);
+		const ok = document.execCommand('copy');
+		document.body.removeChild(textarea);
+		if (!ok) throw new Error('Clipboard access is not available in this browser.');
+	}
+
+	function _deploymentSnapshotText(item) {
+		const runtime = item?.runtime || {};
+		const channels = Array.isArray(item?.channels) ? item.channels : [];
+		const recentFailures = Array.isArray(item?.recent_failures) ? item.recent_failures : [];
+		const recentEndpointCalls = Array.isArray(item?.recent_endpoint_calls) ? item.recent_endpoint_calls : [];
+		const recentHandoffs = Array.isArray(item?.recent_handoffs) ? item.recent_handoffs : [];
+		const recentProactiveRuns = Array.isArray(item?.recent_proactive_runs) ? item.recent_proactive_runs : [];
+		const recentActivity = Array.isArray(item?.recent_activity) ? item.recent_activity : [];
+		const lines = [
+			`Assistant Deployment Snapshot`,
+			`Generated: ${new Date().toLocaleString()}`,
+			``,
+			_snapshotLine('Name', item?.name || item?.id || 'deployment'),
+			_snapshotLine('ID', item?.id || ''),
+			_snapshotLine('Lifecycle', item?.enabled ? 'active' : 'inactive'),
+			_snapshotLine('Runtime state', item?.status || 'stopped'),
+			_snapshotLine('Profile', item?.profile || 'general'),
+			_snapshotLine('Model', `${item?.model_source || 'default'}${item?.model_name ? ` / ${item.model_name}` : ''}`),
+			_snapshotLine('Linked workbench', item?.linked_space_title || item?.linked_workflow_name ? `${item.linked_space_title || item.linked_space_id || 'Unlinked space'}${item.linked_workflow_name ? ` -> ${item.linked_workflow_name}` : ''}` : 'Not linked yet'),
+			_snapshotLine('Channels', channels.length ? channels.map((channel) => `${channel.name || channel.id} (${channel.status || 'unknown'})`).join(' · ') : 'No channels bound'),
+			_snapshotLine('Handoff selector', _handoffSelectorLabel(item?.handoff_selector_mode)),
+			_snapshotLine('Attention', _attentionReasons(item).join(' · ') || 'None'),
+			``,
+			`Runtime`,
+			_snapshotLine('Messages', runtime.message_count || 0),
+			_snapshotLine('Endpoint calls', runtime.endpoint_call_count || 0),
+			_snapshotLine('Pending approvals', runtime.pending_approval_count || 0),
+			_snapshotLine('Last activity', runtime.last_message_at ? _formatTimestamp(runtime.last_message_at) : 'No traffic yet'),
+			_snapshotLine('Last error', runtime.last_error || 'None'),
+			``,
+			`Recent failures`,
+			...(recentFailures.length
+				? recentFailures.slice(-5).reverse().map((row) => `- ${row.title || row.kind || 'Failure'}${row.detail ? ` · ${row.detail}` : ''}${row.preview ? ` · ${row.preview}` : ''}`)
+				: ['- None']),
+			``,
+			`Recent endpoint calls`,
+			...(recentEndpointCalls.length
+				? recentEndpointCalls.slice(-5).reverse().map((row) => `- ${row.mode || 'endpoint'} -> ${row.endpoint_name || row.endpoint_target || row.endpoint_kind || 'endpoint'} · ${row.status || 'info'}${row.error ? ` · ${row.error}` : ''}`)
+				: ['- None']),
+			``,
+			`Recent handoffs`,
+			...(recentHandoffs.length
+				? recentHandoffs.slice(-5).reverse().map((row) => `- ${row.source_deployment_id || 'unknown'} -> ${row.target_deployment_id || 'unknown'}${row.reason ? ` · ${row.reason}` : ''}`)
+				: ['- None']),
+			``,
+			`Recent proactive runs`,
+			...(recentProactiveRuns.length
+				? recentProactiveRuns.slice(-5).reverse().map((row) => `- ${row.task_name || 'task'} · ${row.status || 'info'}${row.error ? ` · ${row.error}` : ''}`)
+				: ['- None']),
+			``,
+			`Recent activity`,
+			...(recentActivity.length
+				? recentActivity.slice(-8).reverse().map((row) => `- ${row.title || row.kind || 'Activity'} · ${row.status || 'info'}${row.detail ? ` · ${row.detail}` : ''}`)
+				: ['- None']),
+		];
+		return lines.join('\n');
+	}
+
+	function _networkSnapshotText(items = []) {
+		const rows = Array.isArray(items) ? items : [];
+		const active = rows.filter((item) => item?.enabled).length;
+		const running = rows.filter((item) => String(item?.status || '').toLowerCase() === 'running').length;
+		const attentionRows = rows.filter((item) => _hasAttention(item));
+		const pendingApprovals = rows.reduce((count, item) => count + Number(item?.runtime?.pending_approval_count || 0), 0);
+		const lines = [
+			`Assistant Deployment Network Snapshot`,
+			`Generated: ${new Date().toLocaleString()}`,
+			``,
+			_snapshotLine('Deployments', rows.length),
+			_snapshotLine('Active', active),
+			_snapshotLine('Running', running),
+			_snapshotLine('Needs attention', attentionRows.length),
+			_snapshotLine('Pending approvals', pendingApprovals),
+			``,
+			`Deployments needing attention`,
+			...(attentionRows.length
+				? attentionRows
+					.slice()
+					.sort((a, b) => String(b?.runtime?.last_message_at || '').localeCompare(String(a?.runtime?.last_message_at || '')))
+					.slice(0, 10)
+					.map((item) => `- ${item?.name || item?.id || 'Deployment'} · ${_attentionReasons(item).join(' · ') || 'attention required'}`)
+				: ['- None']),
+			``,
+			`Busiest deployments`,
+			...rows
+				.slice()
+				.sort((a, b) => (Number(b?.runtime?.message_count || 0) + Number(b?.runtime?.endpoint_call_count || 0) + Number(b?.runtime?.pending_approval_count || 0))
+					- (Number(a?.runtime?.message_count || 0) + Number(a?.runtime?.endpoint_call_count || 0) + Number(a?.runtime?.pending_approval_count || 0)))
+				.slice(0, 10)
+				.map((item) => `- ${item?.name || item?.id || 'Deployment'} · messages ${Number(item?.runtime?.message_count || 0)} · endpoint calls ${Number(item?.runtime?.endpoint_call_count || 0)} · pending approvals ${Number(item?.runtime?.pending_approval_count || 0)}`),
+		];
+		return lines.join('\n');
 	}
 
 	function _renderInspectDialogBody(item) {
@@ -499,6 +634,17 @@ async function _post(path, body = {}) {
 		const active = rows.filter((item) => item?.enabled).length;
 		const running = rows.filter((item) => String(item?.status || '').toLowerCase() === 'running').length;
 		const attention = rows.filter((item) => _hasAttention(item)).length;
+		const attentionRows = rows
+			.filter((item) => _hasAttention(item))
+			.map((item) => ({
+				id: item.id,
+				name: item.name || item.id,
+				status: item.status || 'unknown',
+				reasons: _attentionReasons(item),
+				lastActivity: item?.runtime?.last_message_at || '',
+			}))
+			.sort((a, b) => String(b.lastActivity || '').localeCompare(String(a.lastActivity || '')))
+			.slice(0, 8);
 		const pendingApprovals = rows.flatMap((item) => [
 			...(Array.isArray(item?.pending_proactive_approvals) ? item.pending_proactive_approvals.map((row) => ({ ...row, _deploymentName: item.name || item.id, _approvalKind: 'proactive_pending', _timestamp: row.created_at })) : []),
 			...(Array.isArray(item?.pending_tool_approvals) ? item.pending_tool_approvals.map((row) => ({ ...row, _deploymentName: item.name || item.id, _approvalKind: 'tool_pending', _timestamp: row.created_at })) : []),
@@ -558,7 +704,24 @@ async function _post(path, body = {}) {
 							preview: `${row.lifecycle} · ${row.status}`,
 							status: row.pendingApprovals ? 'pending' : row.status,
 							meta: [row.status, row.lifecycle],
+							actionLabel: 'Inspect',
+							actionId: rows.find((item) => (item?.name || item?.id || 'Deployment') === row.name)?.id || '',
+							actionRole: 'inspect-deployment',
 						}), 'No deployment traffic yet.'),
+					)}
+					${_renderInspectSection(
+						'Needs Attention',
+						'The most urgent deployments to inspect right now and the reasons they are being flagged.',
+						_renderInspectTraceList(attentionRows, (row) => ({
+							title: row.name,
+							detail: row.reasons.join(' · '),
+							preview: row.status || '',
+							status: row.status,
+							meta: [row.status || 'alert', row.lastActivity ? _formatTimestamp(row.lastActivity) : 'No activity yet'],
+							actionLabel: 'Inspect',
+							actionId: row.id,
+							actionRole: 'inspect-deployment',
+						}), 'Nothing currently needs attention.'),
 					)}
 					${_renderInspectSection(
 						'Pending Approvals',
@@ -586,6 +749,9 @@ async function _post(path, body = {}) {
 								preview: row.preview || '',
 								status: row.status || 'error',
 								meta: [row.status || 'error', _formatTimestamp(row.timestamp)],
+								actionLabel: 'Inspect',
+								actionId: rows.find((item) => (item?.name || item?.id) === row._deploymentName)?.id || '',
+								actionRole: 'inspect-deployment',
 							}))
 							: '<div class="nw-assist-activity-empty">No recent failures across the network.</div>',
 					)}
@@ -598,6 +764,9 @@ async function _post(path, body = {}) {
 							preview: row.preview || '',
 							status: row.status,
 							meta: [row.status || 'info', _formatTimestamp(row.timestamp)],
+							actionLabel: 'Inspect',
+							actionId: rows.find((item) => (item?.name || item?.id) === row._deploymentName)?.id || '',
+							actionRole: 'inspect-deployment',
 						}), 'No recent activity across the network.'),
 					)}
 				</div>
@@ -1039,6 +1208,7 @@ async function _post(path, body = {}) {
 			const pendingToolApprovals = Array.isArray(item.pending_tool_approvals) ? item.pending_tool_approvals : [];
 			const recentActivity = Array.isArray(item.recent_activity) ? item.recent_activity : [];
 			const recentFailures = Array.isArray(item.recent_failures) ? item.recent_failures : [];
+			const attentionReasons = _attentionReasons(item);
 			const channelSummary = channels.length
 				? channels.map((channel) => `${channel.name || channel.id} (${channel.status || 'unknown'})`).join(' · ')
 				: 'No channels bound';
@@ -1097,6 +1267,7 @@ async function _post(path, body = {}) {
 					Handoffs: ${_esc(handoffSummary)}<br>
 					Proactive runs: ${_esc(proactiveActivity)}${runtime.pending_approval_count ? `<br>Pending approvals: ${_esc(String(runtime.pending_approval_count))}` : ''}
 				</div>
+				${attentionReasons.length ? `<div class="nw-assist-attention-strip">${attentionReasons.map((reason) => `<span class="nw-assist-attention-chip">${_esc(reason)}</span>`).join('')}</div>` : ''}
 				${_renderRecentFailures(recentFailures)}
 				<div class="nw-assist-activity-block">
 					<div class="nw-assist-activity-block-title">Recent activity</div>
@@ -1565,11 +1736,23 @@ ${_esc(deploymentHint)}</div></div>
 			`Inspect: ${deployment.name || deployment.id}`,
 			_renderInspectDialogBody(deployment),
 			() => true,
-			null,
+			(overlay) => {
+				overlay.querySelector('[data-role="copy-snapshot"]')?.addEventListener('click', async () => {
+					try {
+						await _copyTextToClipboard(_deploymentSnapshotText(deployment));
+						await NumelAlert('Snapshot Copied', 'The deployment snapshot is now on your clipboard.');
+					} catch (err) {
+						await NumelAlert('Copy Failed', `Error: ${_esc(err.message)}`);
+					}
+				});
+			},
 			{
 				subtitle: 'Inspect live runtime traces, handoffs, approvals, proactive runs, and endpoint activity for this deployment.',
 				cancelLabel: 'Close',
 				hideSave: true,
+				extraActions: [
+					{ role: 'copy-snapshot', label: 'Copy Snapshot', className: 'nw-btn nw-btn-sm nw-btn-secondary' },
+				],
 			},
 		);
 	}
@@ -1585,11 +1768,32 @@ ${_esc(deploymentHint)}</div></div>
 			'Inspect Live Network',
 			_renderNetworkInspectDialogBody(items),
 			() => true,
-			null,
+			(overlay) => {
+				overlay.querySelector('[data-role="copy-snapshot"]')?.addEventListener('click', async () => {
+					try {
+						await _copyTextToClipboard(_networkSnapshotText(items));
+						await NumelAlert('Snapshot Copied', 'The network snapshot is now on your clipboard.');
+					} catch (err) {
+						await NumelAlert('Copy Failed', `Error: ${_esc(err.message)}`);
+					}
+				});
+				overlay.addEventListener('click', async (event) => {
+					const btn = event.target.closest('[data-role="inspect-deployment"]');
+					if (!btn) return;
+					event.preventDefault();
+					const deploymentId = btn.dataset.id;
+					if (!deploymentId) return;
+					overlay.remove();
+					await _showInspectDialog(deploymentId);
+				});
+			},
 			{
 				subtitle: 'Inspect the full deployment network across activity, failures, approvals, and the busiest live assistants.',
 				cancelLabel: 'Close',
 				hideSave: true,
+				extraActions: [
+					{ role: 'copy-snapshot', label: 'Copy Snapshot', className: 'nw-btn nw-btn-sm nw-btn-secondary' },
+				],
 			},
 		);
 	}
@@ -1601,6 +1805,7 @@ ${_esc(deploymentHint)}</div></div>
 		const cancelLabel = options?.cancelLabel || 'Cancel';
 		const saveLabel = options?.saveLabel || 'Save';
 		const hideSave = options?.hideSave === true;
+		const extraActions = Array.isArray(options?.extraActions) ? options.extraActions : [];
 		const overlay = document.createElement('div');
 		overlay.className = 'nw-admin-dialog-overlay nw-assist-dialog-overlay';
 		overlay.innerHTML = `
@@ -1616,6 +1821,7 @@ ${_esc(deploymentHint)}</div></div>
 					${bodyHtml}
 				</div>
 				<div class="nw-admin-dialog-btns nw-assist-dialog-actions ${hideSave ? 'is-readonly' : ''}">
+					${extraActions.map((action) => `<button class="${_esc(action.className || 'nw-btn nw-btn-sm nw-btn-secondary')}" data-role="${_esc(action.role || 'extra-action')}" type="button">${_esc(action.label || 'Action')}</button>`).join('')}
 					<button class="nw-btn nw-btn-sm nw-btn-secondary" data-role="cancel">${_esc(cancelLabel)}</button>
 					${hideSave ? '' : `<button class="nw-btn nw-btn-sm nw-btn-success" data-role="save">${_esc(saveLabel)}</button>`}
 				</div>

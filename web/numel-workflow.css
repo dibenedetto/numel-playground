@@ -4055,6 +4055,29 @@ body.nw-layout-project-workbench .nw-auth-title {
 	color: var(--sg-text-tertiary);
 	text-align: right;
 }
+.nw-assist-trace-action {
+	margin-top: 2px;
+	align-self: flex-end;
+}
+.nw-assist-attention-strip {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin-top: 10px;
+}
+.nw-assist-attention-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 9px;
+	border-radius: 999px;
+	border: 1px solid color-mix(in srgb, var(--sg-accent-yellow, #f0ad4e) 44%, var(--nw-border-soft));
+	background: color-mix(in srgb, var(--sg-bg-secondary) 84%, var(--sg-accent-yellow, #f0ad4e) 16%);
+	color: color-mix(in srgb, var(--sg-accent-yellow, #f0ad4e) 74%, white);
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.02em;
+}
 .nw-assist-activity-block,
 .nw-assist-failure-stack {
 	margin-top: 10px;
@@ -4145,6 +4168,9 @@ body.nw-layout-project-workbench .nw-auth-title {
 	.nw-assist-trace-meta {
 		align-items: flex-start;
 		text-align: left;
+	}
+	.nw-assist-trace-action {
+		align-self: flex-start;
 	}
 }
 @media (max-width: 1080px) {
