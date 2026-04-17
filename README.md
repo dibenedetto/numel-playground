@@ -49,7 +49,8 @@ For a more approachable introduction aimed at real users rather than a technical
                        |
               ChannelCommandHandler
               ChannelAgentPool (per-user)
-              UserMemoryDB (per-user SQLite)
+              Backend-managed memory
+              (per-user DB paths)
               Platform HTTP layer (spaces, auth, executions)
 ```
 
@@ -214,7 +215,7 @@ Concrete UI concepts for review live in
 
 1. Open `http://localhost:11360`
 2. Sign in or create an account
-3. Click **Connect** — the status indicator turns green
+3. Wait for the UI to auto-connect — the status indicator turns green when the backend bootstrap finishes
 
 ### Current Space Workflow Model
 
@@ -355,7 +356,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 - **Toolkit picker** — enable/disable toolkits per session (also via `/toolkit` command)
 - **Extensions panel** — inspect shared toolkits, upload/remove contrib toolkits, and view/add/setup/remove skills from the GUI
 - **Voice features**: Text-to-speech (with voice/language selection), speech-to-text (microphone input)
-- **Per-user memory** — each user gets an isolated SQLite memory database, persistent across sessions and shared across channels
+- **Backend-managed memory** — Assistant memory now relies on the backend memory model only, with graph-configurable history, session, and long-term memory behavior
 - **Per-user spaces** — each authenticated user gets isolated spaces with one persisted current workflow per space
 - **Multi-user support** — multiple users connecting to the same server each get their own agent instance via `ChannelAgentPool`
 - **Proactive suggestions** via WebSocket
@@ -804,7 +805,10 @@ python -m unittest tests.test_frontend_starter_smoke -v
 This browser smoke requires:
 - Node.js
 - `web/node_modules` with Playwright installed
-- Microsoft Edge available locally
+- Playwright Chromium installed via `npx playwright install chromium`
+
+On machines where local policy blocks browser launch, the smoke test now skips
+cleanly instead of failing the whole suite.
 
 ### Login Flow
 
@@ -882,7 +886,16 @@ Numel provides per-user isolation at the platform level for memory, spaces, exec
 
 ### Memory
 
-The `UserMemoryDB` manager resolves user identities to separate SQLite database files:
+Numel now uses **backend-managed memory only**. The graph-level memory model is
+carried by nodes such as:
+
+- `history_manager_config`
+- `session_manager_config`
+- `memory_manager_config`
+
+At runtime, the backend still uses per-user database paths so each user or
+anonymous channel identity stays isolated. The `UserMemoryDB` helper resolves
+those identities to separate SQLite files:
 
 | User Type | Database Path | Lifetime |
 |-----------|---------------|----------|
@@ -890,7 +903,10 @@ The `UserMemoryDB` manager resolves user identities to separate SQLite database 
 | Anonymous channel user | `${NUMEL_DATA_ROOT:-storage}/user_memory/anon_{channel}_{sender_id}.db` | Persistent |
 **Cross-channel identity**: An authenticated user always resolves to the same database. If user "marco" chats via the web console and also via Telegram (after `/login`), both sessions share `user_{marco_id}.db`.
 
-**Framework-agnostic**: `UserMemoryDB` only manages file paths — it doesn't import any agent framework. The caller (agno, langchain, openai agents sdk, etc.) wraps the path in its own DB abstraction. Switching agent frameworks doesn't require changes to the memory layer.
+**Framework-agnostic**: `UserMemoryDB` only manages backend memory file paths —
+it doesn't import any agent framework. The caller wraps the path in its own DB
+abstraction. Switching agent frameworks does not require changes to the memory
+layer.
 
 ### Spaces
 
@@ -1130,7 +1146,7 @@ All endpoints use **POST** method unless otherwise noted.
 ### Console Agent
 | Endpoint | Description |
 |----------|-------------|
-| `/console/start` | Start console agent (model, toolkits, memory) |
+| `/console/start` | Start console agent (model, toolkits, backend-managed memory config) |
 | `/console/stop` | Stop console agent |
 | `/console/chat` | Send message — routes `/commands` through `ChannelCommandHandler`, per-user agents via pool |
 | `/console/status` | Agent status (model, toolkits, sessions) |
@@ -1144,12 +1160,7 @@ All endpoints use **POST** method unless otherwise noted.
 | `/console/planner/apply` | Apply workflow JSON directly |
 | `/console/workflow` | Export the current Assistant as a workflow |
 | `/console/workflow/apply` | Apply a console-shaped workflow back into the live Assistant |
-| `/console/memory/search` | Search agent memory |
-| `/console/memory/add` | Add a memory entry |
-| `/console/memory/recent` | Get recent memories |
-| `/console/memory/delete` | Delete a memory entry |
-| `/console/memory/clear` | Clear all agent memory |
-| `/console/memory/stats` | Memory store statistics |
+| `/console/memory/clear` | Clear backend-managed assistant memory |
 
 ### Toolkits
 | Endpoint | Description |

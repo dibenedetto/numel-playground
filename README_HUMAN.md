@@ -123,6 +123,7 @@ This runs the real **local/reference slice**:
 - local accounts and sign-in
 - local database storage
 - spaces, workflows, assistants, deployments, and apps
+- the same workbench and operator surfaces described in the rest of this guide
 
 ### 2. Run It With Docker
 
@@ -156,6 +157,9 @@ The important distinction is:
 
 So if you want the simplest path, use Python directly.
 If you want a containerized local setup, use the root Docker files.
+
+After sign-in, the UI now auto-connects to the backend by itself. You do not
+need a separate manual “Connect” step in the normal local flow.
 
 ## What You Can Do With It
 
@@ -277,6 +281,11 @@ If you want the operator-oriented explanation rather than the design-oriented
 one, see [docs/assistant-deployment-operations.md](docs/assistant-deployment-operations.md).
 
 Assistant deployments can also be opened into the workbench as a live network graph and applied back from the workbench later. That means the operational side of Numel is increasingly using the same workflow language as the design side.
+
+The same idea now applies to Assistant memory too: memory behavior is part of
+the backend/runtime model, and the main controls are the graph-shaped ones for
+history, session memory, and long-term memory rather than a separate manual
+memory store.
 
 ### Handoff
 

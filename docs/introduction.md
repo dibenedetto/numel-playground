@@ -44,9 +44,9 @@ The server starts on port 11360 by default.
 ### Connecting the Frontend
 
 1. Open `web/index.html` in your browser (serve via any static file server, or open directly)
-2. Enter the server URL (default: `http://localhost:11360`) in the connection panel
+2. Enter the server URL (default: `http://localhost:11360`) in the connection panel if it is not already set
 3. Sign in or create an account
-4. Click **Connect** — the status indicator turns green when connected
+4. Wait for the UI to auto-connect — the status indicator turns green when connected
 
 ### Current Space and Current Workflow
 
