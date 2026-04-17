@@ -131,6 +131,7 @@ class NumelAPI {
 	getWorkflow()                 { return this.json('/workflow/get'); }
 	validateWorkflow(workflow, opts = {}) { return this.json('/workflow/validate', { workflow, ...opts }); }
 	saveWorkflow(workflow)        { return this.json('/workflow/save', { workflow }); }
+	ensureWorkflowImpl()          { return this.json('/workflow/impl'); }
 	deleteWorkflow()              { return this.json('/workflow/delete'); }
 	startWorkflow(data = null)    { return this.json('/workflow/start', { initial_data: data }); }
 	getExecState(executionId)     { return this.json(`/executions/${encodeURIComponent(executionId)}`); }

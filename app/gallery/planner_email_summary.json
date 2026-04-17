@@ -1,82 +1,208 @@
 {
-	"id": "planner01",
-	"title": "Planner: Email Inbox Summary",
-	"description": "Planner-built workflow: fetches unread emails via IMAP, summarizes them with an agent, and previews the result. Demonstrates the observe-plan-build-run cycle.",
-	"category": "planner",
-	"tags": ["planner", "email", "agent", "summary", "automated"],
-	"author": "planner",
-	"created_at": 1742486400.0,
-	"workflow": {
-		"type": "workflow",
-		"nodes": [
-			{
-				"type": "start_flow",
-				"extra": {"pos": [50, 200], "name": "Start"}
-			},
-			{
-				"type": "toolkit_config",
-				"name": "email_toolkit",
-				"args": {"smtp_host": "smtp.gmail.com", "smtp_port": 587, "username": "${EMAIL_USER}", "password": "${EMAIL_PASS}"},
-				"extra": {"pos": [50, 50], "name": "Email Toolkit"}
-			},
-			{
-				"type": "tool_flow",
-				"method": "fetch",
-				"args": {"folder": "INBOX", "limit": 5, "unread": true},
-				"extra": {"pos": [300, 200], "name": "Fetch Emails"}
-			},
-			{
-				"type": "backend_config",
-				"name": "agno",
-				"extra": {"pos": [300, 50], "name": "Backend"}
-			},
-			{
-				"type": "model_config",
-				"source": "ollama",
-				"name": "mistral",
-				"extra": {"pos": [500, 50], "name": "Model"}
-			},
-			{
-				"type": "agent_options_config",
-				"instructions": ["Summarize the following emails concisely. For each email, give: sender, subject, and a one-line summary. End with an overall priority assessment."],
-				"extra": {"pos": [700, 50], "name": "Instructions"}
-			},
-			{
-				"type": "agent_config",
-				"extra": {"pos": [900, 100], "name": "Summarizer Agent"}
-			},
-			{
-				"type": "agent_flow",
-				"extra": {"pos": [600, 200], "name": "Summarize"}
-			},
-			{
-				"type": "preview_flow",
-				"hint": "text",
-				"extra": {"pos": [850, 200], "name": "Summary Preview"}
-			},
-			{
-				"type": "eval_flow",
-				"script": "score = 0.8 if input and len(str(input)) > 50 else 0.2\nfeedback = 'Good summary' if score > 0.5 else 'Summary too short'",
-				"extra": {"pos": [1050, 200], "name": "Evaluate"}
-			},
-			{
-				"type": "end_flow",
-				"extra": {"pos": [1250, 200], "name": "End"}
-			}
-		],
-		"edges": [
-			{"source": 0, "target": 2, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 1, "target": 2, "source_slot": "config", "target_slot": "config"},
-			{"source": 2, "target": 7, "source_slot": "output", "target_slot": "request"},
-			{"source": 2, "target": 7, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 3, "target": 6, "source_slot": "config", "target_slot": "backend"},
-			{"source": 4, "target": 6, "source_slot": "config", "target_slot": "model"},
-			{"source": 5, "target": 6, "source_slot": "options", "target_slot": "options"},
-			{"source": 6, "target": 7, "source_slot": "config", "target_slot": "config"},
-			{"source": 7, "target": 8, "source_slot": "response", "target_slot": "flow_in"},
-			{"source": 8, "target": 9, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 7, "target": 9, "source_slot": "response", "target_slot": "input"},
-			{"source": 9, "target": 10, "source_slot": "flow_out", "target_slot": "flow_in"}
-		]
-	}
+  "id": "planner01",
+  "title": "Planner: Email Inbox Summary",
+  "description": "Planner-built workflow: fetches unread emails via IMAP, summarizes them with an agent, and previews the result. Demonstrates the observe-plan-build-run cycle.",
+  "category": "planner",
+  "tags": [
+    "planner",
+    "email",
+    "agent",
+    "summary",
+    "automated"
+  ],
+  "author": "planner",
+  "created_at": 1742486400.0,
+  "workflow": {
+    "type": "workflow",
+    "nodes": [
+      {
+        "type": "start_flow",
+        "extra": {
+          "pos": [
+            50,
+            200
+          ],
+          "name": "Start"
+        }
+      },
+      {
+        "type": "toolkit_config",
+        "name": "email_toolkit",
+        "args": {
+          "smtp_host": "smtp.gmail.com",
+          "smtp_port": 587,
+          "username": "${EMAIL_USER}",
+          "password": "${EMAIL_PASS}"
+        },
+        "extra": {
+          "pos": [
+            50,
+            50
+          ],
+          "name": "Email Toolkit"
+        }
+      },
+      {
+        "type": "tool_flow",
+        "method": "fetch",
+        "args": {
+          "folder": "INBOX",
+          "limit": 5,
+          "unread": true
+        },
+        "extra": {
+          "pos": [
+            300,
+            200
+          ],
+          "name": "Fetch Emails"
+        }
+      },
+      {
+        "type": "model_config",
+        "source": "ollama",
+        "name": "mistral",
+        "extra": {
+          "pos": [
+            500,
+            50
+          ],
+          "name": "Model"
+        }
+      },
+      {
+        "type": "agent_options_config",
+        "instructions": [
+          "Summarize the following emails concisely. For each email, give: sender, subject, and a one-line summary. End with an overall priority assessment."
+        ],
+        "extra": {
+          "pos": [
+            700,
+            50
+          ],
+          "name": "Instructions"
+        }
+      },
+      {
+        "type": "agent_config",
+        "extra": {
+          "pos": [
+            900,
+            100
+          ],
+          "name": "Summarizer Agent"
+        }
+      },
+      {
+        "type": "agent_flow",
+        "extra": {
+          "pos": [
+            600,
+            200
+          ],
+          "name": "Summarize"
+        }
+      },
+      {
+        "type": "preview_flow",
+        "hint": "text",
+        "extra": {
+          "pos": [
+            850,
+            200
+          ],
+          "name": "Summary Preview"
+        }
+      },
+      {
+        "type": "eval_flow",
+        "script": "score = 0.8 if input and len(str(input)) > 50 else 0.2\nfeedback = 'Good summary' if score > 0.5 else 'Summary too short'",
+        "extra": {
+          "pos": [
+            1050,
+            200
+          ],
+          "name": "Evaluate"
+        }
+      },
+      {
+        "type": "end_flow",
+        "extra": {
+          "pos": [
+            1250,
+            200
+          ],
+          "name": "End"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": 0,
+        "target": 2,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 1,
+        "target": 2,
+        "source_slot": "config",
+        "target_slot": "config"
+      },
+      {
+        "source": 2,
+        "target": 6,
+        "source_slot": "output",
+        "target_slot": "request"
+      },
+      {
+        "source": 2,
+        "target": 6,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 3,
+        "target": 5,
+        "source_slot": "config",
+        "target_slot": "model"
+      },
+      {
+        "source": 4,
+        "target": 5,
+        "source_slot": "options",
+        "target_slot": "options"
+      },
+      {
+        "source": 5,
+        "target": 6,
+        "source_slot": "config",
+        "target_slot": "config"
+      },
+      {
+        "source": 6,
+        "target": 7,
+        "source_slot": "response",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 7,
+        "target": 8,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 6,
+        "target": 8,
+        "source_slot": "response",
+        "target_slot": "input"
+      },
+      {
+        "source": 8,
+        "target": 9,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      }
+    ]
+  }
 }

@@ -34,11 +34,10 @@ Options ──┘                        │
 
 ### Configuration Layer
 
-Five config nodes feed into the Agent Config:
+The agent config is driven by the model, tools, and instructions. The backend is implicit today because Numel currently ships a single agent backend.
 
 | Node | Type | Purpose |
 |------|------|---------|
-| Backend | `backend_config` | Selects the agent backend |
 | Model (Ollama/Mistral) | `model_config` | Selects the LLM provider and model |
 | Tool: List Dir | `tool_config` | Registers `app.tools.list_directory` |
 | Tool: Read File | `tool_config` | Registers `app.tools.read_file` |

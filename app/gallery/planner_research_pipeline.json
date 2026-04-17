@@ -1,109 +1,272 @@
 {
-	"id": "planner05",
-	"title": "Planner: Research & Report Pipeline",
-	"description": "Multi-step pipeline: user provides a topic, a search toolkit finds information, an agent synthesizes a report, eval scores the quality, and if insufficient the agent is asked to improve. Shows the planner building complex data pipelines.",
-	"category": "planner",
-	"tags": ["planner", "search", "research", "report", "eval", "pipeline"],
-	"author": "planner",
-	"created_at": 1742486400.0,
-	"workflow": {
-		"type": "workflow",
-		"nodes": [
-			{
-				"type": "start_flow",
-				"extra": {"pos": [50, 300], "name": "Start"}
-			},
-			{
-				"type": "user_input_flow",
-				"query": "What topic should I research?",
-				"extra": {"pos": [250, 300], "name": "Get Topic"}
-			},
-			{
-				"type": "toolkit_config",
-				"name": "search_toolkit",
-				"args": {"engine": "duckduckgo"},
-				"extra": {"pos": [250, 100], "name": "Search Engine"}
-			},
-			{
-				"type": "tool_flow",
-				"method": "search",
-				"args": {"max_results": 5},
-				"extra": {"pos": [500, 300], "name": "Web Search"}
-			},
-			{
-				"type": "preview_flow",
-				"hint": "json",
-				"extra": {"pos": [700, 450], "name": "Search Results"}
-			},
-			{
-				"type": "backend_config",
-				"name": "agno",
-				"extra": {"pos": [500, 50], "name": "Backend"}
-			},
-			{
-				"type": "model_config",
-				"source": "ollama",
-				"name": "mistral",
-				"extra": {"pos": [700, 50], "name": "Model"}
-			},
-			{
-				"type": "agent_options_config",
-				"instructions": [
-					"You are a research analyst. Given search results about a topic, write a structured report with:",
-					"1. Executive Summary (2-3 sentences)",
-					"2. Key Findings (bullet points)",
-					"3. Sources (list URLs)",
-					"Be factual — only use information from the provided search results."
-				],
-				"extra": {"pos": [900, 50], "name": "Analyst Prompt"}
-			},
-			{
-				"type": "agent_config",
-				"extra": {"pos": [1100, 100], "name": "Research Agent"}
-			},
-			{
-				"type": "transform_flow",
-				"lang": "python",
-				"script": "topic = variables.get('topic', '')\nresults = input or ''\noutput = f'Research topic: {topic}\\n\\nSearch results:\\n{results}\\n\\nWrite a structured report.'",
-				"extra": {"pos": [750, 300], "name": "Build Prompt"}
-			},
-			{
-				"type": "agent_flow",
-				"extra": {"pos": [1000, 300], "name": "Write Report"}
-			},
-			{
-				"type": "preview_flow",
-				"hint": "text",
-				"extra": {"pos": [1250, 300], "name": "Report Preview"}
-			},
-			{
-				"type": "eval_flow",
-				"script": "text = str(input or '')\nhas_summary = 'summary' in text.lower() or 'executive' in text.lower()\nhas_findings = 'finding' in text.lower() or 'key' in text.lower()\nhas_sources = 'source' in text.lower() or 'http' in text.lower()\nsections = sum([has_summary, has_findings, has_sources])\nscore = sections / 3.0\nfeedback = f'{sections}/3 sections present'",
-				"extra": {"pos": [1450, 300], "name": "Score Report"}
-			},
-			{
-				"type": "end_flow",
-				"extra": {"pos": [1650, 300], "name": "Done"}
-			}
-		],
-		"edges": [
-			{"source": 0, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 1, "target": 3, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 1, "target": 3, "source_slot": "message", "target_slot": "args"},
-			{"source": 2, "target": 3, "source_slot": "config", "target_slot": "config"},
-			{"source": 3, "target": 4, "source_slot": "output", "target_slot": "flow_in"},
-			{"source": 3, "target": 9, "source_slot": "output", "target_slot": "input"},
-			{"source": 3, "target": 9, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 5, "target": 8, "source_slot": "config", "target_slot": "backend"},
-			{"source": 6, "target": 8, "source_slot": "config", "target_slot": "model"},
-			{"source": 7, "target": 8, "source_slot": "options", "target_slot": "options"},
-			{"source": 8, "target": 10, "source_slot": "config", "target_slot": "config"},
-			{"source": 9, "target": 10, "source_slot": "output", "target_slot": "request"},
-			{"source": 9, "target": 10, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 10, "target": 11, "source_slot": "response", "target_slot": "flow_in"},
-			{"source": 11, "target": 12, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 10, "target": 12, "source_slot": "response", "target_slot": "input"},
-			{"source": 12, "target": 13, "source_slot": "flow_out", "target_slot": "flow_in"}
-		]
-	}
+  "id": "planner05",
+  "title": "Planner: Research & Report Pipeline",
+  "description": "Multi-step pipeline: user provides a topic, a search toolkit finds information, an agent synthesizes a report, eval scores the quality, and if insufficient the agent is asked to improve. Shows the planner building complex data pipelines.",
+  "category": "planner",
+  "tags": [
+    "planner",
+    "search",
+    "research",
+    "report",
+    "eval",
+    "pipeline"
+  ],
+  "author": "planner",
+  "created_at": 1742486400.0,
+  "workflow": {
+    "type": "workflow",
+    "nodes": [
+      {
+        "type": "start_flow",
+        "extra": {
+          "pos": [
+            50,
+            300
+          ],
+          "name": "Start"
+        }
+      },
+      {
+        "type": "user_input_flow",
+        "query": "What topic should I research?",
+        "extra": {
+          "pos": [
+            250,
+            300
+          ],
+          "name": "Get Topic"
+        }
+      },
+      {
+        "type": "toolkit_config",
+        "name": "search_toolkit",
+        "args": {
+          "engine": "duckduckgo"
+        },
+        "extra": {
+          "pos": [
+            250,
+            100
+          ],
+          "name": "Search Engine"
+        }
+      },
+      {
+        "type": "tool_flow",
+        "method": "search",
+        "args": {
+          "max_results": 5
+        },
+        "extra": {
+          "pos": [
+            500,
+            300
+          ],
+          "name": "Web Search"
+        }
+      },
+      {
+        "type": "preview_flow",
+        "hint": "json",
+        "extra": {
+          "pos": [
+            700,
+            450
+          ],
+          "name": "Search Results"
+        }
+      },
+      {
+        "type": "model_config",
+        "source": "ollama",
+        "name": "mistral",
+        "extra": {
+          "pos": [
+            700,
+            50
+          ],
+          "name": "Model"
+        }
+      },
+      {
+        "type": "agent_options_config",
+        "instructions": [
+          "You are a research analyst. Given search results about a topic, write a structured report with:",
+          "1. Executive Summary (2-3 sentences)",
+          "2. Key Findings (bullet points)",
+          "3. Sources (list URLs)",
+          "Be factual — only use information from the provided search results."
+        ],
+        "extra": {
+          "pos": [
+            900,
+            50
+          ],
+          "name": "Analyst Prompt"
+        }
+      },
+      {
+        "type": "agent_config",
+        "extra": {
+          "pos": [
+            1100,
+            100
+          ],
+          "name": "Research Agent"
+        }
+      },
+      {
+        "type": "transform_flow",
+        "lang": "python",
+        "script": "topic = variables.get('topic', '')\nresults = input or ''\noutput = f'Research topic: {topic}\\n\\nSearch results:\\n{results}\\n\\nWrite a structured report.'",
+        "extra": {
+          "pos": [
+            750,
+            300
+          ],
+          "name": "Build Prompt"
+        }
+      },
+      {
+        "type": "agent_flow",
+        "extra": {
+          "pos": [
+            1000,
+            300
+          ],
+          "name": "Write Report"
+        }
+      },
+      {
+        "type": "preview_flow",
+        "hint": "text",
+        "extra": {
+          "pos": [
+            1250,
+            300
+          ],
+          "name": "Report Preview"
+        }
+      },
+      {
+        "type": "eval_flow",
+        "script": "text = str(input or '')\nhas_summary = 'summary' in text.lower() or 'executive' in text.lower()\nhas_findings = 'finding' in text.lower() or 'key' in text.lower()\nhas_sources = 'source' in text.lower() or 'http' in text.lower()\nsections = sum([has_summary, has_findings, has_sources])\nscore = sections / 3.0\nfeedback = f'{sections}/3 sections present'",
+        "extra": {
+          "pos": [
+            1450,
+            300
+          ],
+          "name": "Score Report"
+        }
+      },
+      {
+        "type": "end_flow",
+        "extra": {
+          "pos": [
+            1650,
+            300
+          ],
+          "name": "Done"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": 0,
+        "target": 1,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 1,
+        "target": 3,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 1,
+        "target": 3,
+        "source_slot": "message",
+        "target_slot": "args"
+      },
+      {
+        "source": 2,
+        "target": 3,
+        "source_slot": "config",
+        "target_slot": "config"
+      },
+      {
+        "source": 3,
+        "target": 4,
+        "source_slot": "output",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 3,
+        "target": 8,
+        "source_slot": "output",
+        "target_slot": "input"
+      },
+      {
+        "source": 3,
+        "target": 8,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 5,
+        "target": 7,
+        "source_slot": "config",
+        "target_slot": "model"
+      },
+      {
+        "source": 6,
+        "target": 7,
+        "source_slot": "options",
+        "target_slot": "options"
+      },
+      {
+        "source": 7,
+        "target": 9,
+        "source_slot": "config",
+        "target_slot": "config"
+      },
+      {
+        "source": 8,
+        "target": 9,
+        "source_slot": "output",
+        "target_slot": "request"
+      },
+      {
+        "source": 8,
+        "target": 9,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 9,
+        "target": 10,
+        "source_slot": "response",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 10,
+        "target": 11,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 9,
+        "target": 11,
+        "source_slot": "response",
+        "target_slot": "input"
+      },
+      {
+        "source": 11,
+        "target": 12,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      }
+    ]
+  }
 }

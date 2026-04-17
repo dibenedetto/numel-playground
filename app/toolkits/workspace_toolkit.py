@@ -19,10 +19,10 @@ from toolkits.http_helpers import ToolkitHttpSession
 
 _NODE_CATALOGUE = """
 CONFIG NODES
-  backend_config          – Agent backend. Fields: name, version, fallback
+  backend_config          – Optional agent backend choice when Numel exposes more than one backend
   model_config            – LLM model.    Fields: source (ollama/openai/anthropic/…), name
   agent_options_config    – Agent persona. Fields: name, instructions[], markdown, show_tool_calls
-  agent_config            – Wires backend+model+options → agent
+  agent_config            – Wires model+options → agent; backend is implicit unless explicitly exposed
   toolkit_config          – Python toolkit module. Fields: name (module path), args (dict)
   tool_config             – Single inline tool (Python). Fields: name, description, lang, script
 

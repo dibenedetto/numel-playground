@@ -3,7 +3,13 @@
   "title": "Assistant Deployments: Support Workbench",
   "description": "A linked workbench for support-oriented assistant deployments, combining a knowledge base, file access, and an agent surface you can tie to channel deployments.",
   "category": "assistant-deployments",
-  "tags": ["assistant", "deployment", "support", "knowledge", "channel"],
+  "tags": [
+    "assistant",
+    "deployment",
+    "support",
+    "knowledge",
+    "channel"
+  ],
   "author": "system",
   "created_at": 1775952000.0,
   "workflow": {
@@ -13,8 +19,18 @@
       "description": "A support assistant workbench that can be linked to channel deployments."
     },
     "nodes": [
-      { "type": "backend_config", "name": "agno", "extra": { "pos": [40, 60], "name": "Backend" } },
-      { "type": "model_config", "source": "ollama", "name": "mistral", "extra": { "pos": [240, 60], "name": "Model" } },
+      {
+        "type": "model_config",
+        "source": "ollama",
+        "name": "mistral",
+        "extra": {
+          "pos": [
+            240,
+            60
+          ],
+          "name": "Model"
+        }
+      },
       {
         "type": "agent_options_config",
         "instructions": [
@@ -22,48 +38,234 @@
           "Stay grounded in the connected knowledge base and local files.",
           "Prefer concise, helpful answers that explain what the operator should do next."
         ],
-        "extra": { "pos": [440, 60], "name": "Support Instructions" }
+        "extra": {
+          "pos": [
+            440,
+            60
+          ],
+          "name": "Support Instructions"
+        }
       },
-      { "type": "content_db_config", "url": "storage/support_knowledge/content", "extra": { "pos": [640, 60], "name": "Content DB" } },
-      { "type": "embedding_config", "source": "ollama", "name": "mistral", "extra": { "pos": [840, 60], "name": "Embedding" } },
-      { "type": "index_db_config", "url": "storage/support_knowledge/index", "table_name": "documents", "search_type": "hybrid", "extra": { "pos": [1040, 60], "name": "Index DB" } },
+      {
+        "type": "content_db_config",
+        "url": "storage/support_knowledge/content",
+        "extra": {
+          "pos": [
+            640,
+            60
+          ],
+          "name": "Content DB"
+        }
+      },
+      {
+        "type": "embedding_config",
+        "source": "ollama",
+        "name": "mistral",
+        "extra": {
+          "pos": [
+            840,
+            60
+          ],
+          "name": "Embedding"
+        }
+      },
+      {
+        "type": "index_db_config",
+        "url": "storage/support_knowledge/index",
+        "table_name": "documents",
+        "search_type": "hybrid",
+        "extra": {
+          "pos": [
+            1040,
+            60
+          ],
+          "name": "Index DB"
+        }
+      },
       {
         "type": "knowledge_manager_config",
         "query": true,
         "update": false,
         "description": "Support knowledge the deployment can use while answering customers.",
         "max_results": 8,
-        "extra": { "pos": [1240, 120], "name": "Support Knowledge" }
+        "extra": {
+          "pos": [
+            1240,
+            120
+          ],
+          "name": "Support Knowledge"
+        }
       },
-      { "type": "toolkit_config", "name": "toolkits.knowledge_toolkit", "extra": { "pos": [640, 220], "name": "Knowledge Toolkit" } },
-      { "type": "toolkit_config", "name": "toolkits.file_toolkit", "extra": { "pos": [840, 220], "name": "File Toolkit" } },
-      { "type": "agent_config", "extra": { "pos": [1440, 140], "name": "Support Assistant" } },
-      { "type": "start_flow", "extra": { "pos": [40, 340], "name": "Start" } },
+      {
+        "type": "toolkit_config",
+        "name": "toolkits.knowledge_toolkit",
+        "extra": {
+          "pos": [
+            640,
+            220
+          ],
+          "name": "Knowledge Toolkit"
+        }
+      },
+      {
+        "type": "toolkit_config",
+        "name": "toolkits.file_toolkit",
+        "extra": {
+          "pos": [
+            840,
+            220
+          ],
+          "name": "File Toolkit"
+        }
+      },
+      {
+        "type": "agent_config",
+        "extra": {
+          "pos": [
+            1440,
+            140
+          ],
+          "name": "Support Assistant"
+        }
+      },
+      {
+        "type": "start_flow",
+        "extra": {
+          "pos": [
+            40,
+            340
+          ],
+          "name": "Start"
+        }
+      },
       {
         "type": "user_input_flow",
         "query": "What support issue do you want to investigate?",
-        "extra": { "pos": [320, 340], "name": "Support Question" }
+        "extra": {
+          "pos": [
+            320,
+            340
+          ],
+          "name": "Support Question"
+        }
       },
-      { "type": "agent_flow", "extra": { "pos": [680, 340], "name": "Answer Support Issue" } },
-      { "type": "preview_flow", "hint": "text", "extra": { "pos": [940, 340], "name": "Answer Preview" } },
-      { "type": "end_flow", "extra": { "pos": [1200, 340], "name": "End" } }
+      {
+        "type": "agent_flow",
+        "extra": {
+          "pos": [
+            680,
+            340
+          ],
+          "name": "Answer Support Issue"
+        }
+      },
+      {
+        "type": "preview_flow",
+        "hint": "text",
+        "extra": {
+          "pos": [
+            940,
+            340
+          ],
+          "name": "Answer Preview"
+        }
+      },
+      {
+        "type": "end_flow",
+        "extra": {
+          "pos": [
+            1200,
+            340
+          ],
+          "name": "End"
+        }
+      }
     ],
     "edges": [
-      { "source": 0, "target": 9, "source_slot": "config", "target_slot": "backend" },
-      { "source": 1, "target": 9, "source_slot": "config", "target_slot": "model" },
-      { "source": 2, "target": 9, "source_slot": "options", "target_slot": "options" },
-      { "source": 3, "target": 6, "source_slot": "config", "target_slot": "content_db" },
-      { "source": 4, "target": 5, "source_slot": "config", "target_slot": "embedding" },
-      { "source": 5, "target": 6, "source_slot": "config", "target_slot": "index_db" },
-      { "source": 6, "target": 9, "source_slot": "config", "target_slot": "knowledge_mgr" },
-      { "source": 7, "target": 9, "source_slot": "config", "target_slot": "toolkits.knowledge" },
-      { "source": 8, "target": 9, "source_slot": "config", "target_slot": "toolkits.files" },
-      { "source": 9, "target": 12, "source_slot": "config", "target_slot": "config" },
-      { "source": 10, "target": 11, "source_slot": "flow_out", "target_slot": "flow_in" },
-      { "source": 11, "target": 12, "source_slot": "message", "target_slot": "request" },
-      { "source": 11, "target": 12, "source_slot": "flow_out", "target_slot": "flow_in" },
-      { "source": 12, "target": 13, "source_slot": "response", "target_slot": "flow_in" },
-      { "source": 13, "target": 14, "source_slot": "flow_out", "target_slot": "flow_in" }
+      {
+        "source": 0,
+        "target": 8,
+        "source_slot": "config",
+        "target_slot": "model"
+      },
+      {
+        "source": 1,
+        "target": 8,
+        "source_slot": "options",
+        "target_slot": "options"
+      },
+      {
+        "source": 2,
+        "target": 5,
+        "source_slot": "config",
+        "target_slot": "content_db"
+      },
+      {
+        "source": 3,
+        "target": 4,
+        "source_slot": "config",
+        "target_slot": "embedding"
+      },
+      {
+        "source": 4,
+        "target": 5,
+        "source_slot": "config",
+        "target_slot": "index_db"
+      },
+      {
+        "source": 5,
+        "target": 8,
+        "source_slot": "config",
+        "target_slot": "knowledge_mgr"
+      },
+      {
+        "source": 6,
+        "target": 8,
+        "source_slot": "config",
+        "target_slot": "toolkits.knowledge"
+      },
+      {
+        "source": 7,
+        "target": 8,
+        "source_slot": "config",
+        "target_slot": "toolkits.files"
+      },
+      {
+        "source": 8,
+        "target": 11,
+        "source_slot": "config",
+        "target_slot": "config"
+      },
+      {
+        "source": 9,
+        "target": 10,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 10,
+        "target": 11,
+        "source_slot": "message",
+        "target_slot": "request"
+      },
+      {
+        "source": 10,
+        "target": 11,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 11,
+        "target": 12,
+        "source_slot": "response",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 12,
+        "target": 13,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      }
     ]
   }
 }

@@ -127,6 +127,7 @@ class SchemaGraphApp {
 		this.lockOverlays = false;
 
 		this._hiddenFieldNames = [];
+		this._hiddenWorkflowTypes = new Set();
 
 		this._hoveredButton = null;
 		this._activeDropNode = null;
@@ -4663,6 +4664,7 @@ class SchemaGraphApp {
 
 					// Paired nodes: skip the end type (shown merged into the start entry)
 					const nodeWorkflowType = schemaDefaults[modelName]?.type;
+					if (nodeWorkflowType && this._hiddenWorkflowTypes.has(nodeWorkflowType)) continue;
 					if (nodeWorkflowType && this._setTypes[nodeWorkflowType] && !this._pairedNodeStarts.has(nodeWorkflowType)) continue;
 
 					// If this is a pair start, find the partner's display title
@@ -11047,6 +11049,12 @@ class SchemaGraphApp {
 					if (config.hiddenFields) {
 						self._hiddenFieldNames = Array.isArray(config.hiddenFields)
 							? config.hiddenFields : [config.hiddenFields];
+					}
+					if (Object.prototype.hasOwnProperty.call(config, 'hiddenWorkflowTypes')) {
+						const hiddenTypes = Array.isArray(config.hiddenWorkflowTypes)
+							? config.hiddenWorkflowTypes
+							: (config.hiddenWorkflowTypes ? [config.hiddenWorkflowTypes] : []);
+						self._hiddenWorkflowTypes = new Set(hiddenTypes.map((value) => String(value || '').trim()).filter(Boolean));
 					}
 					if (config.pairedNodes) {
 						// Array of entries: [startType, endType] or [startType, endType, loopEdge]

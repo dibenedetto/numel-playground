@@ -379,6 +379,36 @@ async def run_server(
 		except PlatformRequestError as exc:
 			_platform_http_error(exc)
 
+	@app.post("/auth/preferences/update")
+	async def auth_update_preferences(request: Request):
+		user = request.state.user
+		if not user:
+			raise HTTPException(401, "Not authenticated")
+		try:
+			body = await request.json()
+		except Exception:
+			raise HTTPException(400, "Invalid JSON body")
+		ui_preferences = body.get("ui_preferences")
+		if not isinstance(ui_preferences, dict):
+			raise HTTPException(400, "ui_preferences must be an object")
+		try:
+			bundle = await _platform.post_json(f"/platform/users/{user.id}", {})
+			profile_payload = bundle.get("profile") if isinstance(bundle, dict) else {}
+			profile_payload = profile_payload if isinstance(profile_payload, dict) else {}
+			metadata = dict(profile_payload.get("metadata") or {})
+			current_preferences = metadata.get("ui_preferences")
+			current_preferences = dict(current_preferences) if isinstance(current_preferences, dict) else {}
+			current_preferences.update(ui_preferences)
+			metadata["ui_preferences"] = current_preferences
+			await _platform.update_profile(user.id, metadata=metadata)
+			updated_bundle = await _platform.post_json(f"/platform/users/{user.id}", {})
+			return {
+				"profile": updated_bundle.get("profile"),
+				"ui_preferences": current_preferences,
+			}
+		except PlatformRequestError as exc:
+			_platform_http_error(exc)
+
 	@app.post("/auth/status")
 	async def auth_status():
 		"""Check the active auth backend and whether any local users exist."""

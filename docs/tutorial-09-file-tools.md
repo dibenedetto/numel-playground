@@ -43,17 +43,16 @@ Two layers:
 
 | # | Node | Type | Purpose |
 |---|------|------|---------|
-| 0 | Backend | `backend_config` | Agent backend |
-| 1 | Model (Ollama/Mistral) | `model_config` | LLM provider |
-| 2 | Agent Options | `agent_options_config` | Base instructions |
-| 3 | Tool: Read File | `tool_config` | Declares `tools.read_file` |
-| 4 | Tool: Write File | `tool_config` | Registers `tools.write_file` as agent tool |
-| 5 | Agent Config | `agent_config` | Combines all config |
-| 6 | Start | `start_flow` | Flow entry point |
-| 7 | Load Prompt File | `tool_flow` | Calls `read_file(path="prompt.txt")` |
-| 8 | Agent Chat | `agent_chat` | Interactive chat UI with request/response |
-| 9 | Response Preview | `preview_flow` | Shows the agent's last response |
-| 10 | End | `end_flow` | Flow exit |
+| 0 | Model (Ollama/Mistral) | `model_config` | LLM provider |
+| 1 | Agent Options | `agent_options_config` | Base instructions |
+| 2 | Tool: Read File | `tool_config` | Declares `tools.read_file` |
+| 3 | Tool: Write File | `tool_config` | Registers `tools.write_file` as agent tool |
+| 4 | Agent Config | `agent_config` | Combines all config; backend is implicit today |
+| 5 | Start | `start_flow` | Flow entry point |
+| 6 | Load Prompt File | `tool_flow` | Calls `read_file(path="prompt.txt")` |
+| 7 | Agent Chat | `agent_chat` | Interactive chat UI with request/response |
+| 8 | Response Preview | `preview_flow` | Shows the agent's last response |
+| 9 | End | `end_flow` | Flow exit |
 
 ## Key Concepts
 

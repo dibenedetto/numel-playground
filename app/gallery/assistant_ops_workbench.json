@@ -3,7 +3,13 @@
   "title": "Assistant Deployments: Ops Workbench",
   "description": "A linked workbench for operational assistants that need workspace and file access, and that pair well with proactive deployment jobs.",
   "category": "assistant-deployments",
-  "tags": ["assistant", "deployment", "ops", "workspace", "proactive"],
+  "tags": [
+    "assistant",
+    "deployment",
+    "ops",
+    "workspace",
+    "proactive"
+  ],
   "author": "system",
   "created_at": 1775952000.0,
   "workflow": {
@@ -13,8 +19,18 @@
       "description": "A linked workbench for proactive operational assistant deployments."
     },
     "nodes": [
-      { "type": "backend_config", "name": "agno", "extra": { "pos": [40, 60], "name": "Backend" } },
-      { "type": "model_config", "source": "ollama", "name": "mistral", "extra": { "pos": [240, 60], "name": "Model" } },
+      {
+        "type": "model_config",
+        "source": "ollama",
+        "name": "mistral",
+        "extra": {
+          "pos": [
+            240,
+            60
+          ],
+          "name": "Model"
+        }
+      },
       {
         "type": "agent_options_config",
         "instructions": [
@@ -22,33 +38,160 @@
           "Summarize state clearly, highlight risks early, and suggest concrete next steps.",
           "Prefer compact operator-facing updates over long explanations."
         ],
-        "extra": { "pos": [440, 60], "name": "Ops Instructions" }
+        "extra": {
+          "pos": [
+            440,
+            60
+          ],
+          "name": "Ops Instructions"
+        }
       },
-      { "type": "toolkit_config", "name": "toolkits.workspace_toolkit", "extra": { "pos": [680, 80], "name": "Workspace Toolkit" } },
-      { "type": "toolkit_config", "name": "toolkits.file_toolkit", "extra": { "pos": [900, 80], "name": "File Toolkit" } },
-      { "type": "agent_config", "extra": { "pos": [1160, 120], "name": "Ops Assistant" } },
-      { "type": "start_flow", "extra": { "pos": [40, 260], "name": "Start" } },
+      {
+        "type": "toolkit_config",
+        "name": "toolkits.workspace_toolkit",
+        "extra": {
+          "pos": [
+            680,
+            80
+          ],
+          "name": "Workspace Toolkit"
+        }
+      },
+      {
+        "type": "toolkit_config",
+        "name": "toolkits.file_toolkit",
+        "extra": {
+          "pos": [
+            900,
+            80
+          ],
+          "name": "File Toolkit"
+        }
+      },
+      {
+        "type": "agent_config",
+        "extra": {
+          "pos": [
+            1160,
+            120
+          ],
+          "name": "Ops Assistant"
+        }
+      },
+      {
+        "type": "start_flow",
+        "extra": {
+          "pos": [
+            40,
+            260
+          ],
+          "name": "Start"
+        }
+      },
       {
         "type": "user_input_flow",
         "query": "What should the operations assistant check?",
-        "extra": { "pos": [320, 260], "name": "Ops Prompt" }
+        "extra": {
+          "pos": [
+            320,
+            260
+          ],
+          "name": "Ops Prompt"
+        }
       },
-      { "type": "agent_flow", "extra": { "pos": [620, 260], "name": "Produce Ops Briefing" } },
-      { "type": "preview_flow", "hint": "text", "extra": { "pos": [900, 260], "name": "Briefing Preview" } },
-      { "type": "end_flow", "extra": { "pos": [1160, 260], "name": "End" } }
+      {
+        "type": "agent_flow",
+        "extra": {
+          "pos": [
+            620,
+            260
+          ],
+          "name": "Produce Ops Briefing"
+        }
+      },
+      {
+        "type": "preview_flow",
+        "hint": "text",
+        "extra": {
+          "pos": [
+            900,
+            260
+          ],
+          "name": "Briefing Preview"
+        }
+      },
+      {
+        "type": "end_flow",
+        "extra": {
+          "pos": [
+            1160,
+            260
+          ],
+          "name": "End"
+        }
+      }
     ],
     "edges": [
-      { "source": 0, "target": 5, "source_slot": "config", "target_slot": "backend" },
-      { "source": 1, "target": 5, "source_slot": "config", "target_slot": "model" },
-      { "source": 2, "target": 5, "source_slot": "options", "target_slot": "options" },
-      { "source": 3, "target": 5, "source_slot": "config", "target_slot": "toolkits.workspace" },
-      { "source": 4, "target": 5, "source_slot": "config", "target_slot": "toolkits.files" },
-      { "source": 5, "target": 8, "source_slot": "config", "target_slot": "config" },
-      { "source": 6, "target": 7, "source_slot": "flow_out", "target_slot": "flow_in" },
-      { "source": 7, "target": 8, "source_slot": "message", "target_slot": "request" },
-      { "source": 7, "target": 8, "source_slot": "flow_out", "target_slot": "flow_in" },
-      { "source": 8, "target": 9, "source_slot": "response", "target_slot": "flow_in" },
-      { "source": 9, "target": 10, "source_slot": "flow_out", "target_slot": "flow_in" }
+      {
+        "source": 0,
+        "target": 4,
+        "source_slot": "config",
+        "target_slot": "model"
+      },
+      {
+        "source": 1,
+        "target": 4,
+        "source_slot": "options",
+        "target_slot": "options"
+      },
+      {
+        "source": 2,
+        "target": 4,
+        "source_slot": "config",
+        "target_slot": "toolkits.workspace"
+      },
+      {
+        "source": 3,
+        "target": 4,
+        "source_slot": "config",
+        "target_slot": "toolkits.files"
+      },
+      {
+        "source": 4,
+        "target": 7,
+        "source_slot": "config",
+        "target_slot": "config"
+      },
+      {
+        "source": 5,
+        "target": 6,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 6,
+        "target": 7,
+        "source_slot": "message",
+        "target_slot": "request"
+      },
+      {
+        "source": 6,
+        "target": 7,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 7,
+        "target": 8,
+        "source_slot": "response",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 8,
+        "target": 9,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      }
     ]
   }
 }

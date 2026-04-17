@@ -199,9 +199,14 @@ class ConsoleWorkflowExportTests(unittest.TestCase):
 		manager._use_backend_memory = False
 
 		exported = manager.build_workflow_export()
+		exported["workflow"]["nodes"].insert(0, {
+			"type": "backend_config",
+			"name": "other_backend",
+			"extra": {"name": "Backend"},
+		})
 		for node in exported["workflow"]["nodes"]:
-			if node.get("type") == "backend_config":
-				node["name"] = "other_backend"
+			if node.get("type") == "agent_config":
+				node["backend"] = {"type": "backend_config", "name": "other_backend"}
 				break
 
 		with self.assertRaises(ValueError):

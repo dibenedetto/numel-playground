@@ -9,66 +9,6 @@
     "edgeCount": 3,
     "nodes": [
       {
-        "id": "a4cspp9ms",
-        "type": "Workflow.BackendConfig",
-        "pos": [
-          0,
-          194.00000000000003
-        ],
-        "size": [
-          220,
-          110
-        ],
-        "properties": {},
-        "schemaName": "Workflow",
-        "modelName": "BackendConfig",
-        "isNative": false,
-        "isRootType": false,
-        "isWorkflowNode": true,
-        "nativeInputs": {
-          "0": {
-            "type": "dict",
-            "value": null,
-            "optional": true,
-            "options": null,
-            "optionsSource": null,
-            "editor": null
-          },
-          "1": {
-            "type": "str",
-            "value": "agno",
-            "optional": false,
-            "options": null,
-            "optionsSource": null,
-            "editor": null
-          },
-          "2": {
-            "type": "str",
-            "value": "",
-            "optional": true,
-            "options": null,
-            "optionsSource": null,
-            "editor": null
-          },
-          "3": {
-            "type": "bool",
-            "value": false,
-            "optional": false,
-            "options": null,
-            "optionsSource": null,
-            "editor": null
-          }
-        },
-        "multiInputSlots": {},
-        "multiOutputSlots": {},
-        "constantFields": {
-          "type": "backend_config"
-        },
-        "workflowType": "backend_config",
-        "workflowIndex": null,
-        "color": "#5c7caa"
-      },
-      {
         "id": "0ttsyh7si",
         "type": "Workflow.AgentOptionsConfig",
         "pos": [
@@ -255,14 +195,6 @@
     ],
     "links": [
       {
-        "id": 1,
-        "origin_id": "a4cspp9ms",
-        "origin_slot": 0,
-        "target_id": "alaw29n22",
-        "target_slot": 2,
-        "type": "BackendConfig"
-      },
-      {
         "id": 2,
         "origin_id": "0ttsyh7si",
         "origin_slot": 0,
@@ -289,66 +221,6 @@
     "nodeCount": 7,
     "edgeCount": 6,
     "nodes": [
-      {
-        "id": "gkhzyfyv3",
-        "type": "Workflow.BackendConfig",
-        "pos": [
-          0,
-          0
-        ],
-        "size": [
-          220,
-          110
-        ],
-        "properties": {},
-        "schemaName": "Workflow",
-        "modelName": "BackendConfig",
-        "isNative": false,
-        "isRootType": false,
-        "isWorkflowNode": true,
-        "nativeInputs": {
-          "0": {
-            "type": "dict",
-            "value": "{\"pos\":[100,-275],\"size\":[220,110],\"name\":\"Backend\",\"color\":\"#5c7caa\"}",
-            "optional": true,
-            "options": null,
-            "optionsSource": null,
-            "editor": null
-          },
-          "1": {
-            "type": "str",
-            "value": "agno",
-            "optional": false,
-            "options": null,
-            "optionsSource": null,
-            "editor": null
-          },
-          "2": {
-            "type": "str",
-            "value": "",
-            "optional": true,
-            "options": null,
-            "optionsSource": null,
-            "editor": null
-          },
-          "3": {
-            "type": "bool",
-            "value": false,
-            "optional": false,
-            "options": null,
-            "optionsSource": null,
-            "editor": null
-          }
-        },
-        "multiInputSlots": {},
-        "multiOutputSlots": {},
-        "constantFields": {
-          "type": "backend_config"
-        },
-        "workflowType": "backend_config",
-        "workflowIndex": 0,
-        "color": "#5c7caa"
-      },
       {
         "id": "gsse8za7h",
         "type": "Workflow.ModelConfig",
@@ -733,14 +605,6 @@
       }
     ],
     "links": [
-      {
-        "id": 1,
-        "origin_id": "gkhzyfyv3",
-        "origin_slot": 0,
-        "target_id": "nbzb0fyhr",
-        "target_slot": 2,
-        "type": "BackendConfig"
-      },
       {
         "id": 2,
         "origin_id": "gsse8za7h",

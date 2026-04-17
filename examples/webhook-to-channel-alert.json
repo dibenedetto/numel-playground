@@ -3,18 +3,25 @@
   "nodes": [
     {
       "type": "start_flow",
-      "extra": {"pos": [0, 0], "name": "Start"}
-    },
-    {
-      "type": "backend_config",
-      "name": "agno",
-      "extra": {"pos": [0, 160], "name": "Backend"}
+      "extra": {
+        "pos": [
+          0,
+          0
+        ],
+        "name": "Start"
+      }
     },
     {
       "type": "model_config",
       "source": "ollama",
       "name": "mistral",
-      "extra": {"pos": [0, 300], "name": "Model (Mistral)"}
+      "extra": {
+        "pos": [
+          0,
+          300
+        ],
+        "name": "Model (Mistral)"
+      }
     },
     {
       "type": "agent_options_config",
@@ -24,86 +31,258 @@
         "Write a short, clear alert message (2-3 sentences) suitable for a chat notification.",
         "Include severity if present. Do NOT use markdown — plain text only."
       ],
-      "extra": {"pos": [0, 440], "name": "Agent Options"}
+      "extra": {
+        "pos": [
+          0,
+          440
+        ],
+        "name": "Agent Options"
+      }
     },
     {
       "type": "agent_config",
-      "extra": {"pos": [260, 300], "name": "Agent Config"}
+      "extra": {
+        "pos": [
+          260,
+          300
+        ],
+        "name": "Agent Config"
+      }
     },
     {
       "type": "webhook_source_flow",
       "endpoint": "/hook/alerts",
       "methods": "POST",
-      "extra": {"pos": [520, 0], "name": "Webhook /hook/alerts"}
+      "extra": {
+        "pos": [
+          520,
+          0
+        ],
+        "name": "Webhook /hook/alerts"
+      }
     },
     {
       "type": "loop_start_flow",
       "condition": true,
       "max_iter": 10000,
-      "extra": {"pos": [760, 0], "name": "Event Loop"}
+      "extra": {
+        "pos": [
+          760,
+          0
+        ],
+        "name": "Event Loop"
+      }
     },
     {
       "type": "event_listener_flow",
       "mode": "any",
-      "extra": {"pos": [1000, 0], "name": "Wait for Alert"}
+      "extra": {
+        "pos": [
+          1000,
+          0
+        ],
+        "name": "Wait for Alert"
+      }
     },
     {
       "type": "transform_flow",
       "lang": "python",
       "script": "import json\npayload = input if isinstance(input, dict) else {}\noutput = f'Incoming alert payload:\\n{json.dumps(payload, indent=2)[:800]}\\n\\nSummarise this as a chat notification.'",
-      "extra": {"pos": [1240, 0], "name": "Build Prompt"}
+      "extra": {
+        "pos": [
+          1240,
+          0
+        ],
+        "name": "Build Prompt"
+      }
     },
     {
       "type": "agent_flow",
-      "extra": {"pos": [1480, 0], "name": "Summarise"}
+      "extra": {
+        "pos": [
+          1480,
+          0
+        ],
+        "name": "Summarise"
+      }
     },
     {
       "type": "transform_flow",
       "lang": "python",
       "script": "r = input\noutput = r.get('response', {}).get('content', str(r)) if isinstance(r, dict) else str(r)",
-      "extra": {"pos": [1720, 0], "name": "Extract Text"}
+      "extra": {
+        "pos": [
+          1720,
+          0
+        ],
+        "name": "Extract Text"
+      }
     },
     {
       "type": "channel_send_flow",
       "channel_id": "",
       "recipient_id": "",
-      "extra": {"pos": [1960, 0], "name": "Send to Channel"}
+      "extra": {
+        "pos": [
+          1960,
+          0
+        ],
+        "name": "Send to Channel"
+      }
     },
     {
       "type": "preview_flow",
       "hint": "text",
-      "extra": {"pos": [2200, 0], "name": "Log"}
+      "extra": {
+        "pos": [
+          2200,
+          0
+        ],
+        "name": "Log"
+      }
     },
     {
       "type": "loop_end_flow",
-      "extra": {"pos": [2440, 0], "name": "Loop End"}
+      "extra": {
+        "pos": [
+          2440,
+          0
+        ],
+        "name": "Loop End"
+      }
     },
     {
       "type": "end_flow",
-      "extra": {"pos": [2680, 0], "name": "End"}
+      "extra": {
+        "pos": [
+          2680,
+          0
+        ],
+        "name": "End"
+      }
     }
   ],
   "edges": [
-    { "source": 0,  "target": 5,  "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 1,  "target": 4,  "source_slot": "config",        "target_slot": "backend" },
-    { "source": 2,  "target": 4,  "source_slot": "config",        "target_slot": "model" },
-    { "source": 3,  "target": 4,  "source_slot": "options",       "target_slot": "options" },
-    { "source": 4,  "target": 9,  "source_slot": "config",        "target_slot": "config" },
-    { "source": 5,  "target": 6,  "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 5,  "target": 7,  "source_slot": "registered_id", "target_slot": "sources.webhook" },
-    { "source": 6,  "target": 7,  "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 7,  "target": 8,  "source_slot": "event",         "target_slot": "input" },
-    { "source": 7,  "target": 8,  "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 8,  "target": 9,  "source_slot": "output",        "target_slot": "request" },
-    { "source": 8,  "target": 9,  "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 9,  "target": 10, "source_slot": "response",      "target_slot": "input" },
-    { "source": 9,  "target": 10, "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 10, "target": 11, "source_slot": "output",        "target_slot": "message" },
-    { "source": 10, "target": 11, "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 11, "target": 12, "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 11, "target": 12, "source_slot": "sent",          "target_slot": "input" },
-    { "source": 12, "target": 13, "source_slot": "flow_out",      "target_slot": "flow_in" },
-    { "source": 13, "target": 6,  "source_slot": "flow_out",      "target_slot": "flow_in", "loop": true },
-    { "source": 13, "target": 14, "source_slot": "flow_out",      "target_slot": "flow_in" }
+    {
+      "source": 0,
+      "target": 4,
+      "source_slot": "flow_out",
+      "target_slot": "flow_in"
+    },
+    {
+      "source": 1,
+      "target": 3,
+      "source_slot": "config",
+      "target_slot": "model"
+    },
+    {
+      "source": 2,
+      "target": 3,
+      "source_slot": "options",
+      "target_slot": "options"
+    },
+    {
+      "source": 3,
+      "target": 8,
+      "source_slot": "config",
+      "target_slot": "config"
+    },
+    {
+      "source": 4,
+      "target": 5,
+      "source_slot": "flow_out",
+      "target_slot": "flow_in"
+    },
+    {
+      "source": 4,
+      "target": 6,
+      "source_slot": "registered_id",
+      "target_slot": "sources.webhook"
+    },
+    {
+      "source": 5,
+      "target": 6,
+      "source_slot": "flow_out",
+      "target_slot": "flow_in"
+    },
+    {
+      "source": 6,
+      "target": 7,
+      "source_slot": "event",
+      "target_slot": "input"
+    },
+    {
+      "source": 6,
+      "target": 7,
+      "source_slot": "flow_out",
+      "target_slot": "flow_in"
+    },
+    {
+      "source": 7,
+      "target": 8,
+      "source_slot": "output",
+      "target_slot": "request"
+    },
+    {
+      "source": 7,
+      "target": 8,
+      "source_slot": "flow_out",
+      "target_slot": "flow_in"
+    },
+    {
+      "source": 8,
+      "target": 9,
+      "source_slot": "response",
+      "target_slot": "input"
+    },
+    {
+      "source": 8,
+      "target": 9,
+      "source_slot": "flow_out",
+      "target_slot": "flow_in"
+    },
+    {
+      "source": 9,
+      "target": 10,
+      "source_slot": "output",
+      "target_slot": "message"
+    },
+    {
+      "source": 9,
+      "target": 10,
+      "source_slot": "flow_out",
+      "target_slot": "flow_in"
+    },
+    {
+      "source": 10,
+      "target": 11,
+      "source_slot": "flow_out",
+      "target_slot": "flow_in"
+    },
+    {
+      "source": 10,
+      "target": 11,
+      "source_slot": "sent",
+      "target_slot": "input"
+    },
+    {
+      "source": 11,
+      "target": 12,
+      "source_slot": "flow_out",
+      "target_slot": "flow_in"
+    },
+    {
+      "source": 12,
+      "target": 5,
+      "source_slot": "flow_out",
+      "target_slot": "flow_in",
+      "loop": true
+    },
+    {
+      "source": 12,
+      "target": 13,
+      "source_slot": "flow_out",
+      "target_slot": "flow_in"
+    }
   ]
 }

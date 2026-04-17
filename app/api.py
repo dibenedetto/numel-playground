@@ -19,7 +19,7 @@ from   typing    import Any, Dict, List, Optional
 
 
 from   event_bus import EventType, EventBus
-from   backend_factory import build_backend, get_text_generation_models, get_text_generation_sources
+from   backend_factory import build_backend, get_text_generation_models, get_text_generation_sources, list_supported_backends, normalize_backend_name
 from   platform_client import PlatformRequestError
 from   runtime_settings import get_runtime_settings
 from   schema    import DEFAULT_BACKEND_NAME, Workflow, WorkflowExecutionOptions
@@ -398,10 +398,17 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		ws = _ws(req)
 		await ws.manager.remove()
 
-	async def _emit_workflow_changed(name: str = "") -> None:
+	def _request_session_id(req: Request) -> Optional[str]:
+		value = str(req.headers.get("x-session-id", "") or "").strip()
+		return value or None
+
+	async def _emit_workflow_changed(name: str = "", source_session_id: Optional[str] = None) -> None:
+		data = {"name": name}
+		if source_session_id:
+			data["source_session_id"] = source_session_id
 		await event_bus.emit(
 			event_type = EventType.WORKSPACE_CHANGED,
-			data       = {"name": name},
+			data       = data,
 		)
 
 	def _execution_public_id(record: Dict[str, Any]) -> str:
@@ -602,12 +609,30 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		except PlatformRequestError as exc:
 			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 		await _cache_current_workflow(req, workflow)
-		await _emit_workflow_changed(name)
+		await _emit_workflow_changed(name, source_session_id=_request_session_id(req))
 		return {
 			"space": space,
 			"name": name,
 			"workflow": doc,
 			"status": "saved",
+		}
+
+	@app.post("/workflow/impl")
+	async def ensure_current_workflow_impl(req: Request):
+		user, space = await _ensure_current_space(req)
+		ws = _ws(req)
+		impl = await ws.manager.impl()
+		if not impl:
+			raise HTTPException(status_code=404, detail="No active workflow")
+		workflow = impl.get("workflow")
+		if workflow is None:
+			raise HTTPException(status_code=404, detail="No active workflow")
+		doc = _workflow_doc_from_model(workflow)
+		return {
+			"space": space,
+			"name": _workflow_name_from_doc(doc),
+			"workflow": doc,
+			"status": "implemented",
 		}
 
 	@app.post("/workflow/delete")
@@ -626,7 +651,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			if exc.status_code != 404:
 				raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 		await _clear_cached_workflow(req)
-		await _emit_workflow_changed("")
+		await _emit_workflow_changed("", source_session_id=_request_session_id(req))
 		return {"status": "deleted", "space": space}
 
 	@app.post("/workflow/start")
@@ -808,6 +833,8 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		nonlocal schema_code
 		result = {
 			"schema": schema_code,
+			"supported_backends": list_supported_backends(),
+			"show_backend_config": len(list_supported_backends()) > 1,
 		}
 		return result
 
@@ -2112,7 +2139,7 @@ A workflow is a directed acyclic graph executed node-by-node in topological orde
 - Execution begins at `start_flow` (always index 0) and ends at `end_flow` or `sink_flow`.
 - Each node reads from its INPUT slots (wired by edges or set inline in JSON).
 - Each node writes to its OUTPUT slots at runtime; downstream nodes consume them via edges.
-- Config nodes (backend_config, model_config, etc.) each expose their value through a named
+- Config nodes (model_config, agent_options_config, etc.) each expose their value through a named
   output slot shown in the catalog as "out:". Use that slot name as source_slot when wiring.
   Example: model_config exposes slot "config"; wire with source_slot="config".
 - Data flows as: start_flow.flow_out → [transform/agent/route nodes] → end_flow.flow_in.
@@ -2165,11 +2192,11 @@ Field semantics:
 ## Common Patterns
 
 ### Agent subgraph
-backend_config.config  → agent_config.backend   (source_slot="config")
 model_config.config    → agent_config.model      (source_slot="config")
 agent_options_config.options → agent_config.options  (source_slot="options")
 agent_config.config    → agent_flow.config       (source_slot="config")
 Tool nodes connect via dotted target_slot: target_slot="tools.tool_a" → agent_config
+When Numel exposes more than one backend, an optional `backend_config.config → agent_config.backend` edge can also be used.
 
 ### Conditional routing (route_flow)
 Propagate input to the sub-output matching the target value, or to default otherwise.
@@ -2469,7 +2496,7 @@ Example (mesh processing with toolkit):
 		Results are cached and reused when the config hasn't changed.
 		"""
 		from schema import (
-			BackendConfig, ModelConfig, AgentOptionsConfig, AgentConfig,
+			ModelConfig, AgentOptionsConfig, AgentConfig,
 			MemoryManagerConfig, SessionManagerConfig, ToolConfig, ToolkitConfig,
 			KnowledgeManagerConfig, ContentDBConfig, IndexDBConfig,
 			EmbeddingConfig, Edge, Workflow
@@ -2490,22 +2517,20 @@ Example (mesh processing with toolkit):
 		# Build nodes and edges for the agent subgraph
 		nodes = []
 		edges = []
+		supported_backends = list_supported_backends()
+		requested_backend = normalize_backend_name((request.backend or {}).get("engine"))
+		show_backend_config = len(supported_backends) > 1 or requested_backend != DEFAULT_BACKEND_NAME
 
-		# 0: BackendConfig (always present — field is 'name' in schema, 'engine' in frontend)
-		bcfg = request.backend or {}
-		nodes.append(BackendConfig(name=bcfg.get("engine", DEFAULT_BACKEND_NAME)))
-		backend_idx = 0
-
-		# 1: ModelConfig (always present)
+		# 0: ModelConfig (always present)
 		mcfg = request.model or {}
 		nodes.append(ModelConfig(
 			source  = mcfg.get("source", "ollama"),
 			name    = mcfg.get("name", "mistral"),
 			version = mcfg.get("version", ""),
 		))
-		model_idx = 1
+		model_idx = 0
 
-		# 2: AgentOptionsConfig (always present)
+		# 1: AgentOptionsConfig (always present)
 		ocfg = request.options or {}
 		nodes.append(AgentOptionsConfig(
 			name            = ocfg.get("name", "Workflow Generator"),
@@ -2514,9 +2539,17 @@ Example (mesh processing with toolkit):
 			prompt_override = ocfg.get("prompt_override", None) or system_prompt,
 			markdown        = ocfg.get("markdown", False),
 		))
-		options_idx = 2
+		options_idx = 1
 
-		next_idx = 3
+		next_idx = 2
+		backend_idx = None
+		if show_backend_config:
+			from schema import BackendConfig
+			nodes.insert(0, BackendConfig(name=requested_backend))
+			model_idx += 1
+			options_idx += 1
+			next_idx += 1
+			backend_idx = 0
 
 		# Optional: MemoryManagerConfig
 		memory_idx = None
@@ -2618,8 +2651,9 @@ Example (mesh processing with toolkit):
 		))
 		agent_idx = next_idx
 
-		# Core edges: backend, model, options → agent
-		edges.append(Edge(source=backend_idx, target=agent_idx, source_slot="get", target_slot="backend"))
+		# Core edges: backend (when exposed), model, options → agent
+		if backend_idx is not None:
+			edges.append(Edge(source=backend_idx, target=agent_idx, source_slot="get", target_slot="backend"))
 		edges.append(Edge(source=model_idx,   target=agent_idx, source_slot="get", target_slot="model"))
 		edges.append(Edge(source=options_idx,  target=agent_idx, source_slot="get", target_slot="options"))
 		if memory_idx is not None:

@@ -24,6 +24,7 @@ let galleryManager     = null;
 let appsManager        = null;
 let api                = null;  // NumelAPI instance, shared across all managers
 let currentWorkflowHasContent = false;
+let _supportedBackends = ['agno'];
 
 // ── Task 2: Wire tooltip edge data store ─────────────────────────────────────
 // Key: "workflowNodeIdx:fieldName" → last output value from that slot
@@ -468,23 +469,69 @@ function _setGlobalLayoutPreset(preset) {
 	return normalized;
 }
 
-function _starterStorageKey() {
-	return `numel_starter_seen_v1_${window._numelUser?.id || 'guest'}`;
+function _starterLoginSessionKey() {
+	const userId = window._numelUser?.id || 'guest';
+	const tokenSeed = String(window._numelToken || 'guest')
+		.replace(/[^a-zA-Z0-9_-]/g, '')
+		.slice(0, 16) || 'guest';
+	return `numel_starter_login_seen_v1_${userId}_${tokenSeed}`;
 }
 
-function _hasSeenStarterExperience() {
+function _hasShownStarterThisLogin() {
 	try {
-		return localStorage.getItem(_starterStorageKey()) === '1';
+		return sessionStorage.getItem(_starterLoginSessionKey()) === '1';
 	} catch {
 		return false;
 	}
 }
 
-function _markStarterExperienceSeen() {
+function _markStarterShownThisLogin() {
 	try {
-		localStorage.setItem(_starterStorageKey(), '1');
+		sessionStorage.setItem(_starterLoginSessionKey(), '1');
 	} catch {}
 }
+
+function _showStarterOnLoginPreference() {
+	const prefs = window._numelUserProfile?.metadata?.ui_preferences;
+	if (prefs && Object.prototype.hasOwnProperty.call(prefs, 'show_starter_on_login')) {
+		return prefs.show_starter_on_login !== false;
+	}
+	return true;
+}
+
+function _applyBackendSchemaVisibility() {
+	if (!schemaGraph?.api?.schemaTypes?.setTypes) return;
+	const showBackendConfig = _supportedBackends.length > 1;
+	schemaGraph.api.schemaTypes.setTypes({
+		hiddenFields: showBackendConfig ? ['extra'] : ['extra', 'backend'],
+		hiddenWorkflowTypes: showBackendConfig ? [] : ['backend_config'],
+	});
+}
+
+async function _updateUserUiPreferences(patch = {}) {
+	if (!_isAuthenticatedUser()) throw new Error('Not authenticated');
+	const token = window._numelToken || localStorage.getItem('numel_token');
+	const resp = await fetch(`${$('serverUrl').value || window.location.origin}/auth/preferences/update`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			'Authorization': `Bearer ${token}`,
+		},
+		body: JSON.stringify({ ui_preferences: patch }),
+	});
+	const data = await resp.json().catch(() => ({}));
+	if (!resp.ok) throw new Error(data.detail || 'Failed to update preferences');
+	const profile = data.profile && typeof data.profile === 'object' ? data.profile : {};
+	window._numelUserProfile = profile;
+	window.dispatchEvent(new CustomEvent('numel:user-profile-updated', { detail: { profile } }));
+	return profile;
+}
+
+window.getNumelUserUiPreferences = function() {
+	return { ...(window._numelUserProfile?.metadata?.ui_preferences || {}) };
+};
+
+window.updateNumelUserUiPreferences = _updateUserUiPreferences;
 
 function _hasWorkflowContent(workflow) {
 	return Array.isArray(workflow?.nodes) && workflow.nodes.length > 0;
@@ -530,12 +577,12 @@ function _starterHelloWorkflow() {
 function _closeStarterModal(markSeen = true) {
 	const overlay = document.getElementById('nwStarterModal');
 	if (!overlay) return;
-	if (markSeen) _markStarterExperienceSeen();
+	if (markSeen) _markStarterShownThisLogin();
 	overlay.remove();
 }
 
 function _showStarterModal() {
-	if (!_isAuthenticatedUser() || _hasSeenStarterExperience() || !_isCurrentWorkflowEmptyState()) return;
+	if (!_isAuthenticatedUser() || !_showStarterOnLoginPreference() || _hasShownStarterThisLogin() || !_isCurrentWorkflowEmptyState()) return;
 	if (document.getElementById('nwStarterModal')) return;
 
 	const overlay = document.createElement('div');
@@ -580,6 +627,10 @@ function _showStarterModal() {
 				</div>
 			</div>
 			<div class="nw-modal-footer">
+				<label class="nw-starter-modal-pref" title="Show this starter picker after you log in whenever the current workbench is still empty.">
+					<input id="nwStarterShowOnLoginToggle" type="checkbox" ${_showStarterOnLoginPreference() ? 'checked' : ''}>
+					<span>Show on login</span>
+				</label>
 				<div class="nw-starter-modal-actions">
 					<button class="nw-btn nw-btn-secondary" data-starter-action="gallery" type="button">Browse Gallery</button>
 				</div>
@@ -592,6 +643,17 @@ function _showStarterModal() {
 	overlay.querySelector('[data-role="later"]')?.addEventListener('click', () => _closeStarterModal(true));
 	overlay.addEventListener('click', (e) => {
 		if (e.target === overlay) _closeStarterModal(true);
+	});
+	overlay.querySelector('#nwStarterShowOnLoginToggle')?.addEventListener('change', async (event) => {
+		const checked = !!event.target?.checked;
+		try {
+			await _updateUserUiPreferences({ show_starter_on_login: checked });
+			if (!checked) _markStarterShownThisLogin();
+		} catch (error) {
+			event.target.checked = !checked;
+			addLog('error', `❌ Failed to save starter preference: ${error.message}`);
+			await NumelAlert('Starter Preference', error.message || 'Failed to save starter preference.');
+		}
 	});
 	overlay.querySelectorAll('[data-starter-action]').forEach((btn) => {
 		btn.addEventListener('click', async () => {
@@ -918,7 +980,7 @@ async function _runStarterAction(action) {
 			default:
 				return;
 		}
-		_markStarterExperienceSeen();
+		_markStarterShownThisLogin();
 		_closeStarterModal(false);
 		_updateStarterExperience(false);
 		if (followthrough) _showStarterFollowthrough(followthrough);
@@ -934,6 +996,25 @@ function _isAdminUser() {
 
 function _isAuthenticatedUser() {
 	return !!window._numelUser;
+}
+
+async function _loadAuthBundle(baseUrl, token) {
+	const resp = await fetch(`${baseUrl}/auth/me`, {
+		method: 'POST',
+		headers: {
+			'Authorization': `Bearer ${token}`,
+			'Content-Type': 'application/json',
+		},
+	});
+	if (!resp.ok) throw new Error('Failed to load authenticated user bundle');
+	return resp.json();
+}
+
+function _applyAuthenticatedBundle(token, bundle) {
+	window._numelToken = token;
+	window._numelUser = bundle?.user || null;
+	window._numelUserProfile = bundle?.profile || { metadata: {} };
+	window.dispatchEvent(new CustomEvent('numel:user-profile-updated', { detail: { profile: window._numelUserProfile } }));
 }
 
 function _credentialsAccessMessage() {
@@ -1117,6 +1198,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				},
 			],
 		});
+		_applyBackendSchemaVisibility();
 
 		// Configure section-based node header colors
 		schemaGraph.api.schemaTypes.setSectionColors({
@@ -1481,13 +1563,9 @@ async function _initAuth() {
 	const token = localStorage.getItem('numel_token');
 	if (token) {
 		try {
-			const resp = await fetch(`${baseUrl}/auth/me`, {
-				method: 'POST',
-				headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-			});
-			if (resp.ok) {
-				window._numelToken = token;
-				window._numelUser = (await resp.json()).user;
+			const bundle = await _loadAuthBundle(baseUrl, token);
+			if (bundle?.user) {
+				_applyAuthenticatedBundle(token, bundle);
 				_showUserBar(window._numelUser);
 				_applyPermissionVisibility();
 				return;  // valid session
@@ -1523,12 +1601,19 @@ async function _initAuth() {
 		showRegister.onclick = (e) => { e.preventDefault(); loginForm.style.display = 'none'; registerForm.style.display = ''; };
 		showLogin.onclick    = (e) => { e.preventDefault(); registerForm.style.display = 'none'; loginForm.style.display = ''; };
 
-		const finish = (token, user) => {
+		const finish = async (token, user) => {
 			if (token) localStorage.setItem('numel_token', token);
-			window._numelToken = token;
-			window._numelUser  = user;
+			let bundle = { user, profile: { metadata: {} } };
+			if (token && user) {
+				try {
+					bundle = await _loadAuthBundle(baseUrl, token);
+				} catch {
+					bundle = { user, profile: { metadata: {} } };
+				}
+			}
+			_applyAuthenticatedBundle(token, bundle);
 			modal.style.display = 'none';
-			if (user) _showUserBar(user);
+			if (window._numelUser) _showUserBar(window._numelUser);
 			_applyPermissionVisibility();
 			resolve();
 		};
@@ -1548,7 +1633,7 @@ async function _initAuth() {
 				});
 				const data = await resp.json();
 				if (!resp.ok) return showError(errorEl, data.detail || 'Login failed');
-				finish(data.token, data.user);
+				await finish(data.token, data.user);
 			} catch (e) {
 				showError(errorEl, `Connection error: ${e.message}`);
 			}
@@ -1570,7 +1655,7 @@ async function _initAuth() {
 				});
 				const data = await resp.json();
 				if (!resp.ok) return showError(regErrorEl, data.detail || 'Registration failed');
-				finish(data.token, data.user);
+				await finish(data.token, data.user);
 			} catch (e) {
 				showError(regErrorEl, `Connection error: ${e.message}`);
 			}
@@ -1619,6 +1704,7 @@ function _showUserBar(user) {
 		localStorage.removeItem('numel_token');
 		window._numelToken = null;
 		window._numelUser  = null;
+		window._numelUserProfile = null;
 		window.location.reload();
 	};
 }
@@ -1819,6 +1905,10 @@ async function connect() {
 			throw new Error('Failed to register workflow schema');
 		}
 		addLog('success', '✅ Schema registered');
+		_supportedBackends = Array.isArray(schemaResponse.supported_backends) && schemaResponse.supported_backends.length
+			? schemaResponse.supported_backends
+			: ['agno'];
+		_applyBackendSchemaVisibility();
 
 		// Set API base URLs for dynamic options, templates, generate, and browser media
 		schemaGraph.api.comboBox.setBaseUrl(serverUrl);
@@ -1847,7 +1937,7 @@ async function connect() {
 		});
 
 		// Initialize chat manager
-		agentChatManager = new AgentChatManager(serverUrl, schemaGraph, syncWorkflow, api);
+		agentChatManager = new AgentChatManager(serverUrl, schemaGraph, saveWorkflowToBackend, api);
 		addLog('info', '💬 Agent chat manager initialized');
 
 		// Initialize console manager
@@ -2041,12 +2131,25 @@ function setupClientEvents() {
 	});
 
 	client.on('workspace.changed', async (event) => {
-		// Agent modified the current workflow — reload it from the server
+		const sourceSessionId = event?.data?.source_session_id || null;
+		if (sourceSessionId && sourceSessionId === api?.sessionId) {
+			return;
+		}
+
+		// Another tab or assistant modified the current workflow — reload it from the server
 		try {
 			const resp = await api.getWorkflow();
 			if (resp?.workflow) {
-				await visualizer?.loadWorkflow(resp.workflow, resp.name || visualizer?.currentWorkflowName || 'Workflow');
-				addLog('info', `🔄 Current workflow updated by assistant`);
+				if (typeof window.loadWorkflowFromServer === 'function') {
+					await window.loadWorkflowFromServer(
+						resp.workflow,
+						resp.name || visualizer?.currentWorkflowName || 'Workflow',
+						{ source: 'assistant' },
+					);
+				} else {
+					await visualizer?.loadWorkflow(resp.workflow, resp.name || visualizer?.currentWorkflowName || 'Workflow');
+					addLog('info', `🔄 Current workflow updated by assistant`);
+				}
 			}
 		} catch (e) {
 			addLog('warning', `⚠️ workflow reload failed after workspace.changed — ${e}`);
@@ -2375,6 +2478,7 @@ async function syncWorkflow(workflow = null, _name = null, force = false) {
 	try {
 		// Save chat state before reload
 		const chatState = saveChatState();
+		const cameraState = schemaGraph?.api?.view?.getPosition?.() || null;
 
 		// Close all preview text overlays (node IDs will change)
 		schemaGraph.closeAllPreviewTextOverlays?.();
@@ -2399,6 +2503,14 @@ async function syncWorkflow(workflow = null, _name = null, force = false) {
 
 			// Restore chat messages
 			restoreChatState(chatState);
+			if (cameraState && schemaGraph?.api?.view?.setPosition) {
+				schemaGraph.api.view.setPosition(cameraState.x, cameraState.y);
+				if (typeof cameraState.scale === 'number' && schemaGraph.api.view.setZoom) {
+					schemaGraph.api.view.setZoom(cameraState.scale);
+				}
+				schemaGraph.eventBus.emit('camera:moved');
+				schemaGraph.eventBus.emit('camera:zoomed');
+			}
 			
 			currentWorkflowHasContent = _hasWorkflowContent(response.workflow || workflow);
 			workflowDirty = false;
@@ -2411,6 +2523,25 @@ async function syncWorkflow(workflow = null, _name = null, force = false) {
 	} finally {
 		schemaGraph.api.lock.unlock();
 	}
+}
+
+async function saveWorkflowToBackend(workflow = null, _name = null, force = false) {
+	if (!force && !workflowDirty) return null;
+
+	const hasExplicitWorkflow = !!workflow;
+	const exported = visualizer?.exportWorkflow?.();
+	if (!hasExplicitWorkflow && exported) workflow = exported;
+	if (!workflow) return null;
+
+	const response = await api.saveWorkflow(workflow);
+	if (response?.status !== 'saved') {
+		throw new Error('Save failed');
+	}
+
+	currentWorkflowHasContent = _hasWorkflowContent(response.workflow || workflow);
+	workflowDirty = false;
+	_updateStarterExperience(false);
+	return response;
 }
 
 // Global helper for console /gen — load + sync a workflow JSON object
@@ -2476,7 +2607,9 @@ function saveChatState() {
 		
 		state.set(key, {
 			messages: [...(node.chatMessages || [])],
-			inputValue: node._chatInputValue || ''
+			inputValue: node._chatInputValue || '',
+			chatState: node.chatState || 'idle',
+			chatError: node.chatError || null,
 		});
 	}
 	
@@ -2496,14 +2629,17 @@ function restoreChatState(state) {
 		
 		node.chatMessages = saved.messages;
 		node._chatInputValue = saved.inputValue;
+		node.chatState = saved.chatState || node.chatState || 'idle';
+		node.chatError = saved.chatError || null;
 		
 		// Update overlay - it will use the current node reference
 		schemaGraph.chatManager?.overlayManager?.updateMessages(node);
+		schemaGraph.chatManager?.overlayManager?.updateStatus(node);
 		
 		const overlay = schemaGraph.chatManager?.overlayManager?.overlays?.get(key);
 		const input = overlay?.querySelector('.sg-chat-input');
-		if (input && saved.inputValue) {
-			input.value = saved.inputValue;
+		if (input) {
+			input.value = saved.inputValue || '';
 		}
 	}
 }
@@ -2712,7 +2848,7 @@ async function clearWorkflow() {
 
 		enableStart(true);
 		updateClearButtonState();
-		_updateStarterExperience(!_hasSeenStarterExperience());
+		_updateStarterExperience(!_hasShownStarterThisLogin());
 		addLog('info', '🧹 Workflow cleared');
 	} finally {
 		schemaGraph._historyIgnore = false;

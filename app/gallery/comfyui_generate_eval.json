@@ -1,137 +1,367 @@
 {
-	"id": "comfyui01",
-	"title": "ComfyUI: Agent-Guided Image Generation",
-	"description": "An agent writes an optimized prompt, sends it to ComfyUI for generation, evaluates the result, and refines if quality is low. Demonstrates Numel's unique advantage: automated prompt optimization over ComfyUI.",
-	"category": "comfyui",
-	"tags": ["comfyui", "image-generation", "agent", "eval", "prompt-optimization"],
-	"author": "system",
-	"created_at": 1742486400.0,
-	"workflow": {
-		"type": "workflow",
-		"nodes": [
-			{
-				"type": "start_flow",
-				"extra": {"pos": [50, 300], "name": "Start"}
-			},
-			{
-				"type": "user_input_flow",
-				"query": "Describe what you want to generate (e.g., 'a cat wearing a top hat'):",
-				"extra": {"pos": [250, 300], "name": "User Prompt"}
-			},
-			{
-				"type": "backend_config",
-				"name": "agno",
-				"extra": {"pos": [250, 50], "name": "Backend"}
-			},
-			{
-				"type": "model_config",
-				"source": "ollama",
-				"name": "qwen3.5:cloud",
-				"extra": {"pos": [450, 50], "name": "Model"}
-			},
-			{
-				"type": "agent_options_config",
-				"instructions": [
-					"You are a Stable Diffusion prompt engineer. Given a user description, write an optimized image generation prompt.",
-					"Use descriptive keywords, quality boosters (masterpiece, best quality, detailed), and style tags.",
-					"If you receive feedback about a previous generation, incorporate it to improve the prompt.",
-					"Output ONLY the prompt text, nothing else."
-				],
-				"extra": {"pos": [650, 50], "name": "Prompt Engineer Instructions"}
-			},
-			{
-				"type": "agent_config",
-				"extra": {"pos": [850, 100], "name": "Prompt Engineer"}
-			},
-			{
-				"type": "loop_start_flow",
-				"max_iter": 3,
-				"extra": {"pos": [500, 300], "name": "Refinement Loop"}
-			},
-			{
-				"type": "transform_flow",
-				"lang": "python",
-				"script": "desc = variables.get('user_desc', input or '')\nfeedback = variables.get('feedback', '')\nif feedback:\n    output = f'User wants: {desc}\\n\\nPrevious feedback: {feedback}\\nImprove the prompt.'\nelse:\n    output = f'User wants: {desc}\\nWrite an optimized Stable Diffusion prompt.'",
-				"extra": {"pos": [700, 300], "name": "Build Agent Input"}
-			},
-			{
-				"type": "agent_flow",
-				"extra": {"pos": [950, 300], "name": "Write Prompt"}
-			},
-			{
-				"type": "toolkit_config",
-				"name": "comfyui_toolkit",
-				"args": {"url": "http://localhost:8188"},
-				"extra": {"pos": [950, 150], "name": "ComfyUI Connection"}
-			},
-			{
-				"type": "transform_flow",
-				"lang": "python",
-				"script": "resp = input or {}\nif isinstance(resp, dict):\n    prompt_text = resp.get('response', '') or resp.get('text', '') or str(resp)\nelse:\n    prompt_text = str(resp)\noutput = {'prompt': prompt_text}",
-				"extra": {"pos": [1150, 300], "name": "Extract Prompt"}
-			},
-			{
-				"type": "tool_flow",
-				"method": "generate_simple",
-				"args": {"width": 512, "height": 512, "steps": 20, "cfg": 7.0},
-				"extra": {"pos": [1350, 300], "name": "Generate Image"}
-			},
-			{
-				"type": "preview_flow",
-				"hint": "image",
-				"extra": {"pos": [1550, 300], "name": "Preview Image"}
-			},
-			{
-				"type": "eval_flow",
-				"script": "result = input or {}\nif isinstance(result, str):\n    import json\n    try: result = json.loads(result)\n    except: pass\nimages = result.get('images', []) if isinstance(result, dict) else []\nerror = result.get('error', '') if isinstance(result, dict) else ''\nif error:\n    score = 0.0\n    feedback = f'Generation failed: {error}'\nelif len(images) > 0:\n    score = 0.8\n    feedback = f'Generated {len(images)} image(s) successfully'\nelse:\n    score = 0.2\n    feedback = 'No images generated'",
-				"extra": {"pos": [1750, 300], "name": "Evaluate Output"}
-			},
-			{
-				"type": "if_else_flow",
-				"condition": "value >= 0.7",
-				"extra": {"pos": [1950, 300], "name": "Good Enough?"}
-			},
-			{
-				"type": "transform_flow",
-				"lang": "python",
-				"script": "variables['feedback'] = str(input or '')\noutput = input",
-				"extra": {"pos": [1950, 500], "name": "Store Feedback"}
-			},
-			{
-				"type": "loop_end_flow",
-				"extra": {"pos": [2150, 500], "name": "Retry"}
-			},
-			{
-				"type": "end_flow",
-				"extra": {"pos": [2200, 300], "name": "Done"}
-			}
-		],
-		"edges": [
-			{"source": 0, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 1, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 1, "target": 7, "source_slot": "message", "target_slot": "input"},
-			{"source": 2, "target": 5, "source_slot": "config", "target_slot": "backend"},
-			{"source": 3, "target": 5, "source_slot": "config", "target_slot": "model"},
-			{"source": 4, "target": 5, "source_slot": "options", "target_slot": "options"},
-			{"source": 5, "target": 8, "source_slot": "config", "target_slot": "config"},
-			{"source": 6, "target": 7, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 7, "target": 8, "source_slot": "output", "target_slot": "request"},
-			{"source": 7, "target": 8, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 8, "target": 10, "source_slot": "response", "target_slot": "input"},
-			{"source": 8, "target": 10, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 10, "target": 11, "source_slot": "output", "target_slot": "args"},
-			{"source": 10, "target": 11, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 9, "target": 11, "source_slot": "config", "target_slot": "config"},
-			{"source": 11, "target": 12, "source_slot": "output", "target_slot": "flow_in"},
-			{"source": 11, "target": 13, "source_slot": "output", "target_slot": "input"},
-			{"source": 12, "target": 13, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 13, "target": 14, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 13, "target": 14, "source_slot": "score", "target_slot": "value"},
-			{"source": 14, "target": 17, "source_slot": "true_out", "target_slot": "flow_in"},
-			{"source": 14, "target": 15, "source_slot": "false_out", "target_slot": "flow_in"},
-			{"source": 13, "target": 15, "source_slot": "feedback", "target_slot": "input"},
-			{"source": 15, "target": 16, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 16, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true}
-		]
-	}
+  "id": "comfyui01",
+  "title": "ComfyUI: Agent-Guided Image Generation",
+  "description": "An agent writes an optimized prompt, sends it to ComfyUI for generation, evaluates the result, and refines if quality is low. Demonstrates Numel's unique advantage: automated prompt optimization over ComfyUI.",
+  "category": "comfyui",
+  "tags": [
+    "comfyui",
+    "image-generation",
+    "agent",
+    "eval",
+    "prompt-optimization"
+  ],
+  "author": "system",
+  "created_at": 1742486400.0,
+  "workflow": {
+    "type": "workflow",
+    "nodes": [
+      {
+        "type": "start_flow",
+        "extra": {
+          "pos": [
+            50,
+            300
+          ],
+          "name": "Start"
+        }
+      },
+      {
+        "type": "user_input_flow",
+        "query": "Describe what you want to generate (e.g., 'a cat wearing a top hat'):",
+        "extra": {
+          "pos": [
+            250,
+            300
+          ],
+          "name": "User Prompt"
+        }
+      },
+      {
+        "type": "model_config",
+        "source": "ollama",
+        "name": "qwen3.5:cloud",
+        "extra": {
+          "pos": [
+            450,
+            50
+          ],
+          "name": "Model"
+        }
+      },
+      {
+        "type": "agent_options_config",
+        "instructions": [
+          "You are a Stable Diffusion prompt engineer. Given a user description, write an optimized image generation prompt.",
+          "Use descriptive keywords, quality boosters (masterpiece, best quality, detailed), and style tags.",
+          "If you receive feedback about a previous generation, incorporate it to improve the prompt.",
+          "Output ONLY the prompt text, nothing else."
+        ],
+        "extra": {
+          "pos": [
+            650,
+            50
+          ],
+          "name": "Prompt Engineer Instructions"
+        }
+      },
+      {
+        "type": "agent_config",
+        "extra": {
+          "pos": [
+            850,
+            100
+          ],
+          "name": "Prompt Engineer"
+        }
+      },
+      {
+        "type": "loop_start_flow",
+        "max_iter": 3,
+        "extra": {
+          "pos": [
+            500,
+            300
+          ],
+          "name": "Refinement Loop"
+        }
+      },
+      {
+        "type": "transform_flow",
+        "lang": "python",
+        "script": "desc = variables.get('user_desc', input or '')\nfeedback = variables.get('feedback', '')\nif feedback:\n    output = f'User wants: {desc}\\n\\nPrevious feedback: {feedback}\\nImprove the prompt.'\nelse:\n    output = f'User wants: {desc}\\nWrite an optimized Stable Diffusion prompt.'",
+        "extra": {
+          "pos": [
+            700,
+            300
+          ],
+          "name": "Build Agent Input"
+        }
+      },
+      {
+        "type": "agent_flow",
+        "extra": {
+          "pos": [
+            950,
+            300
+          ],
+          "name": "Write Prompt"
+        }
+      },
+      {
+        "type": "toolkit_config",
+        "name": "comfyui_toolkit",
+        "args": {
+          "url": "http://localhost:8188"
+        },
+        "extra": {
+          "pos": [
+            950,
+            150
+          ],
+          "name": "ComfyUI Connection"
+        }
+      },
+      {
+        "type": "transform_flow",
+        "lang": "python",
+        "script": "resp = input or {}\nif isinstance(resp, dict):\n    prompt_text = resp.get('response', '') or resp.get('text', '') or str(resp)\nelse:\n    prompt_text = str(resp)\noutput = {'prompt': prompt_text}",
+        "extra": {
+          "pos": [
+            1150,
+            300
+          ],
+          "name": "Extract Prompt"
+        }
+      },
+      {
+        "type": "tool_flow",
+        "method": "generate_simple",
+        "args": {
+          "width": 512,
+          "height": 512,
+          "steps": 20,
+          "cfg": 7.0
+        },
+        "extra": {
+          "pos": [
+            1350,
+            300
+          ],
+          "name": "Generate Image"
+        }
+      },
+      {
+        "type": "preview_flow",
+        "hint": "image",
+        "extra": {
+          "pos": [
+            1550,
+            300
+          ],
+          "name": "Preview Image"
+        }
+      },
+      {
+        "type": "eval_flow",
+        "script": "result = input or {}\nif isinstance(result, str):\n    import json\n    try: result = json.loads(result)\n    except: pass\nimages = result.get('images', []) if isinstance(result, dict) else []\nerror = result.get('error', '') if isinstance(result, dict) else ''\nif error:\n    score = 0.0\n    feedback = f'Generation failed: {error}'\nelif len(images) > 0:\n    score = 0.8\n    feedback = f'Generated {len(images)} image(s) successfully'\nelse:\n    score = 0.2\n    feedback = 'No images generated'",
+        "extra": {
+          "pos": [
+            1750,
+            300
+          ],
+          "name": "Evaluate Output"
+        }
+      },
+      {
+        "type": "if_else_flow",
+        "condition": "value >= 0.7",
+        "extra": {
+          "pos": [
+            1950,
+            300
+          ],
+          "name": "Good Enough?"
+        }
+      },
+      {
+        "type": "transform_flow",
+        "lang": "python",
+        "script": "variables['feedback'] = str(input or '')\noutput = input",
+        "extra": {
+          "pos": [
+            1950,
+            500
+          ],
+          "name": "Store Feedback"
+        }
+      },
+      {
+        "type": "loop_end_flow",
+        "extra": {
+          "pos": [
+            2150,
+            500
+          ],
+          "name": "Retry"
+        }
+      },
+      {
+        "type": "end_flow",
+        "extra": {
+          "pos": [
+            2200,
+            300
+          ],
+          "name": "Done"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": 0,
+        "target": 1,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 1,
+        "target": 5,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 1,
+        "target": 6,
+        "source_slot": "message",
+        "target_slot": "input"
+      },
+      {
+        "source": 2,
+        "target": 4,
+        "source_slot": "config",
+        "target_slot": "model"
+      },
+      {
+        "source": 3,
+        "target": 4,
+        "source_slot": "options",
+        "target_slot": "options"
+      },
+      {
+        "source": 4,
+        "target": 7,
+        "source_slot": "config",
+        "target_slot": "config"
+      },
+      {
+        "source": 5,
+        "target": 6,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 6,
+        "target": 7,
+        "source_slot": "output",
+        "target_slot": "request"
+      },
+      {
+        "source": 6,
+        "target": 7,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 7,
+        "target": 9,
+        "source_slot": "response",
+        "target_slot": "input"
+      },
+      {
+        "source": 7,
+        "target": 9,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 9,
+        "target": 10,
+        "source_slot": "output",
+        "target_slot": "args"
+      },
+      {
+        "source": 9,
+        "target": 10,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 8,
+        "target": 10,
+        "source_slot": "config",
+        "target_slot": "config"
+      },
+      {
+        "source": 10,
+        "target": 11,
+        "source_slot": "output",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 10,
+        "target": 12,
+        "source_slot": "output",
+        "target_slot": "input"
+      },
+      {
+        "source": 11,
+        "target": 12,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 12,
+        "target": 13,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 12,
+        "target": 13,
+        "source_slot": "score",
+        "target_slot": "value"
+      },
+      {
+        "source": 13,
+        "target": 16,
+        "source_slot": "true_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 13,
+        "target": 14,
+        "source_slot": "false_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 12,
+        "target": 14,
+        "source_slot": "feedback",
+        "target_slot": "input"
+      },
+      {
+        "source": 14,
+        "target": 15,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 15,
+        "target": 5,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in",
+        "loop": true
+      }
+    ]
+  }
 }

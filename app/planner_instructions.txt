@@ -96,11 +96,11 @@ feedback = f'value={value}, target={target}, error={error:.2%}'
 ## Building Patterns
 
 ### Agent subgraph
-backend_config → agent_config.backend
 model_config → agent_config.model
 agent_options_config → agent_config.options
 tool_config/toolkit_config → agent_config.tools.<key> or agent_config.toolkits.<key>
 agent_config → agent_flow.config
+When Numel exposes more than one backend, an optional `backend_config` can also connect to `agent_config.backend`.
 
 ### Event-driven workflow
 timer_source/webhook_source → event_listener (via sources.<key>)

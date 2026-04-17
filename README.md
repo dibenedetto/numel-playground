@@ -418,7 +418,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 ### Agent Configuration
 | Node | Description |
 |------|-------------|
-| **Backend** | Agent backend selection. |
+| **Backend** | Optional backend selection when Numel exposes more than one agent backend. |
 | **Model** | LLM provider + model name. |
 | **Agent Options** | Name, instructions, system prompt. |
 | **Agent Config** | Master node wiring all config together. |

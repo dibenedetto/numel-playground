@@ -28,6 +28,7 @@ class WorkflowManager:
 		self._workflows       : Dict[str, Any     ] = {}
 		self._upload_handlers : Dict[str, Callable] = {}
 		self._storage_dir     : Optional[Path]      = Path(storage_dir) if storage_dir else None
+		self._impl_lock       : asyncio.Lock        = asyncio.Lock()
 
 		if self._storage_dir:
 			self._storage_dir.mkdir(parents=True, exist_ok=True)
@@ -105,15 +106,21 @@ class WorkflowManager:
 
 	async def add(self, workflow: Workflow, name: Optional[str] = None) -> str:
 		wf = copy.deepcopy(workflow)
-		if not name:
-			if wf.options and wf.options.name:
-				name = wf.options.name
-			else:
-				self._current_id += 1
-				name = f"workflow_{self._current_id}"
-		await self.remove(name)
-		wf.link()
-		self._workflows[name] = self._make_workflow(wf)
+		removed = False
+		async with self._impl_lock:
+			if not name:
+				if wf.options and wf.options.name:
+					name = wf.options.name
+				else:
+					self._current_id += 1
+					name = f"workflow_{self._current_id}"
+			removed = await self._remove_locked(name)
+			wf.link()
+			self._workflows[name] = self._make_workflow(wf)
+		if removed:
+			await self._event_bus.emit(
+				event_type = EventType.MANAGER_WORKFLOW_REMOVED,
+			)
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_WORKFLOW_ADDED,
 		)
@@ -121,6 +128,17 @@ class WorkflowManager:
 
 
 	async def remove(self, name: Optional[str] = None) -> bool:
+		async with self._impl_lock:
+			removed = await self._remove_locked(name)
+		if not removed:
+			return False
+		await self._event_bus.emit(
+			event_type = EventType.MANAGER_WORKFLOW_REMOVED,
+		)
+		return True
+
+
+	async def _remove_locked(self, name: Optional[str] = None) -> bool:
 		if not name:
 			names = list(self._workflows.keys())
 		elif name in self._workflows:
@@ -131,9 +149,6 @@ class WorkflowManager:
 			data = self._workflows[key]
 			await self._kill_workflow(data)
 			del self._workflows[key]
-		await self._event_bus.emit(
-			event_type = EventType.MANAGER_WORKFLOW_REMOVED,
-		)
 		return True
 
 
@@ -160,41 +175,50 @@ class WorkflowManager:
 			return None
 		if data["backend"] is not None:
 			return data
-		workflow = data["workflow"]
-		backend  = self._build_backend(workflow)
-		apps     = [None] * len(backend.handles)
-		host     = "0.0.0.0"
-		port     = self._port + 1
-		servers  = []
-		for i, (node, handle) in enumerate(zip(workflow.nodes, backend.handles)):
-			if node.type != "agent_config":
-				continue
-			app    = backend.get_agent_app(handle)
-			config = uvicorn.Config(app, host=host, port=port, log_level="warning")
-			server = uvicorn.Server(config)
-			task   = asyncio.create_task(server.serve())
-			info   = {
-				"app"    : app,
-				"config" : config,
-				"server" : server,
-				"task"   : task,
-			}
-			apps[i]   = info
-			node.port = port
-			servers.append(server)
-			port += 1
 
-		# Wait for all agent servers to actually bind their ports before returning
-		for _ in range(40):  # up to 2 s
-			if all(s.started for s in servers):
-				break
-			await asyncio.sleep(0.05)
-		data["backend"] = backend
-		data["apps"   ] = apps
-		await self._event_bus.emit(
-			event_type = EventType.MANAGER_WORKFLOW_IMPL,
-		)
-		return data
+		async with self._impl_lock:
+			data = self._workflows.get(name)
+			if not data:
+				return None
+			if data["backend"] is not None:
+				return data
+
+			workflow = data["workflow"]
+			backend  = self._build_backend(workflow)
+			apps     = [None] * len(backend.handles)
+			host     = "0.0.0.0"
+			port     = self._port + 1
+			servers  = []
+			try:
+				for i, (node, handle) in enumerate(zip(workflow.nodes, backend.handles)):
+					if node.type != "agent_config":
+						continue
+					app    = backend.get_agent_app(handle)
+					config = uvicorn.Config(app, host=host, port=port, log_level="warning")
+					server = uvicorn.Server(config)
+					task   = asyncio.create_task(self._serve_agent_server(server, port))
+					info   = {
+						"app"    : app,
+						"config" : config,
+						"server" : server,
+						"task"   : task,
+					}
+					apps[i]   = info
+					node.port = port
+					servers.append(info)
+					port += 1
+
+				await self._wait_for_agent_servers(servers)
+			except Exception:
+				await self._shutdown_agent_apps(apps)
+				raise
+
+			data["backend"] = backend
+			data["apps"   ] = apps
+			await self._event_bus.emit(
+				event_type = EventType.MANAGER_WORKFLOW_IMPL,
+			)
+			return data
 
 
 	async def list(self) -> List[str]:
@@ -215,16 +239,55 @@ class WorkflowManager:
 
 
 	async def _kill_workflow(self, data: Any):
-		if data["apps"]:
-			for item in data["apps"]:
-				if not item:
-					continue
-				server = item["server"]
-				task   = item["task"  ]
-				if server and server.should_exit is False:
-					server.should_exit = True
-				if task:
+		await self._shutdown_agent_apps(data.get("apps"))
+
+
+	async def _serve_agent_server(self, server: uvicorn.Server, port: int):
+		try:
+			await server.serve()
+		except asyncio.CancelledError:
+			raise
+		except BaseException as exc:
+			raise RuntimeError(f"Agent server failed on port {port}: {exc}") from exc
+
+
+	async def _wait_for_agent_servers(self, servers: List[Dict[str, Any]], timeout_s: float = 2.0):
+		if not servers:
+			return
+		deadline = asyncio.get_running_loop().time() + timeout_s
+		while True:
+			all_started = True
+			for info in servers:
+				server = info.get("server")
+				task = info.get("task")
+				if task and task.done():
+					exc = task.exception()
+					if exc is not None:
+						raise exc
+				if server and not getattr(server, "started", False):
+					all_started = False
+			if all_started:
+				return
+			if asyncio.get_running_loop().time() >= deadline:
+				raise RuntimeError("Timed out waiting for agent servers to start")
+			await asyncio.sleep(0.05)
+
+
+	async def _shutdown_agent_apps(self, apps: Any):
+		if not apps:
+			return
+		for item in apps:
+			if not item:
+				continue
+			server = item.get("server")
+			task   = item.get("task")
+			if server and getattr(server, "should_exit", False) is False:
+				server.should_exit = True
+			if task:
+				try:
 					await task
+				except (asyncio.CancelledError, RuntimeError, SystemExit):
+					pass
 
 
 	def _build_backend(self, workflow: Workflow) -> ImplementedBackend:

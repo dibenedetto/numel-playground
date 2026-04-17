@@ -42,7 +42,7 @@ Requires: browser with webcam and `pip install mediapipe Pillow numpy` on the ba
 Shows:
 - `timer_source_flow` with `interval_ms=10000`, `immediate=true`
 - `event_listener_flow` collecting timer ticks
-- Full agent subgraph: `backend_config` -> `model_config` -> `agent_options_config` -> `agent_config` -> `agent_flow`
+- Full agent subgraph: `model_config` -> `agent_options_config` -> `agent_config` -> `agent_flow`
 - Periodic LLM analysis driven by a timer
 
 Requires: Ollama + Mistral, or adjust `model_config` for your provider.

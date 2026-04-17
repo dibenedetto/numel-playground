@@ -6,25 +6,26 @@
   },
   "nodes": [
     {
-      "type": "backend_config",
-      "name": "agno",
-      "extra": { "name": "Backend" }
-    },
-    {
       "type": "model_config",
       "source": "ollama",
       "name": "mistral",
-      "extra": { "name": "Model (Ollama/Mistral)" }
+      "extra": {
+        "name": "Model (Ollama/Mistral)"
+      }
     },
     {
       "type": "tool_config",
       "name": "tools.list_directory",
-      "extra": { "name": "Tool: List Dir" }
+      "extra": {
+        "name": "Tool: List Dir"
+      }
     },
     {
       "type": "tool_config",
       "name": "tools.read_file",
-      "extra": { "name": "Tool: Read File" }
+      "extra": {
+        "name": "Tool: Read File"
+      }
     },
     {
       "type": "agent_options_config",
@@ -34,23 +35,53 @@
         "Always confirm before taking actions."
       ],
       "markdown": true,
-      "extra": { "name": "Agent Options" }
+      "extra": {
+        "name": "Agent Options"
+      }
     },
     {
       "type": "agent_config",
-      "extra": { "name": "Agent Config" }
+      "extra": {
+        "name": "Agent Config"
+      }
     },
     {
       "type": "agent_chat",
-      "extra": { "name": "Agent Chat" }
+      "extra": {
+        "name": "Agent Chat"
+      }
     }
   ],
   "edges": [
-    { "source": 0, "target": 5, "source_slot": "get", "target_slot": "backend" },
-    { "source": 1, "target": 5, "source_slot": "get", "target_slot": "model" },
-    { "source": 2, "target": 5, "source_slot": "get", "target_slot": "tools.list_dir" },
-    { "source": 3, "target": 5, "source_slot": "get", "target_slot": "tools.read_file" },
-    { "source": 4, "target": 5, "source_slot": "get", "target_slot": "options" },
-    { "source": 5, "target": 6, "source_slot": "get", "target_slot": "config" }
+    {
+      "source": 0,
+      "target": 4,
+      "source_slot": "get",
+      "target_slot": "model"
+    },
+    {
+      "source": 1,
+      "target": 4,
+      "source_slot": "get",
+      "target_slot": "tools.list_dir"
+    },
+    {
+      "source": 2,
+      "target": 4,
+      "source_slot": "get",
+      "target_slot": "tools.read_file"
+    },
+    {
+      "source": 3,
+      "target": 4,
+      "source_slot": "get",
+      "target_slot": "options"
+    },
+    {
+      "source": 4,
+      "target": 5,
+      "source_slot": "get",
+      "target_slot": "config"
+    }
   ]
 }

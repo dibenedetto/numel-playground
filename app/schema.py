@@ -289,14 +289,14 @@ DEFAULT_BACKEND_FALLBACK : bool = False
 
 @node_info(
 	title       = "Backend",
-	description = "Holds agent backend reference",
+	description = "Holds agent backend reference when multiple backends are available",
 	icon        = "⚙️",
 	section     = "Configurations",
 	layer       = 2,
 	visible     = True
 )
 class BackendConfig(ConfigType):
-	"""Agent backend config. Set name to the backend identifier and wire config→agent_config.backend."""
+	"""Optional agent backend config. When Numel exposes more than one backend, wire config→agent_config.backend to choose explicitly."""
 	type     : Annotated[Literal["backend_config"], FieldRole.CONSTANT] = "backend_config"
 	name     : Annotated[str                      , FieldRole.INPUT   ] = Field(default=DEFAULT_BACKEND_NAME,     description="Backend identifier used by the runtime implementation")
 	version  : Annotated[Optional[str]            , FieldRole.INPUT   ] = Field(default=DEFAULT_BACKEND_VERSION,  description="Optional backend version string; leave empty for the default")
@@ -851,7 +851,7 @@ class AgentConfig(ConfigType):
 	type          : Annotated[Literal["agent_config"]           , FieldRole.CONSTANT   ] = "agent_config"
 	port          : Annotated[Optional[int]                     , FieldRole.ANNOTATION ] = None
 	options       : Annotated[Optional[AgentOptionsConfig]      , FieldRole.INPUT      ] = Field(default=None, description="AgentOptionsConfig defining the agent persona, instructions, and system prompt")
-	backend       : Annotated[Optional[BackendConfig]           , FieldRole.INPUT      ] = Field(default=None, description="BackendConfig specifying which agent backend to use")
+	backend       : Annotated[Optional[BackendConfig]           , FieldRole.INPUT      ] = Field(default=None, description="Optional BackendConfig specifying which agent backend to use. When omitted, Numel uses the default supported backend.")
 	model         : Annotated[Optional[ModelConfig]             , FieldRole.INPUT      ] = Field(default=None, description="ModelConfig specifying the language model provider and name")
 	content_db    : Annotated[Optional[ContentDBConfig]         , FieldRole.INPUT      ] = Field(default=None, description="Optional ContentDBConfig for direct database access (bypasses the knowledge manager)")
 	history_mgr   : Annotated[Optional[HistoryManagerConfig]    , FieldRole.INPUT      ] = Field(default=None, description="Optional HistoryManagerConfig for managing chat history")

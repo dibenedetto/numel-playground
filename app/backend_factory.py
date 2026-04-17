@@ -19,6 +19,11 @@ from schema import (
 )
 
 
+def list_supported_backends() -> list[str]:
+	"""Return backend identifiers currently supported by this runtime."""
+	return [DEFAULT_BACKEND_NAME]
+
+
 def normalize_backend_name(name: Optional[str]) -> str:
 	value = str(name or "").strip().lower()
 	return value or DEFAULT_BACKEND_NAME

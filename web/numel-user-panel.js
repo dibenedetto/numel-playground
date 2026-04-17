@@ -60,6 +60,8 @@ const NumelUserPanel = (() => {
 			const data = await _post('/auth/me');
 			const u = data.user;
 			const q = data.quota || {};
+			const profile = data.profile || {};
+			const uiPreferences = profile.metadata?.ui_preferences || {};
 
 			// Avatar initial
 			const avatar = document.getElementById('userAvatar');
@@ -75,10 +77,37 @@ const NumelUserPanel = (() => {
 			if (role) role.textContent = u.role.charAt(0).toUpperCase() + u.role.slice(1);
 
 			_renderQuota(q);
+			_renderPreferences(uiPreferences);
 		} catch (e) {
 			const name = document.getElementById('userProfileName');
 			if (name) name.textContent = 'Error loading profile';
 		}
+	}
+
+	function _showPreferenceMessage(text, success = true) {
+		const el = document.getElementById('userPrefMsg');
+		if (!el) return;
+		el.textContent = text;
+		el.className = 'nw-user-pw-msg ' + (success ? 'success' : 'error');
+		el.style.display = '';
+		clearTimeout(_showPreferenceMessage._timer);
+		_showPreferenceMessage._timer = setTimeout(() => {
+			el.style.display = 'none';
+		}, success ? 1600 : 2600);
+	}
+
+	function _renderPreferences(uiPreferences = {}) {
+		const starterToggle = document.getElementById('userShowStarterOnLogin');
+		if (starterToggle) {
+			starterToggle.checked = uiPreferences.show_starter_on_login !== false;
+		}
+	}
+
+	async function _updatePreference(key, value) {
+		if (typeof window.updateNumelUserUiPreferences !== 'function') {
+			throw new Error('Preference service is not available');
+		}
+		await window.updateNumelUserUiPreferences({ [key]: value });
 	}
 
 	function _renderQuota(q) {
@@ -197,10 +226,26 @@ const NumelUserPanel = (() => {
 		const closeBtn  = document.getElementById('userPanelClose');
 		const openBtn   = document.getElementById('userPanelBtn');
 		const pwBtn     = document.getElementById('userPwSaveBtn');
+		const starterToggle = document.getElementById('userShowStarterOnLogin');
 
 		if (closeBtn) closeBtn.onclick = close;
 		if (openBtn)  openBtn.onclick  = toggle;
 		if (pwBtn)    pwBtn.onclick    = _changePassword;
+		if (starterToggle) {
+			starterToggle.addEventListener('change', async () => {
+				const nextValue = !!starterToggle.checked;
+				try {
+					await _updatePreference('show_starter_on_login', nextValue);
+					_showPreferenceMessage('Preferences saved.', true);
+				} catch (error) {
+					starterToggle.checked = !nextValue;
+					_showPreferenceMessage(error.message || 'Failed to save preferences.', false);
+				}
+			});
+		}
+		window.addEventListener('numel:user-profile-updated', (event) => {
+			_renderPreferences(event.detail?.profile?.metadata?.ui_preferences || {});
+		});
 	}
 
 	if (document.readyState === 'loading') {

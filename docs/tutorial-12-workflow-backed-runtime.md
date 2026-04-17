@@ -34,11 +34,12 @@ That exported workflow is now the same kind of thing you can inspect, save, and 
 
 Look for nodes such as:
 
-- `backend_config`
 - `model_config`
 - `agent_options_config`
 - `agent_config`
 - `agent_chat`
+
+If Numel exposes more than one backend in the future, an optional `backend_config` node can also appear in exported agent branches.
 
 If the Assistant is using runtime-bound capabilities like `console_toolkit`, those now remain visible in the graph and are rebound by Numel at runtime instead of being silently omitted.
 

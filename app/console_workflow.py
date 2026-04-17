@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
 
 from assistant_memory_contract import build_assistant_memory_components, normalize_assistant_memory_config
+from backend_factory import list_supported_backends, normalize_backend_name
 from runtime_settings import get_runtime_settings
 from schema import DEFAULT_BACKEND_NAME
 
@@ -183,9 +184,7 @@ def _append_planner_export_subgraph(
 		node_type = str(node.get("type") or "")
 		extra = node.setdefault("extra", {})
 		label = _clean_string(extra.get("name"))
-		if node_type == "backend_config":
-			extra["name"] = "Planner Backend"
-		elif node_type == "model_config":
+		if node_type == "model_config":
 			extra["name"] = "Planner Model"
 		elif node_type == "agent_options_config":
 			extra["name"] = "Planner Persona"
@@ -369,6 +368,7 @@ def build_console_workflow_export(
 	selected_toolkits = [str(name).strip() for name in (toolkit_names or []) if str(name).strip()]
 	selected_skills = [str(name).strip() for name in (skill_names or []) if str(name).strip()]
 	toolkit_args = dict(toolkit_args or {})
+	show_backend_config = len(list_supported_backends()) > 1
 
 	runtime_bound_toolkits = [
 		tk_name
@@ -387,30 +387,36 @@ def build_console_workflow_export(
 			+ "."
 		)
 
-	nodes: List[Dict[str, Any]] = [
-		_node_payload(
-			"backend_config",
-			label="Backend",
-			pos=(40, 60),
-			name=backend_name,
-		),
-		_node_payload(
-			"model_config",
-			label="Model",
-			pos=(240, 60),
-			source=model_source,
-			name=model_name,
-		),
-		_node_payload(
-			"agent_options_config",
-			label="Assistant Persona",
-			pos=(440, 60),
-			name=workflow_name,
-			description=str(options_cfg.get("description") or "").strip() or None,
-			instructions=list(options_cfg.get("instructions") or []),
-			markdown=bool(options_cfg.get("markdown", True)),
-		),
-	]
+	nodes: List[Dict[str, Any]] = []
+	if show_backend_config:
+		nodes.append(
+			_node_payload(
+				"backend_config",
+				label="Backend",
+				pos=(40, 60),
+				name=backend_name,
+			)
+		)
+	nodes.extend(
+		[
+			_node_payload(
+				"model_config",
+				label="Model",
+				pos=(240 if show_backend_config else 40, 60),
+				source=model_source,
+				name=model_name,
+			),
+			_node_payload(
+				"agent_options_config",
+				label="Assistant Persona",
+				pos=(440 if show_backend_config else 240, 60),
+				name=workflow_name,
+				description=str(options_cfg.get("description") or "").strip() or None,
+				instructions=list(options_cfg.get("instructions") or []),
+				markdown=bool(options_cfg.get("markdown", True)),
+			),
+		]
+	)
 	edges: List[Dict[str, Any]] = []
 
 	agent_config_index = None
@@ -478,7 +484,7 @@ def build_console_workflow_export(
 		_node_payload(
 			"agent_config",
 			label="Console Agent",
-			pos=(1120, 120),
+			pos=(1120 if show_backend_config else 920, 120),
 		)
 	)
 
@@ -487,22 +493,25 @@ def build_console_workflow_export(
 		_node_payload(
 			"agent_chat",
 			label="Assistant Chat",
-			pos=(1380, 120),
+			pos=(1380 if show_backend_config else 1180, 120),
 		)
 	)
 
+	model_index = 1 if show_backend_config else 0
+	options_index = 2 if show_backend_config else 1
+	if show_backend_config:
+		edges.append({"source": 0, "target": agent_config_index, "source_slot": "config", "target_slot": "backend"})
 	edges.extend(
 		[
-			{"source": 0, "target": agent_config_index, "source_slot": "config", "target_slot": "backend"},
-			{"source": 1, "target": agent_config_index, "source_slot": "config", "target_slot": "model"},
-			{"source": 2, "target": agent_config_index, "source_slot": "options", "target_slot": "options"},
+			{"source": model_index, "target": agent_config_index, "source_slot": "config", "target_slot": "model"},
+			{"source": options_index, "target": agent_config_index, "source_slot": "options", "target_slot": "options"},
 			{"source": agent_config_index, "target": chat_index, "source_slot": "config", "target_slot": "config"},
 		]
 	)
 
 	if session_manager_index is not None:
 		edges.append(
-			{"source": 1, "target": session_manager_index, "source_slot": "config", "target_slot": "model"}
+			{"source": model_index, "target": session_manager_index, "source_slot": "config", "target_slot": "model"}
 		)
 		edges.append(
 			{"source": session_manager_index, "target": agent_config_index, "source_slot": "config", "target_slot": "session_mgr"}
@@ -513,7 +522,7 @@ def build_console_workflow_export(
 		)
 	if memory_manager_index is not None:
 		edges.append(
-			{"source": 1, "target": memory_manager_index, "source_slot": "config", "target_slot": "model"}
+			{"source": model_index, "target": memory_manager_index, "source_slot": "config", "target_slot": "model"}
 		)
 		edges.append(
 			{"source": memory_manager_index, "target": agent_config_index, "source_slot": "config", "target_slot": "memory_mgr"}
@@ -809,14 +818,12 @@ def parse_console_workflow_import(
 		"session_manager_config",
 	)
 
-	if backend_node is None:
-		raise ValueError("The agent_config has no connected backend_config.")
 	if model_node is None:
 		raise ValueError("The agent_config has no connected model_config.")
 
-	parsed_backend = _clean_string(backend_node.get("name") or backend_name) or backend_name
-	if parsed_backend != backend_name:
-		raise ValueError(f"Console workflow import currently supports only backend '{backend_name}', got '{parsed_backend}'.")
+	parsed_backend = normalize_backend_name(backend_node.get("name") if backend_node else backend_name)
+	if parsed_backend not in {normalize_backend_name(name) for name in list_supported_backends()}:
+		raise ValueError(f"Console workflow import does not support backend '{parsed_backend}'.")
 
 	toolkit_entries = _resolve_multi_linked_or_inline(
 		nodes if agent_index is not None else [agent_node],

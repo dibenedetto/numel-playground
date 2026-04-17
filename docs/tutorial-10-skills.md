@@ -37,17 +37,16 @@ Two layers:
 
 | # | Node | Type | Purpose |
 |---|------|------|---------|
-| 0 | Backend | `backend_config` | Agent backend |
-| 1 | Model (Ollama/Mistral) | `model_config` | LLM provider |
-| 2 | Agent Options | `agent_options_config` | Base instructions |
-| 3 | Skill: Web Search | `skill_config` | Injects web search instructions |
-| 4 | HTTP Toolkit | `toolkit_config` | Provides HTTP `get` tool |
-| 5 | Research Agent | `agent_config` | Combines all config |
-| 6 | Start | `start_flow` | Flow entry point |
-| 7 | User Question | `user_input_flow` | Prompts for a research topic |
-| 8 | Research | `agent_flow` | Runs the agent |
-| 9 | Result Preview | `preview_flow` | Shows the agent's response |
-| 10 | End | `end_flow` | Flow exit |
+| 0 | Model (Ollama/Mistral) | `model_config` | LLM provider |
+| 1 | Agent Options | `agent_options_config` | Base instructions |
+| 2 | Skill: Web Search | `skill_config` | Injects web search instructions |
+| 3 | HTTP Toolkit | `toolkit_config` | Provides HTTP `get` tool |
+| 4 | Research Agent | `agent_config` | Combines all config; backend is implicit today |
+| 5 | Start | `start_flow` | Flow entry point |
+| 6 | User Question | `user_input_flow` | Prompts for a research topic |
+| 7 | Research | `agent_flow` | Runs the agent |
+| 8 | Result Preview | `preview_flow` | Shows the agent's response |
+| 9 | End | `end_flow` | Flow exit |
 
 ## Key Concepts
 

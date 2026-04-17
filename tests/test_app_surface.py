@@ -215,66 +215,55 @@ def _agent_edge_workflow_payload() -> dict:
         "type": "workflow",
         "options": {
             "name": "Agent Edge Workflow",
-            "description": "Uses backend_config and model_config wired into agent_config via edges only.",
+            "description": "Uses the implicit default backend plus model_config wired into agent_config.",
         },
         "nodes": [
-            {
-                "type": "backend_config",
-                "name": "agno",
-                "extra": {"pos": [40, 100], "name": "Backend"},
-            },
             {
                 "type": "model_config",
                 "source": "ollama",
                 "name": "mistral",
-                "extra": {"pos": [40, 260], "name": "Model"},
+                "extra": {"pos": [40, 100], "name": "Model"},
             },
             {
                 "type": "agent_config",
-                "extra": {"pos": [340, 180], "name": "Agent"},
+                "extra": {"pos": [340, 100], "name": "Agent"},
             },
             {
                 "type": "start_flow",
-                "extra": {"pos": [40, 420], "name": "Start"},
+                "extra": {"pos": [40, 340], "name": "Start"},
             },
             {
                 "type": "agent_flow",
                 "request": "Say hello in one short sentence.",
-                "extra": {"pos": [640, 420], "name": "Ask Agent"},
+                "extra": {"pos": [640, 340], "name": "Ask Agent"},
             },
             {
                 "type": "end_flow",
-                "extra": {"pos": [940, 420], "name": "End"},
+                "extra": {"pos": [940, 340], "name": "End"},
             },
         ],
         "edges": [
             {
                 "source": 0,
-                "target": 2,
-                "source_slot": "config",
-                "target_slot": "backend",
-            },
-            {
-                "source": 1,
-                "target": 2,
+                "target": 1,
                 "source_slot": "config",
                 "target_slot": "model",
             },
             {
-                "source": 2,
-                "target": 4,
+                "source": 1,
+                "target": 3,
                 "source_slot": "config",
                 "target_slot": "config",
             },
             {
-                "source": 3,
-                "target": 4,
+                "source": 2,
+                "target": 3,
                 "source_slot": "flow_out",
                 "target_slot": "flow_in",
             },
             {
-                "source": 4,
-                "target": 5,
+                "source": 3,
+                "target": 4,
                 "source_slot": "flow_out",
                 "target_slot": "flow_in",
             },
@@ -420,6 +409,20 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(me.status_code, 200, me.text)
         self.assertEqual(me.json()["user"]["username"], "alice")
 
+        pref_update = await self._client.post(
+            "/auth/preferences/update",
+            json={"ui_preferences": {"show_starter_on_login": False}},
+            headers=self._auth_headers(payload["token"]),
+        )
+        self.assertEqual(pref_update.status_code, 200, pref_update.text)
+        self.assertFalse(pref_update.json()["ui_preferences"]["show_starter_on_login"])
+
+        me_after = await self._client.post("/auth/me", json={}, headers=self._auth_headers(payload["token"]))
+        self.assertEqual(me_after.status_code, 200, me_after.text)
+        self.assertFalse(
+            me_after.json()["profile"]["metadata"]["ui_preferences"]["show_starter_on_login"]
+        )
+
     async def test_ping_with_session_header_returns_promptly(self) -> None:
         response = await asyncio.wait_for(
             self._client.post("/ping", json={}, headers={"X-Session-Id": "sess_smoke"}),
@@ -427,6 +430,31 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["message"], "pong")
+
+    async def test_workflow_save_emits_workspace_changed_with_source_session_id(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "eventuser", "email": "eventuser@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+        headers["X-Session-Id"] = "sess_surface_ui"
+
+        save = await self._client.post(
+            "/workflow/save",
+            json={"workflow": _minimal_workflow_payload()},
+            headers=headers,
+        )
+        self.assertEqual(save.status_code, 200, save.text)
+
+        history = self._app.state.event_bus.get_event_history(limit=50)
+        event = next(
+            (item for item in reversed(history) if item.event_type.value == "workspace.changed"),
+            None,
+        )
+        self.assertIsNotNone(event)
+        self.assertEqual(event.data.get("name"), "Surface Workflow")
+        self.assertEqual(event.data.get("source_session_id"), "sess_surface_ui")
 
     async def test_spaces_workflow_and_execution_surface(self) -> None:
         register = await self._client.post(
@@ -2610,7 +2638,7 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         data = response.json()
         workflow = data["workflow"]
         node_types = [node["type"] for node in workflow["nodes"]]
-        self.assertIn("backend_config", node_types)
+        self.assertNotIn("backend_config", node_types)
         self.assertIn("model_config", node_types)
         self.assertIn("agent_options_config", node_types)
         self.assertIn("agent_config", node_types)

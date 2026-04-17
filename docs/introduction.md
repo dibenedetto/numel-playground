@@ -136,7 +136,7 @@ These nodes wire together to define an AI agent:
 
 | Node | Purpose |
 |------|---------|
-| **Backend** | Agent backend selection |
+| **Backend** | Optional backend selection when Numel exposes more than one agent backend |
 | **Model** | LLM provider and model name (Ollama, OpenAI, Anthropic, Groq, Google) |
 | **Embedding** | Embedding model for RAG |
 | **Content DB** | Raw content storage (SQLite) |

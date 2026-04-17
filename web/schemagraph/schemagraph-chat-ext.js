@@ -579,9 +579,10 @@ class ChatOverlayManager {
 		}
 		const isReady = node.chatState === ChatState.READY;
 		const isIdle  = node.chatState === ChatState.IDLE;
+		const isError = node.chatState === ChatState.ERROR;
 		const isBusy  = node.chatState === ChatState.SENDING || node.chatState === ChatState.STREAMING;
-		const canType = isReady || isIdle || isBusy;
-		const canSend = isReady || isIdle;  // allow first send from IDLE (lazy connect)
+		const canType = isReady || isIdle || isBusy || isError;
+		const canSend = isReady || isIdle || isError;  // allow retry from ERROR and first send from IDLE
 
 		if (sendBtn) sendBtn.disabled = !canSend;
 

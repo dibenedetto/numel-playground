@@ -1,156 +1,131 @@
 {
-	"type": "workflow",
-	"id": "ecb70de4-bdc8-470e-a33b-f62720c030a0",
-	"extra": null,
-	"options": null,
-	"nodes": [
-		{
-			"type": "backend_config",
-			"id": "9c959d5d-d3e3-4766-aacb-4e65ccaf7d02",
-			"extra": {
-				"pos": [
-					-16.857463524130225,
-					-153.02469135802468
-				],
-				"size": [
-					220,
-					110
-				],
-				"name": "Backend",
-				"color": "#4a7fa5"
-			},
-			"name": "agno",
-			"fallback": false
-		},
-		{
-			"type": "toolkit_config",
-			"name": "mesh_toolkit",
-			"extra": {
-				"pos": [
-					-4.444444444444542,
-					328.9955106621774
-				],
-				"size": [
-					220,
-					85
-				],
-				"name": "Toolkit",
-				"color": "#4a7fa5"
-			}
-		},
-		{
-			"type": "model_config",
-			"id": "067c35ae-4532-46c3-b9dd-bbd2d103d0fb",
-			"extra": {
-				"pos": [
-					-16.857463524130203,
-					-15.819304152637486
-				],
-				"size": [
-					220,
-					135
-				],
-				"name": "Model",
-				"color": "#4a7fa5"
-			},
-			"source": "ollama",
-			"name": "qwen3.5:cloud",
-			"fallback": false
-		},
-		{
-			"type": "agent_options_config",
-			"id": "ad41954a-4e39-4181-b083-d91a1403ec3a",
-			"extra": {
-				"pos": [
-					-16.004489337822704,
-					-341.172839506173
-				],
-				"size": [
-					220,
-					160
-				],
-				"name": "Agent Options",
-				"color": "#4a7fa5"
-			},
-			"name": "Zoe",
-			"instructions": [
-				"You are a helpful file assistant.",
-				"Use the list_directory and read_file tools to explore files.",
-				"Always confirm before taking actions."
-			],
-			"markdown": true
-		},
-		{
-			"type": "agent_config",
-			"id": "81493e39-3837-4081-90df-97e828cc5c3b",
-			"extra": {
-				"pos": [
-					400,
-					25
-				],
-				"size": [
-					220,
-					285
-				],
-				"name": "Agent Config",
-				"color": "#4a7fa5"
-			},
-			"port": 8001
-		},
-		{
-			"type": "agent_chat",
-			"id": "7b6c068c-1918-431e-9782-bfabc40abb58",
-			"extra": {
-				"pos": [
-					700,
-					25
-				],
-				"size": [
-					300,
-					400
-				],
-				"name": "Agent Chat",
-				"chat_id": "chat_1773135774326_pwhb1l",
-				"color": "#c06050"
-			}
-		}
-	],
-	"edges": [
-		{
-			"type": "edge",
-			"source": 0,
-			"target": 4,
-			"source_slot": "config",
-			"target_slot": "backend"
-		},
-		{
-			"type": "edge",
-			"source": 2,
-			"target": 4,
-			"source_slot": "config",
-			"target_slot": "model"
-		},
-		{
-			"type": "edge",
-			"source": 3,
-			"target": 4,
-			"source_slot": "options",
-			"target_slot": "options"
-		},
-		{
-			"type": "edge",
-			"source": 4,
-			"target": 5,
-			"source_slot": "config",
-			"target_slot": "config"
-		},
-		{
-			"type": "edge",
-			"source": 1,
-			"target": 4,
-			"source_slot": "config",
-			"target_slot": "toolkits.mesh",
-			"preview" : true
-		}
-	]
+  "type": "workflow",
+  "id": "ecb70de4-bdc8-470e-a33b-f62720c030a0",
+  "extra": null,
+  "options": null,
+  "nodes": [
+    {
+      "type": "toolkit_config",
+      "name": "mesh_toolkit",
+      "extra": {
+        "pos": [
+          -4.444444444444542,
+          328.9955106621774
+        ],
+        "size": [
+          220,
+          85
+        ],
+        "name": "Toolkit",
+        "color": "#4a7fa5"
+      }
+    },
+    {
+      "type": "model_config",
+      "id": "067c35ae-4532-46c3-b9dd-bbd2d103d0fb",
+      "extra": {
+        "pos": [
+          -16.857463524130203,
+          -15.819304152637486
+        ],
+        "size": [
+          220,
+          135
+        ],
+        "name": "Model",
+        "color": "#4a7fa5"
+      },
+      "source": "ollama",
+      "name": "qwen3.5:cloud",
+      "fallback": false
+    },
+    {
+      "type": "agent_options_config",
+      "id": "ad41954a-4e39-4181-b083-d91a1403ec3a",
+      "extra": {
+        "pos": [
+          -16.004489337822704,
+          -341.172839506173
+        ],
+        "size": [
+          220,
+          160
+        ],
+        "name": "Agent Options",
+        "color": "#4a7fa5"
+      },
+      "name": "Zoe",
+      "instructions": [
+        "You are a helpful file assistant.",
+        "Use the list_directory and read_file tools to explore files.",
+        "Always confirm before taking actions."
+      ],
+      "markdown": true
+    },
+    {
+      "type": "agent_config",
+      "id": "81493e39-3837-4081-90df-97e828cc5c3b",
+      "extra": {
+        "pos": [
+          400,
+          25
+        ],
+        "size": [
+          220,
+          285
+        ],
+        "name": "Agent Config",
+        "color": "#4a7fa5"
+      },
+      "port": 8001
+    },
+    {
+      "type": "agent_chat",
+      "id": "7b6c068c-1918-431e-9782-bfabc40abb58",
+      "extra": {
+        "pos": [
+          700,
+          25
+        ],
+        "size": [
+          300,
+          400
+        ],
+        "name": "Agent Chat",
+        "chat_id": "chat_1773135774326_pwhb1l",
+        "color": "#c06050"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "type": "edge",
+      "source": 1,
+      "target": 3,
+      "source_slot": "config",
+      "target_slot": "model"
+    },
+    {
+      "type": "edge",
+      "source": 2,
+      "target": 3,
+      "source_slot": "options",
+      "target_slot": "options"
+    },
+    {
+      "type": "edge",
+      "source": 3,
+      "target": 4,
+      "source_slot": "config",
+      "target_slot": "config"
+    },
+    {
+      "type": "edge",
+      "source": 0,
+      "target": 3,
+      "source_slot": "config",
+      "target_slot": "toolkits.mesh",
+      "preview": true
+    }
+  ]
 }

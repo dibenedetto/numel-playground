@@ -5,9 +5,10 @@ from typing import Any, Dict, List, Optional, Set, Tuple, get_args
 
 from pydantic import ValidationError
 
+from backend_factory import list_supported_backends
 from engine import WorkflowEngine
 from event_bus import EventBus
-from schema import ConfigType, FieldRole, FlowType, NativeType, OptionsType, SourceMeta, Workflow, WorkflowNodeUnion
+from schema import DEFAULT_BACKEND_NAME, ConfigType, FieldRole, FlowType, NativeType, OptionsType, SourceMeta, Workflow, WorkflowNodeUnion
 from toolkit_runtime import load_numel_toolkit
 
 
@@ -455,8 +456,10 @@ def _semantic_validation(workflow: Workflow, workflow_doc: Dict[str, Any]) -> tu
 		if str(getattr(agent_node, "type", "") or "") != "agent_config":
 			continue
 		label = _node_label(source_idx, agent_node)
-		if not _agent_slot_present(source_idx, agent_node, "backend"):
-			errors.append(f"{label} has no backend. Connect a backend_config node to agent_config.backend.")
+		if not _agent_slot_present(source_idx, agent_node, "backend") and len(list_supported_backends()) > 1:
+			warnings.append(
+				f"{label} has no explicit backend. It will use the default backend '{DEFAULT_BACKEND_NAME}'."
+			)
 		if not _agent_slot_present(source_idx, agent_node, "model"):
 			errors.append(f"{label} has no model. Connect a model_config node to agent_config.model.")
 

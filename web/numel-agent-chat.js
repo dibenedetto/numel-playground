@@ -188,18 +188,20 @@ class AgentChatManager {
 			// Ensure connected (lazy reconnect if dirty)
 			await this._ensureConnected(node);
 
+			const liveNode = this._resolveLiveChatNode(chatId, node);
 			const entry = this.handlers.get(chatId);
 			if (!entry?.handler?.isConnected()) {
 				throw new Error('Not connected to agent');
 			}
 
 			// Send message
-			this.app.api.chat.setState(node, ChatState.SENDING);
+			this.app.api.chat.setState(liveNode, ChatState.SENDING);
 			await entry.handler.send(message);
 
 		} catch (err) {
-			this.app.api.chat.setState(node, ChatState.ERROR, err.message);
-			this.app.api.chat.addMessage(node, MessageRole.ERROR, err.message);
+			const liveNode = this._resolveLiveChatNode(chatId, node);
+			this.app.api.chat.setState(liveNode, ChatState.ERROR, err.message);
+			this.app.api.chat.addMessage(liveNode, MessageRole.ERROR, err.message);
 		}
 	}
 
@@ -210,6 +212,7 @@ class AgentChatManager {
 		const agentConfig = this._getConnectedAgentConfig(node);
 		const currentPort = agentConfig?.annotations?.port || agentConfig?.port;
 		const needsReconnect = !entry || entry.dirty || !entry.handler?.isConnected();
+		const needsSync = !!entry?.dirty || !currentPort;
 
 		if (!needsReconnect && entry.port === currentPort) {
 			return;
@@ -217,16 +220,35 @@ class AgentChatManager {
 
 		this.app.api.chat.setState(node, ChatState.CONNECTING);
 
-		await this.syncWorkflow();
+		let newNode = node;
+		let updatedConfig = agentConfig;
+		let port = currentPort;
+		if (needsSync) {
+			await this.syncWorkflow(null, null, true);
 
-		// Re-fetch node by chatId after sync
-		const newNode = this._findNodeByChatId(chatId);
+			// Re-fetch node by chatId after sync
+			newNode = this._findNodeByChatId(chatId);
+			if (!newNode) {
+				throw new Error('Chat node not found after sync');
+			}
+
+			updatedConfig = this._getConnectedAgentConfig(newNode);
+			port = updatedConfig?.annotations?.port || updatedConfig?.port;
+		}
+
 		if (!newNode) {
 			throw new Error('Chat node not found after sync');
 		}
 
-		const updatedConfig = this._getConnectedAgentConfig(newNode);
-		const port = updatedConfig?.annotations?.port || updatedConfig?.port;
+		if (!port) {
+			const implResponse = await this.api.ensureWorkflowImpl();
+			if (implResponse?.workflow) {
+				this._applyImplementationPorts(implResponse.workflow);
+				newNode = this._findNodeByChatId(chatId) || newNode;
+				updatedConfig = this._getConnectedAgentConfig(newNode) || updatedConfig;
+				port = updatedConfig?.annotations?.port || updatedConfig?.port;
+			}
+		}
 
 		if (!port) {
 			throw new Error('No agent port assigned - check AgentConfig connection');
@@ -250,6 +272,24 @@ class AgentChatManager {
 
 		// Auto-send from input field if wired and has data
 		this._checkAutoSend(newNode);
+	}
+
+	_resolveLiveChatNode(chatId, fallback = null) {
+		return this._findNodeByChatId(chatId) || fallback;
+	}
+
+	_applyImplementationPorts(workflowDoc) {
+		const nodes = Array.isArray(workflowDoc?.nodes) ? workflowDoc.nodes : [];
+		for (const graphNode of this.app.graph.nodes || []) {
+			if (graphNode?.workflowIndex == null) continue;
+			const savedNode = nodes[graphNode.workflowIndex];
+			if (!savedNode || savedNode.type !== graphNode.workflowType) continue;
+			if (savedNode.type !== 'agent_config') continue;
+			const port = savedNode.port ?? savedNode.annotations?.port;
+			if (!port) continue;
+			graphNode.annotations = { ...(graphNode.annotations || {}), port };
+			graphNode.port = port;
+		}
 	}
 
 	async _checkAutoSend(node) {
@@ -278,8 +318,9 @@ class AgentChatManager {
 			this.app.api.chat.setState(node, ChatState.SENDING);
 			await entry.handler.send(text);
 		} catch (err) {
-			this.app.api.chat.setState(node, ChatState.ERROR, err.message);
-			this.app.api.chat.addMessage(node, MessageRole.ERROR, err.message);
+			const liveNode = this._resolveLiveChatNode(chatId, node);
+			this.app.api.chat.setState(liveNode, ChatState.ERROR, err.message);
+			this.app.api.chat.addMessage(liveNode, MessageRole.ERROR, err.message);
 		}
 	}
 
@@ -309,8 +350,9 @@ class AgentChatManager {
 			}
 		} catch (err) {
 			console.error('[AgentChat] activateForExecution error:', err);
-			this.app.api.chat.setState(node, ChatState.ERROR, err.message);
-			this.app.api.chat.addMessage(node, MessageRole.ERROR, err.message);
+			const liveNode = this._resolveLiveChatNode(node.chatId, node);
+			this.app.api.chat.setState(liveNode, ChatState.ERROR, err.message);
+			this.app.api.chat.addMessage(liveNode, MessageRole.ERROR, err.message);
 		}
 	}
 
@@ -403,7 +445,9 @@ class AgentChatManager {
 			onRunFinished: () => {
 				const n = getNode();
 				if (!n) return;
-				api.setState(n, ChatState.READY);
+				if (n.chatState !== ChatState.ERROR) {
+					api.setState(n, ChatState.READY);
+				}
 				this._updateResponseOutput(n);
 			},
 			onRunError: (error) => {

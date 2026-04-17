@@ -1,159 +1,433 @@
 {
-	"id": "comfyui02",
-	"title": "ComfyUI: CLIP-Scored Prompt Optimization",
-	"description": "Agent writes a prompt, ComfyUI generates an image, image_eval_toolkit scores it with CLIP (prompt alignment) and LAION aesthetic predictor. If combined score < 0.7, the agent rewrites the prompt using the feedback. Demonstrates measurable image quality improvement.",
-	"category": "comfyui",
-	"tags": ["comfyui", "clip", "aesthetic", "eval", "prompt-optimization", "image-quality"],
-	"author": "system",
-	"created_at": 1742486400.0,
-	"workflow": {
-		"type": "workflow",
-		"nodes": [
-			{
-				"type": "start_flow",
-				"extra": {"pos": [50, 300], "name": "Start"}
-			},
-			{
-				"type": "user_input_flow",
-				"query": "Describe the image you want (e.g., 'a sunset over a mountain lake'):",
-				"extra": {"pos": [250, 300], "name": "User Description"}
-			},
-			{
-				"type": "backend_config",
-				"name": "agno",
-				"extra": {"pos": [250, 50], "name": "Backend"}
-			},
-			{
-				"type": "model_config",
-				"source": "ollama",
-				"name": "qwen3.5:cloud",
-				"extra": {"pos": [450, 50], "name": "Model"}
-			},
-			{
-				"type": "agent_options_config",
-				"instructions": [
-					"You are an expert Stable Diffusion prompt engineer.",
-					"Given a user description, write an optimized image generation prompt using descriptive keywords, quality boosters (masterpiece, best quality, 8k, detailed, professional), lighting terms, and style tags.",
-					"If you receive CLIP/aesthetic feedback from a previous attempt, adjust the prompt to improve the weak area.",
-					"CLIP feedback means the image didn't match the description well — add more specific descriptive terms.",
-					"Aesthetic feedback means the image quality was low — add more quality boosters and composition terms.",
-					"Output ONLY the prompt text, no explanations."
-				],
-				"extra": {"pos": [650, 50], "name": "Prompt Engineer"}
-			},
-			{
-				"type": "agent_config",
-				"extra": {"pos": [850, 100], "name": "Agent Config"}
-			},
-			{
-				"type": "loop_start_flow",
-				"max_iter": 3,
-				"extra": {"pos": [500, 300], "name": "Optimization Loop"}
-			},
-			{
-				"type": "transform_flow",
-				"lang": "python",
-				"script": "desc = variables.get('user_desc', input or '')\nfeedback = variables.get('eval_feedback', '')\nif feedback:\n    output = f'User wants: {desc}\\n\\nPrevious attempt feedback:\\n{feedback}\\n\\nRewrite the prompt to improve the scores.'\nelse:\n    output = f'User wants: {desc}\\nWrite an optimized Stable Diffusion prompt.'",
-				"extra": {"pos": [700, 300], "name": "Build Agent Input"}
-			},
-			{
-				"type": "agent_flow",
-				"extra": {"pos": [950, 300], "name": "Write Prompt"}
-			},
-			{
-				"type": "toolkit_config",
-				"name": "comfyui_toolkit",
-				"args": {"url": "http://localhost:8188"},
-				"extra": {"pos": [750, 500], "name": "ComfyUI"}
-			},
-			{
-				"type": "tool_flow",
-				"method": "generate_simple",
-				"args": {"width": 512, "height": 512, "steps": 25, "cfg": 7.5},
-				"extra": {"pos": [1200, 300], "name": "Generate Image"}
-			},
-			{
-				"type": "transform_flow",
-				"lang": "python",
-				"script": "import json\nresult = input\nif isinstance(result, str):\n    try: result = json.loads(result)\n    except: pass\nimages = result.get('images', []) if isinstance(result, dict) else []\nif images:\n    # Store first image URL and retrieve base64\n    import httpx\n    url = images[0].get('url', '')\n    if url:\n        r = httpx.get(url, timeout=30)\n        import base64\n        output = base64.b64encode(r.content).decode()\n    else:\n        output = ''\nelse:\n    output = ''",
-				"extra": {"pos": [1450, 300], "name": "Fetch Image Data"}
-			},
-			{
-				"type": "preview_flow",
-				"hint": "image",
-				"extra": {"pos": [1450, 500], "name": "Preview"}
-			},
-			{
-				"type": "toolkit_config",
-				"name": "image_eval_toolkit",
-				"extra": {"pos": [1450, 100], "name": "Image Eval"}
-			},
-			{
-				"type": "tool_flow",
-				"method": "evaluate",
-				"extra": {"pos": [1700, 300], "name": "CLIP + Aesthetic Score"}
-			},
-			{
-				"type": "eval_flow",
-				"script": "import json\ntry:\n    r = json.loads(str(input)) if isinstance(input, str) else input or {}\n    score = float(r.get('combined_score', 0.0))\n    feedback = r.get('feedback', 'No evaluation data')\nexcept:\n    score = 0.0\n    feedback = 'Failed to parse evaluation result'",
-				"extra": {"pos": [1950, 300], "name": "Score Check"}
-			},
-			{
-				"type": "if_else_flow",
-				"condition": "value >= 0.7",
-				"extra": {"pos": [2150, 300], "name": "Good Enough?"}
-			},
-			{
-				"type": "transform_flow",
-				"lang": "python",
-				"script": "variables['eval_feedback'] = str(input or '')\noutput = input",
-				"extra": {"pos": [2150, 500], "name": "Store Feedback"}
-			},
-			{
-				"type": "loop_end_flow",
-				"extra": {"pos": [2350, 500], "name": "Retry"}
-			},
-			{
-				"type": "preview_flow",
-				"hint": "json",
-				"extra": {"pos": [2350, 300], "name": "Final Scores"}
-			},
-			{
-				"type": "end_flow",
-				"extra": {"pos": [2550, 300], "name": "Done"}
-			}
-		],
-		"edges": [
-			{"source": 0, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 1, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 1, "target": 7, "source_slot": "message", "target_slot": "input"},
-			{"source": 2, "target": 5, "source_slot": "config", "target_slot": "backend"},
-			{"source": 3, "target": 5, "source_slot": "config", "target_slot": "model"},
-			{"source": 4, "target": 5, "source_slot": "options", "target_slot": "options"},
-			{"source": 5, "target": 8, "source_slot": "config", "target_slot": "config"},
-			{"source": 6, "target": 7, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 7, "target": 8, "source_slot": "output", "target_slot": "request"},
-			{"source": 7, "target": 8, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 8, "target": 10, "source_slot": "response", "target_slot": "args"},
-			{"source": 8, "target": 10, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 9, "target": 10, "source_slot": "config", "target_slot": "config"},
-			{"source": 10, "target": 11, "source_slot": "output", "target_slot": "input"},
-			{"source": 10, "target": 11, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 11, "target": 12, "source_slot": "output", "target_slot": "flow_in"},
-			{"source": 11, "target": 14, "source_slot": "output", "target_slot": "args"},
-			{"source": 13, "target": 14, "source_slot": "config", "target_slot": "config"},
-			{"source": 11, "target": 14, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 14, "target": 15, "source_slot": "output", "target_slot": "input"},
-			{"source": 14, "target": 15, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 15, "target": 16, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 15, "target": 16, "source_slot": "score", "target_slot": "value"},
-			{"source": 16, "target": 19, "source_slot": "true_out", "target_slot": "flow_in"},
-			{"source": 15, "target": 19, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 16, "target": 17, "source_slot": "false_out", "target_slot": "flow_in"},
-			{"source": 15, "target": 17, "source_slot": "feedback", "target_slot": "input"},
-			{"source": 17, "target": 18, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": 18, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true},
-			{"source": 19, "target": 20, "source_slot": "flow_out", "target_slot": "flow_in"}
-		]
-	}
+  "id": "comfyui02",
+  "title": "ComfyUI: CLIP-Scored Prompt Optimization",
+  "description": "Agent writes a prompt, ComfyUI generates an image, image_eval_toolkit scores it with CLIP (prompt alignment) and LAION aesthetic predictor. If combined score < 0.7, the agent rewrites the prompt using the feedback. Demonstrates measurable image quality improvement.",
+  "category": "comfyui",
+  "tags": [
+    "comfyui",
+    "clip",
+    "aesthetic",
+    "eval",
+    "prompt-optimization",
+    "image-quality"
+  ],
+  "author": "system",
+  "created_at": 1742486400.0,
+  "workflow": {
+    "type": "workflow",
+    "nodes": [
+      {
+        "type": "start_flow",
+        "extra": {
+          "pos": [
+            50,
+            300
+          ],
+          "name": "Start"
+        }
+      },
+      {
+        "type": "user_input_flow",
+        "query": "Describe the image you want (e.g., 'a sunset over a mountain lake'):",
+        "extra": {
+          "pos": [
+            250,
+            300
+          ],
+          "name": "User Description"
+        }
+      },
+      {
+        "type": "model_config",
+        "source": "ollama",
+        "name": "qwen3.5:cloud",
+        "extra": {
+          "pos": [
+            450,
+            50
+          ],
+          "name": "Model"
+        }
+      },
+      {
+        "type": "agent_options_config",
+        "instructions": [
+          "You are an expert Stable Diffusion prompt engineer.",
+          "Given a user description, write an optimized image generation prompt using descriptive keywords, quality boosters (masterpiece, best quality, 8k, detailed, professional), lighting terms, and style tags.",
+          "If you receive CLIP/aesthetic feedback from a previous attempt, adjust the prompt to improve the weak area.",
+          "CLIP feedback means the image didn't match the description well — add more specific descriptive terms.",
+          "Aesthetic feedback means the image quality was low — add more quality boosters and composition terms.",
+          "Output ONLY the prompt text, no explanations."
+        ],
+        "extra": {
+          "pos": [
+            650,
+            50
+          ],
+          "name": "Prompt Engineer"
+        }
+      },
+      {
+        "type": "agent_config",
+        "extra": {
+          "pos": [
+            850,
+            100
+          ],
+          "name": "Agent Config"
+        }
+      },
+      {
+        "type": "loop_start_flow",
+        "max_iter": 3,
+        "extra": {
+          "pos": [
+            500,
+            300
+          ],
+          "name": "Optimization Loop"
+        }
+      },
+      {
+        "type": "transform_flow",
+        "lang": "python",
+        "script": "desc = variables.get('user_desc', input or '')\nfeedback = variables.get('eval_feedback', '')\nif feedback:\n    output = f'User wants: {desc}\\n\\nPrevious attempt feedback:\\n{feedback}\\n\\nRewrite the prompt to improve the scores.'\nelse:\n    output = f'User wants: {desc}\\nWrite an optimized Stable Diffusion prompt.'",
+        "extra": {
+          "pos": [
+            700,
+            300
+          ],
+          "name": "Build Agent Input"
+        }
+      },
+      {
+        "type": "agent_flow",
+        "extra": {
+          "pos": [
+            950,
+            300
+          ],
+          "name": "Write Prompt"
+        }
+      },
+      {
+        "type": "toolkit_config",
+        "name": "comfyui_toolkit",
+        "args": {
+          "url": "http://localhost:8188"
+        },
+        "extra": {
+          "pos": [
+            750,
+            500
+          ],
+          "name": "ComfyUI"
+        }
+      },
+      {
+        "type": "tool_flow",
+        "method": "generate_simple",
+        "args": {
+          "width": 512,
+          "height": 512,
+          "steps": 25,
+          "cfg": 7.5
+        },
+        "extra": {
+          "pos": [
+            1200,
+            300
+          ],
+          "name": "Generate Image"
+        }
+      },
+      {
+        "type": "transform_flow",
+        "lang": "python",
+        "script": "import json\nresult = input\nif isinstance(result, str):\n    try: result = json.loads(result)\n    except: pass\nimages = result.get('images', []) if isinstance(result, dict) else []\nif images:\n    # Store first image URL and retrieve base64\n    import httpx\n    url = images[0].get('url', '')\n    if url:\n        r = httpx.get(url, timeout=30)\n        import base64\n        output = base64.b64encode(r.content).decode()\n    else:\n        output = ''\nelse:\n    output = ''",
+        "extra": {
+          "pos": [
+            1450,
+            300
+          ],
+          "name": "Fetch Image Data"
+        }
+      },
+      {
+        "type": "preview_flow",
+        "hint": "image",
+        "extra": {
+          "pos": [
+            1450,
+            500
+          ],
+          "name": "Preview"
+        }
+      },
+      {
+        "type": "toolkit_config",
+        "name": "image_eval_toolkit",
+        "extra": {
+          "pos": [
+            1450,
+            100
+          ],
+          "name": "Image Eval"
+        }
+      },
+      {
+        "type": "tool_flow",
+        "method": "evaluate",
+        "extra": {
+          "pos": [
+            1700,
+            300
+          ],
+          "name": "CLIP + Aesthetic Score"
+        }
+      },
+      {
+        "type": "eval_flow",
+        "script": "import json\ntry:\n    r = json.loads(str(input)) if isinstance(input, str) else input or {}\n    score = float(r.get('combined_score', 0.0))\n    feedback = r.get('feedback', 'No evaluation data')\nexcept:\n    score = 0.0\n    feedback = 'Failed to parse evaluation result'",
+        "extra": {
+          "pos": [
+            1950,
+            300
+          ],
+          "name": "Score Check"
+        }
+      },
+      {
+        "type": "if_else_flow",
+        "condition": "value >= 0.7",
+        "extra": {
+          "pos": [
+            2150,
+            300
+          ],
+          "name": "Good Enough?"
+        }
+      },
+      {
+        "type": "transform_flow",
+        "lang": "python",
+        "script": "variables['eval_feedback'] = str(input or '')\noutput = input",
+        "extra": {
+          "pos": [
+            2150,
+            500
+          ],
+          "name": "Store Feedback"
+        }
+      },
+      {
+        "type": "loop_end_flow",
+        "extra": {
+          "pos": [
+            2350,
+            500
+          ],
+          "name": "Retry"
+        }
+      },
+      {
+        "type": "preview_flow",
+        "hint": "json",
+        "extra": {
+          "pos": [
+            2350,
+            300
+          ],
+          "name": "Final Scores"
+        }
+      },
+      {
+        "type": "end_flow",
+        "extra": {
+          "pos": [
+            2550,
+            300
+          ],
+          "name": "Done"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": 0,
+        "target": 1,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 1,
+        "target": 5,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 1,
+        "target": 6,
+        "source_slot": "message",
+        "target_slot": "input"
+      },
+      {
+        "source": 2,
+        "target": 4,
+        "source_slot": "config",
+        "target_slot": "model"
+      },
+      {
+        "source": 3,
+        "target": 4,
+        "source_slot": "options",
+        "target_slot": "options"
+      },
+      {
+        "source": 4,
+        "target": 7,
+        "source_slot": "config",
+        "target_slot": "config"
+      },
+      {
+        "source": 5,
+        "target": 6,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 6,
+        "target": 7,
+        "source_slot": "output",
+        "target_slot": "request"
+      },
+      {
+        "source": 6,
+        "target": 7,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 7,
+        "target": 9,
+        "source_slot": "response",
+        "target_slot": "args"
+      },
+      {
+        "source": 7,
+        "target": 9,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 8,
+        "target": 9,
+        "source_slot": "config",
+        "target_slot": "config"
+      },
+      {
+        "source": 9,
+        "target": 10,
+        "source_slot": "output",
+        "target_slot": "input"
+      },
+      {
+        "source": 9,
+        "target": 10,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 10,
+        "target": 11,
+        "source_slot": "output",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 10,
+        "target": 13,
+        "source_slot": "output",
+        "target_slot": "args"
+      },
+      {
+        "source": 12,
+        "target": 13,
+        "source_slot": "config",
+        "target_slot": "config"
+      },
+      {
+        "source": 10,
+        "target": 13,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 13,
+        "target": 14,
+        "source_slot": "output",
+        "target_slot": "input"
+      },
+      {
+        "source": 13,
+        "target": 14,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 14,
+        "target": 15,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 14,
+        "target": 15,
+        "source_slot": "score",
+        "target_slot": "value"
+      },
+      {
+        "source": 15,
+        "target": 18,
+        "source_slot": "true_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 14,
+        "target": 18,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 15,
+        "target": 16,
+        "source_slot": "false_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 14,
+        "target": 16,
+        "source_slot": "feedback",
+        "target_slot": "input"
+      },
+      {
+        "source": 16,
+        "target": 17,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      },
+      {
+        "source": 17,
+        "target": 5,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in",
+        "loop": true
+      },
+      {
+        "source": 18,
+        "target": 19,
+        "source_slot": "flow_out",
+        "target_slot": "flow_in"
+      }
+    ]
+  }
 }
