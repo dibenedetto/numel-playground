@@ -116,6 +116,15 @@ function _currentWorkflowLabel() {
 	return visualizer?.currentWorkflowName || $('singleWorkflowName')?.textContent || 'Workflow';
 }
 
+function _extractWorkflowDisplayName(workflow = null) {
+	if (!workflow || typeof workflow !== 'object') return '';
+	const options = workflow.options;
+	if (options && typeof options === 'object') {
+		return _sanitizeExecutionWorkflowLabel(options.name || '');
+	}
+	return '';
+}
+
 function _hideStarterFollowthrough() {
 	const card = $('starterFollowthrough');
 	if (!card || card.style.display === 'none') return;
@@ -2608,6 +2617,12 @@ async function syncWorkflow(workflow = null, _name = null, force = false) {
 		// collapse the saved workflow into an empty graph.
 		const hasExplicitWorkflow = !!workflow;
 		const exported = visualizer.exportWorkflow();
+		const localWorkflowName = _sanitizeExecutionWorkflowLabel(_name)
+			|| _extractWorkflowDisplayName(workflow)
+			|| _extractWorkflowDisplayName(exported)
+			|| _sanitizeExecutionWorkflowLabel(visualizer?.currentWorkflowName)
+			|| _sanitizeExecutionWorkflowLabel($('singleWorkflowName')?.textContent)
+			|| '';
 		if (!hasExplicitWorkflow && exported) workflow = exported;
 
 		const response = await api.saveWorkflow(workflow);
@@ -2617,9 +2632,14 @@ async function syncWorkflow(workflow = null, _name = null, force = false) {
 			agentChatManager?.disconnectAll();
 
 			// Reload entire workflow from backend
+			const resolvedWorkflowName = _sanitizeExecutionWorkflowLabel(response?.name)
+				|| localWorkflowName
+				|| _extractWorkflowDisplayName(response?.workflow)
+				|| 'Current workflow';
 			if (response.workflow) {
-				visualizer.loadWorkflow(response.workflow, response.name, visualizer.defaultLayout, true);
+				visualizer.loadWorkflow(response.workflow, resolvedWorkflowName, visualizer.defaultLayout, true);
 			}
+			_setWorkflowName(resolvedWorkflowName);
 
 			// Restore chat messages
 			restoreChatState(chatState);
@@ -2636,7 +2656,7 @@ async function syncWorkflow(workflow = null, _name = null, force = false) {
 			workflowDirty = false;
 			schemaGraph.eventBus.emit('workflow:synced');
 			_updateStarterExperience(false);
-			addLog('success', `✅ Saved "${response.name}"`);
+			addLog('success', `✅ Saved "${resolvedWorkflowName}"`);
 		} else {
 			throw new Error('Save failed');
 		}
@@ -2690,7 +2710,7 @@ window.loadAndSyncWorkflow = async function(workflow, name) {
 		_resetExecutionFailureView();
 		_resetExecutionComparisonView();
 		currentWorkflowHasContent = _hasWorkflowContent(preparedWorkflow);
-		await syncWorkflow(preparedWorkflow, null, true);
+		await syncWorkflow(preparedWorkflow, n, true);
 		enableStart(true);
 		_updateStarterExperience(false);
 		addLog('success', `✅ Loaded "${visualizer.currentWorkflowName}"`);
@@ -2802,7 +2822,7 @@ async function handleSingleImport(event) {
 		const name      = preparedWorkflow?.options?.name || file.name.replace('.json', '');
 		const validated = visualizer.loadWorkflow(preparedWorkflow, name);
 		if (validated) {
-			await syncWorkflow(preparedWorkflow, null, true);
+			await syncWorkflow(preparedWorkflow, name, true);
 			enableStart(true);
 			addLog('success', `📂 Imported "${visualizer.currentWorkflowName}"`);
 		}
@@ -2868,7 +2888,7 @@ async function pasteWorkflowFromClipboard() {
 		const name = workflow?.options?.name || 'Pasted Workflow';
 		const loaded = visualizer.loadWorkflow(workflow, name);
 		if (loaded) {
-			await syncWorkflow(workflow, null, true);
+			await syncWorkflow(workflow, name, true);
 			enableStart(true);
 			addLog('success', `📋 Pasted "${visualizer.currentWorkflowName}"`);
 		}
@@ -4150,25 +4170,67 @@ function _cloneExecutionComparisonView(view) {
 
 function _formatExecutionReplayTime(value) {
 	if (!value) return '--:--:--';
-	const date = value instanceof Date ? value : new Date(value);
-	if (Number.isNaN(date.getTime())) return String(value);
+	const timeMs = _coerceExecutionTimeMs(value);
+	if (timeMs === null) return String(value);
+	const date = new Date(timeMs);
 	return date.toLocaleTimeString('en-US', { hour12: false });
 }
 
-function _formatExecutionReplayDuration(startValue, endValue = null) {
-	if (startValue === null || startValue === undefined || startValue === '') return '';
-	const start = new Date(startValue);
-	const end = endValue ? new Date(endValue) : new Date();
-	if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return '';
-	const diffMs = Math.max(0, end.getTime() - start.getTime());
-	if (diffMs < 1000) return `${diffMs}ms`;
-	const totalSeconds = diffMs / 1000;
+function _formatExecutionDurationMs(diffMs) {
+	if (!Number.isFinite(diffMs)) return '';
+	const safeMs = Math.max(0, diffMs);
+	if (safeMs < 1000) return `${Math.round(safeMs)}ms`;
+	const totalSeconds = safeMs / 1000;
 	if (totalSeconds < 60) return `${totalSeconds.toFixed(totalSeconds >= 10 ? 0 : 1)}s`;
 	const minutes = Math.floor(totalSeconds / 60);
 	const seconds = Math.round(totalSeconds % 60);
 	if (minutes < 60) return `${minutes}m ${seconds}s`;
 	const hours = Math.floor(minutes / 60);
 	return `${hours}h ${minutes % 60}m`;
+}
+
+function _coerceExecutionTimeMs(value) {
+	if (value === null || value === undefined || value === '') return null;
+	if (value instanceof Date) {
+		const time = value.getTime();
+		return Number.isFinite(time) ? time : null;
+	}
+	if (typeof value === 'number' && Number.isFinite(value)) {
+		return value < 1e12 ? value * 1000 : value;
+	}
+	if (typeof value === 'string') {
+		const text = value.trim();
+		if (!text) return null;
+		const numeric = Number(text);
+		if (Number.isFinite(numeric)) {
+			return numeric < 1e12 ? numeric * 1000 : numeric;
+		}
+		const parsed = Date.parse(text);
+		return Number.isFinite(parsed) ? parsed : null;
+	}
+	return null;
+}
+
+function _isExecutionTerminalStatus(status) {
+	return ['completed', 'failed', 'cancelled'].includes(String(status || '').toLowerCase());
+}
+
+function _normalizeExecutionStatus(status, { endTime = null, error = '' } = {}) {
+	const normalized = String(status || '').toLowerCase() || 'idle';
+	if ((normalized === 'running' || normalized === 'starting') && _coerceExecutionTimeMs(endTime) !== null) {
+		return String(error || '').trim() ? 'failed' : 'completed';
+	}
+	return normalized;
+}
+
+function _formatExecutionReplayDuration(startValue, endValue = null) {
+	if (startValue === null || startValue === undefined || startValue === '') return '';
+	const startMs = _coerceExecutionTimeMs(startValue);
+	const endMs = endValue === null || endValue === undefined || endValue === ''
+		? Date.now()
+		: _coerceExecutionTimeMs(endValue);
+	if (startMs === null || endMs === null) return '';
+	return _formatExecutionDurationMs(endMs - startMs);
 }
 
 function _executionNodeLabel(nodeId, fallbackLabel = '') {
@@ -4249,8 +4311,86 @@ function _previewExecutionValue(value, maxLength = 160) {
 }
 
 function _parseExecutionTimeValue(value) {
-	const parsed = Date.parse(value || '');
-	return Number.isFinite(parsed) ? parsed : null;
+	return _coerceExecutionTimeMs(value);
+}
+
+function _looksInternalWorkflowName(value) {
+	const text = String(value || '').trim();
+	if (!text) return false;
+	return /^space_[a-f0-9]+_workflow(?:\.json)?_[a-f0-9]+$/i.test(text)
+		|| /^workflow_exec_[a-f0-9]+$/i.test(text);
+}
+
+function _sanitizeExecutionWorkflowLabel(value) {
+	const text = String(value || '').trim();
+	if (!text) return '';
+	if (_looksInternalWorkflowName(text)) return '';
+	if (['workflow', 'untitled', 'none'].includes(text.toLowerCase())) return '';
+	return text;
+}
+
+function _executionWorkflowLabel(results, fallback = '') {
+	const metadata = results?.metadata || {};
+	const metadataLabel = _sanitizeExecutionWorkflowLabel(metadata?.workflow_name);
+	if (metadataLabel) return metadataLabel;
+	const fallbackLabel = _sanitizeExecutionWorkflowLabel(fallback);
+	if (fallbackLabel) return fallbackLabel;
+	const currentLabel = _sanitizeExecutionWorkflowLabel(_currentWorkflowLabel());
+	if (currentLabel) {
+		const workflowId = String(results?.workflow_id || '').trim().replace(/\\/g, '/');
+		if (!workflowId || workflowId.toLowerCase() === 'current_workflow.json') {
+			return currentLabel;
+		}
+	}
+	const workflowId = String(results?.workflow_id || '').trim();
+	if (!workflowId) return 'Current workflow';
+	const normalized = workflowId.replace(/\\/g, '/');
+	const pieces = normalized.split('/').filter(Boolean);
+	const assetLabel = pieces[pieces.length - 1] || workflowId;
+	if (assetLabel.toLowerCase() === 'current_workflow.json') return 'Current workflow';
+	return _sanitizeExecutionWorkflowLabel(assetLabel) || 'Current workflow';
+}
+
+function _mergeExecutionResultsWithReplayView(results, existingView) {
+	if (!existingView) return results || {};
+	const merged = { ...(results || {}) };
+	const cachedStatus = _normalizeExecutionStatus(existingView.status, {
+		endTime: existingView.endedAt,
+		error: existingView.error,
+	});
+	const resultStatus = _normalizeExecutionStatus(merged.status, {
+		endTime: merged.end_time,
+		error: merged.error,
+	});
+	if (_isExecutionTerminalStatus(cachedStatus) && !_isExecutionTerminalStatus(resultStatus)) {
+		merged.status = cachedStatus;
+	}
+	if ((merged.start_time === null || merged.start_time === undefined || merged.start_time === '') && existingView.startedAt != null) {
+		merged.start_time = existingView.startedAt;
+	}
+	if ((merged.end_time === null || merged.end_time === undefined || merged.end_time === '') && existingView.endedAt != null) {
+		merged.end_time = existingView.endedAt;
+	}
+	if (!merged.error && existingView.error) {
+		merged.error = existingView.error;
+	}
+	if ((!merged.node_outputs || !Object.keys(merged.node_outputs).length) && Object.keys(existingView.nodeOutputs || {}).length) {
+		merged.node_outputs = { ...(existingView.nodeOutputs || {}) };
+	}
+	merged.metadata = {
+		...(existingView.metadata || {}),
+		...(merged.metadata || {}),
+	};
+	if (!merged.workflow_id && existingView.workflowId) {
+		merged.workflow_id = existingView.workflowId;
+	}
+	if (!merged.execution_id && existingView.executionId) {
+		merged.execution_id = existingView.executionId;
+	}
+	if (!merged.platform_execution_id && existingView.platformExecutionId) {
+		merged.platform_execution_id = existingView.platformExecutionId;
+	}
+	return merged;
 }
 
 function _formatExecutionStatusLabel(status) {
@@ -4287,7 +4427,9 @@ function _extractExecutionEvalItems(nodeOutputs = {}) {
 		.filter(([, outputs]) => outputs && typeof outputs === 'object' && Object.prototype.hasOwnProperty.call(outputs, 'score'))
 		.map(([nodeId, outputs]) => {
 			const score = _coerceExecutionScore(outputs?.score);
-			const feedback = String(outputs?.feedback || '').trim();
+			const feedback = String(outputs?.feedback || '')
+				.replace(/\s+/g, ' ')
+				.trim();
 			return {
 				nodeId: String(nodeId),
 				label: _executionNodeLabel(nodeId),
@@ -4350,7 +4492,7 @@ function _formatExecutionComparisonDurationDelta(latestResults, previousResults)
 	const absDelta = Math.abs(deltaMs);
 	const latestText = _formatExecutionReplayDuration(latestResults.start_time, latestResults.end_time);
 	const previousText = _formatExecutionReplayDuration(previousResults.start_time, previousResults.end_time);
-	return `Latest run was ${_formatExecutionReplayDuration(0, absDelta)} ${direction} (${latestText} vs ${previousText}).`;
+	return `Latest run was ${_formatExecutionDurationMs(absDelta)} ${direction} (${latestText} vs ${previousText}).`;
 }
 
 function _syncReplayButtonState() {
@@ -4753,7 +4895,7 @@ function _beginExecutionReplay(executionId, platformExecutionId, workflowName) {
 	_executionReplayView = {
 		executionId: executionId || null,
 		platformExecutionId: platformExecutionId || executionId || null,
-		workflowName: workflowName || visualizer?.currentWorkflowName || 'Workflow',
+		workflowName: _sanitizeExecutionWorkflowLabel(workflowName || visualizer?.currentWorkflowName || '') || 'Current workflow',
 		metadata: {},
 		status: 'starting',
 		startedAt: null,
@@ -4781,18 +4923,22 @@ function _executionPublicIdFromRecord(record) {
 }
 
 function _compareExecutionRecordsDesc(a, b) {
-	const aParsed = Date.parse(a?.started_at || a?.finished_at || '');
-	const bParsed = Date.parse(b?.started_at || b?.finished_at || '');
-	const aTime = Number.isFinite(aParsed) ? aParsed : 0;
-	const bTime = Number.isFinite(bParsed) ? bParsed : 0;
+	const aTime = _coerceExecutionTimeMs(a?.started_at || a?.finished_at || '') || 0;
+	const bTime = _coerceExecutionTimeMs(b?.started_at || b?.finished_at || '') || 0;
 	return bTime - aTime;
 }
 
 function _buildExecutionComparisonView(latestResults, previousResults) {
 	const latestId = latestResults?.execution_id || '';
 	const previousId = previousResults?.execution_id || '';
-	const latestStatus = String(latestResults?.status || 'unknown').toLowerCase();
-	const previousStatus = String(previousResults?.status || 'unknown').toLowerCase();
+	const latestStatus = _normalizeExecutionStatus(latestResults?.status || 'unknown', {
+		endTime: latestResults?.end_time,
+		error: latestResults?.error,
+	});
+	const previousStatus = _normalizeExecutionStatus(previousResults?.status || 'unknown', {
+		endTime: previousResults?.end_time,
+		error: previousResults?.error,
+	});
 	const latestOutputs = latestResults?.node_outputs || {};
 	const previousOutputs = previousResults?.node_outputs || {};
 	const latestEvalItems = _extractExecutionEvalItems(latestOutputs);
@@ -4827,10 +4973,9 @@ function _buildExecutionComparisonView(latestResults, previousResults) {
 			? `${changeCount} output change${changeCount === 1 ? '' : 's'}`
 			: 'No output differences',
 	];
-	if (latestEvalItems.length || previousEvalItems.length) {
-		summaryParts.push(`${latestEvalItems.length} current eval${latestEvalItems.length === 1 ? '' : 's'}`);
-	}
 	const items = [];
+	let evalChangeCount = 0;
+	let evalScoreChangeCount = 0;
 
 	if (statusChanged) {
 		items.push({
@@ -4882,6 +5027,8 @@ function _buildExecutionComparisonView(latestResults, previousResults) {
 		for (const [nodeId, latestEval] of latestEvalMap.entries()) {
 			const previousEval = previousEvalMap.get(nodeId);
 			if (!previousEval) {
+				evalChangeCount += 1;
+				evalScoreChangeCount += 1;
 				items.push({
 					type: latestEval.type,
 					title: `Eval added for [${nodeId}] ${latestEval.label}`,
@@ -4891,22 +5038,37 @@ function _buildExecutionComparisonView(latestResults, previousResults) {
 			}
 			const latestScoreText = latestEval.scoreText;
 			const previousScoreText = previousEval.scoreText;
-			if (latestScoreText !== previousScoreText || latestEval.feedback !== previousEval.feedback) {
+			const scoreChanged = latestScoreText !== previousScoreText;
+			const feedbackChanged = latestEval.feedback !== previousEval.feedback;
+			if (scoreChanged || feedbackChanged) {
+				evalChangeCount += 1;
+				if (scoreChanged) evalScoreChangeCount += 1;
 				items.push({
 					type: latestEval.type,
-					title: `Eval changed for [${nodeId}] ${latestEval.label}`,
-					detail: `Score ${previousScoreText} -> ${latestScoreText}${latestEval.feedback || previousEval.feedback ? ` · ${previousEval.feedback || 'no feedback'} -> ${latestEval.feedback || 'no feedback'}` : ''}`,
+					title: `${scoreChanged ? 'Eval score changed' : 'Eval feedback changed'} for [${nodeId}] ${latestEval.label}`,
+					detail: scoreChanged
+						? `Score ${previousScoreText} -> ${latestScoreText}${latestEval.feedback || previousEval.feedback ? ` · ${previousEval.feedback || 'no feedback'} -> ${latestEval.feedback || 'no feedback'}` : ''}`
+						: `${previousEval.feedback || 'no feedback'} -> ${latestEval.feedback || 'no feedback'}`,
 				});
 			}
 		}
 		for (const [nodeId, previousEval] of previousEvalMap.entries()) {
 			if (!latestEvalMap.has(nodeId)) {
+				evalChangeCount += 1;
+				evalScoreChangeCount += 1;
 				items.push({
 					type: 'warning',
 					title: `Eval removed for [${nodeId}] ${previousEval.label}`,
 					detail: `Previous score ${previousEval.scoreText}${previousEval.feedback ? ` · ${previousEval.feedback}` : ''}`,
 				});
 			}
+		}
+		if (evalScoreChangeCount) {
+			summaryParts.push(`${evalScoreChangeCount} eval score change${evalScoreChangeCount === 1 ? '' : 's'}`);
+		} else if (evalChangeCount) {
+			summaryParts.push('eval scores stable');
+		} else {
+			summaryParts.push('eval stable');
 		}
 	}
 
@@ -4973,7 +5135,15 @@ function _buildExecutionReplayFromResults(results, baseView = null) {
 	view.platformExecutionId = results?.platform_execution_id || view.platformExecutionId || view.executionId;
 	view.workflowId = results?.workflow_id || view.workflowId || '';
 	view.metadata = { ...(results?.metadata || view.metadata || {}) };
-	view.status = String(results?.status || view.status || 'idle').toLowerCase();
+	const baseStatus = String(view.status || '').toLowerCase();
+	const resultsStatus = _normalizeExecutionStatus(results?.status || view.status || 'idle', {
+		endTime: results?.end_time,
+		error: results?.error,
+	});
+	view.status = _isExecutionTerminalStatus(baseStatus) && !_isExecutionTerminalStatus(resultsStatus)
+		? baseStatus
+		: resultsStatus;
+	view.workflowName = _executionWorkflowLabel(results, view.workflowName || '') || view.workflowName || 'Workflow';
 	view.startedAt = results?.start_time || view.startedAt || null;
 	view.endedAt = results?.end_time || view.endedAt || null;
 	view.error = results?.error || view.error || '';
@@ -5019,21 +5189,8 @@ function _buildExecutionReplayFromResults(results, baseView = null) {
 
 async function _getExecutionResultsCached(executionId, { source = 'replay' } = {}) {
 	const existingView = _executionReplayCache.get(executionId);
-	if (existingView?.startedAt || existingView?.endedAt || Object.keys(existingView?.nodeOutputs || {}).length) {
-		return {
-			execution_id: existingView.executionId,
-			platform_execution_id: existingView.platformExecutionId,
-			status: existingView.status,
-			start_time: existingView.startedAt,
-			end_time: existingView.endedAt,
-			error: existingView.error,
-			node_outputs: existingView.nodeOutputs,
-			workflow_id: existingView.workflowId || '',
-			metadata: existingView.metadata || {},
-		};
-	}
-	const results = await api.getExecutionResults(executionId);
-	const replayView = _buildExecutionReplayFromResults(results, { source });
+	const results = _mergeExecutionResultsWithReplayView(await api.getExecutionResults(executionId), existingView);
+	const replayView = _buildExecutionReplayFromResults(results, existingView ? { ...existingView, source } : { source });
 	replayView.workflowId = results?.workflow_id || '';
 	_executionReplayCache.set(executionId, _cloneExecutionReplayView(replayView));
 	return results;
@@ -5042,7 +5199,7 @@ async function _getExecutionResultsCached(executionId, { source = 'replay' } = {
 async function _hydrateExecutionReplay(executionId, { useCurrentView = false } = {}) {
 	if (!api || !executionId) return null;
 	const cached = _executionReplayCache.get(executionId);
-	const results = await api.getExecutionResults(executionId);
+	const results = _mergeExecutionResultsWithReplayView(await api.getExecutionResults(executionId), cached);
 	const baseView = useCurrentView && _executionReplayView?.executionId === executionId
 		? _executionReplayView
 		: cached;
