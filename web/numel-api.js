@@ -126,13 +126,18 @@ class NumelAPI {
 	createSpace(title, slug = null, description = '') {
 		return this.json('/spaces/create', { title, slug, description, visibility: 'private' });
 	}
+	forkSpace(spaceId, title = null, slug = null) {
+		return this.json('/spaces/fork', { space_id: spaceId, title, slug });
+	}
 	selectSpace(spaceId)          { return this.json('/spaces/select', { space_id: spaceId }); }
 	deleteSpace(spaceId)          { return this.json('/spaces/delete', { space_id: spaceId }); }
 	getWorkflow()                 { return this.json('/workflow/get'); }
 	validateWorkflow(workflow, opts = {}) { return this.json('/workflow/validate', { workflow, ...opts }); }
-	saveWorkflow(workflow)        { return this.json('/workflow/save', { workflow }); }
+	saveWorkflow(workflow, opts = {}) { return this.json('/workflow/save', { workflow, ...(opts || {}) }); }
 	ensureWorkflowImpl()          { return this.json('/workflow/impl'); }
 	deleteWorkflow()              { return this.json('/workflow/delete'); }
+	workflowHistory(limit = 20)   { return this.json('/workflow/history', { limit }); }
+	restoreWorkflowSnapshot(commitId, note = null) { return this.json('/workflow/restore', { commit_id: commitId, note }); }
 	startWorkflow(data = null)    { return this.json('/workflow/start', { initial_data: data }); }
 	getExecState(executionId)     { return this.json(`/executions/${encodeURIComponent(executionId)}`); }
 	cancelExecution(executionId)  { return this.json(`/executions/${encodeURIComponent(executionId)}/cancel`); }

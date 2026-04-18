@@ -92,6 +92,12 @@ Exit criteria:
 - users can fork and adapt an existing workbench cleanly
 - the gallery supports reuse instead of only browsing
 
+Progress so far:
+- current spaces can now be forked directly from the workbench
+- workflows can be saved with explicit snapshot notes
+- workflow snapshot history is visible from the workbench
+- current workflows can be published into the gallery as reusable templates
+
 ## Parallel Adoption Work
 
 Do this during all three phases:

@@ -55,6 +55,7 @@ def _decode_frame_to_ndarray(frame_bytes: bytes) -> np.ndarray:
 
 class CurrentWorkflowSaveRequest(BaseModel):
 	workflow : Workflow
+	message  : Optional[str] = None
 
 
 class CurrentWorkflowStartRequest(BaseModel):
@@ -102,6 +103,21 @@ class SpaceCreateRequest(BaseModel):
 
 class SpaceSelectRequest(BaseModel):
 	space_id : str
+
+
+class SpaceForkRequest(BaseModel):
+	space_id : Optional[str] = None
+	title    : Optional[str] = None
+	slug     : Optional[str] = None
+
+
+class WorkflowHistoryRequest(BaseModel):
+	limit : int = 20
+
+
+class WorkflowRestoreRequest(BaseModel):
+	commit_id : str
+	note      : Optional[str] = None
 
 
 class GenerateWorkflowRequest(BaseModel):
@@ -360,14 +376,14 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			return Workflow.parse_obj(payload)
 		return Workflow(**payload)
 
-	async def _read_current_workflow_doc(req: Request, user_id: str, space_id: str) -> Optional[Dict[str, Any]]:
+	async def _read_current_workflow_doc(req: Request, user_id: str, space_id: str, ref: str = "main") -> Optional[Dict[str, Any]]:
 		try:
 			data = await _platform(req).post_json(
 				f"/platform/spaces/{space_id}/assets/read",
 				{
 					"user_id": user_id,
 					"path": _CURRENT_WORKFLOW_PATH,
-					"ref": "main",
+					"ref": ref,
 				},
 			)
 		except PlatformRequestError as exc:
@@ -537,6 +553,37 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		_, current = await _ensure_current_space(req)
 		return {"ok": True, "current_space_id": current.get("id")}
 
+	@app.post("/spaces/fork")
+	async def fork_space(request: SpaceForkRequest, req: Request):
+		user, current = await _ensure_current_space(req)
+		source_space_id = str(request.space_id or current.get("id") or "").strip()
+		if not source_space_id:
+			raise HTTPException(status_code=400, detail="space_id is required")
+		payload = {
+			"user_id": user.id,
+			"new_owner_user_id": user.id,
+		}
+		title = str(request.title or "").strip()
+		if title:
+			payload["title"] = title
+		raw_slug = str(request.slug or "").strip()
+		if raw_slug or title:
+			slug = _space_slug(raw_slug or title)
+			payload["slug"] = slug
+		try:
+			data = await _platform(req).post_json(
+				f"/platform/spaces/{source_space_id}/fork",
+				payload,
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		space = data.get("space") or {}
+		space_id = str(space.get("id", "") or "").strip()
+		if space_id:
+			await _set_current_space_id(req, user.id, space_id)
+		await _clear_cached_workflow(req)
+		return {"space": space}
+
 	@app.post("/workflow/get")
 	async def get_current_workflow(req: Request):
 		user, space = await _ensure_current_space(req)
@@ -595,6 +642,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			else "Untitled"
 		)
 		try:
+			commit_message = str(request.message or "").strip() or f"Save workflow '{name}'"
 			await _platform(req).post_json(
 				f"/platform/spaces/{space['id']}/assets/write",
 				{
@@ -605,7 +653,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 					"description": getattr(getattr(workflow, "options", None), "description", "") or "",
 					"executable": True,
 					"text": json.dumps(doc, indent=2),
-					"message": f"Save workflow '{name}'",
+					"message": commit_message,
 				},
 			)
 		except PlatformRequestError as exc:
@@ -617,6 +665,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			"name": name,
 			"workflow": doc,
 			"status": "saved",
+			"message": commit_message,
 		}
 
 	@app.post("/workflow/impl")
@@ -655,6 +704,84 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		await _clear_cached_workflow(req)
 		await _emit_workflow_changed("", source_session_id=_request_session_id(req))
 		return {"status": "deleted", "space": space}
+
+	@app.post("/workflow/history")
+	async def current_workflow_history(request: WorkflowHistoryRequest, req: Request):
+		user, space = await _ensure_current_space(req)
+		limit = max(1, min(int(request.limit or 20), 100))
+		try:
+			data = await _platform(req).post_json(
+				f"/platform/spaces/{space['id']}/history",
+				{
+					"user_id": user.id,
+					"path": _CURRENT_WORKFLOW_PATH,
+					"limit": limit,
+				},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		return {
+			"space": space,
+			"path": _CURRENT_WORKFLOW_PATH,
+			"commits": data.get("commits", []) or [],
+		}
+
+	@app.post("/workflow/restore")
+	async def restore_workflow_snapshot(request: WorkflowRestoreRequest, req: Request):
+		user, space = await _ensure_current_space(req)
+		commit_id = str(request.commit_id or "").strip()
+		if not commit_id:
+			raise HTTPException(status_code=400, detail="commit_id is required")
+		doc = await _read_current_workflow_doc(req, user.id, str(space.get("id", "") or ""), ref=commit_id)
+		if doc is None:
+			raise HTTPException(status_code=404, detail=f"Workflow snapshot '{commit_id}' was not found")
+		validation = validate_workflow_payload(doc, apply_repairs=True)
+		if not validation["valid"]:
+			raise HTTPException(
+				status_code=400,
+				detail={
+					"message": "Workflow validation failed before restore",
+					"errors": validation["errors"],
+					"warnings": validation["warnings"],
+					"repairs": validation["repairs"],
+				},
+			)
+		doc = validation["workflow"]
+		workflow = _workflow_model_from_doc(doc)
+		name = (
+			workflow.options.name
+			if getattr(workflow, "options", None) is not None and workflow.options.name
+			else "Untitled"
+		)
+		commit_note = str(request.note or "").strip()
+		if not commit_note:
+			commit_note = f"Restore workflow snapshot {commit_id[:8]}"
+		try:
+			await _platform(req).post_json(
+				f"/platform/spaces/{space['id']}/assets/write",
+				{
+					"user_id": user.id,
+					"path": _CURRENT_WORKFLOW_PATH,
+					"kind": "workflow",
+					"title": name,
+					"description": getattr(getattr(workflow, "options", None), "description", "") or "",
+					"executable": True,
+					"text": json.dumps(doc, indent=2),
+					"message": commit_note,
+				},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		await _cache_current_workflow(req, workflow)
+		await _emit_workflow_changed(name, source_session_id=_request_session_id(req))
+		return {
+			"space": space,
+			"name": name,
+			"workflow": doc,
+			"status": "restored",
+			"restored_from_commit": commit_id,
+			"message": commit_note,
+		}
 
 	@app.post("/workflow/start")
 	async def start_current_workflow(request: CurrentWorkflowStartRequest, req: Request):

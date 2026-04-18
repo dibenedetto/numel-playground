@@ -84,6 +84,9 @@
 					</h3>
 					<div class="nw-user-actions">
 						<button id="createSpaceBtn" class="nw-btn-icon" title="New space">＋</button>
+						<button id="forkSpaceBtn" class="nw-btn-icon" disabled title="Fork current space">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M4 20l7-7"/><path d="M21 3l-9 9"/><path d="M15 14l6 6"/><path d="M3 4h7v7"/></svg>
+						</button>
 						<button id="removeSpaceBtn" class="nw-btn-icon" disabled title="Delete space">🗑</button>
 					</div>
 				</div>
@@ -182,6 +185,21 @@
 					<button id="clearWorkflowBtnSingle" class="nw-btn nw-btn-secondary nw-btn-with-icon nw-btn-grid-full" disabled title="Clear workflow">
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 5.64"/><polyline points="1 4 5.64 5.64 4 10"/></svg>
 						<span>Clear</span>
+					</button>
+				</div>
+
+				<div class="nw-btn-grid nw-workflow-reuse-grid" style="margin-top:8px;">
+					<button id="saveSnapshotBtn" class="nw-btn nw-btn-secondary nw-btn-with-icon" disabled title="Save the current workflow with a snapshot note">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+						<span>Save Snapshot</span>
+					</button>
+					<button id="workflowHistoryBtn" class="nw-btn nw-btn-secondary nw-btn-with-icon" disabled title="Review recent workflow snapshots">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-9.36L1 10"/><path d="M12 7v5l4 2"/></svg>
+						<span>Snapshots</span>
+					</button>
+					<button id="publishTemplateBtn" class="nw-btn nw-btn-secondary nw-btn-with-icon nw-btn-grid-full" disabled title="Publish the current workflow as a reusable gallery template">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M5 21h14"/></svg>
+						<span>Publish Template</span>
 					</button>
 				</div>
 

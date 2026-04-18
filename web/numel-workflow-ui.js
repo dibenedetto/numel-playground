@@ -116,6 +116,31 @@ function _currentWorkflowLabel() {
 	return visualizer?.currentWorkflowName || $('singleWorkflowName')?.textContent || 'Workflow';
 }
 
+function _escHtml(value) {
+	return String(value ?? '')
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#39;');
+}
+
+function _slugFromTitle(value, fallback = 'space') {
+	const text = String(value || '')
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9._-]+/g, '-')
+		.replace(/^-+|-+$/g, '');
+	return text || fallback;
+}
+
+function _formatLocalTimestamp(value) {
+	const num = Number(value);
+	const date = Number.isFinite(num) ? new Date(num * 1000) : new Date(value);
+	if (!(date instanceof Date) || Number.isNaN(date.getTime())) return 'Unknown time';
+	return date.toLocaleString();
+}
+
 function _extractWorkflowDisplayName(workflow = null) {
 	if (!workflow || typeof workflow !== 'object') return '';
 	const options = workflow.options;
@@ -749,6 +774,8 @@ function _renderWorkbenchSpaces() {
 			copy = 'Active · ready for a first workflow';
 		} else if (isActive) {
 			copy = 'Active · ready to edit and run';
+		} else if (space?.metadata?.forked_from_space_id) {
+			copy = 'Fork · ready to adapt';
 		} else if (space.visibility) {
 			copy = `${String(space.visibility).charAt(0).toUpperCase()}${String(space.visibility).slice(1)} space`;
 		}
@@ -904,6 +931,7 @@ function _updateWorkbenchOverview() {
 function _syncSpaceControls() {
 	const select = $('spaceSelect');
 	const createBtn = $('createSpaceBtn');
+	const forkBtn = $('forkSpaceBtn');
 	const removeBtn = $('removeSpaceBtn');
 	const hasApi = !!api;
 	const optionCount = select ? Array.from(select.options || []).filter((option) => !!option.value).length : 0;
@@ -914,9 +942,23 @@ function _syncSpaceControls() {
 	if (createBtn) {
 		createBtn.disabled = !hasApi;
 	}
+	if (forkBtn) {
+		forkBtn.disabled = !hasApi || !currentSpaceId;
+	}
 	if (removeBtn) {
 		removeBtn.disabled = !hasApi || !currentSpaceId || optionCount <= 1;
 	}
+}
+
+function _syncReuseControls() {
+	const hasApi = !!api;
+	const hasWorkflow = !!visualizer?.currentWorkflow && currentWorkflowHasContent;
+	const snapshotBtn = $('saveSnapshotBtn');
+	const historyBtn = $('workflowHistoryBtn');
+	const publishBtn = $('publishTemplateBtn');
+	if (snapshotBtn) snapshotBtn.disabled = !hasApi || !hasWorkflow;
+	if (historyBtn) historyBtn.disabled = !hasApi || !currentSpaceId;
+	if (publishBtn) publishBtn.disabled = !hasApi || !hasWorkflow;
 }
 
 function _closeSidePanelDom(id) {
@@ -1787,6 +1829,7 @@ function setupEventListeners() {
 		}
 	});
 	$('createSpaceBtn').addEventListener('click', createSpace);
+	$('forkSpaceBtn')?.addEventListener('click', forkCurrentSpace);
 	$('removeSpaceBtn').addEventListener('click', removeCurrentSpace);
 	$('workbenchRunBtn')?.addEventListener('click', () => {
 		if (!$('workbenchRunBtn')?.disabled) $('startBtn')?.click();
@@ -1851,6 +1894,9 @@ function setupEventListeners() {
 	$('singleDownloadBtn').addEventListener('click', downloadWorkflow);
 	$('singleCopyBtn'  ).addEventListener('click', copyWorkflowToClipboard);
 	$('singleWorkflowFileInput').addEventListener('change', handleSingleImport);
+	$('saveSnapshotBtn')?.addEventListener('click', saveWorkflowSnapshot);
+	$('workflowHistoryBtn')?.addEventListener('click', showWorkflowSnapshots);
+	$('publishTemplateBtn')?.addEventListener('click', publishCurrentWorkflowTemplate);
 
 	// Execution
 	$('startBtn').addEventListener('click', startExecution);
@@ -1912,6 +1958,7 @@ function updateClearButtonState() {
 	$('clearWorkflowBtnSingle').disabled = disabled;
 	const headerBtn = $('clearWorkflowHeaderBtn');
 	if (headerBtn) headerBtn.disabled = disabled;
+	_syncReuseControls();
 }
 
 // ========================================================================
@@ -2444,6 +2491,7 @@ async function refreshSpaceList(loadWorkflow = false) {
 		}
 		if (currentSpaceId) select.value = currentSpaceId;
 		_syncSpaceControls();
+		_syncReuseControls();
 
 		if (loadWorkflow) {
 			await loadCurrentWorkflow();
@@ -2500,10 +2548,12 @@ async function loadCurrentWorkflow() {
 		workflowDirty = false;
 		enableStart(true);
 		updateClearButtonState();
+		_syncReuseControls();
 		_updateStarterExperience(!currentWorkflowHasContent);
 		_updateWorkbenchOverview();
 	} catch (error) {
 		addLog('error', `❌ Failed to load workflow: ${error.message}`);
+		_syncReuseControls();
 		_updateWorkbenchOverview();
 	}
 }
@@ -2559,6 +2609,34 @@ async function createSpace() {
 	}
 }
 
+async function forkCurrentSpace() {
+	if (!api || !currentSpaceId || !currentSpaceInfo) return;
+	const sourceTitle = currentSpaceInfo.title || currentSpaceInfo.slug || currentSpaceId;
+	const title = await NumelPrompt(
+		'Fork Space',
+		`Choose a name for the fork of "${_escHtml(sourceTitle)}".`,
+		`${sourceTitle} Copy`,
+		'Fork',
+		`${sourceTitle} Copy`,
+	);
+	if (title === null || !title.trim()) return;
+
+	try {
+		if (workflowDirty && visualizer?.currentWorkflow) {
+			await syncWorkflow();
+		}
+		const nextTitle = title.trim();
+		const response = await api.forkSpace(currentSpaceId, nextTitle, _slugFromTitle(nextTitle));
+		currentSpaceInfo = response.space || null;
+		currentSpaceId = currentSpaceInfo?.id || null;
+		await refreshSpaceList(true);
+		addLog('success', `🍴 Forked "${sourceTitle}" into "${currentSpaceInfo?.title || nextTitle}"`);
+	} catch (error) {
+		addLog('error', `❌ Failed to fork space: ${error.message}`);
+		await NumelAlert('Fork Space', error.message || 'Failed to fork the current space.');
+	}
+}
+
 async function removeCurrentSpace() {
 	if (!api || !currentSpaceId || !currentSpaceInfo) return;
 	const ok = await NumelConfirm(
@@ -2592,6 +2670,7 @@ async function selectCurrentSpace() {
 		currentSpaceInfo = response.space || null;
 		currentSpaceId = currentSpaceInfo?.id || nextSpaceId;
 		await loadCurrentWorkflow();
+		_syncReuseControls();
 		addLog('info', `🧭 Switched to "${currentSpaceInfo?.title || currentSpaceId}"`);
 	} catch (error) {
 		addLog('error', `❌ Failed to switch space: ${error.message}`);
@@ -2599,8 +2678,8 @@ async function selectCurrentSpace() {
 	}
 }
 
-async function syncWorkflow(workflow = null, _name = null, force = false) {
-	if (!force && !workflowDirty) return;
+async function syncWorkflow(workflow = null, _name = null, force = false, saveOptions = null) {
+	if (!force && !workflowDirty) return null;
 
 	schemaGraph.api.lock.lock('Syncing workflow', true, { lockMovement: true, lockOverlays: true });
 
@@ -2625,7 +2704,7 @@ async function syncWorkflow(workflow = null, _name = null, force = false) {
 			|| '';
 		if (!hasExplicitWorkflow && exported) workflow = exported;
 
-		const response = await api.saveWorkflow(workflow);
+		const response = await api.saveWorkflow(workflow, saveOptions || {});
 
 		if (response.status === 'saved') {
 			// Clear handlers (node IDs will change)
@@ -2655,8 +2734,10 @@ async function syncWorkflow(workflow = null, _name = null, force = false) {
 			currentWorkflowHasContent = _hasWorkflowContent(response.workflow || workflow);
 			workflowDirty = false;
 			schemaGraph.eventBus.emit('workflow:synced');
+			_syncReuseControls();
 			_updateStarterExperience(false);
 			addLog('success', `✅ Saved "${resolvedWorkflowName}"`);
+			return response;
 		} else {
 			throw new Error('Save failed');
 		}
@@ -2665,7 +2746,7 @@ async function syncWorkflow(workflow = null, _name = null, force = false) {
 	}
 }
 
-async function saveWorkflowToBackend(workflow = null, _name = null, force = false) {
+async function saveWorkflowToBackend(workflow = null, _name = null, force = false, saveOptions = null) {
 	if (!force && !workflowDirty) return null;
 
 	const hasExplicitWorkflow = !!workflow;
@@ -2673,15 +2754,265 @@ async function saveWorkflowToBackend(workflow = null, _name = null, force = fals
 	if (!hasExplicitWorkflow && exported) workflow = exported;
 	if (!workflow) return null;
 
-	const response = await api.saveWorkflow(workflow);
+	const response = await api.saveWorkflow(workflow, saveOptions || {});
 	if (response?.status !== 'saved') {
 		throw new Error('Save failed');
 	}
 
 	currentWorkflowHasContent = _hasWorkflowContent(response.workflow || workflow);
 	workflowDirty = false;
+	_syncReuseControls();
 	_updateStarterExperience(false);
 	return response;
+}
+
+function _currentWorkflowForReuse() {
+	const exported = visualizer?.exportWorkflow?.();
+	if (exported && _hasWorkflowContent(exported)) return exported;
+	return null;
+}
+
+function _snapshotHistoryHtml(commits = []) {
+	if (!Array.isArray(commits) || !commits.length) {
+		return '<div class="nw-snapshot-empty">No workflow snapshots yet. Save a snapshot to start building a reusable history.</div>';
+	}
+	return `<div class="nw-snapshot-list">${commits.map((commit) => {
+		const message = _escHtml(commit?.message || 'Snapshot');
+		const commitId = _escHtml(String(commit?.id || '').slice(0, 8) || 'unknown');
+		const createdAt = _escHtml(_formatLocalTimestamp(commit?.created_at));
+		const changedPaths = Array.isArray(commit?.changed_paths) && commit.changed_paths.length
+			? commit.changed_paths.map((path) => `<span class="nw-snapshot-path">${_escHtml(path)}</span>`).join('')
+			: '<span class="nw-snapshot-path">workflow.json</span>';
+		return `
+			<div class="nw-snapshot-card">
+				<div class="nw-snapshot-head">
+					<div class="nw-snapshot-message">${message}</div>
+					<div class="nw-snapshot-id">${commitId}</div>
+				</div>
+				<div class="nw-snapshot-meta">${createdAt}</div>
+				<div class="nw-snapshot-paths">${changedPaths}</div>
+			</div>
+		`;
+	}).join('')}</div>`;
+}
+
+function _showWorkflowSnapshotsDialog(commits = []) {
+	return new Promise((resolve) => {
+		const overlay = document.createElement('div');
+		overlay.className = 'sg-input-dialog-overlay';
+		overlay.innerHTML = `
+			<div class="sg-input-dialog nw-snapshot-dialog">
+				<div class="sg-input-dialog-header">
+					<span class="sg-input-dialog-title">Workflow Snapshots</span>
+					<button class="sg-input-dialog-close">✕</button>
+				</div>
+				<div class="sg-input-dialog-body">
+					<p class="sg-confirm-dialog-message">Review recent workflow snapshots for the current space. Restore one when you want to bring that version back into the workbench.</p>
+					${Array.isArray(commits) && commits.length ? `<div class="nw-snapshot-list">${commits.map((commit) => {
+						const message = _escHtml(commit?.message || 'Snapshot');
+						const commitId = String(commit?.id || '').trim();
+						const shortCommitId = _escHtml(commitId.slice(0, 8) || 'unknown');
+						const createdAt = _escHtml(_formatLocalTimestamp(commit?.created_at));
+						const changedPaths = Array.isArray(commit?.changed_paths) && commit.changed_paths.length
+							? commit.changed_paths.map((path) => `<span class="nw-snapshot-path">${_escHtml(path)}</span>`).join('')
+							: '<span class="nw-snapshot-path">workflow.json</span>';
+						return `
+							<div class="nw-snapshot-card">
+								<div class="nw-snapshot-head">
+									<div class="nw-snapshot-message">${message}</div>
+									<div class="nw-snapshot-id">${shortCommitId}</div>
+								</div>
+								<div class="nw-snapshot-meta">${createdAt}</div>
+								<div class="nw-snapshot-paths">${changedPaths}</div>
+								<div class="nw-snapshot-actions">
+									<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="restore-snapshot" data-commit-id="${_escHtml(commitId)}" data-message="${message}">Restore</button>
+								</div>
+							</div>
+						`;
+					}).join('')}</div>` : '<div class="nw-snapshot-empty">No workflow snapshots yet. Save a snapshot to start building a reusable history.</div>'}
+				</div>
+				<div class="sg-input-dialog-footer">
+					<button class="sg-input-dialog-btn sg-input-dialog-confirm">Close</button>
+				</div>
+			</div>
+		`;
+		document.body.appendChild(overlay);
+
+		const close = (value = null) => {
+			overlay.remove();
+			resolve(value);
+		};
+
+		overlay.querySelector('.sg-input-dialog-close')?.addEventListener('click', () => close(null));
+		overlay.querySelector('.sg-input-dialog-confirm')?.addEventListener('click', () => close(null));
+		overlay.addEventListener('click', (event) => {
+			if (event.target === overlay) close(null);
+		});
+		overlay.addEventListener('keydown', (event) => {
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				close(null);
+			}
+		});
+		overlay.querySelectorAll('[data-action="restore-snapshot"]').forEach((button) => {
+			button.addEventListener('click', () => close({
+				action: 'restore',
+				commitId: button.getAttribute('data-commit-id') || '',
+				message: button.getAttribute('data-message') || 'Snapshot',
+			}));
+		});
+		queueMicrotask(() => {
+			overlay.querySelector('.sg-input-dialog-confirm')?.focus();
+		});
+	});
+}
+
+async function _restoreWorkflowSnapshot(commitId, snapshotLabel = 'Snapshot') {
+	if (!api || !currentSpaceId || !commitId) return false;
+	const warning = workflowDirty
+		? 'Current unsaved edits will be saved first, then the selected snapshot will replace the current workflow.'
+		: 'The selected snapshot will replace the current workflow in this space.';
+	const ok = await NumelConfirm(
+		'Restore Snapshot',
+		`Restore "${_escHtml(snapshotLabel)}"? ${warning}`,
+		'Restore Snapshot',
+		false,
+		'Keep Current Workflow',
+	);
+	if (!ok) return false;
+
+	try {
+		if (workflowDirty && visualizer?.currentWorkflow) {
+			await syncWorkflow();
+		}
+		const response = await api.restoreWorkflowSnapshot(commitId);
+		const restoredName = response?.name || _currentWorkflowLabel() || 'Restored Workflow';
+		const workflow = response?.workflow || null;
+		if (workflow) {
+			agentChatManager?.disconnectAll();
+			visualizer.loadWorkflow(workflow, restoredName, visualizer.defaultLayout, true);
+			_setWorkflowName(restoredName);
+		}
+		currentExecutionId = null;
+		currentPlatformExecutionId = null;
+		_latestReplayExecutionId = null;
+		$('execId').textContent = '-';
+		setExecStatus('idle', 'Not running');
+		_resetExecutionReplayView();
+		_resetExecutionEvalView();
+		_resetExecutionFailureView();
+		_resetExecutionComparisonView();
+		currentWorkflowHasContent = _hasWorkflowContent(workflow);
+		workflowDirty = false;
+		enableStart(true);
+		updateClearButtonState();
+		_updateStarterExperience(false);
+		_updateWorkbenchOverview();
+		addLog('success', `↩ Restored snapshot "${snapshotLabel}"`);
+		await NumelAlert('Snapshot Restored', `"${_escHtml(restoredName)}" is now back in the current workbench.`);
+		return true;
+	} catch (error) {
+		addLog('error', `❌ Failed to restore snapshot: ${error.message}`);
+		await NumelAlert('Restore Snapshot', error.message || 'Failed to restore workflow snapshot.');
+		return false;
+	}
+}
+
+async function saveWorkflowSnapshot() {
+	if (!api) return;
+	const workflow = _currentWorkflowForReuse();
+	if (!workflow) {
+		await NumelAlert('Save Snapshot', 'Load or build a workflow first, then save a snapshot with a version note.');
+		return;
+	}
+	const defaultNote = `Snapshot · ${new Date().toLocaleString()}`;
+	const note = await NumelPrompt(
+		'Save Snapshot',
+		'Add a short version note for this workflow snapshot.',
+		defaultNote,
+		'Save Snapshot',
+		'Snapshot · describe what changed',
+	);
+	if (note === null) return;
+	const trimmedNote = note.trim();
+	if (!trimmedNote) {
+		await NumelAlert('Save Snapshot', 'Please enter a short snapshot note.');
+		return;
+	}
+	try {
+		const response = await syncWorkflow(workflow, _currentWorkflowLabel(), true, { message: trimmedNote });
+		addLog('success', `🧷 Snapshot saved: ${trimmedNote}`);
+		if (response?.message) {
+			await NumelAlert('Snapshot Saved', `Saved a new workflow snapshot for "${_escHtml(response.name || _currentWorkflowLabel())}".`);
+		}
+	} catch (error) {
+		addLog('error', `❌ Failed to save snapshot: ${error.message}`);
+		await NumelAlert('Save Snapshot', error.message || 'Failed to save workflow snapshot.');
+	}
+}
+
+async function showWorkflowSnapshots() {
+	if (!api || !currentSpaceId) return;
+	try {
+		const response = await api.workflowHistory(20);
+		const commits = response?.commits || [];
+		const action = await _showWorkflowSnapshotsDialog(commits);
+		if (action?.action === 'restore' && action.commitId) {
+			await _restoreWorkflowSnapshot(action.commitId, action.message || 'Snapshot');
+		}
+		addLog('info', `🕘 Reviewed ${commits.length} workflow snapshot${commits.length === 1 ? '' : 's'}`);
+	} catch (error) {
+		addLog('error', `❌ Failed to load workflow snapshots: ${error.message}`);
+		await NumelAlert('Workflow Snapshots', error.message || 'Failed to load workflow snapshots.');
+	}
+}
+
+async function publishCurrentWorkflowTemplate() {
+	if (!api) return;
+	const workflow = _currentWorkflowForReuse();
+	if (!workflow) {
+		await NumelAlert('Publish Template', 'Load or build a workflow first, then publish it as a reusable template.');
+		return;
+	}
+	const defaultTitle = _currentWorkflowLabel() || currentSpaceInfo?.title || 'Untitled Template';
+	const title = await NumelPrompt(
+		'Publish Template',
+		'Choose the gallery title for this reusable workflow template.',
+		defaultTitle,
+		'Publish',
+		'Template title',
+	);
+	if (title === null) return;
+	const trimmedTitle = title.trim();
+	if (!trimmedTitle) {
+		await NumelAlert('Publish Template', 'Please enter a template title.');
+		return;
+	}
+	try {
+		const description = currentSpaceInfo?.title
+			? `Reusable workflow template published from the "${currentSpaceInfo.title}" workbench.`
+			: 'Reusable workflow template published from the current workbench.';
+		const item = await api.galleryPublish({
+			workflow,
+			title: trimmedTitle,
+			description,
+			category: 'templates',
+			tags: ['template', 'reusable'],
+		});
+		addLog('success', `📚 Published template "${trimmedTitle}"`);
+		await NumelAlert(
+			'Template Published',
+			`"${_escHtml(trimmedTitle)}" is now available in the gallery as a reusable template.`,
+		);
+		if (galleryManager?.open) {
+			await galleryManager.open();
+		}
+		return item;
+	} catch (error) {
+		addLog('error', `❌ Failed to publish template: ${error.message}`);
+		await NumelAlert('Publish Template', error.message || 'Failed to publish template.');
+		return null;
+	}
 }
 
 // Global helper for console /gen — load + sync a workflow JSON object

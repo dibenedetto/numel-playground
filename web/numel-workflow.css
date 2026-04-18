@@ -234,6 +234,94 @@ body.nw-layout-project-workbench .nw-panel.nw-panel-collapsed .nw-section.nw-sec
 	display: none;
 }
 
+.nw-workflow-reuse-grid {
+	margin-top: 8px;
+}
+
+.nw-snapshot-empty {
+	color: var(--sg-text-secondary);
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.nw-snapshot-list {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	margin-top: 6px;
+	max-height: 360px;
+	overflow: auto;
+	padding-right: 4px;
+	scrollbar-width: thin;
+	scrollbar-color: var(--nw-scrollbar-thumb) transparent;
+}
+
+.nw-snapshot-list::-webkit-scrollbar {
+	width: var(--nw-scrollbar-size);
+}
+
+.nw-snapshot-list::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.nw-snapshot-list::-webkit-scrollbar-thumb {
+	background: var(--nw-scrollbar-thumb);
+	border-radius: 999px;
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+
+.nw-snapshot-card {
+	border: 1px solid var(--nw-border-quiet);
+	border-radius: var(--nw-radius-control);
+	background: color-mix(in srgb, var(--sg-bg-tertiary) 82%, transparent);
+	padding: 10px 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.nw-snapshot-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+}
+
+.nw-snapshot-message {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--sg-text-primary);
+}
+
+.nw-snapshot-id {
+	font-size: 11px;
+	font-family: 'Monaco', 'Menlo', monospace;
+	color: var(--sg-text-tertiary);
+}
+
+.nw-snapshot-meta {
+	font-size: 12px;
+	color: var(--sg-text-secondary);
+}
+
+.nw-snapshot-paths {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.nw-snapshot-path {
+	display: inline-flex;
+	align-items: center;
+	padding: 2px 8px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--sg-accent-blue, #46a2da) 14%, transparent);
+	color: var(--sg-text-secondary);
+	font-size: 11px;
+	font-family: 'Monaco', 'Menlo', monospace;
+}
+
 /* Panel toggle button — lives inside .nw-title.
    Borderless / transparent so it reads as part of the panel chrome instead
    of a stuck-on control; only the chevron is visible until hover. */
