@@ -15,7 +15,7 @@ It gives you:
 - a visual canvas for building workflows
 - an assistant that can help generate or refine those workflows
 - tools, skills, and knowledge that can be attached to agents
-- spaces so your work stays organized
+- repo-like spaces so your work stays organized, versioned, and shareable
 - ways to run the result as an internal workflow, a channel-facing assistant, or a published app
 
 It is not only a chatbot builder, and it is not only an automation tool. It sits in the middle:
@@ -56,7 +56,7 @@ real product, not a fake shell.
 That means locally you already have:
 
 - authenticated users
-- spaces and workflows
+- Git-backed spaces and workflows
 - assistants, planner, and deployments
 - tools, skills, and knowledge
 - published apps
@@ -79,6 +79,11 @@ So a practical way to think about it is:
 
 - **local** = fully working Numel with lighter guarantees
 - **prod** = the same Numel product surface with stronger guarantees underneath
+
+That includes the space model: both slices use the same repo-like idea of
+spaces, history, forking, and public/private visibility. The difference is in
+the backing services and operational guarantees, not in how you think about the
+product.
 
 The source of truth for whether a running Numel process is using `local` or `prod` is:
 
@@ -237,11 +242,11 @@ If you understand these ideas, the rest of Numel gets much easier.
 
 ### Space
 
-A **space** is your working area. Think of it as the container for the current thing you are building.
+A **space** is your working area. Think of it as a lightweight Git-backed project repo for the current thing you are building.
 
 ### Current Workflow
 
-Each space has one current workflow. That workflow is the thing you edit on the canvas and run.
+Each space has one current workflow in the workbench by default. That workflow is the thing you edit on the canvas and run most often.
 
 ### Workbench
 
@@ -255,9 +260,18 @@ A **workbench** is the practical working environment you see on screen:
 
 So:
 
-- a **space** is the container
-- a **workflow** is the graph inside that space
+- a **space** is the repo-like container
+- a **workflow** is the graph you currently have open inside that space
 - a **workbench** is the whole working surface built around that space and workflow
+
+You can now also think about spaces in three discovery buckets:
+
+- **Mine** = your own spaces
+- **Shared** = spaces you can access but do not own
+- **Public** = spaces other users have exposed for browsing and forking
+
+When you want to adapt a shared or public space, the normal move is to **fork**
+it into your own space and continue there.
 
 In everyday language, people often say "open the workbench" when they really mean "open this space and its current workflow in the full Numel UI." That is normal.
 

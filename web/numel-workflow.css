@@ -996,8 +996,49 @@ body.nw-layout-workbench .nw-workbench-hero {
 	display: none;
 }
 
+.nw-space-scope-bar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin: 2px 0 12px;
+}
+
+.nw-space-scope-chip {
+	appearance: none;
+	-webkit-appearance: none;
+	border: 1px solid color-mix(in srgb, var(--nw-border-soft) 92%, transparent);
+	background: color-mix(in srgb, var(--sg-bg-secondary) 70%, transparent);
+	color: var(--sg-text-secondary);
+	border-radius: 999px;
+	padding: 6px 10px;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.02em;
+	cursor: pointer;
+	transition: border-color 0.16s ease, background 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+
+.nw-space-scope-chip:hover {
+	transform: translateY(-1px);
+	border-color: color-mix(in srgb, var(--sg-accent-blue, #46a2da) 42%, var(--nw-border-soft));
+	color: var(--sg-text-primary);
+}
+
+.nw-space-scope-chip:focus-visible {
+	outline: none;
+	border-color: color-mix(in srgb, var(--sg-accent-blue, #46a2da) 48%, var(--nw-border-soft));
+	box-shadow: 0 0 0 2px color-mix(in srgb, var(--sg-accent-blue, #46a2da) 18%, transparent);
+}
+
+.nw-space-scope-chip.active {
+	border-color: color-mix(in srgb, var(--sg-accent-orange, #f5a623) 44%, var(--nw-border-soft));
+	background: color-mix(in srgb, var(--sg-bg-secondary) 58%, var(--sg-accent-orange, #f5a623) 16%);
+	color: var(--sg-text-primary);
+}
+
 .nw-space-stack {
-	display: none;
+	display: grid;
+	gap: 8px;
 }
 
 .nw-space-pill {
@@ -1072,6 +1113,11 @@ body.nw-layout-workbench .nw-space-pill.is-active {
 	font-size: 11px;
 	line-height: 1.45;
 	color: var(--sg-text-secondary);
+}
+
+.nw-space-pill .nw-space-pill-copy .nw-space-pill-namespace {
+	color: var(--sg-text-primary);
+	font-weight: 600;
 }
 
 /* Reveal the previously hidden space dropdown */

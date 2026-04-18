@@ -137,7 +137,7 @@ http://localhost:11360
 ```
 
 This path uses the public local backend: local identity, `sqlite`, Git-backed
-spaces, local storage under `storage/`, and the normal Numel UI.
+repo-like spaces, local storage under `storage/`, and the normal Numel UI.
 
 ### Run Locally With Docker
 
@@ -220,16 +220,19 @@ Concrete UI concepts for review live in
 2. Sign in or create an account
 3. Wait for the UI to auto-connect — the status indicator turns green when the backend bootstrap finishes
 
-### Current Space Workflow Model
+### Repo-Like Space Model
 
-Numel now stores **one current workflow per space**.
+Numel spaces now behave like lightweight Git-backed project repos.
 
 1. Create or select a **space** in the Workflow panel
-2. Import a tutorial, gallery item, or JSON file into that current space
-3. Edit the canvas as usual
-4. Start executions against the selected space's current workflow
+2. Browse spaces by scope: **Mine**, **Shared**, and **Public**
+3. Open the current workbench for that space
+4. Edit or run the current workflow asset for the selected space
+5. Save snapshots, review history, restore versions, or fork a readable space into your own workbench when you want to adapt it
 
-Canvas tags remain available inside the editor for organization and alternate views, but they do not create separate saved backend workflows.
+The default workbench still centers on one current workflow asset for the selected
+space, but the space itself is the durable unit: history, refs, forking, and
+sharing live at the space/repo level.
 
 ---
 
@@ -242,7 +245,7 @@ Canvas tags remain available inside the editor for organization and alternate vi
 - **Code editor modal** for Python/Jinja2 script fields
 - **Node search** (Ctrl+F) with instant filtering
 - **Mini-map** for large workflow navigation
-- **One current workflow per space** with canvas tags for in-editor organization
+- **Repo-like Git-backed spaces** with a current workflow, snapshot history, and forkable reuse
 - **6 drawing styles**: Default, Minimal, Blueprint, Neon, Organic, Wireframe
 - **3 themes**: Dark, Light, Ocean
 - **Selection rectangle**, copy/paste, snap-to-grid
@@ -360,7 +363,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 - **Extensions panel** — inspect shared toolkits, upload/remove contrib toolkits, and view/add/setup/remove skills from the GUI
 - **Voice features**: Text-to-speech (with voice/language selection), speech-to-text (microphone input)
 - **Backend-managed memory** — Assistant memory now relies on the backend memory model only, with graph-configurable history, session, and long-term memory behavior
-- **Per-user spaces** — each authenticated user gets isolated spaces with one persisted current workflow per space
+- **Repo-first spaces** — each authenticated user gets isolated Git-backed spaces, can browse accessible shared/public spaces, and can fork readable spaces into their own workbench
 - **Multi-user support** — multiple users connecting to the same server each get their own agent instance via `ChannelAgentPool`
 - **Proactive suggestions** via WebSocket
 - **`/gen` command** — generate workflows from natural language
@@ -920,14 +923,15 @@ layer.
 
 ### Spaces
 
-Each authenticated user gets isolated spaces. A space owns:
+Each authenticated user gets isolated spaces. A space behaves like a Git-backed project repo and owns:
 - metadata such as title, slug, visibility, and history
 - one persisted **current workflow** stored at `workflow.json`
 - execution history scoped to that space
 
 The frontend now works like this:
-- select or create a **space**
-- import or edit the **current workflow** for that space
+- browse **Mine**, **Shared**, and **Public** spaces
+- select, fork, or create a **space**
+- import or edit the **current workflow** for an owned space
 - start executions against that one current workflow
 
 Canvas tags remain available inside the editor for organization and alternate views, but they are not separate saved backend workflows.
@@ -1105,10 +1109,11 @@ All endpoints use **POST** method unless otherwise noted.
 | Endpoint | Description |
 |----------|-------------|
 | `/schema` | Get Python schema source |
-| `/spaces/current` | Get the selected space |
-| `/spaces/list` | List the current user's spaces |
+| `/spaces/current` | Get the selected space, decorated with owner/visibility context |
+| `/spaces/list` | List accessible spaces grouped into mine/shared/public |
+| `/spaces/public/resolve` | Resolve a public space by `namespace + slug` |
 | `/spaces/create` | Create a new space |
-| `/spaces/select` | Switch the selected space |
+| `/spaces/select` | Switch the selected accessible space |
 | `/spaces/delete` | Delete a space |
 | `/workflow/get` | Get the current workflow for the selected space |
 | `/workflow/save` | Save the current workflow for the selected space |

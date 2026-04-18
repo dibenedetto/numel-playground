@@ -97,6 +97,8 @@ Progress so far:
 - workflows can be saved with explicit snapshot notes
 - workflow snapshot history is visible from the workbench
 - current workflows can be published into the gallery as reusable templates
+- the workbench now groups accessible spaces into **Mine**, **Shared**, and **Public**
+- public spaces can be resolved by `namespace + slug`, which lays groundwork for Hugging Face-style repo discovery
 
 ## Parallel Adoption Work
 

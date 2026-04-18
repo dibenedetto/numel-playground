@@ -129,6 +129,7 @@ class NumelAPI {
 	forkSpace(spaceId, title = null, slug = null) {
 		return this.json('/spaces/fork', { space_id: spaceId, title, slug });
 	}
+	resolvePublicSpace(namespace, slug) { return this.json('/spaces/public/resolve', { namespace, slug }); }
 	selectSpace(spaceId)          { return this.json('/spaces/select', { space_id: spaceId }); }
 	deleteSpace(spaceId)          { return this.json('/spaces/delete', { space_id: spaceId }); }
 	getWorkflow()                 { return this.json('/workflow/get'); }

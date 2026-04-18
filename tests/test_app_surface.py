@@ -507,6 +507,69 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         execution_ids = listing.json()["execution_ids"]
         self.assertIn(execution_id, execution_ids)
 
+    async def test_spaces_surface_groups_mine_and_public_spaces(self) -> None:
+        alice = await self._client.post(
+            "/auth/register",
+            json={"username": "alice", "email": "alice@local", "password": "pass1234"},
+        )
+        self.assertEqual(alice.status_code, 200, alice.text)
+        alice_headers = self._auth_headers(alice.json()["token"])
+
+        create_public = await self._client.post(
+            "/spaces/create",
+            json={
+                "title": "Alice Public Repo",
+                "slug": "alice-public",
+                "visibility": "public",
+            },
+            headers=alice_headers,
+        )
+        self.assertEqual(create_public.status_code, 200, create_public.text)
+        public_space_id = create_public.json()["space"]["id"]
+
+        bob = await self._client.post(
+            "/auth/register",
+            json={"username": "bob", "email": "bob@local", "password": "pass1234"},
+        )
+        self.assertEqual(bob.status_code, 200, bob.text)
+        bob_headers = self._auth_headers(bob.json()["token"])
+
+        listing = await self._client.post("/spaces/list", json={}, headers=bob_headers)
+        self.assertEqual(listing.status_code, 200, listing.text)
+        payload = listing.json()
+
+        self.assertTrue(payload["mine"])
+        self.assertEqual(payload["shared"], [])
+        public_space = next((item for item in payload["public"] if item["id"] == public_space_id), None)
+        self.assertIsNotNone(public_space)
+        self.assertEqual(public_space["space_view"], "public")
+        self.assertEqual(public_space["namespace"], "alice")
+        self.assertEqual(public_space["namespace_slug"], "alice/alice-public")
+        self.assertFalse(public_space["is_owned"])
+        self.assertTrue(public_space["is_public"])
+
+        resolve = await self._client.post(
+            "/spaces/public/resolve",
+            json={"namespace": "alice", "slug": "alice-public"},
+            headers=bob_headers,
+        )
+        self.assertEqual(resolve.status_code, 200, resolve.text)
+        self.assertEqual(resolve.json()["space"]["id"], public_space_id)
+
+        select = await self._client.post(
+            "/spaces/select",
+            json={"space_id": public_space_id},
+            headers=bob_headers,
+        )
+        self.assertEqual(select.status_code, 200, select.text)
+        self.assertEqual(select.json()["space"]["space_view"], "public")
+        self.assertEqual(select.json()["space"]["namespace_slug"], "alice/alice-public")
+
+        current = await self._client.post("/spaces/current", json={}, headers=bob_headers)
+        self.assertEqual(current.status_code, 200, current.text)
+        self.assertEqual(current.json()["space"]["id"], public_space_id)
+        self.assertEqual(current.json()["space"]["space_view"], "public")
+
     async def test_admin_diagnostics_surface_local(self) -> None:
         register = await self._client.post(
             "/auth/register",
@@ -2822,7 +2885,6 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.1)
 
         self.assertEqual(final_status, "completed")
-
 
 
 

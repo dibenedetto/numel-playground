@@ -105,6 +105,11 @@ class SpaceSelectRequest(BaseModel):
 	space_id : str
 
 
+class SpaceResolveRequest(BaseModel):
+	namespace : str
+	slug      : str
+
+
 class SpaceForkRequest(BaseModel):
 	space_id : Optional[str] = None
 	title    : Optional[str] = None
@@ -306,6 +311,68 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 		return data.get("spaces", []) or []
 
+	async def _list_accessible_spaces(req: Request, user_id: str) -> List[Dict[str, Any]]:
+		try:
+			data = await _platform(req).post_json(
+				"/platform/spaces/list-accessible",
+				{"user_id": user_id},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		return data.get("spaces", []) or []
+
+	async def _decorate_space_records(
+		req: Request,
+		spaces: List[Dict[str, Any]],
+		*,
+		viewer_user_id: str,
+	) -> List[Dict[str, Any]]:
+		platform = _platform(req)
+		owner_cache: Dict[str, str] = {}
+		decorated: List[Dict[str, Any]] = []
+		for raw_space in spaces or []:
+			space = dict(raw_space or {})
+			owner_user_id = str(space.get("owner_user_id", "") or "").strip()
+			owner_username = owner_cache.get(owner_user_id, "")
+			if owner_user_id and not owner_username:
+				try:
+					owner = await platform.get_user(owner_user_id)
+				except PlatformRequestError:
+					owner = None
+				owner_username = str(getattr(owner, "username", "") or "").strip()
+				if owner_user_id:
+					owner_cache[owner_user_id] = owner_username
+			slug = str(space.get("slug", "") or "").strip()
+			visibility = str(space.get("visibility", "") or "private").strip().lower() or "private"
+			is_owned = owner_user_id == viewer_user_id
+			view = "mine" if is_owned else ("public" if visibility == "public" else "shared")
+			namespace = owner_username or owner_user_id or "unknown"
+			space["owner_username"] = owner_username or None
+			space["namespace"] = namespace
+			space["namespace_slug"] = f"{namespace}/{slug}" if slug else namespace
+			space["is_owned"] = is_owned
+			space["is_public"] = visibility == "public"
+			space["space_view"] = view
+			decorated.append(space)
+		return decorated
+
+	def _sort_space_records(spaces: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+		def _numeric_timestamp(item: Dict[str, Any], key: str) -> float:
+			try:
+				return float(item.get(key, 0.0) or 0.0)
+			except Exception:
+				return 0.0
+
+		return sorted(
+			spaces or [],
+			key=lambda item: (
+				0 if bool(item.get("is_owned")) else 1,
+				-_numeric_timestamp(item, "updated_at"),
+				-_numeric_timestamp(item, "created_at"),
+				str(item.get("title", "") or item.get("slug", "") or item.get("id", "")),
+			),
+		)
+
 	async def _set_current_space_id(req: Request, user_id: str, space_id: str):
 		user = await _platform(req).get_user(user_id)
 		metadata = dict(getattr(user, "metadata", {}) or {})
@@ -340,16 +407,17 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 
 	async def _ensure_current_space(req: Request):
 		user = await _refresh_user(req)
-		spaces = await _list_owned_spaces(req, user.id)
-		if not spaces:
+		owned_spaces = await _list_owned_spaces(req, user.id)
+		if not owned_spaces:
 			space = await _create_default_space(req, user)
 			return user, space
 
+		accessible_spaces = await _list_accessible_spaces(req, user.id)
 		current_space_id = str((getattr(user, "metadata", {}) or {}).get("current_space_id", "") or "").strip()
-		current = next((item for item in spaces if item.get("id") == current_space_id), None)
+		current = next((item for item in accessible_spaces if item.get("id") == current_space_id), None)
 		if current is None:
-			spaces = sorted(spaces, key=lambda item: float(item.get("created_at", 0.0) or 0.0))
-			current = spaces[0]
+			owned_spaces = sorted(owned_spaces, key=lambda item: float(item.get("created_at", 0.0) or 0.0))
+			current = owned_spaces[0]
 			await _set_current_space_id(req, user.id, str(current.get("id", "") or ""))
 		return user, current
 
@@ -487,16 +555,30 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 
 	@app.post("/spaces/current")
 	async def current_space(req: Request):
-		_, space = await _ensure_current_space(req)
-		return {"space": space}
+		user, space = await _ensure_current_space(req)
+		decorated = await _decorate_space_records(req, [space], viewer_user_id=user.id)
+		return {"space": decorated[0] if decorated else space}
 
 	@app.post("/spaces/list")
 	async def list_spaces(req: Request):
 		user, current = await _ensure_current_space(req)
-		spaces = await _list_owned_spaces(req, user.id)
+		owned = await _list_owned_spaces(req, user.id)
+		accessible = await _list_accessible_spaces(req, user.id)
+		decorated = _sort_space_records(
+			await _decorate_space_records(req, accessible, viewer_user_id=user.id)
+		)
+		mine = [space for space in decorated if space.get("space_view") == "mine"]
+		shared = [space for space in decorated if space.get("space_view") == "shared"]
+		public = [space for space in decorated if space.get("space_view") == "public"]
+		current_decorated = await _decorate_space_records(req, [current], viewer_user_id=user.id)
 		return {
-			"spaces": spaces,
+			"spaces": decorated,
+			"mine": mine,
+			"shared": shared,
+			"public": public,
+			"owned_count": len(owned),
 			"current_space_id": current.get("id"),
+			"current_space": current_decorated[0] if current_decorated else current,
 		}
 
 	@app.post("/spaces/create")
@@ -520,17 +602,41 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		space = data.get("space") or {}
 		await _set_current_space_id(req, user.id, str(space.get("id", "") or ""))
 		await _clear_cached_workflow(req)
-		return {"space": space}
+		decorated = await _decorate_space_records(req, [space], viewer_user_id=user.id)
+		return {"space": decorated[0] if decorated else space}
 
 	@app.post("/spaces/select")
 	async def select_space(request: SpaceSelectRequest, req: Request):
 		user = await _refresh_user(req)
-		spaces = await _list_owned_spaces(req, user.id)
+		spaces = await _list_accessible_spaces(req, user.id)
 		space = next((item for item in spaces if item.get("id") == request.space_id), None)
 		if space is None:
 			raise HTTPException(status_code=404, detail=f"Space '{request.space_id}' not found")
 		await _set_current_space_id(req, user.id, request.space_id)
 		await _clear_cached_workflow(req)
+		decorated = await _decorate_space_records(req, [space], viewer_user_id=user.id)
+		return {"space": decorated[0] if decorated else space}
+
+	@app.post("/spaces/public/resolve")
+	async def resolve_public_space(request: SpaceResolveRequest, req: Request):
+		user = await _refresh_user(req)
+		namespace = str(request.namespace or "").strip().lower()
+		slug = str(request.slug or "").strip().lower()
+		if not namespace or not slug:
+			raise HTTPException(status_code=400, detail="namespace and slug are required")
+		spaces = await _list_accessible_spaces(req, user.id)
+		decorated = await _decorate_space_records(req, spaces, viewer_user_id=user.id)
+		space = next(
+			(
+				item for item in decorated
+				if item.get("is_public")
+				and str(item.get("slug", "") or "").strip().lower() == slug
+				and str(item.get("namespace", "") or item.get("owner_username", "") or item.get("owner_user_id", "")).strip().lower() == namespace
+			),
+			None,
+		)
+		if space is None:
+			raise HTTPException(status_code=404, detail=f"Public space '{namespace}/{slug}' not found")
 		return {"space": space}
 
 	@app.post("/spaces/delete")
@@ -582,7 +688,8 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		if space_id:
 			await _set_current_space_id(req, user.id, space_id)
 		await _clear_cached_workflow(req)
-		return {"space": space}
+		decorated = await _decorate_space_records(req, [space], viewer_user_id=user.id)
+		return {"space": decorated[0] if decorated else space}
 
 	@app.post("/workflow/get")
 	async def get_current_workflow(req: Request):

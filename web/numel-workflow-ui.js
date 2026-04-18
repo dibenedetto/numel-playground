@@ -16,6 +16,8 @@ let currentPlatformExecutionId = null;
 let currentSpaceId    = null;
 let currentSpaceInfo  = null;
 let availableSpaces   = [];
+let availableSpaceGroups = { mine: [], shared: [], public: [] };
+let currentSpaceScope = 'mine';
 let _pendingExecEvents = [];   // buffer events arriving before currentExecutionId is set
 let workflowDirty      = true;
 let fileUploadManager  = null;
@@ -139,6 +141,38 @@ function _formatLocalTimestamp(value) {
 	const date = Number.isFinite(num) ? new Date(num * 1000) : new Date(value);
 	if (!(date instanceof Date) || Number.isNaN(date.getTime())) return 'Unknown time';
 	return date.toLocaleString();
+}
+
+function _spaceScopeFor(space = null) {
+	if (!space || typeof space !== 'object') return 'mine';
+	const explicit = String(space.space_view || '').trim().toLowerCase();
+	if (explicit === 'shared' || explicit === 'public' || explicit === 'mine') return explicit;
+	if (space.is_owned) return 'mine';
+	return String(space.visibility || '').trim().toLowerCase() === 'public' ? 'public' : 'shared';
+}
+
+function _currentVisibleSpaces() {
+	const group = availableSpaceGroups?.[currentSpaceScope];
+	if (Array.isArray(group) && group.length) return group;
+	if (currentSpaceScope === 'mine') return availableSpaces;
+	return group || [];
+}
+
+function _setSpaceScope(scope) {
+	const normalized = ['mine', 'shared', 'public'].includes(String(scope || '').toLowerCase())
+		? String(scope).toLowerCase()
+		: 'mine';
+	currentSpaceScope = normalized;
+	document.querySelectorAll('[data-space-scope]').forEach((button) => {
+		const isActive = button.getAttribute('data-space-scope') === normalized;
+		button.classList.toggle('active', isActive);
+		button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+	});
+	_renderWorkbenchSpaces();
+}
+
+function _canEditCurrentSpace() {
+	return !!currentSpaceInfo?.is_owned;
 }
 
 function _extractWorkflowDisplayName(workflow = null) {
@@ -762,13 +796,21 @@ function _updateStarterPanel() {
 function _renderWorkbenchSpaces() {
 	const list = $('workbenchSpacesList');
 	if (!list) return;
-	if (!availableSpaces.length) {
-		list.innerHTML = '<div class="nw-space-pill"><div class="nw-space-pill-bullet"></div><div class="nw-space-pill-meta"><div class="nw-space-pill-title">No spaces yet</div><div class="nw-space-pill-copy">Create a space to get started.</div></div></div>';
+	const spaces = _currentVisibleSpaces();
+	if (!spaces.length) {
+		const emptyCopy = currentSpaceScope === 'mine'
+			? 'Create a space to get started.'
+			: currentSpaceScope === 'shared'
+				? 'No shared spaces are visible yet.'
+				: 'No public spaces are visible yet.';
+		list.innerHTML = `<div class="nw-space-pill"><div class="nw-space-pill-bullet"></div><div class="nw-space-pill-meta"><div class="nw-space-pill-title">No ${currentSpaceScope} spaces</div><div class="nw-space-pill-copy">${emptyCopy}</div></div></div>`;
 		return;
 	}
-	list.innerHTML = availableSpaces.map((space) => {
+	list.innerHTML = spaces.map((space) => {
 		const title = space.title || space.slug || space.id;
 		const isActive = space.id === currentSpaceId;
+		const scope = _spaceScopeFor(space);
+		const namespace = String(space.namespace_slug || space.slug || space.id || '').trim();
 		let copy = 'Space';
 		if (isActive && _isCurrentWorkflowEmptyState()) {
 			copy = 'Active · ready for a first workflow';
@@ -776,24 +818,19 @@ function _renderWorkbenchSpaces() {
 			copy = 'Active · ready to edit and run';
 		} else if (space?.metadata?.forked_from_space_id) {
 			copy = 'Fork · ready to adapt';
+		} else if (!space?.is_owned && scope === 'public') {
+			copy = `Public · ${namespace}`;
+		} else if (!space?.is_owned && scope === 'shared') {
+			copy = `Shared · ${namespace}`;
 		} else if (space.visibility) {
 			copy = `${String(space.visibility).charAt(0).toUpperCase()}${String(space.visibility).slice(1)} space`;
 		}
-		const safeTitle = String(title)
-			.replace(/&/g, '&amp;')
-			.replace(/</g, '&lt;')
-			.replace(/>/g, '&gt;')
-			.replace(/"/g, '&quot;');
-		const safeCopy = String(copy)
-			.replace(/&/g, '&amp;')
-			.replace(/</g, '&lt;')
-			.replace(/>/g, '&gt;');
 		return `
 			<button class="nw-space-pill${isActive ? ' is-active' : ''}" type="button" data-space-id="${space.id}">
 				<div class="nw-space-pill-bullet"></div>
 				<div class="nw-space-pill-meta">
-					<div class="nw-space-pill-title">${safeTitle}</div>
-					<div class="nw-space-pill-copy">${safeCopy}</div>
+					<div class="nw-space-pill-title">${_escHtml(title)}</div>
+					<div class="nw-space-pill-copy">${_escHtml(copy)}</div>
 				</div>
 			</button>
 		`;
@@ -844,6 +881,16 @@ function _updateWorkbenchOverview() {
 		nextCopy = 'A space keeps one current workflow, its runs, and the resources it needs.';
 		heroTitle = 'Pick a space to begin.';
 		heroSummary = 'Each space is a project workbench. Create one, choose a starter, and run it.';
+	} else if (!currentSpaceInfo.is_owned) {
+		const namespaceSlug = currentSpaceInfo.namespace_slug || currentSpaceInfo.slug || currentSpaceInfo.id || 'space';
+		const spaceKind = currentSpaceInfo.space_view === 'public' ? 'public space' : 'shared space';
+		overviewSummary = `Viewing ${spaceKind} "${namespaceSlug}". You can inspect it, run it, and fork it into your own workbench when you want to adapt it.`;
+		canvasSummary = `"${workflowName || 'Current Workflow'}" from ${namespaceSlug}. Inspect it, run it, or fork the space to make changes.`;
+		nextTitle = 'Inspect or fork this space.';
+		nextCopy = 'Public and shared spaces are readable here. Fork one into your own scope when you want to adapt it.';
+		heroKicker = currentSpaceInfo.space_view === 'public' ? 'Public space' : 'Shared space';
+		heroTitle = `"${spaceName}"`;
+		heroSummary = 'Inspect the current workflow, run it if useful, and fork the space when you want your own editable copy.';
 	} else if (isEmpty) {
 		overviewSummary = `"${spaceName}" is ready for its first workflow. Pick a starter, open a repo, mini app, support, or ops workbench, or ask the assistant for a draft.`;
 		canvasSummary = `"${spaceName}" is ready. Choose a starter, load a workbench, or ask for a first draft.`;
@@ -876,7 +923,7 @@ function _updateWorkbenchOverview() {
 	if (canvasAskBtn) canvasAskBtn.disabled = !isReady;
 	if (canvasGalleryBtn) canvasGalleryBtn.disabled = !isReady;
 	if (canvasRunBtn) canvasRunBtn.disabled = !isReady || startDisabled;
-	if (canvasSaveBtn) canvasSaveBtn.disabled = !isReady;
+	if (canvasSaveBtn) canvasSaveBtn.disabled = !isReady || !_canEditCurrentSpace();
 	if (canvasAskBtn) {
 		canvasAskBtn.title = isReady
 			? (isEmpty ? 'Ask Assistant to draft a first workflow' : 'Ask Assistant to help edit this workflow')
@@ -893,7 +940,11 @@ function _updateWorkbenchOverview() {
 			: 'Run the current workflow';
 	}
 	if (canvasSaveBtn) {
-		canvasSaveBtn.title = isReady ? 'Save the current workflow' : 'Connect first to save changes';
+		canvasSaveBtn.title = !isReady
+			? 'Connect first to save changes'
+			: _canEditCurrentSpace()
+				? 'Save the current workflow'
+				: 'Fork this space to save your own changes';
 	}
 	// Stage bar shows when workflow is loaded; hero shows when empty
 	const stageBar = document.querySelector('.nw-canvas-stagebar');
@@ -946,19 +997,20 @@ function _syncSpaceControls() {
 		forkBtn.disabled = !hasApi || !currentSpaceId;
 	}
 	if (removeBtn) {
-		removeBtn.disabled = !hasApi || !currentSpaceId || optionCount <= 1;
+		removeBtn.disabled = !hasApi || !currentSpaceId || optionCount <= 1 || !_canEditCurrentSpace();
 	}
 }
 
 function _syncReuseControls() {
 	const hasApi = !!api;
 	const hasWorkflow = !!visualizer?.currentWorkflow && currentWorkflowHasContent;
+	const canEdit = _canEditCurrentSpace();
 	const snapshotBtn = $('saveSnapshotBtn');
 	const historyBtn = $('workflowHistoryBtn');
 	const publishBtn = $('publishTemplateBtn');
-	if (snapshotBtn) snapshotBtn.disabled = !hasApi || !hasWorkflow;
+	if (snapshotBtn) snapshotBtn.disabled = !hasApi || !hasWorkflow || !canEdit;
 	if (historyBtn) historyBtn.disabled = !hasApi || !currentSpaceId;
-	if (publishBtn) publishBtn.disabled = !hasApi || !hasWorkflow;
+	if (publishBtn) publishBtn.disabled = !hasApi || !hasWorkflow || !canEdit;
 }
 
 function _closeSidePanelDom(id) {
@@ -1865,6 +1917,12 @@ function setupEventListeners() {
 		if (!button) return;
 		_handleStarterFollowthroughAction(button.getAttribute('data-guide-action') || '');
 	});
+	document.querySelectorAll('[data-space-scope]').forEach((button) => {
+		button.addEventListener('click', () => {
+			const scope = button.getAttribute('data-space-scope') || 'mine';
+			_setSpaceScope(scope);
+		});
+	});
 
 	// Hero close button — persist per-space dismissal
 	$('canvasHeroCloseBtn')?.addEventListener('click', () => {
@@ -1934,10 +1992,11 @@ function setupEventListeners() {
 }
 
 function enableStart(enable) {
+	const canEdit = _canEditCurrentSpace();
 	$('startBtn'         ).disabled = !enable;
 	$('cancelBtn'        ).disabled = enable;
-	$('singleImportBtn'  ).disabled = !enable;
-	$('singlePasteBtn'   ).disabled = !enable;
+	$('singleImportBtn'  ).disabled = !enable || !canEdit;
+	$('singlePasteBtn'   ).disabled = !enable || !canEdit;
 	$('singleDownloadBtn').disabled = !enable;
 	$('singleCopyBtn'    ).disabled = !enable;
 	updateClearButtonState();
@@ -1954,7 +2013,7 @@ function updateClearButtonState() {
 	const hasWorkflow = !!visualizer?.currentWorkflow;
 	const hasNodes = schemaGraph?.graph?.nodes?.length > 0;
 	const hasContent = hasWorkflow && (hasNodes || currentWorkflowHasContent);
-	const disabled = !hasContent;
+	const disabled = !hasContent || !_canEditCurrentSpace();
 	$('clearWorkflowBtnSingle').disabled = disabled;
 	const headerBtn = $('clearWorkflowHeaderBtn');
 	if (headerBtn) headerBtn.disabled = disabled;
@@ -2083,8 +2142,8 @@ async function connect() {
 		_updateStarterExperience(true);
 		_updateWorkbenchOverview();
 		_syncReplayButtonState();
-		$('singleImportBtn').disabled = false;
-		$('singlePasteBtn').disabled = false;
+		$('singleImportBtn').disabled = true;
+		$('singlePasteBtn').disabled = true;
 		_syncSpaceControls();
 
 		addLog('info', '🧭 Loading current space...');
@@ -2143,10 +2202,13 @@ async function disconnect() {
 	currentSpaceId = null;
 	currentSpaceInfo = null;
 	availableSpaces = [];
+	availableSpaceGroups = { mine: [], shared: [], public: [] };
+	currentSpaceScope = 'mine';
 	currentWorkflowHasContent = false;
 
 	$('spaceSelect').disabled = true;
 	$('spaceSelect').innerHTML = '<option value="">Loading spaces...</option>';
+	_setSpaceScope('mine');
 	_syncSpaceControls();
 
 	enableStart(false);
@@ -2477,16 +2539,34 @@ async function refreshSpaceList(loadWorkflow = false) {
 		]);
 		if (!api || api !== activeApi) return;
 		const spaces = listResp.spaces || [];
+		const nextGroups = {
+			mine: Array.isArray(listResp.mine) ? listResp.mine : spaces.filter((space) => _spaceScopeFor(space) === 'mine'),
+			shared: Array.isArray(listResp.shared) ? listResp.shared : spaces.filter((space) => _spaceScopeFor(space) === 'shared'),
+			public: Array.isArray(listResp.public) ? listResp.public : spaces.filter((space) => _spaceScopeFor(space) === 'public'),
+		};
 		availableSpaces = spaces;
-		currentSpaceInfo = currentResp.space || spaces.find(space => space.id === listResp.current_space_id) || null;
+		availableSpaceGroups = nextGroups;
+		currentSpaceInfo = currentResp.space || listResp.current_space || spaces.find(space => space.id === listResp.current_space_id) || null;
 		currentSpaceId = currentSpaceInfo?.id || listResp.current_space_id || null;
+		if (currentSpaceInfo) {
+			_setSpaceScope(_spaceScopeFor(currentSpaceInfo));
+		} else if (!nextGroups[currentSpaceScope]?.length) {
+			if (nextGroups.mine.length) _setSpaceScope('mine');
+			else if (nextGroups.shared.length) _setSpaceScope('shared');
+			else if (nextGroups.public.length) _setSpaceScope('public');
+			else _setSpaceScope('mine');
+		}
 
 		const select = $('spaceSelect');
 		select.innerHTML = '';
 		for (const space of spaces) {
 			const option = document.createElement('option');
 			option.value = space.id;
-			option.textContent = space.title || space.slug || space.id;
+			const namespaceSlug = String(space.namespace_slug || '').trim();
+			const label = space.title || space.slug || space.id;
+			option.textContent = !space.is_owned && namespaceSlug
+				? `${label} — ${namespaceSlug}`
+				: label;
 			select.appendChild(option);
 		}
 		if (currentSpaceId) select.value = currentSpaceId;
@@ -2499,6 +2579,8 @@ async function refreshSpaceList(loadWorkflow = false) {
 		_updateWorkbenchOverview();
 	} catch (error) {
 		availableSpaces = [];
+		availableSpaceGroups = { mine: [], shared: [], public: [] };
+		_setSpaceScope('mine');
 		addLog('error', `❌ Failed to refresh spaces: ${error.message}`);
 		_updateWorkbenchOverview();
 	}
@@ -2629,6 +2711,7 @@ async function forkCurrentSpace() {
 		const response = await api.forkSpace(currentSpaceId, nextTitle, _slugFromTitle(nextTitle));
 		currentSpaceInfo = response.space || null;
 		currentSpaceId = currentSpaceInfo?.id || null;
+		_setSpaceScope('mine');
 		await refreshSpaceList(true);
 		addLog('success', `🍴 Forked "${sourceTitle}" into "${currentSpaceInfo?.title || nextTitle}"`);
 	} catch (error) {
@@ -2669,6 +2752,7 @@ async function selectCurrentSpace() {
 		const response = await api.selectSpace(nextSpaceId);
 		currentSpaceInfo = response.space || null;
 		currentSpaceId = currentSpaceInfo?.id || nextSpaceId;
+		_setSpaceScope(_spaceScopeFor(currentSpaceInfo));
 		await loadCurrentWorkflow();
 		_syncReuseControls();
 		addLog('info', `🧭 Switched to "${currentSpaceInfo?.title || currentSpaceId}"`);
@@ -2680,6 +2764,9 @@ async function selectCurrentSpace() {
 
 async function syncWorkflow(workflow = null, _name = null, force = false, saveOptions = null) {
 	if (!force && !workflowDirty) return null;
+	if (!_canEditCurrentSpace()) {
+		throw new Error('Fork this space into your own workbench before saving changes.');
+	}
 
 	schemaGraph.api.lock.lock('Syncing workflow', true, { lockMovement: true, lockOverlays: true });
 
@@ -2748,6 +2835,9 @@ async function syncWorkflow(workflow = null, _name = null, force = false, saveOp
 
 async function saveWorkflowToBackend(workflow = null, _name = null, force = false, saveOptions = null) {
 	if (!force && !workflowDirty) return null;
+	if (!_canEditCurrentSpace()) {
+		throw new Error('Fork this space into your own workbench before saving changes.');
+	}
 
 	const hasExplicitWorkflow = !!workflow;
 	const exported = visualizer?.exportWorkflow?.();
@@ -2798,6 +2888,7 @@ function _snapshotHistoryHtml(commits = []) {
 
 function _showWorkflowSnapshotsDialog(commits = []) {
 	return new Promise((resolve) => {
+		const canEdit = _canEditCurrentSpace();
 		const overlay = document.createElement('div');
 		overlay.className = 'sg-input-dialog-overlay';
 		overlay.innerHTML = `
@@ -2807,7 +2898,9 @@ function _showWorkflowSnapshotsDialog(commits = []) {
 					<button class="sg-input-dialog-close">✕</button>
 				</div>
 				<div class="sg-input-dialog-body">
-					<p class="sg-confirm-dialog-message">Review recent workflow snapshots for the current space. Restore one when you want to bring that version back into the workbench.</p>
+					<p class="sg-confirm-dialog-message">${canEdit
+						? 'Review recent workflow snapshots for the current space. Restore one when you want to bring that version back into the workbench.'
+						: 'Review recent workflow snapshots for this space. Fork it into your own workbench when you want to restore or edit one of these versions.'}</p>
 					${Array.isArray(commits) && commits.length ? `<div class="nw-snapshot-list">${commits.map((commit) => {
 						const message = _escHtml(commit?.message || 'Snapshot');
 						const commitId = String(commit?.id || '').trim();
@@ -2825,7 +2918,7 @@ function _showWorkflowSnapshotsDialog(commits = []) {
 								<div class="nw-snapshot-meta">${createdAt}</div>
 								<div class="nw-snapshot-paths">${changedPaths}</div>
 								<div class="nw-snapshot-actions">
-									<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="restore-snapshot" data-commit-id="${_escHtml(commitId)}" data-message="${message}">Restore</button>
+									<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="restore-snapshot" data-commit-id="${_escHtml(commitId)}" data-message="${message}" ${canEdit ? '' : 'disabled title="Fork this space to restore snapshots into your own workbench"'}>Restore</button>
 								</div>
 							</div>
 						`;
@@ -2869,6 +2962,10 @@ function _showWorkflowSnapshotsDialog(commits = []) {
 
 async function _restoreWorkflowSnapshot(commitId, snapshotLabel = 'Snapshot') {
 	if (!api || !currentSpaceId || !commitId) return false;
+	if (!_canEditCurrentSpace()) {
+		await NumelAlert('Restore Snapshot', 'Fork this space into your own workbench before restoring a snapshot.');
+		return false;
+	}
 	const warning = workflowDirty
 		? 'Current unsaved edits will be saved first, then the selected snapshot will replace the current workflow.'
 		: 'The selected snapshot will replace the current workflow in this space.';
@@ -2920,6 +3017,10 @@ async function _restoreWorkflowSnapshot(commitId, snapshotLabel = 'Snapshot') {
 
 async function saveWorkflowSnapshot() {
 	if (!api) return;
+	if (!_canEditCurrentSpace()) {
+		await NumelAlert('Save Snapshot', 'Fork this space into your own workbench before saving snapshots.');
+		return;
+	}
 	const workflow = _currentWorkflowForReuse();
 	if (!workflow) {
 		await NumelAlert('Save Snapshot', 'Load or build a workflow first, then save a snapshot with a version note.');
@@ -2969,6 +3070,10 @@ async function showWorkflowSnapshots() {
 
 async function publishCurrentWorkflowTemplate() {
 	if (!api) return;
+	if (!_canEditCurrentSpace()) {
+		await NumelAlert('Publish Template', 'Fork this space into your own workbench before publishing it as a template.');
+		return;
+	}
 	const workflow = _currentWorkflowForReuse();
 	if (!workflow) {
 		await NumelAlert('Publish Template', 'Load or build a workflow first, then publish it as a reusable template.');
@@ -3232,6 +3337,10 @@ async function pasteWorkflowFromClipboard() {
 }
 
 async function clearWorkflow() {
+	if (!_canEditCurrentSpace()) {
+		await NumelAlert('Clear Workflow', 'Fork this space into your own workbench before clearing it.');
+		return;
+	}
 	if (!visualizer.currentWorkflow) return;
 	const hasNodes = schemaGraph?.graph?.nodes?.length > 0;
 	const hasContent = !!(visualizer?.currentWorkflow && (hasNodes || currentWorkflowHasContent));
