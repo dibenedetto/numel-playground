@@ -25,6 +25,12 @@ let appsManager        = null;
 let api                = null;  // NumelAPI instance, shared across all managers
 let currentWorkflowHasContent = false;
 let _supportedBackends = ['agno'];
+let _executionReplayView = null;
+let _latestReplayExecutionId = null;
+const _executionReplayCache = new Map();
+let _executionComparisonView = null;
+let _executionEvalView = null;
+let _executionFailureView = null;
 
 // ── Task 2: Wire tooltip edge data store ─────────────────────────────────────
 // Key: "workflowNodeIdx:fieldName" → last output value from that slot
@@ -1552,6 +1558,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	_restoreSectionCollapseState();
 	_setPanelCollapsed(_readStorageFlag(PANEL_COLLAPSED_STORAGE_KEY, false));
 	_setAdvancedSectionsVisible(_readStorageFlag(ADVANCED_VISIBLE_STORAGE_KEY, false));
+	_resetExecutionReplayView();
+	_resetExecutionEvalView();
+	_resetExecutionFailureView();
+	_resetExecutionComparisonView();
+	_syncReplayButtonState();
 
 	// Initial log
 	addLog('info', '🚀 Numel Playground ready');
@@ -1835,6 +1846,8 @@ function setupEventListeners() {
 	// Execution
 	$('startBtn').addEventListener('click', startExecution);
 	$('cancelBtn').addEventListener('click', cancelExecution);
+	$('replayLatestRunBtn')?.addEventListener('click', replayLatestExecution);
+	$('compareLatestRunsBtn')?.addEventListener('click', compareLatestExecutions);
 
 	// Event log
 	$('clearLogBtn').addEventListener('click', () => {
@@ -2013,6 +2026,7 @@ async function connect() {
 		updateClearButtonState();
 		_updateStarterExperience(true);
 		_updateWorkbenchOverview();
+		_syncReplayButtonState();
 		$('singleImportBtn').disabled = false;
 		$('singlePasteBtn').disabled = false;
 		_syncSpaceControls();
@@ -2026,6 +2040,7 @@ async function connect() {
 		addLog('success', `✅ Connected to ${serverUrl}`);
 	} catch (error) {
 		console.error('Connection error:', error);
+		_syncReplayButtonState();
 		addLog('error', `❌ Connection failed: ${error.message}`);
 		setWsStatus('disconnected');
 		client = null;
@@ -2106,6 +2121,18 @@ function setupClientEvents() {
 	client.on('workflow.started', (event) => {
 		if (currentExecutionId !== event.execution_id) return;
 		_clearExecutionIssue();
+		_executionReplayView = _executionReplayView?.executionId === event.execution_id
+			? _executionReplayView
+			: {
+				..._createEmptyExecutionReplayView(),
+				executionId: event.execution_id,
+				platformExecutionId: currentPlatformExecutionId || event.execution_id,
+				workflowName: visualizer?.currentWorkflowName || 'Workflow',
+				source: 'live',
+			};
+		_executionReplayView.status = 'running';
+		_executionReplayView.startedAt = _executionReplayView.startedAt || new Date().toISOString();
+		_executionReplayView.summary = _describeExecutionReplaySummary(_executionReplayView);
 		setExecStatus('running', 'Running');
 		const shownId = currentPlatformExecutionId || event.execution_id;
 		$('execId').textContent = shownId.substring(0, 8) + '...';
@@ -2116,11 +2143,22 @@ function setupClientEvents() {
 		schemaGraph.api.lock.lock('Workflow running');
 		schemaGraph.eventBus.emit('workflow:started', event);
 
+		_appendExecutionReplayEvent('info', 'Workflow started', _executionReplayView.workflowName, { time: _executionReplayView.startedAt });
 		addLog('info', `▶️ Workflow started`);
 	});
 
 	client.on('workflow.completed', (event) => {
 		if (event.execution_id !== currentExecutionId) return;
+		const executionId = event.execution_id;
+		const finishedAt = new Date().toISOString();
+		if (_executionReplayView) {
+			_executionReplayView.status = 'completed';
+			_executionReplayView.endedAt = finishedAt;
+			_executionReplayView.summary = _describeExecutionReplaySummary(_executionReplayView);
+		}
+		_appendExecutionReplayEvent('success', 'Workflow completed', _formatExecutionReplayDuration(_executionReplayView?.startedAt, finishedAt) || '', { time: finishedAt });
+		_cacheCurrentExecutionReplay(executionId);
+		void _hydrateExecutionReplay(executionId, { useCurrentView: true });
 		currentExecutionId = null;
 		currentPlatformExecutionId = null;
 		_clearExecutionIssue();
@@ -2136,6 +2174,17 @@ function setupClientEvents() {
 
 	client.on('workflow.failed', (event) => {
 		if (event.execution_id !== currentExecutionId) return;
+		const executionId = event.execution_id;
+		const finishedAt = new Date().toISOString();
+		if (_executionReplayView) {
+			_executionReplayView.status = 'failed';
+			_executionReplayView.endedAt = finishedAt;
+			_executionReplayView.error = event.error || 'Unknown error';
+			_executionReplayView.summary = _describeExecutionReplaySummary(_executionReplayView);
+		}
+		_appendExecutionReplayEvent('error', 'Workflow failed', event.error || 'Unknown error', { time: finishedAt });
+		_cacheCurrentExecutionReplay(executionId);
+		void _hydrateExecutionReplay(executionId, { useCurrentView: true });
 		currentExecutionId = null;
 		currentPlatformExecutionId = null;
 		setExecStatus('failed', 'Failed');
@@ -2151,6 +2200,16 @@ function setupClientEvents() {
 
 	client.on('workflow.cancelled', (event) => {
 		if (event.execution_id !== currentExecutionId) return;
+		const executionId = event.execution_id;
+		const finishedAt = new Date().toISOString();
+		if (_executionReplayView) {
+			_executionReplayView.status = 'cancelled';
+			_executionReplayView.endedAt = finishedAt;
+			_executionReplayView.summary = _describeExecutionReplaySummary(_executionReplayView);
+		}
+		_appendExecutionReplayEvent('warning', 'Workflow cancelled', _formatExecutionReplayDuration(_executionReplayView?.startedAt, finishedAt) || '', { time: finishedAt });
+		_cacheCurrentExecutionReplay(executionId);
+		void _hydrateExecutionReplay(executionId, { useCurrentView: true });
 		currentExecutionId = null;
 		currentPlatformExecutionId = null;
 		_clearExecutionIssue();
@@ -2201,6 +2260,7 @@ function setupClientEvents() {
 	// and sets currentExecutionId.  Buffer them and replay once the
 	// id is known.
 	const _execEventTypes = new Set([
+		'workflow.started',
 		'node.started', 'node.completed', 'node.failed',
 		'node.waiting', 'node.resumed', 'user_input.requested',
 		'workflow.completed', 'workflow.failed', 'workflow.cancelled',
@@ -2225,6 +2285,7 @@ function setupClientEvents() {
 			const graphNode = visualizer?.graphNodes[idx];
 			if (graphNode) graphNode.executionErrorText = null;
 		} catch (_e) {}
+		_appendExecutionReplayEvent('info', `Node ${idx} started`, label);
 		addLog('info', `▶️ [${idx}] ${label}`);
 	});
 
@@ -2235,6 +2296,12 @@ function setupClientEvents() {
 		const outputs = event.data?.outputs;
 		visualizer?.updateNodeState(idx, 'completed');
 		if (outputs) {
+			if (_executionReplayView) {
+				_executionReplayView.nodeOutputs = {
+					...(_executionReplayView?.nodeOutputs || {}),
+					[String(idx)]: outputs,
+				};
+			}
 			storeNodeOutputs(idx, outputs);
 			updateConnectedPreviews(idx, outputs);
 			agentChatManager?.notifyInputsChanged();
@@ -2249,6 +2316,10 @@ function setupClientEvents() {
 				}
 			} catch (_e) {}
 		}
+		if (_executionReplayView) {
+			_executionReplayView.summary = _describeExecutionReplaySummary(_executionReplayView);
+		}
+		_appendExecutionReplayEvent('success', `Node ${idx} completed`, outputs ? `Outputs captured for ${label}` : label);
 		addLog('success', `✅ [${idx}] ${label}`);
 	});
 
@@ -2264,6 +2335,7 @@ function setupClientEvents() {
 				graphNode.executionErrorText = event.error || null;
 			}
 		} catch (_e) {}
+		_appendExecutionReplayEvent('error', `Node ${idx} failed`, `${label}: ${event.error || 'Unknown error'}`, { nodeId: String(idx) });
 		addLog('error', `❌ [${idx}] ${label}: ${event.error}`);
 	});
 
@@ -2273,6 +2345,7 @@ function setupClientEvents() {
 		const label = event.data?.node_label || `Node ${idx}`;
 		const waitType = event.data?.wait_type || 'unknown';
 		visualizer?.updateNodeState(idx, 'waiting');
+		_appendExecutionReplayEvent('warning', `Node ${idx} waiting`, `${label} (${waitType})`);
 		addLog('info', `⏳ [${idx}] ${label} waiting (${waitType})`);
 
 		// Auto-activate agent chat when engine reaches it
@@ -2289,11 +2362,13 @@ function setupClientEvents() {
 		const idx = parseInt(event.node_id);
 		const label = event.data?.node_label || `Node ${idx}`;
 		visualizer?.updateNodeState(idx, 'running');
+		_appendExecutionReplayEvent('info', `Node ${idx} resumed`, label);
 		addLog('info', `▶️ [${idx}] ${label} resumed`);
 	});
 
 	client.on('user_input.requested', (event) => {
 		if (!currentExecutionId || event.execution_id !== currentExecutionId) return;
+		_appendExecutionReplayEvent('warning', 'User input requested', 'The workflow is waiting for manual input.');
 		addLog('warning', `👤 User input requested`);
 		showUserInputModal(event);
 	});
@@ -2388,8 +2463,13 @@ async function loadCurrentWorkflow() {
 
 		currentExecutionId = null;
 		currentPlatformExecutionId = null;
+		_latestReplayExecutionId = null;
 		$('execId').textContent = '-';
 		setExecStatus('idle', 'Not running');
+		_resetExecutionReplayView();
+		_resetExecutionEvalView();
+		_resetExecutionFailureView();
+		_resetExecutionComparisonView();
 
 		currentWorkflowHasContent = _hasWorkflowContent(workflow);
 
@@ -2604,6 +2684,11 @@ window.loadAndSyncWorkflow = async function(workflow, name) {
 	const n = name || preparedWorkflow?.options?.name || 'Generated Workflow';
 	const loaded = visualizer.loadWorkflow(preparedWorkflow, n);
 	if (loaded) {
+		_latestReplayExecutionId = null;
+		_resetExecutionReplayView();
+		_resetExecutionEvalView();
+		_resetExecutionFailureView();
+		_resetExecutionComparisonView();
 		currentWorkflowHasContent = _hasWorkflowContent(preparedWorkflow);
 		await syncWorkflow(preparedWorkflow, null, true);
 		enableStart(true);
@@ -2622,6 +2707,11 @@ window.loadWorkflowFromServer = async function(workflow, name, { source = 'assis
 	const loaded = visualizer.loadWorkflow(workflow, workflowName, visualizer.defaultLayout, true);
 	if (!loaded) return false;
 	restoreChatState(chatState);
+	_latestReplayExecutionId = null;
+	_resetExecutionReplayView();
+	_resetExecutionEvalView();
+	_resetExecutionFailureView();
+	_resetExecutionComparisonView();
 	currentWorkflowHasContent = _hasWorkflowContent(workflow);
 	workflowDirty = false;
 	enableStart(true);
@@ -2903,6 +2993,11 @@ async function clearWorkflow() {
 		enableStart(true);
 		updateClearButtonState();
 		_updateStarterExperience(!_hasShownStarterThisLogin());
+		_latestReplayExecutionId = null;
+		_resetExecutionReplayView('Workflow cleared. Run a workflow again or replay the latest run in this space.');
+		_resetExecutionEvalView('Workflow cleared. Run a workflow again or replay a past run to see eval scores.');
+		_resetExecutionFailureView('Workflow cleared. Run a workflow again or replay a failed run to inspect failure context.');
+		_resetExecutionComparisonView('Workflow cleared. Compare runs again after you run a workflow more than once.');
 		addLog('info', '🧹 Workflow cleared');
 	} finally {
 		schemaGraph._historyIgnore = false;
@@ -2968,6 +3063,7 @@ async function startExecution() {
 
 		currentExecutionId = response.execution_id;
 		currentPlatformExecutionId = response.platform_execution_id || response.execution_id;
+		_beginExecutionReplay(currentExecutionId, currentPlatformExecutionId, workflowName);
 
 		// Replay any events that arrived during the POST
 		_flushPendingExecEvents();
@@ -2976,6 +3072,7 @@ async function startExecution() {
 		_pendingExecEvents = [];
 		currentExecutionId = null;
 		currentPlatformExecutionId = null;
+		_resetExecutionReplayView(`Could not start "${visualizer?.currentWorkflowName || 'Workflow'}": ${error.message}`);
 		enableStart(true);
 		setExecStatus('failed', 'Start failed');
 		_revealExecutionIssue('error', error.message || 'Unknown error');
@@ -3237,6 +3334,7 @@ async function cancelExecution() {
 
 	try {
 		$('cancelBtn').disabled = true;
+		_appendExecutionReplayEvent('warning', 'Cancellation requested', 'Waiting for the workflow to stop.');
 		await api.cancelExecution(currentPlatformExecutionId || currentExecutionId);
 	} catch (error) {
 		addLog('error', `❌ Cancel failed: ${error.message}`);
@@ -3959,6 +4057,1093 @@ async function submitUserInput() {
 // ========================================================================
 // UI Helpers
 // ========================================================================
+
+function _executionReplayTypeForStatus(status) {
+	switch (String(status || '').toLowerCase()) {
+		case 'completed':
+			return 'success';
+		case 'failed':
+			return 'error';
+		case 'cancelled':
+			return 'warning';
+		case 'running':
+		case 'starting':
+			return 'info';
+		default:
+			return 'info';
+	}
+}
+
+function _createEmptyExecutionReplayView(message = 'Run the current workflow to build a live timeline, or replay the latest run in this space.') {
+	return {
+		executionId: null,
+		platformExecutionId: null,
+		workflowName: '',
+		status: 'idle',
+		startedAt: null,
+		endedAt: null,
+		error: '',
+		nodeOutputs: {},
+		events: [],
+		source: 'empty',
+		summary: message,
+	};
+}
+
+function _createEmptyExecutionComparisonView(message = 'Compare the latest two runs in this space to see what changed.') {
+	return {
+		latestExecutionId: null,
+		previousExecutionId: null,
+		type: 'empty',
+		summary: message,
+		items: [],
+	};
+}
+
+function _createEmptyExecutionEvalView(message = 'Any eval scores from the current or replayed run will appear here.') {
+	return {
+		type: 'empty',
+		summary: message,
+		items: [],
+		source: 'empty',
+	};
+}
+
+function _createEmptyExecutionFailureView(message = 'If a run fails, Numel will summarize the failing step and the most useful nearby context here.') {
+	return {
+		type: 'empty',
+		summary: message,
+		items: [],
+		source: 'empty',
+	};
+}
+
+function _cloneExecutionReplayView(view) {
+	return {
+		...view,
+		metadata: { ...(view?.metadata || {}) },
+		nodeOutputs: { ...(view?.nodeOutputs || {}) },
+		events: Array.isArray(view?.events) ? view.events.map((entry) => ({ ...entry })) : [],
+	};
+}
+
+function _cloneExecutionEvalView(view) {
+	return {
+		...view,
+		items: Array.isArray(view?.items) ? view.items.map((entry) => ({ ...entry })) : [],
+	};
+}
+
+function _cloneExecutionFailureView(view) {
+	return {
+		...view,
+		items: Array.isArray(view?.items) ? view.items.map((entry) => ({ ...entry })) : [],
+	};
+}
+
+function _cloneExecutionComparisonView(view) {
+	return {
+		...view,
+		items: Array.isArray(view?.items) ? view.items.map((entry) => ({ ...entry })) : [],
+	};
+}
+
+function _formatExecutionReplayTime(value) {
+	if (!value) return '--:--:--';
+	const date = value instanceof Date ? value : new Date(value);
+	if (Number.isNaN(date.getTime())) return String(value);
+	return date.toLocaleTimeString('en-US', { hour12: false });
+}
+
+function _formatExecutionReplayDuration(startValue, endValue = null) {
+	if (startValue === null || startValue === undefined || startValue === '') return '';
+	const start = new Date(startValue);
+	const end = endValue ? new Date(endValue) : new Date();
+	if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return '';
+	const diffMs = Math.max(0, end.getTime() - start.getTime());
+	if (diffMs < 1000) return `${diffMs}ms`;
+	const totalSeconds = diffMs / 1000;
+	if (totalSeconds < 60) return `${totalSeconds.toFixed(totalSeconds >= 10 ? 0 : 1)}s`;
+	const minutes = Math.floor(totalSeconds / 60);
+	const seconds = Math.round(totalSeconds % 60);
+	if (minutes < 60) return `${minutes}m ${seconds}s`;
+	const hours = Math.floor(minutes / 60);
+	return `${hours}h ${minutes % 60}m`;
+}
+
+function _executionNodeLabel(nodeId, fallbackLabel = '') {
+	const idx = Number.parseInt(nodeId, 10);
+	if (Number.isFinite(idx)) {
+		const graphNode = visualizer?.graphNodes?.[idx];
+		const directLabel = graphNode?.title || graphNode?.label || graphNode?.data?.label || graphNode?.data?.title;
+		if (directLabel) return String(directLabel);
+		return fallbackLabel || `Node ${idx}`;
+	}
+	return fallbackLabel || String(nodeId || 'Node');
+}
+
+function _summarizeExecutionOutputs(nodeOutputs = {}) {
+	const entries = Object.entries(nodeOutputs || {});
+	if (!entries.length) {
+		return { count: 0, text: 'No node outputs were captured.' };
+	}
+	const labels = entries.slice(0, 4).map(([nodeId]) => `[${nodeId}] ${_executionNodeLabel(nodeId)}`);
+	const extra = entries.length > labels.length ? `, +${entries.length - labels.length} more` : '';
+	return {
+		count: entries.length,
+		text: `${entries.length} node${entries.length === 1 ? '' : 's'} produced outputs: ${labels.join(', ')}${extra}`,
+	};
+}
+
+function _describeExecutionReplaySummary(view) {
+	if (!view?.executionId) {
+		return view?.summary || 'Run the current workflow to build a live timeline, or replay the latest run in this space.';
+	}
+	const status = String(view.status || 'idle').toLowerCase();
+	const statusLabels = {
+		starting: 'Preparing live timeline',
+		running: 'Running',
+		completed: 'Completed',
+		failed: 'Failed',
+		cancelled: 'Cancelled',
+		idle: 'Idle',
+	};
+	const scope = view.source === 'replay' ? 'Latest replay' : 'Live timeline';
+	const parts = [`${scope}: ${statusLabels[status] || view.status || 'Run'}`];
+	if (view.workflowName) parts.push(view.workflowName);
+	const duration = _formatExecutionReplayDuration(view.startedAt, view.endedAt);
+	if (duration) parts.push(duration);
+	const outputSummary = _summarizeExecutionOutputs(view.nodeOutputs);
+	if (outputSummary.count) parts.push(`${outputSummary.count} node output${outputSummary.count === 1 ? '' : 's'}`);
+	if (view.error) parts.push(view.error);
+	return parts.join(' · ');
+}
+
+function _stableExecutionValue(value) {
+	if (Array.isArray(value)) {
+		return value.map((item) => _stableExecutionValue(item));
+	}
+	if (value && typeof value === 'object') {
+		return Object.keys(value)
+			.sort()
+			.reduce((acc, key) => {
+				acc[key] = _stableExecutionValue(value[key]);
+				return acc;
+			}, {});
+	}
+	return value;
+}
+
+function _stringifyExecutionValue(value) {
+	try {
+		return JSON.stringify(_stableExecutionValue(value));
+	} catch (_error) {
+		return String(value);
+	}
+}
+
+function _previewExecutionValue(value, maxLength = 160) {
+	const text = _stringifyExecutionValue(value);
+	if (text.length <= maxLength) return text;
+	return `${text.slice(0, maxLength - 1)}…`;
+}
+
+function _parseExecutionTimeValue(value) {
+	const parsed = Date.parse(value || '');
+	return Number.isFinite(parsed) ? parsed : null;
+}
+
+function _formatExecutionStatusLabel(status) {
+	const labels = {
+		completed: 'Completed',
+		failed: 'Failed',
+		cancelled: 'Cancelled',
+		running: 'Running',
+		starting: 'Starting',
+		idle: 'Idle',
+	};
+	return labels[String(status || '').toLowerCase()] || String(status || 'Unknown');
+}
+
+function _coerceExecutionScore(score) {
+	if (typeof score === 'number' && Number.isFinite(score)) return score;
+	if (typeof score === 'string' && score.trim()) {
+		const parsed = Number.parseFloat(score);
+		return Number.isFinite(parsed) ? parsed : null;
+	}
+	return null;
+}
+
+function _executionEvalTypeForScore(score) {
+	if (score === null || score === undefined) return 'info';
+	if (score >= 0.8) return 'success';
+	if (score >= 0.6) return 'info';
+	if (score >= 0.4) return 'warning';
+	return 'error';
+}
+
+function _extractExecutionEvalItems(nodeOutputs = {}) {
+	return Object.entries(nodeOutputs || {})
+		.filter(([, outputs]) => outputs && typeof outputs === 'object' && Object.prototype.hasOwnProperty.call(outputs, 'score'))
+		.map(([nodeId, outputs]) => {
+			const score = _coerceExecutionScore(outputs?.score);
+			const feedback = String(outputs?.feedback || '').trim();
+			return {
+				nodeId: String(nodeId),
+				label: _executionNodeLabel(nodeId),
+				score,
+				scoreText: score === null ? 'n/a' : score.toFixed(3),
+				feedback,
+				type: _executionEvalTypeForScore(score),
+			};
+		})
+		.sort((a, b) => Number(a.nodeId) - Number(b.nodeId));
+}
+
+function _describeExecutionEvalSummary(view) {
+	if (!view?.items?.length) {
+		return view?.summary || 'Any eval scores from the current or replayed run will appear here.';
+	}
+	const numericScores = view.items.map((item) => item.score).filter((score) => typeof score === 'number');
+	const average = numericScores.length
+		? numericScores.reduce((total, score) => total + score, 0) / numericScores.length
+		: null;
+	const sourceLabel = view.source === 'replay' ? 'Replayed run' : 'Current run';
+	const parts = [`${sourceLabel}: ${view.items.length} eval result${view.items.length === 1 ? '' : 's'}`];
+	if (average !== null) {
+		parts.push(`avg ${average.toFixed(3)}`);
+	}
+	const needsAttention = view.items.filter((item) => item.score !== null && item.score < 0.6).length;
+	if (needsAttention) {
+		parts.push(`${needsAttention} below 0.600`);
+	}
+	return parts.join(' · ');
+}
+
+function _describeExecutionFailureSummary(view) {
+	if (!view?.items?.length) {
+		return view?.summary || 'If a run fails, Numel will summarize the failing step and the most useful nearby context here.';
+	}
+	const sourceLabel = view.source === 'replay' ? 'Replayed failure' : 'Current failure';
+	const parts = [sourceLabel];
+	const primary = view.items[0];
+	if (primary?.title) parts.push(primary.title);
+	if (primary?.detail) parts.push(primary.detail);
+	return parts.join(' · ');
+}
+
+function _formatExecutionComparisonDurationDelta(latestResults, previousResults) {
+	const latestStart = _parseExecutionTimeValue(latestResults?.start_time);
+	const latestEnd = _parseExecutionTimeValue(latestResults?.end_time);
+	const previousStart = _parseExecutionTimeValue(previousResults?.start_time);
+	const previousEnd = _parseExecutionTimeValue(previousResults?.end_time);
+	if (latestStart === null || latestEnd === null || previousStart === null || previousEnd === null) {
+		return '';
+	}
+	const latestMs = Math.max(0, latestEnd - latestStart);
+	const previousMs = Math.max(0, previousEnd - previousStart);
+	const deltaMs = latestMs - previousMs;
+	if (!deltaMs) {
+		return `Both runs took ${_formatExecutionReplayDuration(latestResults.start_time, latestResults.end_time)}.`;
+	}
+	const direction = deltaMs > 0 ? 'slower' : 'faster';
+	const absDelta = Math.abs(deltaMs);
+	const latestText = _formatExecutionReplayDuration(latestResults.start_time, latestResults.end_time);
+	const previousText = _formatExecutionReplayDuration(previousResults.start_time, previousResults.end_time);
+	return `Latest run was ${_formatExecutionReplayDuration(0, absDelta)} ${direction} (${latestText} vs ${previousText}).`;
+}
+
+function _syncReplayButtonState() {
+	for (const id of ['replayLatestRunBtn', 'compareLatestRunsBtn']) {
+		const button = $(id);
+		if (!button) continue;
+		button.disabled = !api;
+	}
+}
+
+function _renderExecutionReplayView() {
+	const summaryEl = $('execReplaySummary');
+	const timelineEl = $('execTimeline');
+	if (!summaryEl || !timelineEl) return;
+	const view = _executionReplayView || _createEmptyExecutionReplayView();
+	const summaryType = _executionReplayTypeForStatus(view.status);
+	summaryEl.className = view.executionId
+		? `nw-run-summary ${summaryType}`
+		: 'nw-run-summary empty';
+	summaryEl.textContent = _describeExecutionReplaySummary(view);
+
+	timelineEl.innerHTML = '';
+	const events = Array.isArray(view.events) ? view.events : [];
+	if (!events.length) {
+		const empty = document.createElement('div');
+		empty.className = 'nw-exec-timeline-empty';
+		empty.textContent = view.executionId
+			? 'Waiting for execution events...'
+			: 'No run timeline yet.';
+		timelineEl.appendChild(empty);
+		return;
+	}
+
+	for (const entry of events) {
+		const item = document.createElement('div');
+		item.className = `nw-exec-timeline-item ${entry.type || 'info'}`;
+
+		const marker = document.createElement('div');
+		marker.className = 'nw-exec-timeline-marker';
+		item.appendChild(marker);
+
+		const body = document.createElement('div');
+		body.className = 'nw-exec-timeline-body';
+
+		const head = document.createElement('div');
+		head.className = 'nw-exec-timeline-head';
+
+		const time = document.createElement('span');
+		time.className = 'nw-exec-timeline-time';
+		time.textContent = _formatExecutionReplayTime(entry.time);
+		head.appendChild(time);
+
+		const title = document.createElement('span');
+		title.className = 'nw-exec-timeline-title';
+		title.textContent = entry.title || 'Execution event';
+		head.appendChild(title);
+
+		body.appendChild(head);
+
+		if (entry.detail) {
+			const detail = document.createElement('div');
+			detail.className = 'nw-exec-timeline-detail';
+			detail.textContent = entry.detail;
+			body.appendChild(detail);
+		}
+
+		item.appendChild(body);
+		timelineEl.appendChild(item);
+	}
+
+	timelineEl.scrollTop = timelineEl.scrollHeight;
+}
+
+function _renderExecutionEvalView() {
+	const summaryEl = $('execEvalSummary');
+	const listEl = $('execEvalList');
+	if (!summaryEl || !listEl) return;
+	const view = _executionEvalView || _createEmptyExecutionEvalView();
+	summaryEl.className = view.items?.length
+		? `nw-run-summary ${view.type || 'info'}`
+		: 'nw-run-summary empty';
+	summaryEl.textContent = _describeExecutionEvalSummary(view);
+
+	listEl.innerHTML = '';
+	const items = Array.isArray(view.items) ? view.items : [];
+	if (!items.length) {
+		const empty = document.createElement('div');
+		empty.className = 'nw-run-eval-empty';
+		empty.textContent = view.summary || 'No eval scores yet.';
+		listEl.appendChild(empty);
+		return;
+	}
+
+	for (const itemData of items) {
+		const item = document.createElement('div');
+		item.className = `nw-run-eval-item ${itemData.type || 'info'}`;
+
+		const head = document.createElement('div');
+		head.className = 'nw-run-eval-head';
+
+		const title = document.createElement('div');
+		title.className = 'nw-run-eval-title';
+		title.textContent = `[${itemData.nodeId}] ${itemData.label}`;
+		head.appendChild(title);
+
+		const score = document.createElement('div');
+		score.className = `nw-run-eval-score ${itemData.type || 'info'}`;
+		score.textContent = itemData.scoreText;
+		head.appendChild(score);
+
+		item.appendChild(head);
+
+		if (itemData.feedback) {
+			const feedback = document.createElement('div');
+			feedback.className = 'nw-run-eval-feedback';
+			feedback.textContent = itemData.feedback;
+			item.appendChild(feedback);
+		}
+
+		listEl.appendChild(item);
+	}
+
+	listEl.scrollTop = listEl.scrollHeight;
+}
+
+function _renderExecutionFailureView() {
+	const summaryEl = $('execFailureSummary');
+	const listEl = $('execFailureList');
+	if (!summaryEl || !listEl) return;
+	const view = _executionFailureView || _createEmptyExecutionFailureView();
+	summaryEl.className = view.items?.length
+		? `nw-run-summary ${view.type || 'warning'}`
+		: 'nw-run-summary empty';
+	summaryEl.textContent = _describeExecutionFailureSummary(view);
+
+	listEl.innerHTML = '';
+	const items = Array.isArray(view.items) ? view.items : [];
+	if (!items.length) {
+		const empty = document.createElement('div');
+		empty.className = 'nw-run-failure-empty';
+		empty.textContent = view.summary || 'No failure context yet.';
+		listEl.appendChild(empty);
+		return;
+	}
+
+	for (const itemData of items) {
+		const item = document.createElement('div');
+		item.className = `nw-run-failure-item ${itemData.type || 'warning'}`;
+
+		const title = document.createElement('div');
+		title.className = 'nw-run-failure-item-title';
+		title.textContent = itemData.title || 'Failure detail';
+		item.appendChild(title);
+
+		if (itemData.detail) {
+			const detail = document.createElement('div');
+			detail.className = 'nw-run-failure-item-detail';
+			detail.textContent = itemData.detail;
+			item.appendChild(detail);
+		}
+
+		listEl.appendChild(item);
+	}
+
+	listEl.scrollTop = listEl.scrollHeight;
+}
+
+function _renderExecutionComparisonView() {
+	const summaryEl = $('execComparisonSummary');
+	const listEl = $('execComparisonList');
+	if (!summaryEl || !listEl) return;
+	const view = _executionComparisonView || _createEmptyExecutionComparisonView();
+	summaryEl.className = view.latestExecutionId
+		? `nw-run-summary ${view.type || 'info'}`
+		: 'nw-run-summary empty';
+	summaryEl.textContent = view.summary || 'Compare the latest two runs in this space to see what changed.';
+
+	listEl.innerHTML = '';
+	const items = Array.isArray(view.items) ? view.items : [];
+	if (!items.length) {
+		const empty = document.createElement('div');
+		empty.className = 'nw-run-comparison-empty';
+		empty.textContent = view.latestExecutionId
+			? 'No major differences were found.'
+			: 'No run comparison yet.';
+		listEl.appendChild(empty);
+		return;
+	}
+
+	for (const entry of items) {
+		const item = document.createElement('div');
+		item.className = `nw-run-comparison-item ${entry.type || 'info'}`;
+
+		const title = document.createElement('div');
+		title.className = 'nw-run-comparison-item-title';
+		title.textContent = entry.title || 'Difference';
+		item.appendChild(title);
+
+		if (entry.detail) {
+			const detail = document.createElement('div');
+			detail.className = 'nw-run-comparison-item-detail';
+			detail.textContent = entry.detail;
+			item.appendChild(detail);
+		}
+
+		listEl.appendChild(item);
+	}
+
+	listEl.scrollTop = listEl.scrollHeight;
+}
+
+function _resetExecutionReplayView(message = 'Run the current workflow to build a live timeline, or replay the latest run in this space.') {
+	_executionReplayView = _createEmptyExecutionReplayView(message);
+	_renderExecutionReplayView();
+}
+
+function _resetExecutionEvalView(message = 'Any eval scores from the current or replayed run will appear here.') {
+	_executionEvalView = _createEmptyExecutionEvalView(message);
+	_renderExecutionEvalView();
+}
+
+function _resetExecutionFailureView(message = 'If a run fails, Numel will summarize the failing step and the most useful nearby context here.') {
+	_executionFailureView = _createEmptyExecutionFailureView(message);
+	_renderExecutionFailureView();
+}
+
+function _resetExecutionComparisonView(message = 'Compare the latest two runs in this space to see what changed.') {
+	_executionComparisonView = _createEmptyExecutionComparisonView(message);
+	_renderExecutionComparisonView();
+}
+
+function _replaceExecutionReplayView(view) {
+	_executionReplayView = _cloneExecutionReplayView(view || _createEmptyExecutionReplayView());
+	_executionReplayView.summary = _describeExecutionReplaySummary(_executionReplayView);
+	_renderExecutionReplayView();
+	_syncExecutionEvalFromReplayView(_executionReplayView);
+	_syncExecutionFailureFromReplayView(_executionReplayView);
+}
+
+function _replaceExecutionEvalView(view) {
+	_executionEvalView = _cloneExecutionEvalView(view || _createEmptyExecutionEvalView());
+	_renderExecutionEvalView();
+}
+
+function _replaceExecutionFailureView(view) {
+	_executionFailureView = _cloneExecutionFailureView(view || _createEmptyExecutionFailureView());
+	_renderExecutionFailureView();
+}
+
+function _replaceExecutionComparisonView(view) {
+	_executionComparisonView = _cloneExecutionComparisonView(view || _createEmptyExecutionComparisonView());
+	_renderExecutionComparisonView();
+}
+
+function _syncExecutionEvalFromReplayView(view) {
+	const items = _extractExecutionEvalItems(view?.nodeOutputs || {});
+	if (!items.length) {
+		_resetExecutionEvalView(view?.executionId
+			? 'This run did not produce any eval scores.'
+			: 'Any eval scores from the current or replayed run will appear here.');
+		return;
+	}
+	const average = items
+		.map((item) => item.score)
+		.filter((score) => typeof score === 'number')
+		.reduce((total, score) => total + score, 0) / Math.max(1, items.filter((item) => typeof item.score === 'number').length);
+	const type = _executionEvalTypeForScore(Number.isFinite(average) ? average : null);
+	_replaceExecutionEvalView({
+		type,
+		items,
+		source: view?.source || 'live',
+		summary: '',
+	});
+}
+
+function _syncExecutionFailureFromReplayView(view) {
+	const status = String(view?.status || '').toLowerCase();
+	const isFailure = status === 'failed';
+	const isCancelled = status === 'cancelled';
+	if (!isFailure && !isCancelled) {
+		_resetExecutionFailureView(view?.executionId
+			? 'This run did not fail, so there is no failure drill-down to show.'
+			: 'If a run fails, Numel will summarize the failing step and the most useful nearby context here.');
+		return;
+	}
+
+	const items = [];
+	const metadata = view?.metadata || {};
+	const errorEvents = (view?.events || []).filter((entry) => entry.type === 'error');
+	const latestErrorEvent = errorEvents[errorEvents.length - 1] || null;
+	const failureType = isCancelled ? 'warning' : 'error';
+	const topLevelError = String(view?.error || '').trim();
+	if (topLevelError) {
+		items.push({
+			type: failureType,
+			title: isCancelled ? 'Run stopped' : 'Run error',
+			detail: topLevelError,
+		});
+	}
+
+	const failedNodes = Array.isArray(metadata?.failed_nodes)
+		? metadata.failed_nodes.map((value) => String(value))
+		: [];
+	const lastFailedNode = metadata?.last_failed_node !== undefined && metadata?.last_failed_node !== null
+		? String(metadata.last_failed_node)
+		: (failedNodes.length ? failedNodes[failedNodes.length - 1] : '');
+	if (lastFailedNode) {
+		items.push({
+			type: failureType,
+			title: 'Failed node',
+			detail: `[${lastFailedNode}] ${_executionNodeLabel(lastFailedNode)}`,
+		});
+	} else if (failedNodes.length) {
+		items.push({
+			type: failureType,
+			title: 'Failed nodes',
+			detail: failedNodes.map((nodeId) => `[${nodeId}] ${_executionNodeLabel(nodeId)}`).join(', '),
+		});
+	}
+
+	if (latestErrorEvent) {
+		items.push({
+			type: 'error',
+			title: 'Latest failing step',
+			detail: latestErrorEvent.detail || latestErrorEvent.title,
+		});
+		const failureIndex = (view?.events || []).lastIndexOf(latestErrorEvent);
+		const contextItems = (view?.events || [])
+			.slice(Math.max(0, failureIndex - 3), failureIndex)
+			.filter((entry) => entry && entry.title)
+			.map((entry) => `${entry.title}${entry.detail ? ` — ${entry.detail}` : ''}`);
+		if (contextItems.length) {
+			items.push({
+				type: 'info',
+				title: 'Leading context',
+				detail: contextItems.join(' | '),
+			});
+		}
+	}
+
+	const runtimeStatus = metadata?.runtime_status;
+	if (runtimeStatus && typeof runtimeStatus === 'object') {
+		const runtimeParts = [];
+		if (runtimeStatus.state) runtimeParts.push(`state=${runtimeStatus.state}`);
+		if (runtimeStatus.error) runtimeParts.push(`error=${runtimeStatus.error}`);
+		if (runtimeStatus.reason) runtimeParts.push(`reason=${runtimeStatus.reason}`);
+		if (runtimeParts.length) {
+			items.push({
+				type: failureType,
+				title: 'Runtime status',
+				detail: runtimeParts.join(' · '),
+			});
+		}
+	}
+
+	if (!items.length && isCancelled) {
+		items.push({
+			type: 'warning',
+			title: 'Run stopped',
+			detail: 'The run was cancelled before completion.',
+		});
+	}
+
+	if (!items.length) {
+		items.push({
+			type: 'error',
+			title: 'Failure summary',
+			detail: 'The run failed, but only the top-level error was retained.',
+		});
+	}
+
+	_replaceExecutionFailureView({
+		type: failureType,
+		items,
+		source: view?.source || 'live',
+		summary: '',
+	});
+}
+
+function _appendExecutionReplayEvent(type, title, detail = '', opts = {}) {
+	if (!_executionReplayView?.executionId) return;
+	_executionReplayView.events.push({
+		type: type || 'info',
+		title: title || 'Execution event',
+		detail: detail || '',
+		time: opts.time || new Date().toISOString(),
+		nodeId: opts.nodeId || '',
+	});
+	while (_executionReplayView.events.length > 120) {
+		_executionReplayView.events.shift();
+	}
+	_executionReplayView.summary = _describeExecutionReplaySummary(_executionReplayView);
+	_renderExecutionReplayView();
+	if (type === 'error' || type === 'warning') {
+		_syncExecutionFailureFromReplayView(_executionReplayView);
+	}
+}
+
+function _beginExecutionReplay(executionId, platformExecutionId, workflowName) {
+	_executionReplayView = {
+		executionId: executionId || null,
+		platformExecutionId: platformExecutionId || executionId || null,
+		workflowName: workflowName || visualizer?.currentWorkflowName || 'Workflow',
+		metadata: {},
+		status: 'starting',
+		startedAt: null,
+		endedAt: null,
+		error: '',
+		nodeOutputs: {},
+		events: [],
+		source: 'live',
+		summary: '',
+	};
+	_executionReplayView.summary = _describeExecutionReplaySummary(_executionReplayView);
+	_renderExecutionReplayView();
+}
+
+function _cacheCurrentExecutionReplay(executionId = _executionReplayView?.executionId) {
+	if (!executionId || !_executionReplayView?.executionId) return;
+	const snapshot = _cloneExecutionReplayView(_executionReplayView);
+	snapshot.summary = _describeExecutionReplaySummary(snapshot);
+	_executionReplayCache.set(executionId, snapshot);
+	_latestReplayExecutionId = executionId;
+}
+
+function _executionPublicIdFromRecord(record) {
+	return String(record?.metadata?.engine_execution_id || record?.execution_id || '').trim();
+}
+
+function _compareExecutionRecordsDesc(a, b) {
+	const aParsed = Date.parse(a?.started_at || a?.finished_at || '');
+	const bParsed = Date.parse(b?.started_at || b?.finished_at || '');
+	const aTime = Number.isFinite(aParsed) ? aParsed : 0;
+	const bTime = Number.isFinite(bParsed) ? bParsed : 0;
+	return bTime - aTime;
+}
+
+function _buildExecutionComparisonView(latestResults, previousResults) {
+	const latestId = latestResults?.execution_id || '';
+	const previousId = previousResults?.execution_id || '';
+	const latestStatus = String(latestResults?.status || 'unknown').toLowerCase();
+	const previousStatus = String(previousResults?.status || 'unknown').toLowerCase();
+	const latestOutputs = latestResults?.node_outputs || {};
+	const previousOutputs = previousResults?.node_outputs || {};
+	const latestEvalItems = _extractExecutionEvalItems(latestOutputs);
+	const previousEvalItems = _extractExecutionEvalItems(previousOutputs);
+	const latestEvalMap = new Map(latestEvalItems.map((item) => [item.nodeId, item]));
+	const previousEvalMap = new Map(previousEvalItems.map((item) => [item.nodeId, item]));
+	const latestNodeIds = new Set(Object.keys(latestOutputs));
+	const previousNodeIds = new Set(Object.keys(previousOutputs));
+	const addedNodes = [...latestNodeIds].filter((nodeId) => !previousNodeIds.has(nodeId));
+	const removedNodes = [...previousNodeIds].filter((nodeId) => !latestNodeIds.has(nodeId));
+	const changedNodes = [];
+	const unchangedNodes = [];
+
+	for (const nodeId of [...latestNodeIds].filter((id) => previousNodeIds.has(id)).sort((a, b) => Number(a) - Number(b))) {
+		const latestValue = _stringifyExecutionValue(latestOutputs[nodeId]);
+		const previousValue = _stringifyExecutionValue(previousOutputs[nodeId]);
+		if (latestValue === previousValue) {
+			unchangedNodes.push(nodeId);
+		} else {
+			changedNodes.push(nodeId);
+		}
+	}
+
+	const changeCount = addedNodes.length + removedNodes.length + changedNodes.length;
+	const statusChanged = latestStatus !== previousStatus;
+	const summaryParts = [
+		`Latest ${latestId ? latestId.substring(0, 8) : 'run'} vs previous ${previousId ? previousId.substring(0, 8) : 'run'}`,
+		statusChanged
+			? `${_formatExecutionStatusLabel(previousStatus)} -> ${_formatExecutionStatusLabel(latestStatus)}`
+			: _formatExecutionStatusLabel(latestStatus),
+		changeCount
+			? `${changeCount} output change${changeCount === 1 ? '' : 's'}`
+			: 'No output differences',
+	];
+	if (latestEvalItems.length || previousEvalItems.length) {
+		summaryParts.push(`${latestEvalItems.length} current eval${latestEvalItems.length === 1 ? '' : 's'}`);
+	}
+	const items = [];
+
+	if (statusChanged) {
+		items.push({
+			type: latestStatus === 'failed' ? 'error' : 'warning',
+			title: 'Run status changed',
+			detail: `${_formatExecutionStatusLabel(previousStatus)} -> ${_formatExecutionStatusLabel(latestStatus)}`,
+		});
+	} else {
+		items.push({
+			type: 'info',
+			title: 'Run status stayed the same',
+			detail: _formatExecutionStatusLabel(latestStatus),
+		});
+	}
+
+	const durationDelta = _formatExecutionComparisonDurationDelta(latestResults, previousResults);
+	if (durationDelta) {
+		items.push({
+			type: 'info',
+			title: 'Duration',
+			detail: durationDelta,
+		});
+	}
+
+	if ((latestResults?.workflow_id || '') !== (previousResults?.workflow_id || '')) {
+		items.push({
+			type: 'warning',
+			title: 'Workflow asset changed',
+			detail: `${previousResults?.workflow_id || 'unknown'} -> ${latestResults?.workflow_id || 'unknown'}`,
+		});
+	}
+
+	if (latestEvalItems.length || previousEvalItems.length) {
+		const latestAvg = latestEvalItems.length
+			? latestEvalItems.reduce((total, item) => total + (item.score || 0), 0) / latestEvalItems.length
+			: null;
+		const previousAvg = previousEvalItems.length
+			? previousEvalItems.reduce((total, item) => total + (item.score || 0), 0) / previousEvalItems.length
+			: null;
+		if (latestAvg !== null || previousAvg !== null) {
+			const latestText = latestAvg === null ? 'n/a' : latestAvg.toFixed(3);
+			const previousText = previousAvg === null ? 'n/a' : previousAvg.toFixed(3);
+			items.push({
+				type: 'info',
+				title: 'Eval average',
+				detail: `${previousText} -> ${latestText}`,
+			});
+		}
+		for (const [nodeId, latestEval] of latestEvalMap.entries()) {
+			const previousEval = previousEvalMap.get(nodeId);
+			if (!previousEval) {
+				items.push({
+					type: latestEval.type,
+					title: `Eval added for [${nodeId}] ${latestEval.label}`,
+					detail: `Score ${latestEval.scoreText}${latestEval.feedback ? ` · ${latestEval.feedback}` : ''}`,
+				});
+				continue;
+			}
+			const latestScoreText = latestEval.scoreText;
+			const previousScoreText = previousEval.scoreText;
+			if (latestScoreText !== previousScoreText || latestEval.feedback !== previousEval.feedback) {
+				items.push({
+					type: latestEval.type,
+					title: `Eval changed for [${nodeId}] ${latestEval.label}`,
+					detail: `Score ${previousScoreText} -> ${latestScoreText}${latestEval.feedback || previousEval.feedback ? ` · ${previousEval.feedback || 'no feedback'} -> ${latestEval.feedback || 'no feedback'}` : ''}`,
+				});
+			}
+		}
+		for (const [nodeId, previousEval] of previousEvalMap.entries()) {
+			if (!latestEvalMap.has(nodeId)) {
+				items.push({
+					type: 'warning',
+					title: `Eval removed for [${nodeId}] ${previousEval.label}`,
+					detail: `Previous score ${previousEval.scoreText}${previousEval.feedback ? ` · ${previousEval.feedback}` : ''}`,
+				});
+			}
+		}
+	}
+
+	if (addedNodes.length) {
+		const detail = addedNodes
+			.slice(0, 6)
+			.map((nodeId) => `[${nodeId}] ${_executionNodeLabel(nodeId)}`)
+			.join(', ');
+		items.push({
+			type: 'success',
+			title: `${addedNodes.length} node output${addedNodes.length === 1 ? '' : 's'} added`,
+			detail: detail + (addedNodes.length > 6 ? `, +${addedNodes.length - 6} more` : ''),
+		});
+	}
+
+	if (removedNodes.length) {
+		const detail = removedNodes
+			.slice(0, 6)
+			.map((nodeId) => `[${nodeId}] ${_executionNodeLabel(nodeId)}`)
+			.join(', ');
+		items.push({
+			type: 'warning',
+			title: `${removedNodes.length} node output${removedNodes.length === 1 ? '' : 's'} removed`,
+			detail: detail + (removedNodes.length > 6 ? `, +${removedNodes.length - 6} more` : ''),
+		});
+	}
+
+	for (const nodeId of changedNodes.slice(0, 6)) {
+		items.push({
+			type: 'info',
+			title: `Output changed for [${nodeId}] ${_executionNodeLabel(nodeId)}`,
+			detail: `Previous: ${_previewExecutionValue(previousOutputs[nodeId], 100)} | Latest: ${_previewExecutionValue(latestOutputs[nodeId], 100)}`,
+		});
+	}
+
+	if (changedNodes.length > 6) {
+		items.push({
+			type: 'info',
+			title: `${changedNodes.length - 6} more changed node output${changedNodes.length - 6 === 1 ? '' : 's'}`,
+			detail: 'Open the timeline and replay again if you want to inspect the latest run in more detail.',
+		});
+	}
+
+	if (!changeCount && unchangedNodes.length) {
+		items.push({
+			type: 'success',
+			title: 'Outputs stayed stable',
+			detail: `${unchangedNodes.length} node output${unchangedNodes.length === 1 ? '' : 's'} matched exactly between the latest two runs.`,
+		});
+	}
+
+	return {
+		latestExecutionId: latestId,
+		previousExecutionId: previousId,
+		type: changeCount ? (statusChanged && latestStatus === 'failed' ? 'error' : 'info') : 'success',
+		summary: summaryParts.join(' · '),
+		items,
+	};
+}
+
+function _buildExecutionReplayFromResults(results, baseView = null) {
+	const view = baseView ? _cloneExecutionReplayView(baseView) : _createEmptyExecutionReplayView();
+	view.executionId = results?.execution_id || view.executionId;
+	view.platformExecutionId = results?.platform_execution_id || view.platformExecutionId || view.executionId;
+	view.workflowId = results?.workflow_id || view.workflowId || '';
+	view.metadata = { ...(results?.metadata || view.metadata || {}) };
+	view.status = String(results?.status || view.status || 'idle').toLowerCase();
+	view.startedAt = results?.start_time || view.startedAt || null;
+	view.endedAt = results?.end_time || view.endedAt || null;
+	view.error = results?.error || view.error || '';
+	view.nodeOutputs = { ...(results?.node_outputs || view.nodeOutputs || {}) };
+	view.source = baseView?.source || 'replay';
+
+	if (!view.events.length) {
+		const synthetic = [];
+		if (view.startedAt) {
+			synthetic.push({
+				type: 'info',
+				time: view.startedAt,
+				title: 'Workflow started',
+				detail: results?.workflow_id ? String(results.workflow_id) : '',
+			});
+		}
+		const outputSummary = _summarizeExecutionOutputs(view.nodeOutputs);
+		if (outputSummary.count) {
+			synthetic.push({
+				type: 'info',
+				time: view.endedAt || view.startedAt || new Date().toISOString(),
+				title: 'Outputs captured',
+				detail: outputSummary.text,
+			});
+		}
+		const finalTitles = {
+			completed: 'Workflow completed',
+			failed: 'Workflow failed',
+			cancelled: 'Workflow cancelled',
+		};
+		synthetic.push({
+			type: _executionReplayTypeForStatus(view.status),
+			time: view.endedAt || view.startedAt || new Date().toISOString(),
+			title: finalTitles[view.status] || 'Workflow finished',
+			detail: view.error || outputSummary.text,
+		});
+		view.events = synthetic;
+	}
+
+	view.summary = _describeExecutionReplaySummary(view);
+	return view;
+}
+
+async function _getExecutionResultsCached(executionId, { source = 'replay' } = {}) {
+	const existingView = _executionReplayCache.get(executionId);
+	if (existingView?.startedAt || existingView?.endedAt || Object.keys(existingView?.nodeOutputs || {}).length) {
+		return {
+			execution_id: existingView.executionId,
+			platform_execution_id: existingView.platformExecutionId,
+			status: existingView.status,
+			start_time: existingView.startedAt,
+			end_time: existingView.endedAt,
+			error: existingView.error,
+			node_outputs: existingView.nodeOutputs,
+			workflow_id: existingView.workflowId || '',
+			metadata: existingView.metadata || {},
+		};
+	}
+	const results = await api.getExecutionResults(executionId);
+	const replayView = _buildExecutionReplayFromResults(results, { source });
+	replayView.workflowId = results?.workflow_id || '';
+	_executionReplayCache.set(executionId, _cloneExecutionReplayView(replayView));
+	return results;
+}
+
+async function _hydrateExecutionReplay(executionId, { useCurrentView = false } = {}) {
+	if (!api || !executionId) return null;
+	const cached = _executionReplayCache.get(executionId);
+	const results = await api.getExecutionResults(executionId);
+	const baseView = useCurrentView && _executionReplayView?.executionId === executionId
+		? _executionReplayView
+		: cached;
+	const view = _buildExecutionReplayFromResults(results, baseView);
+	_executionReplayCache.set(executionId, _cloneExecutionReplayView(view));
+	_latestReplayExecutionId = executionId;
+	if (_executionReplayView?.executionId === executionId || view.source === 'replay') {
+		_replaceExecutionReplayView(view);
+	}
+	return view;
+}
+
+async function replayLatestExecution() {
+	if (!api) return;
+	const button = $('replayLatestRunBtn');
+	const previousLabel = button?.textContent || 'Replay Latest Run';
+	if (button) {
+		button.disabled = true;
+		button.textContent = 'Loading...';
+	}
+	try {
+		let executionId = _latestReplayExecutionId;
+		if (!executionId) {
+			const response = await api.listExecutions();
+			const records = [...(response?.executions || [])].sort(_compareExecutionRecordsDesc);
+			const latest = records[0];
+			executionId = _executionPublicIdFromRecord(latest);
+		}
+
+		if (!executionId) {
+			_resetExecutionReplayView('No runs in this space yet. Run the current workflow first.');
+			addLog('info', '🕘 No runs available yet in the current space');
+			return;
+		}
+
+		const cached = _executionReplayCache.get(executionId);
+		if (cached) {
+			const replayView = _cloneExecutionReplayView(cached);
+			replayView.source = 'replay';
+			replayView.summary = _describeExecutionReplaySummary(replayView);
+			_replaceExecutionReplayView(replayView);
+		} else {
+			await _hydrateExecutionReplay(executionId);
+		}
+		addLog('info', `🕘 Replayed latest run ${executionId.substring(0, 8)}...`);
+	} catch (error) {
+		_resetExecutionReplayView(`Could not replay the latest run: ${error.message}`);
+		addLog('error', `❌ Could not replay latest run: ${error.message}`);
+	} finally {
+		if (button) {
+			button.textContent = previousLabel;
+		}
+		_syncReplayButtonState();
+	}
+}
+
+async function compareLatestExecutions() {
+	if (!api) return;
+	const button = $('compareLatestRunsBtn');
+	const previousLabel = button?.textContent || 'Compare Latest Two Runs';
+	if (button) {
+		button.disabled = true;
+		button.textContent = 'Comparing...';
+	}
+	try {
+		const response = await api.listExecutions();
+		const records = [...(response?.executions || [])].sort(_compareExecutionRecordsDesc);
+		if (records.length < 2) {
+			_resetExecutionComparisonView('You need at least two runs in this space before Numel can compare them.');
+			addLog('info', '🧪 Need at least two runs before comparison is available');
+			return;
+		}
+
+		const latestId = _executionPublicIdFromRecord(records[0]);
+		const previousId = _executionPublicIdFromRecord(records[1]);
+		const [latestResults, previousResults] = await Promise.all([
+			_getExecutionResultsCached(latestId, { source: 'replay' }),
+			_getExecutionResultsCached(previousId, { source: 'replay' }),
+		]);
+
+		const latestReplay = _buildExecutionReplayFromResults(latestResults, _executionReplayCache.get(latestId) || { source: 'replay' });
+		latestReplay.workflowId = latestResults?.workflow_id || '';
+		_executionReplayCache.set(latestId, _cloneExecutionReplayView(latestReplay));
+		_latestReplayExecutionId = latestId;
+
+		const previousReplay = _buildExecutionReplayFromResults(previousResults, _executionReplayCache.get(previousId) || { source: 'replay' });
+		previousReplay.workflowId = previousResults?.workflow_id || '';
+		_executionReplayCache.set(previousId, _cloneExecutionReplayView(previousReplay));
+
+		_replaceExecutionComparisonView(_buildExecutionComparisonView(latestResults, previousResults));
+		addLog('info', `🧪 Compared latest two runs ${latestId.substring(0, 8)}... and ${previousId.substring(0, 8)}...`);
+	} catch (error) {
+		_resetExecutionComparisonView(`Could not compare the latest runs: ${error.message}`);
+		addLog('error', `❌ Could not compare latest runs: ${error.message}`);
+	} finally {
+		if (button) {
+			button.textContent = previousLabel;
+		}
+		_syncReplayButtonState();
+	}
+}
 
 function setWsStatus(status) {
 	const badge = $('wsStatus');

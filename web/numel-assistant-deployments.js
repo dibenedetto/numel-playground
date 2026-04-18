@@ -307,6 +307,168 @@ async function _post(path, body = {}) {
 			</div>`;
 	}
 
+	function _toCount(value) {
+		const n = Number(value || 0);
+		return Number.isFinite(n) && n > 0 ? n : 0;
+	}
+
+	function _formatPercentFromRatio(value) {
+		if (!Number.isFinite(value)) return '—';
+		return `${Math.round(value * 100)}%`;
+	}
+
+	function _countLabel(value, singular, plural = `${singular}s`) {
+		const count = _toCount(value);
+		return `${count} ${count === 1 ? singular : plural}`;
+	}
+
+	function _renderAnalyticsGrid(rows = []) {
+		const items = (Array.isArray(rows) ? rows : []).filter((row) => row && row.label);
+		if (!items.length) return '<div class="nw-assist-activity-empty">No analytics yet.</div>';
+		return `
+			<div class="nw-assist-analytics-grid">
+				${items.map((row) => `
+					<div class="nw-assist-analytics-card${row.tone === 'alert' ? ' is-alert' : ''}">
+						<div class="nw-assist-analytics-label">${_esc(row.label)}</div>
+						<div class="nw-assist-analytics-value">${_esc(row.value == null || row.value === '' ? '—' : row.value)}</div>
+						${row.detail ? `<div class="nw-assist-analytics-detail">${_esc(row.detail)}</div>` : ''}
+					</div>
+				`).join('')}
+			</div>`;
+	}
+
+	function _deploymentAnalyticsRows(item) {
+		const runtime = item?.runtime || {};
+		const recentMessages = Array.isArray(item?.recent_messages) ? item.recent_messages : [];
+		const recentEndpointCalls = Array.isArray(item?.recent_endpoint_calls) ? item.recent_endpoint_calls : [];
+		const recentHandoffs = Array.isArray(item?.recent_handoffs) ? item.recent_handoffs : [];
+		const recentApprovals = Array.isArray(item?.recent_approvals) ? item.recent_approvals : [];
+		const pendingApprovals = Array.isArray(item?.pending_proactive_approvals) ? item.pending_proactive_approvals : [];
+		const pendingToolApprovals = Array.isArray(item?.pending_tool_approvals) ? item.pending_tool_approvals : [];
+		const recentProactiveRuns = Array.isArray(item?.recent_proactive_runs) ? item.recent_proactive_runs : [];
+		const recentActivity = Array.isArray(item?.recent_activity) ? item.recent_activity : [];
+		const recentFailures = Array.isArray(item?.recent_failures) ? item.recent_failures : [];
+		const proactiveTasks = Array.isArray(item?.proactive_tasks) ? item.proactive_tasks : [];
+		const messageCount = _toCount(runtime.message_count);
+		const endpointCount = _toCount(runtime.endpoint_call_count);
+		const totalTraffic = messageCount + endpointCount;
+		const recentTraffic = recentMessages.length + recentEndpointCalls.length;
+		const routingShare = recentMessages.length ? (recentHandoffs.length / recentMessages.length) : Number.NaN;
+		const endpointReliance = totalTraffic ? (endpointCount / totalTraffic) : Number.NaN;
+		const pendingCount = _toCount(runtime.pending_approval_count);
+		const proactiveRuns = _toCount(runtime.proactive_run_count);
+		const failurePressure = recentActivity.length ? (recentFailures.length / recentActivity.length) : Number.NaN;
+		return [
+			{
+				label: 'Traffic load',
+				value: String(totalTraffic),
+				detail: `${_countLabel(messageCount, 'message')} · ${_countLabel(endpointCount, 'endpoint call')} · ${_countLabel(recentTraffic, 'recent event')} in the current inspect window`,
+			},
+			{
+				label: 'Routing share',
+				value: _formatPercentFromRatio(routingShare),
+				detail: recentMessages.length
+					? `${_countLabel(recentHandoffs.length, 'recent handoff')} across ${_countLabel(recentMessages.length, 'recent inbound turn')} attributed to this deployment`
+					: 'No recent inbound turns yet, so there is no routing share to compute',
+			},
+			{
+				label: 'Endpoint reliance',
+				value: _formatPercentFromRatio(endpointReliance),
+				detail: totalTraffic
+					? `${_countLabel(endpointCount, 'endpoint call')} across ${_countLabel(totalTraffic, 'live traffic event')}`
+					: 'No live traffic yet, so endpoint reliance is still empty',
+			},
+			{
+				label: 'Operator load',
+				value: `${pendingCount} pending`,
+				detail: `${_countLabel(pendingToolApprovals.length, 'tool approval')} · ${_countLabel(pendingApprovals.length, 'proactive approval')} pending · ${_countLabel(recentApprovals.length, 'approval')} resolved recently`,
+				tone: pendingCount > 0 ? 'alert' : '',
+			},
+			{
+				label: 'Proactive activity',
+				value: `${proactiveRuns} runs`,
+				detail: `${_countLabel(recentProactiveRuns.length, 'recent proactive run')} · ${_countLabel(proactiveTasks.length, 'configured task')} · last ${runtime.last_proactive_at ? _formatTimestamp(runtime.last_proactive_at) : 'run not recorded yet'}`,
+			},
+			{
+				label: 'Failure pressure',
+				value: _formatPercentFromRatio(failurePressure),
+				detail: recentActivity.length
+					? `${_countLabel(recentFailures.length, 'failure')} in a ${_countLabel(recentActivity.length, 'recent activity event')} window`
+					: 'No recent activity yet, so failure pressure is still empty',
+				tone: recentFailures.length > 0 ? 'alert' : '',
+			},
+		];
+	}
+
+	function _networkAnalyticsRows(items = []) {
+		const rows = Array.isArray(items) ? items : [];
+		const total = rows.length;
+		const totalMessages = rows.reduce((count, item) => count + _toCount(item?.runtime?.message_count), 0);
+		const totalEndpointCalls = rows.reduce((count, item) => count + _toCount(item?.runtime?.endpoint_call_count), 0);
+		const totalTraffic = totalMessages + totalEndpointCalls;
+		const pendingApprovals = rows.reduce((count, item) => count + _toCount(item?.runtime?.pending_approval_count), 0);
+		const deploymentsWithPendingApprovals = rows.filter((item) => _toCount(item?.runtime?.pending_approval_count) > 0).length;
+		const deploymentsWithRecentHandoffs = rows.filter((item) => (Array.isArray(item?.recent_handoffs) ? item.recent_handoffs : []).length > 0).length;
+		const routingCoverage = total ? (deploymentsWithRecentHandoffs / total) : Number.NaN;
+		const deploymentsWithConfiguredProactive = rows.filter((item) => (Array.isArray(item?.proactive_tasks) ? item.proactive_tasks : []).length > 0).length;
+		const proactiveCoverage = total ? (deploymentsWithConfiguredProactive / total) : Number.NaN;
+		const recentProactiveRuns = rows.reduce((count, item) => count + (Array.isArray(item?.recent_proactive_runs) ? item.recent_proactive_runs.length : 0), 0);
+		const activity = rows.flatMap((item) => (Array.isArray(item?.recent_activity) ? item.recent_activity : []));
+		const failures = rows.flatMap((item) => (Array.isArray(item?.recent_failures) ? item.recent_failures : []));
+		const failurePressure = activity.length ? (failures.length / activity.length) : Number.NaN;
+		const deploymentsWithFailures = rows.filter((item) => (Array.isArray(item?.recent_failures) ? item.recent_failures : []).length > 0).length;
+		const busiest = rows
+			.map((item) => ({
+				name: item?.name || item?.id || 'Deployment',
+				traffic: _toCount(item?.runtime?.message_count) + _toCount(item?.runtime?.endpoint_call_count),
+			}))
+			.sort((a, b) => b.traffic - a.traffic);
+		const busiestTraffic = busiest[0]?.traffic || 0;
+		const trafficConcentration = totalTraffic ? (busiestTraffic / totalTraffic) : Number.NaN;
+		return [
+			{
+				label: 'Traffic load',
+				value: String(totalTraffic),
+				detail: `${_countLabel(totalMessages, 'message')} · ${_countLabel(totalEndpointCalls, 'endpoint call')} across the live deployment network`,
+			},
+			{
+				label: 'Traffic concentration',
+				value: _formatPercentFromRatio(trafficConcentration),
+				detail: totalTraffic && busiest.length
+					? `${busiest[0].name} carries ${_countLabel(busiestTraffic, 'live traffic event')} out of ${_countLabel(totalTraffic, 'network traffic event')}`
+					: 'No live network traffic yet, so concentration is still empty',
+			},
+			{
+				label: 'Routing coverage',
+				value: _formatPercentFromRatio(routingCoverage),
+				detail: total
+					? `${_countLabel(deploymentsWithRecentHandoffs, 'deployment')} showed recent handoffs out of ${_countLabel(total, 'deployment')}`
+					: 'No deployments yet',
+			},
+			{
+				label: 'Operator backlog',
+				value: `${pendingApprovals} pending`,
+				detail: `${_countLabel(deploymentsWithPendingApprovals, 'deployment')} currently carries pending approvals`,
+				tone: pendingApprovals > 0 ? 'alert' : '',
+			},
+			{
+				label: 'Proactive coverage',
+				value: _formatPercentFromRatio(proactiveCoverage),
+				detail: total
+					? `${_countLabel(deploymentsWithConfiguredProactive, 'deployment')} configured proactive tasks · ${_countLabel(recentProactiveRuns, 'recent proactive run')}`
+					: 'No deployments yet',
+			},
+			{
+				label: 'Failure pressure',
+				value: _formatPercentFromRatio(failurePressure),
+				detail: activity.length
+					? `${_countLabel(failures.length, 'failure')} in a ${_countLabel(activity.length, 'recent activity event')} network window across ${_countLabel(deploymentsWithFailures, 'deployment')}`
+					: 'No recent network activity yet, so failure pressure is still empty',
+				tone: failures.length > 0 ? 'alert' : '',
+			},
+		];
+	}
+
 	function _renderInspectTraceList(items = [], mapper, emptyLabel = 'No entries yet.') {
 		const rows = Array.isArray(items) ? items : [];
 		if (!rows.length) return `<div class="nw-assist-activity-empty">${_esc(emptyLabel)}</div>`;
@@ -523,6 +685,7 @@ async function _post(path, body = {}) {
 		const recentHandoffs = Array.isArray(item?.recent_handoffs) ? item.recent_handoffs : [];
 		const recentProactiveRuns = Array.isArray(item?.recent_proactive_runs) ? item.recent_proactive_runs : [];
 		const recentActivity = Array.isArray(item?.recent_activity) ? item.recent_activity : [];
+		const analyticsRows = _deploymentAnalyticsRows(item);
 		const lines = [
 			`Assistant Deployment Snapshot`,
 			`Generated: ${new Date().toLocaleString()}`,
@@ -544,6 +707,9 @@ async function _post(path, body = {}) {
 			_snapshotLine('Pending approvals', runtime.pending_approval_count || 0),
 			_snapshotLine('Last activity', runtime.last_message_at ? _formatTimestamp(runtime.last_message_at) : 'No traffic yet'),
 			_snapshotLine('Last error', runtime.last_error || 'None'),
+			``,
+			`Analytics`,
+			...analyticsRows.map((row) => _snapshotLine(row.label, row.detail ? `${row.value} · ${row.detail}` : row.value)),
 			``,
 			`Recent failures`,
 			...(recentFailures.length
@@ -579,6 +745,7 @@ async function _post(path, body = {}) {
 		const running = rows.filter((item) => String(item?.status || '').toLowerCase() === 'running').length;
 		const attentionRows = rows.filter((item) => _hasAttention(item));
 		const pendingApprovals = rows.reduce((count, item) => count + Number(item?.runtime?.pending_approval_count || 0), 0);
+		const analyticsRows = _networkAnalyticsRows(rows);
 		const lines = [
 			`Assistant Deployment Network Snapshot`,
 			`Generated: ${new Date().toLocaleString()}`,
@@ -588,6 +755,9 @@ async function _post(path, body = {}) {
 			_snapshotLine('Running', running),
 			_snapshotLine('Needs attention', attentionRows.length),
 			_snapshotLine('Pending approvals', pendingApprovals),
+			``,
+			`Analytics`,
+			...analyticsRows.map((row) => _snapshotLine(row.label, row.detail ? `${row.value} · ${row.detail}` : row.value)),
 			``,
 			`Deployments needing attention`,
 			...(attentionRows.length
@@ -668,6 +838,7 @@ async function _post(path, body = {}) {
 			{ label: 'Safety', value: `${item.safety?.proactive_delivery_mode === 'approval' ? 'Approval before proactive delivery' : 'Auto proactive delivery'} · ${item.safety?.tool_execution_mode === 'approval' ? 'Approve tool calls' : 'Run tool calls automatically'}` },
 			{ label: 'Proactive tasks', value: proactiveTasks.length ? proactiveTasks.map((task) => `${task.name} (${_taskTriggerLabel(task)})`).join(' · ') : 'No proactive tasks' },
 		];
+		const analyticsRows = _deploymentAnalyticsRows(item);
 		return `
 			<div class="nw-assist-dialog-layout nw-assist-inspect-layout">
 				<div class="nw-assist-dialog-column">
@@ -683,6 +854,11 @@ async function _post(path, body = {}) {
 							</div>
 							${_renderInspectStatGrid(runtimeStats)}
 						`,
+					)}
+					${_renderInspectSection(
+						'Deployment Analytics',
+						'Derived operator signals built from live counters plus the recent activity window for this deployment.',
+						_renderAnalyticsGrid(analyticsRows),
 					)}
 					${_renderInspectSection(
 						'Deployment Shape',
@@ -845,6 +1021,7 @@ async function _post(path, body = {}) {
 			{ label: 'Pending approvals', value: String(pendingApprovals.length) },
 			{ label: 'Recent failures', value: String(failures.length) },
 		];
+		const analyticsRows = _networkAnalyticsRows(rows);
 		return `
 			<div class="nw-assist-dialog-layout nw-assist-inspect-layout">
 				<div class="nw-assist-dialog-column">
@@ -861,6 +1038,11 @@ async function _post(path, body = {}) {
 							</div>
 							${_renderInspectStatGrid(networkStats)}
 						`,
+					)}
+					${_renderInspectSection(
+						'Network Analytics',
+						'Derived load, routing, approval, proactive, and failure signals across the current deployment network.',
+						_renderAnalyticsGrid(analyticsRows),
 					)}
 					${_renderInspectSection(
 						'Busiest Deployments',

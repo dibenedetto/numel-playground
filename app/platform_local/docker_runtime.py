@@ -346,10 +346,13 @@ class DockerRuntimeProvider(RuntimeProvider):
                     results = workspace.engine.get_execution_results(link["engine_execution_id"]) or {}
                     record = await self._get_record(execution_id)
                     metadata = dict(record.metadata if record is not None else {})
+                    failed_nodes = list(getattr(state, "failed_nodes", []) or [])
                     metadata.update(
                         {
                             "engine_status": raw_status,
                             "engine_end_time": getattr(state, "end_time", None),
+                            "failed_nodes": failed_nodes,
+                            "last_failed_node": failed_nodes[-1] if failed_nodes else None,
                         }
                     )
                     await self._update_record(

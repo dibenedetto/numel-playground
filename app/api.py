@@ -448,6 +448,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 				"end_time": record.get("finished_at"),
 				"error": record.get("error"),
 				"node_outputs": record.get("outputs", {}) or {},
+				"metadata": record.get("metadata", {}) or {},
 			},
 		}
 
@@ -462,6 +463,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			"end_time": record.get("finished_at"),
 			"error": record.get("error"),
 			"node_outputs": record.get("outputs", {}) or {},
+			"metadata": record.get("metadata", {}) or {},
 		}
 
 	# Setup tutorial extension API (see docs/tutorial-extension.md)

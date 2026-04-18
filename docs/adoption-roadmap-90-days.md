@@ -65,6 +65,14 @@ Exit criteria:
 - users can inspect failures and handoffs more easily
 - deployments feel more like operable systems than opaque cards
 
+Progress so far:
+- live run timeline added to the workbench Run panel
+- latest-run replay added for the current space as a first trust-and-iteration slice
+- latest-two-run comparison added to show status, duration, and output-node changes
+- eval visibility added for live runs, replayed runs, and latest-two-run comparison
+- failure drill-down added for live and replayed runs, with persisted failure metadata where available
+- deployment and network analytics added to the operator inspect surfaces, derived from live counters plus recent runtime windows
+
 ## Phase 3: Sharing And Reuse
 
 Target: days 61-90

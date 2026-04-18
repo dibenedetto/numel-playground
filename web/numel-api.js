@@ -136,6 +136,7 @@ class NumelAPI {
 	startWorkflow(data = null)    { return this.json('/workflow/start', { initial_data: data }); }
 	getExecState(executionId)     { return this.json(`/executions/${encodeURIComponent(executionId)}`); }
 	cancelExecution(executionId)  { return this.json(`/executions/${encodeURIComponent(executionId)}/cancel`); }
+	getExecutionResults(executionId) { return this.json(`/executions/${encodeURIComponent(executionId)}/results`); }
 	listExecutions()              { return this.json('/executions/list'); }
 	provideUserInput(execId, nodeId, inputData) {
 		return this.json(`/executions/${encodeURIComponent(execId)}/input`, { node_id: nodeId, input_data: inputData });

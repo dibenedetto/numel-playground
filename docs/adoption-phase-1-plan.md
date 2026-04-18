@@ -55,6 +55,7 @@ Completed in this phase so far:
 - repo and file assistant starter added
 - publishable mini-app starter added
 - starter walkthrough doc added
+- end-to-end Phase 1 test run completed successfully on 2026-04-18
 
 Still remaining in Phase 1:
 
