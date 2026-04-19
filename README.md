@@ -229,7 +229,7 @@ Numel spaces now behave like lightweight Git-backed project repos.
 3. Open the current workbench for that space, or resolve a public repo directly by `owner/slug`
 4. Inspect repo details, switch the active ref for your workbench, browse visible repo assets, and review recent repo commits
 5. Edit or run the current workflow asset for the selected space and active ref
-6. Save snapshots, review history, compare refs or commits, restore the active branch from a selected repo state, or fork a readable space into your own workbench when you want to adapt it
+6. Save snapshots, review history, compare refs or commits, restore the active branch from a selected repo state, publish a template from the current canvas, a chosen ref, or a workflow snapshot, or fork a readable space into your own workbench when you want to adapt it
 
 The default workbench still centers on one current workflow asset for the selected
 space, but the space itself is the durable unit: history, refs, forking, and
@@ -247,6 +247,7 @@ The repo details surface now also works as a lightweight repo browser:
 - direct opening of workflow assets from the active ref into the workbench
 - repo-level compare for refs and commits against the current active repo state
 - repo-level restore that writes one new commit onto the active branch when you bring that branch back to a selected historical repo state
+- template publishing from the current canvas, a selected ref head, or a saved workflow snapshot
 - public namespace browsing so `owner/slug` discovery does not depend only on direct lookup
 
 The public side now also has a dedicated **Public Hub** surface:
@@ -256,6 +257,7 @@ The public side now also has a dedicated **Public Hub** surface:
 - direct open/fork actions from those public pages
 - compare support for public repo refs and commits before you decide to open or fork
 - preview support for public repo assets without first switching the current workbench
+- gallery cards published from public repos can now point you back to the underlying repo page, so the gallery starts acting like a curated layer over real repos instead of a dead-end copy
 
 ---
 
@@ -373,7 +375,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 - Access via `/apps/{owner_username}/{slug}` — anyone with the URL can run it
 - The published page bundle is **generated at publish time** from the workflow analysis, using the selected model and generation settings
 - Generated app files are stored under the owner’s runtime storage, alongside the published app registry
-- Publish current work directly from the editor, or publish a gallery item by loading it into a space first
+- Publish current work directly from the editor, including from the current canvas, a selected ref head, or a saved workflow snapshot, or publish a gallery item by loading it into a space first
 - Public apps can start workflows, poll execution state, cancel runs, and handle inline `user_input_flow` prompts
 
 ### Assistant Console
@@ -383,7 +385,7 @@ Web console users authenticated via the login modal are auto-linked — no expli
 - **Workflow-backed planner turns** — planner turns now execute through the same workflow-backed runtime direction as the rest of Numel, while tab/session debounce remains control-plane logic
 - **Model selection** dropdown (switch LLMs on the fly)
 - **Toolkit picker** — enable/disable toolkits per session (also via `/toolkit` command)
-- **Extensions panel** — inspect shared toolkits, upload/remove contrib toolkits, and view/add/setup/remove skills from the GUI
+- **Extensions panel** — a unified Registry tab now surfaces shared toolkits and skills together with creator, source, trust, and setup signals, while the raw Toolkits and Skills tabs still handle upload/remove/view/setup actions
 - **Voice features**: Text-to-speech (with voice/language selection), speech-to-text (microphone input)
 - **Backend-managed memory** — Assistant memory now relies on the backend memory model only, with graph-configurable history, session, and long-term memory behavior
 - **Repo-first spaces** — each authenticated user gets isolated Git-backed spaces, can browse accessible shared/public spaces, and can fork readable spaces into their own workbench
@@ -1141,6 +1143,7 @@ All endpoints use **POST** method unless otherwise noted.
 | `/workflow/get` | Get the current workflow for the selected space |
 | `/workflow/save` | Save the current workflow for the selected space |
 | `/workflow/delete` | Delete the current workflow from the selected space |
+| `/workflow/publish-template` | Publish a reusable template from the current canvas, a chosen ref, or a workflow snapshot |
 | `/workflow/start` | Execute the selected space's current workflow |
 | `/executions/list` | List executions for the selected space |
 | `/executions/{id}` | Execution status |
@@ -1192,9 +1195,10 @@ All endpoints use **POST** method unless otherwise noted.
 | `/console/workflow/apply` | Apply a console-shaped workflow back into the live Assistant |
 | `/console/memory/clear` | Clear backend-managed assistant memory |
 
-### Toolkits
+### Extensions & Toolkits
 | Endpoint | Description |
 |----------|-------------|
+| `/extensions/registry` | Unified registry of toolkits and skills with creator/source/trust metadata |
 | `/toolkits/list` | List built-in and contrib toolkits with metadata |
 | `/toolkits/inspect` | Get constructor params and public methods for a toolkit |
 | `/toolkits/upload` | Upload a contrib toolkit module (admin only) |

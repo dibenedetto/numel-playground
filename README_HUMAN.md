@@ -283,6 +283,7 @@ Once a repo is open, the workbench can also move across refs:
 - browse the visible assets on that ref
 - open a workflow asset from that ref directly into the current workbench
 - restore your active branch from a selected repo commit when you want to bring that branch back to an earlier state
+- publish a reusable template from the current canvas, a chosen ref head, or a saved workflow snapshot
 - create or delete refs when you own the repo
 
 And the public side is becoming more hub-like too:
@@ -291,6 +292,7 @@ And the public side is becoming more hub-like too:
 - you can browse the public repos inside one owner namespace
 - there is now a dedicated **Public Hub** panel for namespace pages and public repo pages before you decide to open or fork something
 - public repo pages can compare refs or commits before you decide to open or fork
+- gallery items published from a public repo can now point you back to that source repo, so the gallery is starting to behave like a curated layer over real repos
 
 When you want to adapt a shared or public space, the normal move is to **fork**
 it into your own space and continue there.
@@ -471,6 +473,11 @@ Numel becomes a serious platform when you want to combine:
 - publishable interfaces
 
 That is where it starts to feel less like a demo canvas and more like an AI system workbench.
+
+The Extensions panel is now starting to reflect that more clearly too: there is
+a shared Registry view that shows toolkits and skills together with creator,
+source, trust, and setup signals, while the lower-level Toolkits and Skills
+tabs are still there for direct management work.
 
 ## A Simple Mental Model
 

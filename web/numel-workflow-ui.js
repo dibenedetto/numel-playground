@@ -4151,6 +4151,144 @@ function _snapshotHistoryHtml(commits = []) {
 	}).join('')}</div>`;
 }
 
+function _showTemplatePublishDialog(options = {}) {
+	return new Promise((resolve) => {
+		const overlay = document.createElement('div');
+		const refs = Array.isArray(options.refs) && options.refs.length
+			? options.refs
+			: [{ name: options.activeRef || 'main', kind: 'branch' }];
+		const commits = Array.isArray(options.commits) ? options.commits : [];
+		const allowCanvas = options.allowCanvas !== false;
+		const activeRef = String(options.activeRef || refs[0]?.name || 'main').trim() || 'main';
+		const assetPath = String(options.assetPath || 'workflow.json').trim() || 'workflow.json';
+		const defaultTitle = String(options.defaultTitle || '').trim();
+		const defaultDescription = String(options.defaultDescription || '').trim();
+		const sourceOptions = [
+			allowCanvas ? '<option value="canvas">Current canvas</option>' : '',
+			'<option value="ref">Repo ref head</option>',
+			commits.length ? '<option value="commit">Workflow snapshot</option>' : '',
+		].filter(Boolean).join('');
+		const refOptions = refs.map((ref) => {
+			const name = String(ref?.name || '').trim();
+			const kind = String(ref?.kind || 'branch').trim().toLowerCase() || 'branch';
+			const selected = name === activeRef ? ' selected' : '';
+			return `<option value="${_escHtml(name)}"${selected}>${_escHtml(name)}${kind === 'tag' ? ' (tag)' : ''}</option>`;
+		}).join('');
+		const commitOptions = commits.map((commit) => {
+			const commitId = String(commit?.id || '').trim();
+			const shortId = commitId.slice(0, 8) || 'unknown';
+			const message = String(commit?.message || 'Snapshot').trim() || 'Snapshot';
+			const createdAt = _formatLocalTimestamp(commit?.created_at);
+			return `<option value="${_escHtml(commitId)}">${_escHtml(`${shortId} · ${message} · ${createdAt}`)}</option>`;
+		}).join('');
+		overlay.className = 'sg-input-dialog-overlay';
+		overlay.innerHTML = `
+			<div class="sg-input-dialog" style="min-width:360px;max-width:560px">
+				<div class="sg-input-dialog-header">
+					<span class="sg-input-dialog-title">Publish Template</span>
+					<button class="sg-input-dialog-close">✕</button>
+				</div>
+				<div class="sg-input-dialog-body">
+					<p class="sg-confirm-dialog-message">Choose the reusable template title and the repo state you want to publish from.</p>
+					<div class="nw-space-open-field">
+						<label for="templatePublishTitleInput">Template title</label>
+						<input id="templatePublishTitleInput" class="nw-input sg-input-dialog-field" type="text" autocomplete="off" spellcheck="false" placeholder="Template title">
+					</div>
+					<div class="nw-space-open-field">
+						<label for="templatePublishDescriptionInput">Description</label>
+						<textarea id="templatePublishDescriptionInput" class="nw-input sg-input-dialog-field" rows="3" placeholder="Short gallery description"></textarea>
+					</div>
+					<div class="nw-space-open-field">
+						<label for="templatePublishSourceMode">Publish from</label>
+						<select id="templatePublishSourceMode" class="nw-select sg-input-dialog-field">${sourceOptions}</select>
+					</div>
+					<div class="nw-space-open-field" data-publish-field="ref">
+						<label for="templatePublishRefSelect">Repo ref</label>
+						<select id="templatePublishRefSelect" class="nw-select sg-input-dialog-field">${refOptions}</select>
+					</div>
+					<div class="nw-space-open-field" data-publish-field="commit">
+						<label for="templatePublishCommitSelect">Workflow snapshot</label>
+						<select id="templatePublishCommitSelect" class="nw-select sg-input-dialog-field">${commitOptions || '<option value="">No workflow snapshots yet</option>'}</select>
+					</div>
+					<div class="nw-repo-detail-copy" data-publish-summary></div>
+				</div>
+				<div class="sg-input-dialog-footer">
+					<button class="sg-input-dialog-btn sg-input-dialog-cancel">Cancel</button>
+					<button class="sg-input-dialog-btn sg-input-dialog-confirm">Publish</button>
+				</div>
+			</div>
+		`;
+		document.body.appendChild(overlay);
+
+		const titleInput = overlay.querySelector('#templatePublishTitleInput');
+		const descriptionInput = overlay.querySelector('#templatePublishDescriptionInput');
+		const sourceSelect = overlay.querySelector('#templatePublishSourceMode');
+		const refRow = overlay.querySelector('[data-publish-field="ref"]');
+		const refSelect = overlay.querySelector('#templatePublishRefSelect');
+		const commitRow = overlay.querySelector('[data-publish-field="commit"]');
+		const commitSelect = overlay.querySelector('#templatePublishCommitSelect');
+		const summaryEl = overlay.querySelector('[data-publish-summary]');
+		if (titleInput) titleInput.value = defaultTitle;
+		if (descriptionInput) descriptionInput.value = defaultDescription;
+
+		const updateSourceState = () => {
+			const sourceKind = String(sourceSelect?.value || (allowCanvas ? 'canvas' : 'ref')).trim() || 'canvas';
+			if (refRow) refRow.hidden = sourceKind !== 'ref';
+			if (commitRow) commitRow.hidden = sourceKind !== 'commit';
+			let summary = `Publishes the current workflow asset "${assetPath}" from the current canvas.`;
+			if (sourceKind === 'ref') {
+				const refName = String(refSelect?.value || activeRef).trim() || activeRef;
+				summary = `Publishes the saved state of "${assetPath}" from ref "${refName}".`;
+			} else if (sourceKind === 'commit') {
+				const commitId = String(commitSelect?.value || '').trim();
+				summary = commitId
+					? `Publishes the saved snapshot ${commitId.slice(0, 8)} of "${assetPath}".`
+					: `Choose a workflow snapshot for "${assetPath}".`;
+			}
+			if (workflowDirty && sourceKind !== 'canvas') {
+				summary += ' Current unsaved canvas edits are not included.';
+			}
+			if (summaryEl) summaryEl.textContent = summary;
+		};
+
+		const close = (value = null) => {
+			overlay.remove();
+			resolve(value);
+		};
+		const submit = () => {
+			close({
+				title: String(titleInput?.value || '').trim(),
+				description: String(descriptionInput?.value || '').trim(),
+				sourceKind: String(sourceSelect?.value || (allowCanvas ? 'canvas' : 'ref')).trim() || 'canvas',
+				ref: String(refSelect?.value || activeRef).trim() || activeRef,
+				commitId: String(commitSelect?.value || '').trim(),
+			});
+		};
+
+		sourceSelect?.addEventListener('change', updateSourceState);
+		refSelect?.addEventListener('change', updateSourceState);
+		commitSelect?.addEventListener('change', updateSourceState);
+		overlay.querySelector('.sg-input-dialog-close')?.addEventListener('click', () => close(null));
+		overlay.querySelector('.sg-input-dialog-cancel')?.addEventListener('click', () => close(null));
+		overlay.querySelector('.sg-input-dialog-confirm')?.addEventListener('click', submit);
+		overlay.addEventListener('click', (event) => {
+			if (event.target === overlay) close(null);
+		});
+		overlay.addEventListener('keydown', (event) => {
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				close(null);
+			}
+			if (event.key === 'Enter' && !(event.target instanceof HTMLTextAreaElement)) {
+				event.preventDefault();
+				submit();
+			}
+		});
+		updateSourceState();
+		queueMicrotask(() => titleInput?.focus());
+	});
+}
+
 function _showWorkflowSnapshotsDialog(commits = []) {
 	return new Promise((resolve) => {
 		const canEdit = _canEditCurrentSpace();
@@ -4344,35 +4482,57 @@ async function publishCurrentWorkflowTemplate() {
 		await NumelAlert('Publish Template', 'Load or build a workflow first, then publish it as a reusable template.');
 		return;
 	}
-	const defaultTitle = _currentWorkflowLabel() || currentSpaceInfo?.title || 'Untitled Template';
-	const title = await NumelPrompt(
-		'Publish Template',
-		'Choose the gallery title for this reusable workflow template.',
-		defaultTitle,
-		'Publish',
-		'Template title',
-	);
-	if (title === null) return;
-	const trimmedTitle = title.trim();
-	if (!trimmedTitle) {
-		await NumelAlert('Publish Template', 'Please enter a template title.');
-		return;
-	}
 	try {
-		const description = currentSpaceInfo?.title
-			? `Reusable workflow template published from the "${currentSpaceInfo.title}" workbench.`
-			: 'Reusable workflow template published from the current workbench.';
-		const item = await api.galleryPublish({
-			workflow,
+		const [refsResponse, historyResponse] = await Promise.all([
+			api.repoRefs(),
+			api.workflowHistory(20),
+		]);
+		const publishRequest = await _showTemplatePublishDialog({
+			defaultTitle: _currentWorkflowLabel() || currentSpaceInfo?.title || 'Untitled Template',
+			defaultDescription: currentSpaceInfo?.title
+				? `Reusable workflow template published from the "${currentSpaceInfo.title}" repo.`
+				: 'Reusable workflow template published from the current repo.',
+			refs: refsResponse?.refs || [],
+			activeRef: refsResponse?.active_ref || currentSpaceInfo?.active_ref || 'main',
+			commits: historyResponse?.commits || [],
+			assetPath: currentSpaceInfo?.active_asset_path || 'workflow.json',
+			allowCanvas: true,
+		});
+		if (!publishRequest) return null;
+		const trimmedTitle = String(publishRequest.title || '').trim();
+		if (!trimmedTitle) {
+			await NumelAlert('Publish Template', 'Please enter a template title.');
+			return null;
+		}
+		const sourceKind = String(publishRequest.sourceKind || 'canvas').trim().toLowerCase() || 'canvas';
+		const payload = {
 			title: trimmedTitle,
-			description,
+			description: String(publishRequest.description || '').trim(),
 			category: 'templates',
 			tags: ['template', 'reusable'],
-		});
-		addLog('success', `📚 Published template "${trimmedTitle}"`);
+			source_kind: sourceKind,
+			path: currentSpaceInfo?.active_asset_path || 'workflow.json',
+		};
+		let sourceLabel = 'current canvas';
+		if (sourceKind === 'canvas') {
+			payload.workflow = workflow;
+		} else if (sourceKind === 'ref') {
+			payload.ref = String(publishRequest.ref || refsResponse?.active_ref || 'main').trim() || 'main';
+			sourceLabel = `ref "${payload.ref}"`;
+		} else {
+			payload.commit_id = String(publishRequest.commitId || '').trim();
+			if (!payload.commit_id) {
+				await NumelAlert('Publish Template', 'Choose a workflow snapshot first.');
+				return null;
+			}
+			sourceLabel = `snapshot ${payload.commit_id.slice(0, 8)}`;
+		}
+		const response = await api.publishWorkflowTemplate(payload);
+		const item = response?.item || null;
+		addLog('success', `📚 Published template "${trimmedTitle}" from ${sourceLabel}`);
 		await NumelAlert(
 			'Template Published',
-			`"${_escHtml(trimmedTitle)}" is now available in the gallery as a reusable template.`,
+			`"${_escHtml(trimmedTitle)}" is now available in the gallery as a reusable template from ${_escHtml(sourceLabel)}.`,
 		);
 		if (galleryManager?.open) {
 			await galleryManager.open();

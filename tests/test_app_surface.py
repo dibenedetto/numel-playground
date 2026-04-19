@@ -1008,6 +1008,174 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reloaded.json()["ref"], "main")
         self.assertEqual(reloaded.json()["workflow"]["options"]["name"], "Experiment Workflow")
 
+    async def test_extensions_registry_unifies_toolkits_and_skills(self) -> None:
+        registry = await self._client.post("/extensions/registry", json={})
+        self.assertEqual(registry.status_code, 200, registry.text)
+        payload = registry.json()
+        self.assertGreater(payload["counts"]["total"], 0)
+        self.assertGreater(payload["counts"]["toolkits"], 0)
+        self.assertGreater(payload["counts"]["skills"], 0)
+
+        entries = payload["entries"]
+        self.assertTrue(any(item["kind"] == "toolkit" for item in entries))
+        self.assertTrue(any(item["kind"] == "skill" for item in entries))
+
+        file_toolkit = next(item for item in entries if item["id"] == "toolkit:toolkits.file_toolkit")
+        self.assertEqual(file_toolkit["title"], "File Toolkit")
+        self.assertEqual(file_toolkit["source"], "builtin")
+        self.assertEqual(file_toolkit["trust"], "core")
+        self.assertEqual(file_toolkit["author"], "Numel")
+        self.assertIn("inspect", file_toolkit["actions"])
+        self.assertFalse(file_toolkit["removable"])
+
+        git_skill = next(item for item in entries if item["id"] == "skill:git-assistant")
+        self.assertEqual(git_skill["source"], "builtin")
+        self.assertEqual(git_skill["trust"], "core")
+        self.assertEqual(git_skill["author"], "system")
+        self.assertIn("git", git_skill["tags"])
+        self.assertIn("view", git_skill["actions"])
+        self.assertIn("setup", git_skill["actions"])
+
+    async def test_workflow_template_publish_can_target_ref_or_snapshot(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "alice", "email": "alice@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        save_main = await self._client.post(
+            "/workflow/save",
+            json={"workflow": _minimal_workflow_payload()},
+            headers=headers,
+        )
+        self.assertEqual(save_main.status_code, 200, save_main.text)
+
+        create_ref = await self._client.post(
+            "/spaces/repo/refs/create",
+            json={"name": "preview", "kind": "branch"},
+            headers=headers,
+        )
+        self.assertEqual(create_ref.status_code, 200, create_ref.text)
+
+        switch_preview = await self._client.post(
+            "/spaces/repo/ref/set",
+            json={"name": "preview"},
+            headers=headers,
+        )
+        self.assertEqual(switch_preview.status_code, 200, switch_preview.text)
+
+        preview_v1 = _minimal_workflow_payload()
+        preview_v1["options"] = dict(preview_v1["options"])
+        preview_v1["options"]["name"] = "Preview Workflow One"
+        preview_v1["options"]["description"] = "First preview branch revision"
+        save_preview_v1 = await self._client.post(
+            "/workflow/save",
+            json={"workflow": preview_v1, "message": "Preview snapshot one"},
+            headers=headers,
+        )
+        self.assertEqual(save_preview_v1.status_code, 200, save_preview_v1.text)
+
+        preview_history = await self._client.post(
+            "/workflow/history",
+            json={"limit": 10},
+            headers=headers,
+        )
+        self.assertEqual(preview_history.status_code, 200, preview_history.text)
+        preview_commit_v1 = preview_history.json()["commits"][0]["id"]
+        self.assertTrue(preview_commit_v1)
+
+        preview_v2 = json.loads(json.dumps(preview_v1))
+        preview_v2["options"]["name"] = "Preview Workflow Two"
+        preview_v2["options"]["description"] = "Second preview branch revision"
+        save_preview_v2 = await self._client.post(
+            "/workflow/save",
+            json={"workflow": preview_v2, "message": "Preview snapshot two"},
+            headers=headers,
+        )
+        self.assertEqual(save_preview_v2.status_code, 200, save_preview_v2.text)
+
+        switch_main = await self._client.post(
+            "/spaces/repo/ref/set",
+            json={"name": "main"},
+            headers=headers,
+        )
+        self.assertEqual(switch_main.status_code, 200, switch_main.text)
+
+        publish_ref = await self._client.post(
+            "/workflow/publish-template",
+            json={
+                "title": "Preview Ref Template",
+                "description": "Publishes the preview branch head.",
+                "source_kind": "ref",
+                "ref": "preview",
+            },
+            headers=headers,
+        )
+        self.assertEqual(publish_ref.status_code, 200, publish_ref.text)
+        publish_ref_data = publish_ref.json()
+        self.assertEqual(publish_ref_data["source_kind"], "ref")
+        self.assertEqual(publish_ref_data["ref"], "preview")
+        self.assertEqual(publish_ref_data["asset_path"], "workflow.json")
+        self.assertEqual(
+            publish_ref_data["item"]["metadata"]["source"]["namespace_slug"],
+            "alice/home",
+        )
+        self.assertEqual(
+            publish_ref_data["item"]["metadata"]["source"]["ref"],
+            "preview",
+        )
+        self.assertEqual(
+            publish_ref_data["item"]["workflow"]["options"]["name"],
+            "Preview Workflow Two",
+        )
+        self.assertEqual(publish_ref_data["item"]["author"], "alice")
+
+        published_ref = await self._client.post(
+            "/gallery/get",
+            json={"id": publish_ref_data["item"]["id"]},
+            headers=headers,
+        )
+        self.assertEqual(published_ref.status_code, 200, published_ref.text)
+        self.assertEqual(
+            published_ref.json()["workflow"]["options"]["name"],
+            "Preview Workflow Two",
+        )
+
+        publish_snapshot = await self._client.post(
+            "/workflow/publish-template",
+            json={
+                "title": "Preview Snapshot Template",
+                "source_kind": "commit",
+                "commit_id": preview_commit_v1,
+            },
+            headers=headers,
+        )
+        self.assertEqual(publish_snapshot.status_code, 200, publish_snapshot.text)
+        publish_snapshot_data = publish_snapshot.json()
+        self.assertEqual(publish_snapshot_data["source_kind"], "commit")
+        self.assertEqual(publish_snapshot_data["commit_id"], preview_commit_v1)
+        self.assertIsNone(publish_snapshot_data["ref"])
+        self.assertEqual(
+            publish_snapshot_data["item"]["metadata"]["source"]["commit_id"],
+            preview_commit_v1,
+        )
+        self.assertEqual(
+            publish_snapshot_data["item"]["workflow"]["options"]["name"],
+            "Preview Workflow One",
+        )
+
+        published_snapshot = await self._client.post(
+            "/gallery/get",
+            json={"id": publish_snapshot_data["item"]["id"]},
+            headers=headers,
+        )
+        self.assertEqual(published_snapshot.status_code, 200, published_snapshot.text)
+        self.assertEqual(
+            published_snapshot.json()["workflow"]["options"]["name"],
+            "Preview Workflow One",
+        )
+
     async def test_admin_diagnostics_surface_local(self) -> None:
         register = await self._client.post(
             "/auth/register",

@@ -152,6 +152,18 @@ class WorkflowRestoreRequest(BaseModel):
 	note      : Optional[str] = None
 
 
+class WorkflowTemplatePublishRequest(BaseModel):
+	title       : str
+	description : str = ""
+	category    : str = "templates"
+	tags        : List[str] = []
+	source_kind : str = "canvas"
+	ref         : Optional[str] = None
+	commit_id   : Optional[str] = None
+	path        : Optional[str] = None
+	workflow    : Optional[Dict[str, Any]] = None
+
+
 class SpaceRepoHistoryRequest(BaseModel):
 	limit : int = 20
 
@@ -628,6 +640,20 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			return None
 		name = str(options.get("name", "") or "").strip()
 		return name or None
+
+	def _gallery_manager(req: Request):
+		manager = getattr(req.app.state, "gallery_manager", None)
+		if manager is None:
+			raise HTTPException(status_code=500, detail="Gallery manager is not available")
+		return manager
+
+	def _default_publish_description(space: Dict[str, Any], source_kind: str, selector: str) -> str:
+		space_title = str(space.get("title", "") or space.get("slug", "") or "current repo").strip()
+		if source_kind == "ref":
+			return f'Reusable workflow template published from ref "{selector}" in the "{space_title}" repo.'
+		if source_kind == "commit":
+			return f'Reusable workflow template published from snapshot "{selector[:8]}" in the "{space_title}" repo.'
+		return f'Reusable workflow template published from the current workbench in the "{space_title}" repo.'
 
 	def _workflow_doc_from_model(workflow: Workflow) -> Dict[str, Any]:
 		doc = workflow.model_dump()
@@ -1651,6 +1677,121 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			"status": "restored",
 			"restored_from_commit": commit_id,
 			"message": commit_note,
+		}
+
+	@app.post("/workflow/publish-template")
+	async def publish_workflow_template(request: WorkflowTemplatePublishRequest, req: Request):
+		user, space = await _ensure_current_space(req)
+		title = str(request.title or "").strip()
+		if not title:
+			raise HTTPException(status_code=400, detail="title is required")
+		source_kind = str(request.source_kind or "canvas").strip().lower() or "canvas"
+		if source_kind not in {"canvas", "ref", "commit"}:
+			raise HTTPException(status_code=400, detail="source_kind must be 'canvas', 'ref', or 'commit'")
+		asset_path = str(request.path or _space_active_asset_path(space)).strip() or _space_active_asset_path(space)
+		active_ref = _space_active_ref(space)
+		source_selector = active_ref
+		source_commit_id = None
+		doc: Optional[Dict[str, Any]] = None
+
+		if source_kind == "canvas":
+			if not isinstance(request.workflow, dict):
+				raise HTTPException(status_code=400, detail="workflow is required when publishing from the current canvas")
+			validation = validate_workflow_payload(request.workflow, apply_repairs=True)
+			if not validation["valid"]:
+				raise HTTPException(
+					status_code=400,
+					detail={
+						"message": "Workflow validation failed before publish",
+						"errors": validation["errors"],
+						"warnings": validation["warnings"],
+						"repairs": validation["repairs"],
+					},
+				)
+			doc = validation["workflow"]
+		elif source_kind == "ref":
+			source_selector = str(request.ref or active_ref).strip() or active_ref
+			doc = await _read_workflow_asset_doc(
+				req,
+				user.id,
+				str(space.get("id", "") or ""),
+				path=asset_path,
+				ref=source_selector,
+			)
+			if doc is None:
+				raise HTTPException(status_code=404, detail=f"Workflow asset '{asset_path}' was not found on ref '{source_selector}'")
+			validation = validate_workflow_payload(doc, apply_repairs=True)
+			if not validation["valid"]:
+				raise HTTPException(
+					status_code=400,
+					detail={
+						"message": f"Workflow asset '{asset_path}' on ref '{source_selector}' is not a valid runnable workflow",
+						"errors": validation["errors"],
+						"warnings": validation["warnings"],
+						"repairs": validation["repairs"],
+					},
+				)
+			doc = validation["workflow"]
+		else:
+			source_commit_id = str(request.commit_id or "").strip()
+			if not source_commit_id:
+				raise HTTPException(status_code=400, detail="commit_id is required when publishing from a snapshot")
+			source_selector = source_commit_id
+			doc = await _read_workflow_asset_doc(
+				req,
+				user.id,
+				str(space.get("id", "") or ""),
+				path=asset_path,
+				ref=source_commit_id,
+			)
+			if doc is None:
+				raise HTTPException(status_code=404, detail=f"Workflow snapshot '{source_commit_id}' was not found for '{asset_path}'")
+			validation = validate_workflow_payload(doc, apply_repairs=True)
+			if not validation["valid"]:
+				raise HTTPException(
+					status_code=400,
+					detail={
+						"message": f"Workflow snapshot '{source_commit_id}' for '{asset_path}' is not a valid runnable workflow",
+						"errors": validation["errors"],
+						"warnings": validation["warnings"],
+						"repairs": validation["repairs"],
+					},
+				)
+			doc = validation["workflow"]
+
+		description = str(request.description or "").strip() or _default_publish_description(space, source_kind, source_selector)
+		author = str(getattr(user, "username", "") or user.id).strip() or "user"
+		item = _gallery_manager(req).publish(
+			workflow=doc or {},
+			title=title,
+			description=description,
+			category=str(request.category or "templates").strip() or "templates",
+			tags=list(request.tags or []),
+			author=author,
+			metadata={
+				"source": {
+					"type": source_kind,
+					"space_id": str(space.get("id", "") or ""),
+					"space_title": str(space.get("title", "") or ""),
+					"namespace": str(space.get("namespace", "") or space.get("owner_username", "") or ""),
+					"slug": str(space.get("slug", "") or ""),
+					"namespace_slug": str(space.get("namespace_slug", "") or ""),
+					"visibility": str(space.get("visibility", "") or "private").strip().lower() or "private",
+					"is_public": bool(space.get("is_public")),
+					"asset_path": asset_path,
+					"active_ref": active_ref,
+					"ref": None if source_kind == "commit" else source_selector,
+					"commit_id": source_commit_id,
+				},
+			},
+		)
+		return {
+			"item": item,
+			"space": space,
+			"source_kind": source_kind,
+			"ref": None if source_kind == "commit" else source_selector,
+			"commit_id": source_commit_id,
+			"asset_path": asset_path,
 		}
 
 	@app.post("/workflow/start")
@@ -3877,6 +4018,131 @@ Example (mesh processing with toolkit):
 
 	register_options_provider("skill_names", _get_skill_names)
 
+	def _titleize_extension_name(value: str) -> str:
+		text = str(value or "").strip()
+		if not text:
+			return "Unnamed Extension"
+		if "." in text:
+			text = text.split(".")[-1]
+		text = text.replace("-", " ").replace("_", " ").strip()
+		text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+		return re.sub(r"\s+", " ", text).strip().title()
+
+	def _toolkit_registry_entry(mod_name: str) -> Dict[str, Any]:
+		builtin = mod_name.startswith("toolkits.")
+		entry: Dict[str, Any] = {
+			"id": f"toolkit:{mod_name}",
+			"kind": "toolkit",
+			"name": mod_name,
+			"title": _titleize_extension_name(mod_name),
+			"description": "",
+			"author": "Numel" if builtin else "Community",
+			"source": "builtin" if builtin else "shared",
+			"trust": "core" if builtin else "shared",
+			"featured": mod_name in {
+				"toolkits.workspace_toolkit",
+				"toolkits.file_toolkit",
+				"toolkits.http_toolkit",
+				"toolkits.search_toolkit",
+				"toolkits.console_toolkit",
+			},
+			"tags": [],
+			"version": "",
+			"enabled": None,
+			"setup_done": None,
+			"builtin": builtin,
+			"removable": mod_name.startswith("contrib.toolkits."),
+			"actions": ["inspect", *([] if builtin else ["remove"])],
+		}
+		try:
+			md, _resolved = _resolve_toolkit_module(mod_name)
+			tk_cls = _find_toolkit_class(md)
+			if tk_cls:
+				entry["description"] = (tk_cls.__doc__ or "").strip().split('\n')[0]
+				entry["class_name"] = tk_cls.__name__
+				entry["title"] = _titleize_extension_name(tk_cls.__name__)
+				entry["tags"] = [
+					tag for tag in {
+						"toolkit",
+						entry["source"],
+						_titleize_extension_name(mod_name).replace(" ", "-").lower(),
+					}
+					if tag
+				]
+		except Exception:
+			entry["description"] = "(failed to load)"
+		return entry
+
+	def _skill_registry_entry(summary: Dict[str, Any]) -> Dict[str, Any]:
+		name = str(summary.get("name", "") or "").strip()
+		skill_obj = getattr(skill_mgr, "_skills", {}).get(name) if skill_mgr else None
+		skill_path = str(getattr(skill_obj, "path", "") or "")
+		builtin_dir = _runtime_settings.builtin_skills_dir.resolve()
+		user_dir = _runtime_settings.user_skills_dir.resolve()
+		builtin = False
+		removable = False
+		if skill_path:
+			try:
+				resolved_path = Path(skill_path).resolve()
+				builtin = _path_within_root(resolved_path, builtin_dir)
+				removable = _path_within_root(resolved_path, user_dir)
+			except Exception:
+				pass
+		entry: Dict[str, Any] = {
+			"id": f"skill:{name}",
+			"kind": "skill",
+			"name": name,
+			"title": _titleize_extension_name(name),
+			"description": str(summary.get("description", "") or ""),
+			"author": str(summary.get("author", "") or ("Numel" if builtin else "Community")),
+			"source": "builtin" if builtin else "shared",
+			"trust": "core" if builtin else "shared",
+			"featured": name in {"git-assistant", "web-search", "commit-helper"},
+			"tags": list(summary.get("tags", []) or []),
+			"version": str(summary.get("version", "") or ""),
+			"enabled": bool(summary.get("enabled", False)),
+			"setup_done": bool(summary.get("setup_done", False)),
+			"builtin": builtin,
+			"removable": removable,
+			"requires": summary.get("requires", {}) or {},
+			"examples": list(summary.get("examples", []) or []),
+			"script_count": len(summary.get("scripts", []) or []),
+			"reference_count": len(summary.get("references", []) or []),
+			"install_count": len(summary.get("install", []) or []),
+			"actions": [
+				"view",
+				"setup",
+				"disable" if bool(summary.get("enabled", False)) else "enable",
+				*(["remove"] if removable else []),
+			],
+		}
+		return entry
+
+	def _extensions_registry_payload() -> Dict[str, Any]:
+		entries: List[Dict[str, Any]] = []
+		for mod_name in _discover_all_toolkit_modules():
+			entries.append(_toolkit_registry_entry(mod_name))
+		if skill_mgr:
+			for summary in skill_mgr.list():
+				entries.append(_skill_registry_entry(summary))
+		entries.sort(
+			key=lambda item: (
+				0 if item.get("featured") else 1,
+				0 if item.get("source") == "builtin" else 1,
+				str(item.get("kind", "")),
+				str(item.get("title", "")).lower(),
+			)
+		)
+		return {
+			"entries": entries,
+			"counts": {
+				"total": len(entries),
+				"toolkits": sum(1 for item in entries if item.get("kind") == "toolkit"),
+				"skills": sum(1 for item in entries if item.get("kind") == "skill"),
+				"featured": sum(1 for item in entries if item.get("featured")),
+			},
+		}
+
 	@app.post("/toolkits/list")
 	async def toolkits_list():
 		"""List all available toolkit modules with descriptions."""
@@ -3899,6 +4165,11 @@ Example (mesh processing with toolkit):
 				entry["description"] = "(failed to load)"
 			results.append(entry)
 		return results
+
+	@app.post("/extensions/registry")
+	async def extensions_registry():
+		"""Unified extension registry for toolkits and skills with creator/source metadata."""
+		return _extensions_registry_payload()
 
 	@app.post("/toolkits/inspect")
 	async def toolkits_inspect(request: dict):

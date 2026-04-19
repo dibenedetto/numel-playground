@@ -4300,6 +4300,27 @@ body.nw-layout-project-workbench .nw-auth-title {
 	gap: 4px;
 }
 
+.nw-ext-registry-summary {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 10px;
+	font-size: 11px;
+	color: var(--sg-text-secondary);
+}
+
+.nw-ext-registry-summary strong {
+	color: var(--sg-text-primary);
+}
+
+.nw-ext-registry-meta,
+.nw-ext-registry-tags {
+	margin-top: 6px;
+	font-size: 11px;
+	line-height: 1.5;
+	color: var(--sg-text-secondary);
+}
+
 .nw-ext-badge {
 	display: inline-flex;
 	align-items: center;
@@ -4335,6 +4356,21 @@ body.nw-layout-project-workbench .nw-auth-title {
 .nw-ext-badge-setup {
 	background: rgba(240, 173, 78, 0.14);
 	color: var(--sg-accent-yellow, #f0ad4e);
+}
+
+.nw-ext-badge-kind {
+	background: rgba(120, 120, 120, 0.12);
+	color: var(--sg-text-primary);
+}
+
+.nw-ext-badge-core {
+	background: rgba(70, 162, 218, 0.12);
+	color: var(--sg-accent-blue, #46a2da);
+}
+
+.nw-ext-badge-featured {
+	background: rgba(242, 184, 55, 0.14);
+	color: var(--sg-accent-yellow, #f2b837);
 }
 
 .nw-ext-empty {

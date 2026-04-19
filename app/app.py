@@ -1275,6 +1275,7 @@ async def run_server(
 		seed_dirs=[str(_runtime_settings.builtin_gallery_dir), str(_runtime_settings.examples_dir)],
 	)
 	gallery_mgr.initialize()
+	app.state.gallery_manager = gallery_mgr
 
 	# ── Autonomous Agent Tasks ────────────────────────────────
 	task_mgr = AgentTaskManager(console_mgr, config_path=str(_runtime_settings.agent_tasks_path))

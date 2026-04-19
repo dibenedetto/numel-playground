@@ -7,6 +7,8 @@
 const NumelExtensions = (() => {
 
 	let _panel;
+	let _registryList;
+	let _registrySummary;
 	let _toolkitList;
 	let _skillList;
 	let _uploadBtn;
@@ -71,7 +73,7 @@ const NumelExtensions = (() => {
 	}
 
 	function _activeTabId() {
-		return document.querySelector('.nw-ext-tab.active')?.dataset.tab || 'extensionsTabToolkits';
+		return document.querySelector('.nw-ext-tab.active')?.dataset.tab || 'extensionsTabRegistry';
 	}
 
 	function _switchTab(tabId) {
@@ -85,8 +87,122 @@ const NumelExtensions = (() => {
 	}
 
 	async function refresh() {
+		if (_activeTabId() === 'extensionsTabRegistry') return _loadRegistry();
 		if (_activeTabId() === 'extensionsTabSkills') return _loadSkills();
 		return _loadToolkits();
+	}
+
+	function _extensionBadgeClass(kind, value) {
+		if (kind === 'kind') return 'nw-ext-badge-kind';
+		if (kind === 'featured') return 'nw-ext-badge-featured';
+		if (kind === 'trust') return value === 'core' ? 'nw-ext-badge-core' : 'nw-ext-badge-shared';
+		if (kind === 'source') return value === 'builtin' ? 'nw-ext-badge-builtin' : 'nw-ext-badge-shared';
+		return '';
+	}
+
+	async function _loadRegistry() {
+		if (!_registryList) return;
+		if (_registrySummary) _registrySummary.innerHTML = '';
+		_registryList.innerHTML = '<div class="nw-ext-empty">Loading extension registry...</div>';
+		try {
+			const payload = await _api().extensionsRegistry();
+			_renderRegistry(payload || { entries: [], counts: {} });
+		} catch (e) {
+			_registryList.innerHTML = `<div class="nw-ext-empty">Error loading extension registry: ${_esc(e.message)}</div>`;
+		}
+	}
+
+	function _renderRegistry(payload) {
+		if (!_registryList) return;
+		const entries = Array.isArray(payload?.entries) ? payload.entries : [];
+		const counts = payload?.counts || {};
+		if (_registrySummary) {
+			_registrySummary.innerHTML = `
+				<strong>${_esc(String(counts.total ?? entries.length))}</strong> extensions
+				<span>· ${_esc(String(counts.toolkits ?? entries.filter(item => item.kind === 'toolkit').length))} toolkits</span>
+				<span>· ${_esc(String(counts.skills ?? entries.filter(item => item.kind === 'skill').length))} skills</span>
+				<span>· ${_esc(String(counts.featured ?? entries.filter(item => item.featured).length))} featured</span>
+			`;
+		}
+		if (!entries.length) {
+			_registryList.innerHTML = '<div class="nw-ext-empty">No extensions are currently available.</div>';
+			return;
+		}
+		_registryList.innerHTML = '';
+		for (const item of entries) {
+			const badges = [
+				`<span class="nw-ext-badge ${_extensionBadgeClass('kind', item.kind)}">${_esc(item.kind === 'toolkit' ? 'Toolkit' : 'Skill')}</span>`,
+				`<span class="nw-ext-badge ${_extensionBadgeClass('source', item.source)}">${_esc(item.source === 'builtin' ? 'Built-in' : 'Shared')}</span>`,
+				`<span class="nw-ext-badge ${_extensionBadgeClass('trust', item.trust)}">${_esc(item.trust === 'core' ? 'Core' : 'Shared')}</span>`,
+				item.featured ? `<span class="nw-ext-badge ${_extensionBadgeClass('featured', 'featured')}">Featured</span>` : '',
+				item.kind === 'skill' ? _boolBadge(!!item.enabled, 'Enabled', 'Disabled') : '',
+				item.kind === 'skill'
+					? `<span class="nw-ext-badge ${item.setup_done ? 'nw-ext-badge-enabled' : 'nw-ext-badge-setup'}">${item.setup_done ? 'Setup Done' : 'Setup Pending'}</span>`
+					: '',
+			].filter(Boolean).join('');
+			const tags = Array.isArray(item.tags) && item.tags.length
+				? `<div class="nw-ext-registry-tags">Tags: ${_esc(item.tags.join(', '))}</div>`
+				: '';
+			const metaBits = [
+				item.author ? `By ${_esc(item.author)}` : '',
+				item.version ? `v${_esc(item.version)}` : '',
+				item.name ? _esc(item.name) : '',
+			].filter(Boolean).join(' · ');
+			const actions = [];
+			if (item.kind === 'toolkit') {
+				actions.push(`<button class="nw-btn nw-btn-sm nw-btn-secondary" data-kind="toolkit" data-action="inspect" data-name="${_escAttr(item.name)}">Inspect</button>`);
+				if (_isAdmin() && item.removable) {
+					actions.push(`<button class="nw-btn nw-btn-sm nw-btn-danger" data-kind="toolkit" data-action="remove" data-name="${_escAttr(item.name)}">Remove</button>`);
+				}
+			} else {
+				actions.push(`<button class="nw-btn nw-btn-sm nw-btn-secondary" data-kind="skill" data-action="view" data-name="${_escAttr(item.name)}">View</button>`);
+				actions.push(`<button class="nw-btn nw-btn-sm nw-btn-secondary" data-kind="skill" data-action="setup" data-name="${_escAttr(item.name)}">Setup</button>`);
+				actions.push(`<button class="nw-btn nw-btn-sm ${item.enabled ? 'nw-btn-secondary' : 'nw-btn-success'}" data-kind="skill" data-action="${item.enabled ? 'disable' : 'enable'}" data-name="${_escAttr(item.name)}">${item.enabled ? 'Disable' : 'Enable'}</button>`);
+				if (item.removable) {
+					actions.push(`<button class="nw-btn nw-btn-sm nw-btn-danger" data-kind="skill" data-action="remove" data-name="${_escAttr(item.name)}">Remove</button>`);
+				}
+			}
+			const card = document.createElement('div');
+			card.className = 'nw-admin-card';
+			card.innerHTML = `
+				<div class="nw-admin-card-header">
+					<span class="nw-admin-card-title">${_esc(item.title || item.name)}</span>
+					<div class="nw-ext-card-badges">${badges}</div>
+				</div>
+				<div class="nw-admin-card-detail">
+					${_esc(item.description || 'No description available.')}
+					<div class="nw-ext-registry-meta">${metaBits || 'Shared extension'}</div>
+					${tags}
+				</div>
+				<div class="nw-admin-card-actions">${actions.join('')}</div>`;
+			card.addEventListener('click', _onRegistryAction);
+			_registryList.appendChild(card);
+		}
+	}
+
+	async function _onRegistryAction(e) {
+		const btn = e.target.closest('[data-action]');
+		if (!btn) return;
+		const kind = btn.dataset.kind;
+		const action = btn.dataset.action;
+		const name = btn.dataset.name;
+		if (!kind || !action || !name) return;
+		if (kind === 'toolkit') {
+			if (action === 'inspect') return _inspectToolkit(name);
+			if (action === 'remove') return _removeToolkit(name);
+			return;
+		}
+		try {
+			if (action === 'view') return _viewSkill(name);
+			if (action === 'setup') return _setupSkill(name);
+			if (action === 'enable') await _api().skillsEnable(name);
+			if (action === 'disable') await _api().skillsDisable(name);
+			if (action === 'remove') return _removeSkill(name);
+			await _loadSkills();
+			await _loadRegistry();
+		} catch (e2) {
+			_messageDialog('Skill Error', `Action failed for "${name}": ${e2.message}`);
+		}
 	}
 
 	async function _loadToolkits() {
@@ -179,6 +295,7 @@ const NumelExtensions = (() => {
 		try {
 			await _api().toolkitRemove(name);
 			await _loadToolkits();
+			await _loadRegistry();
 		} catch (e) {
 			_messageDialog('Toolkit Remove Error', `Could not remove "${name}": ${e.message}`);
 		}
@@ -245,6 +362,7 @@ const NumelExtensions = (() => {
 			if (action === 'disable') await _api().skillsDisable(name);
 			if (action === 'remove') return _removeSkill(name);
 			await _loadSkills();
+			await _loadRegistry();
 		} catch (e2) {
 			_messageDialog('Skill Error', `Action failed for "${name}": ${e2.message}`);
 		}
@@ -288,6 +406,7 @@ const NumelExtensions = (() => {
 				{ wide: true }
 			);
 			await _loadSkills();
+			await _loadRegistry();
 		} catch (e) {
 			_messageDialog('Skill Setup Error', `Could not run setup for "${name}": ${e.message}`);
 		}
@@ -315,6 +434,7 @@ const NumelExtensions = (() => {
 				if (!content.trim()) throw new Error('SKILL.md content is required');
 				await _api().skillsAdd(name, content);
 				await _loadSkills();
+				await _loadRegistry();
 			},
 			{ wide: true, saveText: 'Add Skill' }
 		);
@@ -326,6 +446,7 @@ const NumelExtensions = (() => {
 		try {
 			await _api().skillsRemove(name);
 			await _loadSkills();
+			await _loadRegistry();
 		} catch (e) {
 			_messageDialog('Skill Remove Error', `Could not remove "${name}": ${e.message}`);
 		}
@@ -376,6 +497,7 @@ const NumelExtensions = (() => {
 			const result = await _api().toolkitUpload(formData, true);
 			_messageDialog('Toolkit Uploaded', `Uploaded ${result.module || file.name}${result.has_toolkit_class ? '' : '\n\nWarning: no __toolkit__ class was found.'}`);
 			await _loadToolkits();
+			await _loadRegistry();
 		} catch (e) {
 			_messageDialog('Toolkit Upload Error', e.message);
 		}
@@ -383,6 +505,8 @@ const NumelExtensions = (() => {
 
 	function init() {
 		_panel = document.getElementById('extensionsPanel');
+		_registrySummary = document.getElementById('extensionsRegistrySummary');
+		_registryList = document.getElementById('extensionsRegistryList');
 		_toolkitList = document.getElementById('extensionsToolkitList');
 		_skillList = document.getElementById('extensionsSkillList');
 		_uploadBtn = document.getElementById('extensionsUploadToolkitBtn');
@@ -391,6 +515,7 @@ const NumelExtensions = (() => {
 		document.getElementById('extensionsOpenBtn')?.addEventListener('click', toggle);
 		document.getElementById('extensionsOpenBtnConsole')?.addEventListener('click', toggle);
 		document.getElementById('extensionsCloseBtn')?.addEventListener('click', close);
+		document.getElementById('extensionsRefreshRegistry')?.addEventListener('click', _loadRegistry);
 		document.getElementById('extensionsRefreshToolkits')?.addEventListener('click', _loadToolkits);
 		document.getElementById('extensionsRefreshSkills')?.addEventListener('click', _loadSkills);
 		document.getElementById('extensionsAddSkillBtn')?.addEventListener('click', _showAddSkillDialog);

@@ -1014,11 +1014,20 @@
 				<button id="extensionsCloseBtn" class="nw-console-close">&times;</button>
 			</div>
 			<div class="nw-ext-tabs">
-				<button class="nw-ext-tab active" data-tab="extensionsTabToolkits">Toolkits</button>
+				<button class="nw-ext-tab active" data-tab="extensionsTabRegistry">Registry</button>
+				<button class="nw-ext-tab" data-tab="extensionsTabToolkits">Toolkits</button>
 				<button class="nw-ext-tab" data-tab="extensionsTabSkills">Skills</button>
 			</div>
 			<div class="nw-admin-body">
-				<div id="extensionsTabToolkits" class="nw-ext-tab-content active">
+				<div id="extensionsTabRegistry" class="nw-ext-tab-content active">
+					<div class="nw-admin-toolbar">
+						<button id="extensionsRefreshRegistry" class="nw-btn nw-btn-sm">Refresh</button>
+					</div>
+					<div class="nw-ext-note">Registry brings shared toolkits and skills into one curated surface with creator, source, trust, and setup signals. Use the Toolkits or Skills tabs when you want raw management actions.</div>
+					<div id="extensionsRegistrySummary" class="nw-ext-registry-summary"></div>
+					<div id="extensionsRegistryList" class="nw-admin-list"></div>
+				</div>
+				<div id="extensionsTabToolkits" class="nw-ext-tab-content">
 					<div class="nw-admin-toolbar">
 						<button id="extensionsRefreshToolkits" class="nw-btn nw-btn-sm">Refresh</button>
 						<button id="extensionsUploadToolkitBtn" class="nw-btn nw-btn-sm nw-btn-secondary">Upload Toolkit</button>

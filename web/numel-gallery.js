@@ -114,9 +114,83 @@ class GalleryManager {
 		}
 	}
 
+	_sourceRepoInfo(item) {
+		const source = item?.metadata?.source || {};
+		const namespace = String(source.namespace || '').trim();
+		const slug = String(source.slug || '').trim();
+		const namespaceSlug = String(source.namespace_slug || '').trim();
+		const isPublic = !!source.is_public || String(source.visibility || '').trim().toLowerCase() === 'public';
+		if (!isPublic) return null;
+		if (namespace && slug) {
+			return {
+				namespace,
+				slug,
+				ref: String(source.ref || '').trim() || null,
+				assetPath: String(source.asset_path || '').trim() || 'workflow.json',
+			};
+		}
+		const parts = namespaceSlug.split('/').map((part) => String(part || '').trim()).filter(Boolean);
+		if (parts.length >= 2) {
+			return {
+				namespace: parts[0],
+				slug: parts.slice(1).join('/'),
+				ref: String(source.ref || '').trim() || null,
+				assetPath: String(source.asset_path || '').trim() || 'workflow.json',
+			};
+		}
+		return null;
+	}
+
+	_sourceSummary(item) {
+		const source = item?.metadata?.source || {};
+		const sourceType = String(source.type || '').trim().toLowerCase();
+		if (!sourceType) return '';
+		const locator = String(source.namespace_slug || '').trim();
+		const assetPath = String(source.asset_path || '').trim();
+		if (sourceType === 'commit') {
+			const commitId = String(source.commit_id || '').trim();
+			return locator
+				? `Curated from ${locator}${commitId ? ` @ ${commitId.slice(0, 8)}` : ''}${assetPath ? ` · ${assetPath}` : ''}`
+				: `Curated from snapshot${commitId ? ` ${commitId.slice(0, 8)}` : ''}${assetPath ? ` · ${assetPath}` : ''}`;
+		}
+		const ref = String(source.ref || source.active_ref || '').trim();
+		return locator
+			? `Curated from ${locator}${ref ? ` @ ${ref}` : ''}${assetPath ? ` · ${assetPath}` : ''}`
+			: `Curated from ${sourceType === 'canvas' ? 'canvas state' : 'repo ref'}${ref ? ` ${ref}` : ''}${assetPath ? ` · ${assetPath}` : ''}`;
+	}
+
+	async _openSourceRepo(item, button) {
+		const sourceRepo = this._sourceRepoInfo(item);
+		if (!sourceRepo) return;
+		button.disabled = true;
+		const previousLabel = button.textContent;
+		button.textContent = 'Opening...';
+		try {
+			if (typeof window.openPublicHub !== 'function') {
+				throw new Error('Public Hub is not ready yet');
+			}
+			await window.openPublicHub({
+				mode: 'repo',
+				namespace: sourceRepo.namespace,
+				slug: sourceRepo.slug,
+				ref: sourceRepo.ref,
+			});
+			this.close();
+		} catch (err) {
+			button.textContent = 'Error';
+			setTimeout(() => {
+				button.disabled = false;
+				button.textContent = previousLabel;
+			}, 2000);
+			return;
+		}
+	}
+
 	_makeCard(item) {
 		const card = document.createElement('div');
 		card.className = 'nw-gallery-card';
+		const sourceSummary = this._sourceSummary(item);
+		const sourceRepo = this._sourceRepoInfo(item);
 
 		const title = document.createElement('div');
 		title.className = 'nw-gallery-card-title';
@@ -125,6 +199,10 @@ class GalleryManager {
 		const desc = document.createElement('div');
 		desc.className = 'nw-gallery-card-desc';
 		desc.textContent = item.description || '';
+
+		const source = document.createElement('div');
+		source.className = 'nw-gallery-card-source';
+		source.textContent = sourceSummary;
 
 		const footer = document.createElement('div');
 		footer.className = 'nw-gallery-card-footer';
@@ -137,6 +215,9 @@ class GalleryManager {
 			t.textContent = tag;
 			tags.appendChild(t);
 		}
+
+		const actions = document.createElement('div');
+		actions.className = 'nw-gallery-card-actions';
 
 		const loadBtn = document.createElement('button');
 		loadBtn.className = 'nw-gallery-load-btn';
@@ -156,10 +237,22 @@ class GalleryManager {
 			}
 		});
 
+		actions.appendChild(loadBtn);
+		if (sourceRepo) {
+			const sourceBtn = document.createElement('button');
+			sourceBtn.className = 'nw-gallery-source-btn';
+			sourceBtn.textContent = 'View Source Repo';
+			sourceBtn.addEventListener('click', async () => {
+				await this._openSourceRepo(item, sourceBtn);
+			});
+			actions.appendChild(sourceBtn);
+		}
+
 		footer.appendChild(tags);
-		footer.appendChild(loadBtn);
+		footer.appendChild(actions);
 		card.appendChild(title);
 		if (item.description) card.appendChild(desc);
+		if (sourceSummary) card.appendChild(source);
 		card.appendChild(footer);
 		return card;
 	}

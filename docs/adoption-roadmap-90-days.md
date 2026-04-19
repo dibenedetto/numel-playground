@@ -106,11 +106,12 @@ Progress so far:
 - workflow assets on the active ref can now be opened directly into the current workbench, and the normal workflow save/load/run/history routes now follow that selected asset as well as the selected ref
 - the public side now has fuller namespace pages and public repo pages, with inspect/open/fork flows that do not depend on switching the current workbench first
 - repo history now supports compare and restore at the repo level: compare refs or commits against the active repo state, and restore the active branch from a selected historical commit with one new repo commit
+- reusable template publishing can now target the current canvas, a chosen ref head, or a saved workflow snapshot, with source metadata attached to the published gallery item
+- gallery cards published from public repos now surface their source locator and can jump back to the underlying public repo page, making the gallery feel more like a curated layer over public repos
+- the Extensions panel now has a unified Registry tab that surfaces shared toolkits and skills together with creator, source, trust, featured, and setup signals, which starts the creator-loop side of the roadmap without splitting local and prod behavior
 
 Next execution order:
-1. publish from a chosen ref or snapshot
-2. gallery as a curated layer over public repos
-3. extension registry / interop / creator loop
+1. interop importers / creator loop
 
 ## Parallel Adoption Work
 

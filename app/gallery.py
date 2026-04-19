@@ -29,6 +29,7 @@ class GalleryItem(BaseModel):
 	workflow:    Dict[str, Any] = {}
 	author:      str            = "system"
 	created_at:  float          = 0.0
+	metadata:    Dict[str, Any] = {}
 
 
 class GalleryManager:
@@ -141,7 +142,7 @@ class GalleryManager:
 
 	def publish(self, workflow: dict, title: str, description: str = "",
 	            category: str = "community", tags: List[str] = None,
-	            author: str = "user") -> dict:
+	            author: str = "user", metadata: Optional[Dict[str, Any]] = None) -> dict:
 		item = GalleryItem(
 			id          = str(uuid.uuid4())[:8],
 			title       = title,
@@ -151,6 +152,7 @@ class GalleryManager:
 			workflow    = workflow,
 			author      = author,
 			created_at  = time.time(),
+			metadata    = metadata or {},
 		)
 		self._items[item.id] = item
 		self._save_item(item)
@@ -194,6 +196,8 @@ def setup_gallery_api(app: FastAPI, mgr: GalleryManager):
 		description:   str = ""
 		category:      str = "community"
 		tags:          List[str] = []
+		author:        str = "user"
+		metadata:      Dict[str, Any] = {}
 
 	class RemoveReq(BaseModel):
 		id: str
@@ -213,7 +217,8 @@ def setup_gallery_api(app: FastAPI, mgr: GalleryManager):
 	async def gallery_publish(req: PublishReq):
 		wf = req.workflow or {}
 		return mgr.publish(workflow=wf, title=req.title, description=req.description,
-		                   category=req.category, tags=req.tags)
+		                   category=req.category, tags=req.tags,
+		                   author=req.author, metadata=req.metadata)
 
 	@app.post("/gallery/remove")
 	async def gallery_remove(req: RemoveReq):

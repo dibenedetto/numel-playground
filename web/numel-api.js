@@ -159,6 +159,7 @@ class NumelAPI {
 	deleteWorkflow()              { return this.json('/workflow/delete'); }
 	workflowHistory(limit = 20)   { return this.json('/workflow/history', { limit }); }
 	restoreWorkflowSnapshot(commitId, note = null) { return this.json('/workflow/restore', { commit_id: commitId, note }); }
+	publishWorkflowTemplate(opts = {}) { return this.json('/workflow/publish-template', opts); }
 	startWorkflow(data = null)    { return this.json('/workflow/start', { initial_data: data }); }
 	getExecState(executionId)     { return this.json(`/executions/${encodeURIComponent(executionId)}`); }
 	cancelExecution(executionId)  { return this.json(`/executions/${encodeURIComponent(executionId)}/cancel`); }
@@ -206,6 +207,7 @@ class NumelAPI {
 		return this.upload(`/toolkits/upload?overwrite=${overwrite}`, formData);
 	}
 	toolkitRemove(name)            { return this.json('/toolkits/remove', { name }); }
+	extensionsRegistry()           { return this.json('/extensions/registry'); }
 
 	// ── Skills ──────────────────────────────────────────────────
 
