@@ -693,6 +693,72 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(compare_data["changed_paths"][0]["path"], "workflow.json")
         self.assertEqual(compare_data["changed_paths"][0]["status"], "modified")
 
+    async def test_public_creator_page_exposes_repos_and_published_templates(self) -> None:
+        alice = await self._client.post(
+            "/auth/register",
+            json={"username": "alice", "email": "alice@local", "password": "pass1234"},
+        )
+        self.assertEqual(alice.status_code, 200, alice.text)
+        alice_headers = self._auth_headers(alice.json()["token"])
+
+        create_public = await self._client.post(
+            "/spaces/create",
+            json={
+                "title": "Alice Public Repo",
+                "slug": "alice-public",
+                "visibility": "public",
+            },
+            headers=alice_headers,
+        )
+        self.assertEqual(create_public.status_code, 200, create_public.text)
+
+        save = await self._client.post(
+            "/workflow/save",
+            json={"workflow": _minimal_workflow_payload()},
+            headers=alice_headers,
+        )
+        self.assertEqual(save.status_code, 200, save.text)
+
+        publish = await self._client.post(
+            "/workflow/publish-template",
+            json={
+                "title": "Alice Public Template",
+                "description": "Published from a public repo",
+                "source_kind": "ref",
+                "ref": "main",
+            },
+            headers=alice_headers,
+        )
+        self.assertEqual(publish.status_code, 200, publish.text)
+
+        bob = await self._client.post(
+            "/auth/register",
+            json={"username": "bob", "email": "bob@local", "password": "pass1234"},
+        )
+        self.assertEqual(bob.status_code, 200, bob.text)
+        bob_headers = self._auth_headers(bob.json()["token"])
+
+        creator_page = await self._client.post(
+            "/spaces/public/creator",
+            json={"creator": "alice", "limit": 10},
+            headers=bob_headers,
+        )
+        self.assertEqual(creator_page.status_code, 200, creator_page.text)
+        payload = creator_page.json()
+        self.assertEqual(payload["creator"], "alice")
+        self.assertEqual(payload["repo_count"], 1)
+        self.assertEqual(payload["template_count"], 1)
+        self.assertEqual(
+            [item["namespace_slug"] for item in payload["spaces"]],
+            ["alice/alice-public"],
+        )
+        template = payload["gallery_items"][0]
+        self.assertEqual(template["title"], "Alice Public Template")
+        self.assertEqual(template["author"], "alice")
+        self.assertEqual(template["metadata"]["source"]["namespace"], "alice")
+        self.assertEqual(template["metadata"]["source"]["slug"], "alice-public")
+        self.assertEqual(template["metadata"]["source"]["ref"], "main")
+
     async def test_space_repo_refs_drive_branch_specific_current_workflow(self) -> None:
         register = await self._client.post(
             "/auth/register",

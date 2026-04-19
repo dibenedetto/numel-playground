@@ -109,9 +109,10 @@ Progress so far:
 - reusable template publishing can now target the current canvas, a chosen ref head, or a saved workflow snapshot, with source metadata attached to the published gallery item
 - gallery cards published from public repos now surface their source locator and can jump back to the underlying public repo page, making the gallery feel more like a curated layer over public repos
 - the Extensions panel now has a unified Registry tab that surfaces shared toolkits and skills together with creator, source, trust, featured, and setup signals, which starts the creator-loop side of the roadmap without splitting local and prod behavior
+- the Public Hub now has creator pages that combine one creator's public repos with their published templates, and gallery cards can jump to either the source repo or the creator page, which makes the creator loop much more explicit
 
 Next execution order:
-1. interop importers / creator loop
+1. interop importers
 
 ## Parallel Adoption Work
 

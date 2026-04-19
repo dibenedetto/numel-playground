@@ -290,9 +290,10 @@ And the public side is becoming more hub-like too:
 
 - you can open a repo directly by `owner/slug`
 - you can browse the public repos inside one owner namespace
-- there is now a dedicated **Public Hub** panel for namespace pages and public repo pages before you decide to open or fork something
+- there is now a dedicated **Public Hub** panel for namespace pages, creator pages, and public repo pages before you decide to open or fork something
+- creator pages now show one creator’s public repos together with the templates they have published
 - public repo pages can compare refs or commits before you decide to open or fork
-- gallery items published from a public repo can now point you back to that source repo, so the gallery is starting to behave like a curated layer over real repos
+- gallery items published from a public repo can now point you back to that source repo or to the creator behind it, so the gallery is starting to behave like a curated layer over real repos
 
 When you want to adapt a shared or public space, the normal move is to **fork**
 it into your own space and continue there.

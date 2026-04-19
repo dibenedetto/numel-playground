@@ -124,12 +124,15 @@ class GalleryManager:
 	# ── Public API ────────────────────────────────────────────
 
 	def list(self, category: str = None, tags: List[str] = None,
-	         search: str = None) -> List[dict]:
+	         search: str = None, author: str = None) -> List[dict]:
 		results = list(self._items.values())
 		if category:
 			results = [i for i in results if i.category == category]
 		if tags:
 			results = [i for i in results if set(tags) & set(i.tags)]
+		if author:
+			wanted = str(author).strip().lower()
+			results = [i for i in results if str(i.author or "").strip().lower() == wanted]
 		if search:
 			q = search.lower()
 			results = [i for i in results
@@ -185,6 +188,7 @@ def setup_gallery_api(app: FastAPI, mgr: GalleryManager):
 		category: Optional[str]  = None
 		tags:     Optional[List[str]] = None
 		search:   Optional[str]  = None
+		author:   Optional[str]  = None
 
 	class GetReq(BaseModel):
 		id: str
@@ -204,7 +208,7 @@ def setup_gallery_api(app: FastAPI, mgr: GalleryManager):
 
 	@app.post("/gallery/list")
 	async def gallery_list(req: ListReq):
-		return mgr.list(category=req.category, tags=req.tags, search=req.search)
+		return mgr.list(category=req.category, tags=req.tags, search=req.search, author=req.author)
 
 	@app.post("/gallery/get")
 	async def gallery_get(req: GetReq):

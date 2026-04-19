@@ -186,6 +186,31 @@ class GalleryManager {
 		}
 	}
 
+	async _openCreator(item, button) {
+		const creator = String(item?.author || '').trim();
+		if (!creator) return;
+		button.disabled = true;
+		const previousLabel = button.textContent;
+		button.textContent = 'Opening...';
+		try {
+			if (typeof window.openPublicHub !== 'function') {
+				throw new Error('Public Hub is not ready yet');
+			}
+			await window.openPublicHub({
+				mode: 'creator',
+				creator,
+			});
+			this.close();
+		} catch (err) {
+			button.textContent = 'Error';
+			setTimeout(() => {
+				button.disabled = false;
+				button.textContent = previousLabel;
+			}, 2000);
+			return;
+		}
+	}
+
 	_makeCard(item) {
 		const card = document.createElement('div');
 		card.className = 'nw-gallery-card';
@@ -238,6 +263,15 @@ class GalleryManager {
 		});
 
 		actions.appendChild(loadBtn);
+		if (item.author && String(item.author).trim().toLowerCase() !== 'system') {
+			const creatorBtn = document.createElement('button');
+			creatorBtn.className = 'nw-gallery-source-btn';
+			creatorBtn.textContent = 'View Creator';
+			creatorBtn.addEventListener('click', async () => {
+				await this._openCreator(item, creatorBtn);
+			});
+			actions.appendChild(creatorBtn);
+		}
 		if (sourceRepo) {
 			const sourceBtn = document.createElement('button');
 			sourceBtn.className = 'nw-gallery-source-btn';

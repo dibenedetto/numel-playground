@@ -131,6 +131,7 @@ class NumelAPI {
 	}
 	resolvePublicSpace(namespace, slug) { return this.json('/spaces/public/resolve', { namespace, slug }); }
 	listPublicNamespaceSpaces(namespace) { return this.json('/spaces/public/namespace', { namespace }); }
+	publicCreatorPage(creator, limit = 12) { return this.json('/spaces/public/creator', { creator, limit }); }
 	publicRepoPage(namespace, slug, ref = null, limit = 12) { return this.json('/spaces/public/repo', { namespace, slug, ref, limit }); }
 	readPublicRepoAsset(namespace, slug, path, ref = null) { return this.json('/spaces/public/repo/assets/read', { namespace, slug, path, ref }); }
 	comparePublicRepo(namespace, slug, left, right = null, path = '', limit = 200) {

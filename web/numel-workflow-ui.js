@@ -36,11 +36,13 @@ let _executionFailureView = null;
 let _publicHubState = {
 	mode: 'empty',
 	namespace: '',
+	creator: '',
 	slug: '',
 	ref: '',
 	loading: false,
 	error: '',
 	namespacePayload: null,
+	creatorPayload: null,
 	repoPayload: null,
 };
 
@@ -364,13 +366,70 @@ function _formatPublicHubNamespaceCards(spaces = []) {
 	}).join('');
 }
 
+function _publicHubGallerySourceInfo(item = null) {
+	const source = item?.metadata?.source || {};
+	const namespace = String(source.namespace || '').trim().toLowerCase();
+	const slug = String(source.slug || '').trim().toLowerCase();
+	const namespaceSlug = String(source.namespace_slug || '').trim().toLowerCase();
+	if (namespace && slug) {
+		return {
+			namespace,
+			slug,
+			ref: String(source.ref || '').trim() || null,
+			assetPath: String(source.asset_path || '').trim() || 'workflow.json',
+		};
+	}
+	if (namespaceSlug && namespaceSlug.includes('/')) {
+		const parts = namespaceSlug.split('/').map((part) => String(part || '').trim()).filter(Boolean);
+		if (parts.length >= 2) {
+			return {
+				namespace: parts[0].toLowerCase(),
+				slug: parts.slice(1).join('/').toLowerCase(),
+				ref: String(source.ref || '').trim() || null,
+				assetPath: String(source.asset_path || '').trim() || 'workflow.json',
+			};
+		}
+	}
+	return null;
+}
+
+function _formatCreatorTemplateCards(items = []) {
+	if (!Array.isArray(items) || !items.length) {
+		return '<div class="nw-repo-detail-empty">This creator has not published templates yet.</div>';
+	}
+	return items.map((item) => {
+		const title = String(item?.title || item?.id || 'Untitled Template').trim();
+		const description = String(item?.description || '').trim();
+		const tags = Array.isArray(item?.tags) ? item.tags.filter(Boolean).slice(0, 4) : [];
+		const author = String(item?.author || '').trim();
+		const sourceInfo = _publicHubGallerySourceInfo(item);
+		const sourceLabel = sourceInfo
+			? `${sourceInfo.namespace}/${sourceInfo.slug}${sourceInfo.ref ? ` @ ${sourceInfo.ref}` : ''}`
+			: '';
+		return `
+			<div class="nw-public-hub-card">
+				<div class="nw-public-hub-card-head">
+					<div class="nw-public-hub-card-title">${_escHtml(title)}</div>
+					<div class="nw-public-hub-card-copy">${_escHtml(author || 'Unknown creator')}${sourceLabel ? ` · ${_escHtml(sourceLabel)}` : ''}</div>
+				</div>
+				${description ? `<div class="nw-public-hub-card-description">${_escHtml(description)}</div>` : ''}
+				${tags.length ? `<div class="nw-public-hub-card-description">Tags: ${_escHtml(tags.join(', '))}</div>` : ''}
+				<div class="nw-public-hub-card-actions">
+					<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-public-hub-action="load-template" data-template-id="${_escHtml(item?.id || '')}">Load Template</button>
+					${sourceInfo ? `<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-public-hub-action="view-source-repo" data-namespace="${_escHtml(sourceInfo.namespace)}" data-slug="${_escHtml(sourceInfo.slug)}" data-ref="${_escHtml(sourceInfo.ref || '')}">View Source Repo</button>` : ''}
+				</div>
+			</div>
+		`;
+	}).join('');
+}
+
 function _renderPublicHubView() {
 	const content = $('publicHubContent');
 	const status = $('publicHubStatus');
 	if (!content || !status) return;
 	if (_publicHubState.loading) {
-		status.textContent = 'Loading public repo data...';
-		content.innerHTML = '<div class="nw-repo-detail-empty">Loading public repo data...</div>';
+		status.textContent = 'Loading public hub data...';
+		content.innerHTML = '<div class="nw-repo-detail-empty">Loading public hub data...</div>';
 		return;
 	}
 	if (_publicHubState.error) {
@@ -392,8 +451,42 @@ function _renderPublicHubView() {
 					<div class="nw-public-hub-title">${_escHtml(namespace || 'Unknown owner')}</div>
 					<div class="nw-public-hub-copy">Browse public repos for this owner, inspect a repo page, open one into the current workbench, or fork it into your own scope.</div>
 					<div class="nw-public-hub-meta">${count} public repo${count === 1 ? '' : 's'}</div>
+					<div class="nw-space-detail-actions">
+						<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-public-hub-action="view-creator" data-creator="${_escHtml(namespace)}">View Creator Page</button>
+					</div>
 				</div>
 				<div class="nw-public-hub-card-list">${_formatPublicHubNamespaceCards(payload?.spaces || [])}</div>
+			</div>
+		`;
+		return;
+	}
+	if (_publicHubState.mode === 'creator' && _publicHubState.creatorPayload) {
+		const payload = _publicHubState.creatorPayload;
+		const creator = String(payload?.creator || _publicHubState.creator || '').trim();
+		const repoCount = Number(payload?.repo_count || (payload?.spaces || []).length || 0);
+		const templateCount = Number(payload?.template_count || (payload?.gallery_items || []).length || 0);
+		status.textContent = `${creator} has ${repoCount} public repo${repoCount === 1 ? '' : 's'} and ${templateCount} published template${templateCount === 1 ? '' : 's'}.`;
+		content.innerHTML = `
+			<div class="nw-public-hub-page">
+				<div class="nw-public-hub-hero">
+					<div class="nw-public-hub-eyebrow">Creator Page</div>
+					<div class="nw-public-hub-title">${_escHtml(creator || 'Unknown creator')}</div>
+					<div class="nw-public-hub-copy">Browse this creator’s public repos and published templates together, then open, fork, or reuse what looks promising.</div>
+					<div class="nw-public-hub-meta">${repoCount} public repo${repoCount === 1 ? '' : 's'} · ${templateCount} published template${templateCount === 1 ? '' : 's'}</div>
+					<div class="nw-space-detail-actions">
+						<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-public-hub-action="browse-namespace" data-namespace="${_escHtml(creator)}">Browse Namespace</button>
+					</div>
+				</div>
+				<div class="nw-repo-detail-section">
+					<div class="nw-repo-detail-title">Public repos by ${_escHtml(creator || 'this creator')}</div>
+					<div class="nw-repo-detail-copy">Open a repo page, work directly in the current workbench, or fork one into your own scope.</div>
+					<div class="nw-public-hub-card-list">${_formatPublicHubNamespaceCards(payload?.spaces || [])}</div>
+				</div>
+				<div class="nw-repo-detail-section">
+					<div class="nw-repo-detail-title">Published templates by ${_escHtml(creator || 'this creator')}</div>
+					<div class="nw-repo-detail-copy">Load a template straight into your current space, or jump back to the public repo it came from.</div>
+					<div class="nw-public-hub-card-list">${_formatCreatorTemplateCards(payload?.gallery_items || [])}</div>
+				</div>
 			</div>
 		`;
 		return;
@@ -418,6 +511,7 @@ function _renderPublicHubView() {
 					<div class="nw-space-detail-actions">
 						<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-public-hub-action="copy-locator" data-locator="${_escHtml(locator)}">Copy owner/slug</button>
 						<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-public-hub-action="browse-namespace" data-namespace="${_escHtml(namespace)}">Browse Namespace</button>
+						<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-public-hub-action="view-creator" data-creator="${_escHtml(namespace)}">Creator Page</button>
 						<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-public-hub-action="open-space" data-space-id="${_escHtml(space?.id || '')}">Open In Workbench</button>
 						<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-public-hub-action="fork-space" data-space-id="${_escHtml(space?.id || '')}">Fork Into Mine</button>
 					</div>
@@ -456,8 +550,8 @@ function _renderPublicHubView() {
 		`;
 		return;
 	}
-	status.textContent = 'Browse a public namespace or open a public repo page by owner/slug.';
-	content.innerHTML = '<div class="nw-repo-detail-empty">Public repo and namespace pages will appear here.</div>';
+	status.textContent = 'Browse a public namespace, creator page, or public repo page by owner/slug.';
+	content.innerHTML = '<div class="nw-repo-detail-empty">Public repo, namespace, and creator pages will appear here.</div>';
 }
 
 function _extractWorkflowDisplayName(workflow = null) {
@@ -1377,18 +1471,40 @@ async function _loadPublicHubNamespace(namespace) {
 	if (!api) return;
 	const normalized = String(namespace || '').trim().toLowerCase();
 	if ($('publicHubNamespaceInput')) $('publicHubNamespaceInput').value = normalized;
+	if ($('publicHubCreatorInput')) $('publicHubCreatorInput').value = normalized;
 	if (!normalized) {
-		_publicHubState = { ..._publicHubState, mode: 'empty', namespace: '', slug: '', namespacePayload: null, repoPayload: null, error: 'Enter a namespace to browse.' };
+		_publicHubState = { ..._publicHubState, mode: 'empty', namespace: '', creator: '', slug: '', namespacePayload: null, creatorPayload: null, repoPayload: null, error: 'Enter a namespace to browse.' };
 		_renderPublicHubView();
 		return;
 	}
-	_publicHubState = { ..._publicHubState, loading: true, error: '', mode: 'namespace', namespace: normalized, slug: '', namespacePayload: null, repoPayload: null };
+	_publicHubState = { ..._publicHubState, loading: true, error: '', mode: 'namespace', namespace: normalized, creator: normalized, slug: '', namespacePayload: null, creatorPayload: null, repoPayload: null };
 	_renderPublicHubView();
 	try {
 		const payload = await api.listPublicNamespaceSpaces(normalized);
-		_publicHubState = { ..._publicHubState, loading: false, error: '', mode: 'namespace', namespace: normalized, slug: '', namespacePayload: payload || null, repoPayload: null };
+		_publicHubState = { ..._publicHubState, loading: false, error: '', mode: 'namespace', namespace: normalized, creator: normalized, slug: '', namespacePayload: payload || null, creatorPayload: null, repoPayload: null };
 	} catch (error) {
-		_publicHubState = { ..._publicHubState, loading: false, error: error.message || 'Failed to load public namespace.', namespacePayload: null, repoPayload: null };
+		_publicHubState = { ..._publicHubState, loading: false, error: error.message || 'Failed to load public namespace.', namespacePayload: null, creatorPayload: null, repoPayload: null };
+	}
+	_renderPublicHubView();
+}
+
+async function _loadPublicHubCreator(creator) {
+	if (!api) return;
+	const normalized = String(creator || '').trim().toLowerCase();
+	if ($('publicHubCreatorInput')) $('publicHubCreatorInput').value = normalized;
+	if ($('publicHubNamespaceInput')) $('publicHubNamespaceInput').value = normalized;
+	if (!normalized) {
+		_publicHubState = { ..._publicHubState, mode: 'empty', namespace: '', creator: '', slug: '', namespacePayload: null, creatorPayload: null, repoPayload: null, error: 'Enter a creator name to open a creator page.' };
+		_renderPublicHubView();
+		return;
+	}
+	_publicHubState = { ..._publicHubState, loading: true, error: '', mode: 'creator', namespace: normalized, creator: normalized, slug: '', namespacePayload: null, creatorPayload: null, repoPayload: null };
+	_renderPublicHubView();
+	try {
+		const payload = await api.publicCreatorPage(normalized, 12);
+		_publicHubState = { ..._publicHubState, loading: false, error: '', mode: 'creator', namespace: normalized, creator: normalized, slug: '', namespacePayload: null, creatorPayload: payload || null, repoPayload: null };
+	} catch (error) {
+		_publicHubState = { ..._publicHubState, loading: false, error: error.message || 'Failed to load creator page.', namespacePayload: null, creatorPayload: null, repoPayload: null };
 	}
 	_renderPublicHubView();
 }
@@ -1399,12 +1515,13 @@ async function _loadPublicHubRepo(namespace, slug, ref = null) {
 	const normalizedSlug = String(slug || '').trim().toLowerCase();
 	if ($('publicHubOwnerInput')) $('publicHubOwnerInput').value = normalizedNamespace;
 	if ($('publicHubSlugInput')) $('publicHubSlugInput').value = normalizedSlug;
+	if ($('publicHubCreatorInput')) $('publicHubCreatorInput').value = normalizedNamespace;
 	if (!normalizedNamespace || !normalizedSlug) {
-		_publicHubState = { ..._publicHubState, mode: 'empty', namespace: normalizedNamespace, slug: normalizedSlug, namespacePayload: null, repoPayload: null, error: 'Enter both owner and slug to open a public repo page.' };
+		_publicHubState = { ..._publicHubState, mode: 'empty', namespace: normalizedNamespace, creator: normalizedNamespace, slug: normalizedSlug, namespacePayload: null, creatorPayload: null, repoPayload: null, error: 'Enter both owner and slug to open a public repo page.' };
 		_renderPublicHubView();
 		return;
 	}
-	_publicHubState = { ..._publicHubState, loading: true, error: '', mode: 'repo', namespace: normalizedNamespace, slug: normalizedSlug, ref: String(ref || '').trim(), namespacePayload: null, repoPayload: null };
+	_publicHubState = { ..._publicHubState, loading: true, error: '', mode: 'repo', namespace: normalizedNamespace, creator: normalizedNamespace, slug: normalizedSlug, ref: String(ref || '').trim(), namespacePayload: null, creatorPayload: null, repoPayload: null };
 	_renderPublicHubView();
 	try {
 		const payload = await api.publicRepoPage(normalizedNamespace, normalizedSlug, ref || null, 12);
@@ -1414,13 +1531,15 @@ async function _loadPublicHubRepo(namespace, slug, ref = null) {
 			error: '',
 			mode: 'repo',
 			namespace: normalizedNamespace,
+			creator: normalizedNamespace,
 			slug: normalizedSlug,
 			ref: String(payload?.active_ref || ref || '').trim(),
 			repoPayload: payload || null,
 			namespacePayload: null,
+			creatorPayload: null,
 		};
 	} catch (error) {
-		_publicHubState = { ..._publicHubState, loading: false, error: error.message || 'Failed to load public repo page.', repoPayload: null, namespacePayload: null };
+		_publicHubState = { ..._publicHubState, loading: false, error: error.message || 'Failed to load public repo page.', repoPayload: null, namespacePayload: null, creatorPayload: null };
 	}
 	_renderPublicHubView();
 }
@@ -1431,19 +1550,25 @@ async function openPublicHub(options = {}) {
 	window.closeNumelSidePanels(['publicHub']);
 	panel.classList.add('open');
 	const namespace = String(options.namespace || currentSpaceInfo?.namespace || '').trim().toLowerCase();
+	const creator = String(options.creator || options.namespace || currentSpaceInfo?.namespace || '').trim().toLowerCase();
 	const slug = String(options.slug || currentSpaceInfo?.slug || '').trim().toLowerCase();
 	if ($('publicHubNamespaceInput')) $('publicHubNamespaceInput').value = namespace;
+	if ($('publicHubCreatorInput')) $('publicHubCreatorInput').value = creator;
 	if ($('publicHubOwnerInput')) $('publicHubOwnerInput').value = namespace;
 	if ($('publicHubSlugInput')) $('publicHubSlugInput').value = slug;
 	if (options.mode === 'repo' && namespace && slug) {
 		await _loadPublicHubRepo(namespace, slug, options.ref || null);
 		return;
 	}
+	if (options.mode === 'creator' && creator) {
+		await _loadPublicHubCreator(creator);
+		return;
+	}
 	if (options.mode === 'namespace' && namespace) {
 		await _loadPublicHubNamespace(namespace);
 		return;
 	}
-	_publicHubState = { mode: 'empty', namespace: '', slug: '', ref: '', loading: false, error: '', namespacePayload: null, repoPayload: null };
+	_publicHubState = { mode: 'empty', namespace: '', creator: '', slug: '', ref: '', loading: false, error: '', namespacePayload: null, creatorPayload: null, repoPayload: null };
 	_renderPublicHubView();
 }
 
@@ -1478,6 +1603,14 @@ async function _loadStarterGalleryItem(id) {
 	const item = await api.galleryGet(id);
 	if (!item?.workflow) throw new Error(`Starter workflow "${id}" is unavailable`);
 	await window.loadAndSyncWorkflow(item.workflow, item.title || item.id);
+}
+
+async function _loadGalleryItemIntoWorkbench(id) {
+	if (!api) return;
+	const item = await api.galleryGet(id);
+	if (!item?.workflow) throw new Error(`Gallery item "${id}" is unavailable`);
+	await window.loadAndSyncWorkflow(item.workflow, item.title || item.id);
+	return item;
 }
 
 async function _runStarterAction(action) {
@@ -2301,6 +2434,7 @@ function setupEventListeners() {
 	));
 	$('publicHubClose')?.addEventListener('click', closePublicHub);
 	$('publicHubNamespaceBtn')?.addEventListener('click', () => _loadPublicHubNamespace($('publicHubNamespaceInput')?.value || ''));
+	$('publicHubCreatorBtn')?.addEventListener('click', () => _loadPublicHubCreator($('publicHubCreatorInput')?.value || ''));
 	$('publicHubRepoBtn')?.addEventListener('click', () => _loadPublicHubRepo($('publicHubOwnerInput')?.value || '', $('publicHubSlugInput')?.value || ''));
 	$('publicHubContent')?.addEventListener('click', async (event) => {
 		const button = event.target.closest('[data-public-hub-action], [data-ref-action], [data-asset-action], [data-namespace-action], [data-commit-action]');
@@ -2319,6 +2453,12 @@ function setupEventListeners() {
 				const namespace = button.getAttribute('data-namespace') || _publicHubState.namespace;
 				if ($('publicHubNamespaceInput')) $('publicHubNamespaceInput').value = namespace;
 				await _loadPublicHubNamespace(namespace);
+				return;
+			}
+			if (publicAction === 'view-creator') {
+				const creator = button.getAttribute('data-creator') || _publicHubState.creator || _publicHubState.namespace;
+				if ($('publicHubCreatorInput')) $('publicHubCreatorInput').value = creator;
+				await _loadPublicHubCreator(creator);
 				return;
 			}
 			if (publicAction === 'copy-locator') {
@@ -2349,6 +2489,24 @@ function setupEventListeners() {
 				await refreshSpaceList(true);
 				addLog('success', `🌱 Forked "${_spaceRepoLocator(currentSpaceInfo) || currentSpaceId}" into your spaces`);
 				closePublicHub();
+				return;
+			}
+			if (publicAction === 'load-template') {
+				const templateId = button.getAttribute('data-template-id') || '';
+				if (!templateId) return;
+				if (!await _flushOrDiscardPendingWorkflowChanges('load a creator template from the public hub')) {
+					return;
+				}
+				const item = await _loadGalleryItemIntoWorkbench(templateId);
+				addLog('success', `🧩 Loaded template "${item?.title || templateId}" from the creator page`);
+				closePublicHub();
+				return;
+			}
+			if (publicAction === 'view-source-repo') {
+				const namespace = button.getAttribute('data-namespace') || '';
+				const slug = button.getAttribute('data-slug') || '';
+				const ref = button.getAttribute('data-ref') || '';
+				await _loadPublicHubRepo(namespace, slug, ref || null);
 				return;
 			}
 			if (refAction === 'switch') {

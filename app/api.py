@@ -114,6 +114,11 @@ class PublicNamespaceRequest(BaseModel):
 	namespace : str
 
 
+class PublicCreatorPageRequest(BaseModel):
+	creator : str
+	limit   : int = 12
+
+
 class PublicRepoPageRequest(BaseModel):
 	namespace : str
 	slug      : str
@@ -919,6 +924,43 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			"namespace": namespace,
 			"repo_count": len(public_spaces),
 			"spaces": public_spaces,
+		}
+
+	@app.post("/spaces/public/creator")
+	async def public_creator_page(request: PublicCreatorPageRequest, req: Request):
+		user = await _refresh_user(req)
+		creator = str(request.creator or "").strip().lower()
+		if not creator:
+			raise HTTPException(status_code=400, detail="creator is required")
+		limit = max(1, min(int(request.limit or 12), 50))
+		spaces = await _list_accessible_spaces(req, user.id)
+		decorated = _sort_space_records(
+			await _decorate_space_records(
+				req,
+				spaces,
+				viewer_user_id=user.id,
+				active_ref_overrides=_space_ref_overrides(user),
+				active_asset_overrides=_space_asset_overrides(user),
+			)
+		)
+		public_spaces = [
+			item
+			for item in decorated
+			if item.get("is_public")
+			and str(item.get("namespace", "") or item.get("owner_username", "") or item.get("owner_user_id", "")).strip().lower() == creator
+		]
+		all_gallery_items = _gallery_manager(req).list(author=creator)
+		gallery_items = sorted(
+			all_gallery_items,
+			key=lambda item: float(item.get("created_at") or 0.0),
+			reverse=True,
+		)[:limit]
+		return {
+			"creator": creator,
+			"repo_count": len(public_spaces),
+			"template_count": len(all_gallery_items),
+			"spaces": public_spaces,
+			"gallery_items": gallery_items,
 		}
 
 	@app.post("/spaces/public/repo")

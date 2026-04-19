@@ -253,11 +253,12 @@ The repo details surface now also works as a lightweight repo browser:
 The public side now also has a dedicated **Public Hub** surface:
 
 - namespace pages for browsing all public repos under one owner
+- creator pages that combine one creator's public repos and published templates
 - public repo pages for inspecting one repo before opening or forking it
 - direct open/fork actions from those public pages
 - compare support for public repo refs and commits before you decide to open or fork
 - preview support for public repo assets without first switching the current workbench
-- gallery cards published from public repos can now point you back to the underlying repo page, so the gallery starts acting like a curated layer over real repos instead of a dead-end copy
+- gallery cards published from public repos can now point you back to the underlying repo page or the creator behind it, so the gallery starts acting like a curated layer over real repos instead of a dead-end copy
 
 ---
 
@@ -1137,6 +1138,9 @@ All endpoints use **POST** method unless otherwise noted.
 | `/spaces/current` | Get the selected space, decorated with owner/visibility context |
 | `/spaces/list` | List accessible spaces grouped into mine/shared/public |
 | `/spaces/public/resolve` | Resolve a public space by `namespace + slug` |
+| `/spaces/public/namespace` | Browse public repos inside one namespace |
+| `/spaces/public/creator` | Load one creator page with public repos plus published templates |
+| `/spaces/public/repo` | Load one public repo page with refs, commits, and assets |
 | `/spaces/create` | Create a new space |
 | `/spaces/select` | Switch the selected accessible space |
 | `/spaces/delete` | Delete a space |
