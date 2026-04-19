@@ -99,6 +99,18 @@ Progress so far:
 - current workflows can be published into the gallery as reusable templates
 - the workbench now groups accessible spaces into **Mine**, **Shared**, and **Public**
 - public spaces can be resolved by `namespace + slug`, which lays groundwork for Hugging Face-style repo discovery
+- the space panel now exposes repo details and direct public-repo opening by `owner/slug`
+- the app surface is now ref-aware, so the current workbench can switch branches or tags and the normal workflow save/load/run/history routes follow that active ref
+- the repo details surface now exposes refs plus recent repo commits, moving Numel closer to a real repo-plus-playground model
+- the repo details surface now also exposes visible repo assets plus namespace-level public repo browsing
+
+Next execution order:
+1. richer asset/ref browser
+2. public repo pages and namespace pages
+3. repo-level compare / restore UX
+4. publish from a chosen ref or snapshot
+5. gallery as a curated layer over public repos
+6. extension registry / interop / creator loop
 
 ## Parallel Adoption Work
 

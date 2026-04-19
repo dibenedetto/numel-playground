@@ -831,9 +831,9 @@ class DbGitSpaceProvider(SpaceProvider, ScaffoldComponent):
         return await self.git_store.delete_ref(space_id, name)
 
     async def get_history(
-        self, space_id: str, path: str = "", limit: int = 20
+        self, space_id: str, path: str = "", limit: int = 20, ref: str = "main"
     ) -> List[SpaceCommit]:
-        return await self.git_store.get_history(space_id, path=path, limit=limit)
+        return await self.git_store.get_history(space_id, path=path, limit=limit, ref=ref)
 
     async def get_commit(self, space_id: str, commit_id: str) -> Optional[SpaceCommit]:
         return await self.git_store.get_commit(space_id, commit_id)

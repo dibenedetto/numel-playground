@@ -256,7 +256,7 @@ class SpaceProvider(ABC):
 
     @abstractmethod
     async def get_history(
-        self, space_id: str, path: str = "", limit: int = 20
+        self, space_id: str, path: str = "", limit: int = 20, ref: str = "main"
     ) -> List[SpaceCommit]:
         """Get history for a whole space or a single asset path."""
 

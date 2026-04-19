@@ -743,6 +743,7 @@ def setup_platform_api(app: FastAPI, stack, internal_token: str) -> None:
             space_id,
             path=str(body.get("path", "") or ""),
             limit=int(body.get("limit", 20) or 20),
+            ref=str(body.get("ref", "main") or "main"),
         )
         return {"commits": _jsonable(commits)}
 

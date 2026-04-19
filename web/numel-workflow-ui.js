@@ -143,6 +143,14 @@ function _formatLocalTimestamp(value) {
 	return date.toLocaleString();
 }
 
+function _formatFileSize(bytes) {
+	const value = Number(bytes);
+	if (!Number.isFinite(value) || value <= 0) return '0 B';
+	if (value < 1024) return `${Math.round(value)} B`;
+	if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
+	return `${(value / (1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 ? 0 : 1)} MB`;
+}
+
 function _spaceScopeFor(space = null) {
 	if (!space || typeof space !== 'object') return 'mine';
 	const explicit = String(space.space_view || '').trim().toLowerCase();
@@ -173,6 +181,128 @@ function _setSpaceScope(scope) {
 
 function _canEditCurrentSpace() {
 	return !!currentSpaceInfo?.is_owned;
+}
+
+function _spaceRepoLocator(space = null) {
+	if (!space || typeof space !== 'object') return '';
+	return String(space.namespace_slug || space.slug || space.id || '').trim();
+}
+
+function _spaceVisibilityLabel(space = null) {
+	const visibility = String(space?.visibility || 'private').trim().toLowerCase() || 'private';
+	return visibility.charAt(0).toUpperCase() + visibility.slice(1);
+}
+
+function _spaceActiveRef(space = null) {
+	if (!space || typeof space !== 'object') return 'main';
+	return String(space.active_ref || space.default_ref || 'main').trim() || 'main';
+}
+
+function _spaceDefaultRef(space = null) {
+	if (!space || typeof space !== 'object') return 'main';
+	return String(space.default_ref || 'main').trim() || 'main';
+}
+
+function _formatRepoRefList(refs = [], activeRef = 'main', defaultRef = 'main', editable = false) {
+	if (!Array.isArray(refs) || !refs.length) {
+		return '<div class="nw-repo-detail-empty">No refs were found for this repo yet.</div>';
+	}
+	return refs.map((ref) => {
+		const name = String(ref?.name || '').trim();
+		if (!name) return '';
+		const kind = String(ref?.kind || 'branch').trim().toLowerCase() || 'branch';
+		const isActive = name === activeRef;
+		const isDefault = name === defaultRef;
+		const canDelete = editable && !isActive && !isDefault;
+		return `
+			<div class="nw-repo-ref-row${isActive ? ' is-active' : ''}">
+				<div class="nw-repo-ref-meta">
+					<div class="nw-repo-ref-name">${_escHtml(name)}</div>
+					<div class="nw-repo-ref-copy">
+						${_escHtml(kind)}
+						${isActive ? ' · active here' : ''}
+						${isDefault ? ' · repo default' : ''}
+					</div>
+				</div>
+				<div class="nw-repo-ref-actions">
+					${!isActive ? `<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-ref-action="switch" data-ref-name="${_escHtml(name)}">Switch</button>` : ''}
+					${canDelete ? `<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-ref-action="delete" data-ref-name="${_escHtml(name)}">Delete</button>` : ''}
+				</div>
+			</div>
+		`;
+	}).join('');
+}
+
+function _formatRepoHistoryList(commits = []) {
+	if (!Array.isArray(commits) || !commits.length) {
+		return '<div class="nw-repo-detail-empty">No repo commits are visible on this ref yet.</div>';
+	}
+	return commits.map((commit) => {
+		const commitId = String(commit?.id || '').trim();
+		const shortId = commitId ? commitId.slice(0, 8) : 'unknown';
+		const message = String(commit?.message || '').trim() || 'No commit message';
+		const createdAt = _formatLocalTimestamp(commit?.created_at);
+		const changedCount = Array.isArray(commit?.changed_paths) ? commit.changed_paths.length : 0;
+		return `
+			<div class="nw-repo-history-row">
+				<div class="nw-repo-history-title">${_escHtml(message)}</div>
+				<div class="nw-repo-history-copy">${_escHtml(shortId)} · ${_escHtml(createdAt)}${changedCount ? ` · ${changedCount} path${changedCount === 1 ? '' : 's'}` : ''}</div>
+			</div>
+		`;
+	}).join('');
+}
+
+function _formatRepoAssetList(assets = [], activePath = 'workflow.json') {
+	if (!Array.isArray(assets) || !assets.length) {
+		return '<div class="nw-repo-detail-empty">No assets are visible on this ref yet.</div>';
+	}
+	return assets.map((asset) => {
+		const path = String(asset?.path || '').trim();
+		if (!path) return '';
+		const kind = String(asset?.kind || 'data').trim().toLowerCase() || 'data';
+		const size = Number(asset?.size_bytes || 0);
+		const isCurrent = path === activePath;
+		return `
+			<div class="nw-repo-asset-row${isCurrent ? ' is-current' : ''}">
+				<div class="nw-repo-asset-meta">
+					<div class="nw-repo-asset-name">${_escHtml(path)}</div>
+					<div class="nw-repo-asset-copy">
+						${_escHtml(kind)}
+						${Number.isFinite(size) && size > 0 ? ` · ${_escHtml(_formatFileSize(size))}` : ''}
+						${isCurrent ? ' · current workbench asset' : ''}
+					</div>
+				</div>
+				<div class="nw-repo-asset-actions">
+					<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-asset-action="preview" data-asset-path="${_escHtml(path)}">Preview</button>
+				</div>
+			</div>
+		`;
+	}).join('');
+}
+
+function _formatNamespaceSpaceList(spaces = [], currentLocator = '') {
+	if (!Array.isArray(spaces) || !spaces.length) {
+		return '<div class="nw-repo-detail-empty">No public repos are visible in this namespace yet.</div>';
+	}
+	return spaces.map((space) => {
+		const locator = _spaceRepoLocator(space);
+		const title = space?.title || space?.slug || locator || space?.id || 'Untitled';
+		const description = String(space?.description || '').trim();
+		const activeRef = _spaceActiveRef(space);
+		const isCurrent = locator && locator === currentLocator;
+		return `
+			<div class="nw-namespace-space-row${isCurrent ? ' is-current' : ''}">
+				<div class="nw-namespace-space-meta">
+					<div class="nw-namespace-space-title">${_escHtml(title)}</div>
+					<div class="nw-namespace-space-copy">${_escHtml(locator || space?.id || 'Unknown repo')}${activeRef ? ` · ${_escHtml(activeRef)}` : ''}${isCurrent ? ' · current repo' : ''}</div>
+					${description ? `<div class="nw-namespace-space-description">${_escHtml(description)}</div>` : ''}
+				</div>
+				<div class="nw-namespace-space-actions">
+					${!isCurrent ? `<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-namespace-action="open" data-space-id="${_escHtml(space?.id || '')}">Open</button>` : ''}
+				</div>
+			</div>
+		`;
+	}).join('');
 }
 
 function _extractWorkflowDisplayName(workflow = null) {
@@ -810,20 +940,23 @@ function _renderWorkbenchSpaces() {
 		const title = space.title || space.slug || space.id;
 		const isActive = space.id === currentSpaceId;
 		const scope = _spaceScopeFor(space);
-		const namespace = String(space.namespace_slug || space.slug || space.id || '').trim();
+		const namespace = _spaceRepoLocator(space);
+		const activeRef = _spaceActiveRef(space);
 		let copy = 'Space';
 		if (isActive && _isCurrentWorkflowEmptyState()) {
-			copy = 'Active · ready for a first workflow';
+			copy = `Active · ${namespace} · ${activeRef} · ready for a first workflow`;
 		} else if (isActive) {
-			copy = 'Active · ready to edit and run';
+			copy = `Active · ${namespace} · ${activeRef} · ready to edit and run`;
 		} else if (space?.metadata?.forked_from_space_id) {
-			copy = 'Fork · ready to adapt';
+			copy = `Fork · ${namespace} · ${activeRef}`;
 		} else if (!space?.is_owned && scope === 'public') {
-			copy = `Public · ${namespace}`;
+			copy = `Public · ${namespace} · ${activeRef}`;
 		} else if (!space?.is_owned && scope === 'shared') {
-			copy = `Shared · ${namespace}`;
+			copy = `Shared · ${namespace} · ${activeRef}`;
+		} else if (space?.is_owned && namespace) {
+			copy = `Mine · ${namespace} · ${activeRef}`;
 		} else if (space.visibility) {
-			copy = `${String(space.visibility).charAt(0).toUpperCase()}${String(space.visibility).slice(1)} space`;
+			copy = `${_spaceVisibilityLabel(space)} repo · ${activeRef}`;
 		}
 		return `
 			<button class="nw-space-pill${isActive ? ' is-active' : ''}" type="button" data-space-id="${space.id}">
@@ -857,6 +990,8 @@ function _updateWorkbenchOverview() {
 	const canvasGalleryBtn = $('canvasBrowseGalleryBtn');
 	const canvasRunBtn = $('canvasStartRunBtn');
 	const canvasSaveBtn = $('canvasSaveWorkflowBtn');
+	const repoLocator = _spaceRepoLocator(currentSpaceInfo);
+	const activeRef = _spaceActiveRef(currentSpaceInfo);
 	const spaceName = currentSpaceInfo?.title || currentSpaceInfo?.slug || 'Choose a space';
 	const workflowName = visualizer?.currentWorkflowName || $('singleWorkflowName')?.textContent || 'None';
 	const isReady = !!client?.isConnected && _isAuthenticatedUser();
@@ -882,25 +1017,25 @@ function _updateWorkbenchOverview() {
 		heroTitle = 'Pick a space to begin.';
 		heroSummary = 'Each space is a project workbench. Create one, choose a starter, and run it.';
 	} else if (!currentSpaceInfo.is_owned) {
-		const namespaceSlug = currentSpaceInfo.namespace_slug || currentSpaceInfo.slug || currentSpaceInfo.id || 'space';
+		const namespaceSlug = repoLocator || currentSpaceInfo.slug || currentSpaceInfo.id || 'space';
 		const spaceKind = currentSpaceInfo.space_view === 'public' ? 'public space' : 'shared space';
-		overviewSummary = `Viewing ${spaceKind} "${namespaceSlug}". You can inspect it, run it, and fork it into your own workbench when you want to adapt it.`;
-		canvasSummary = `"${workflowName || 'Current Workflow'}" from ${namespaceSlug}. Inspect it, run it, or fork the space to make changes.`;
+		overviewSummary = `Viewing ${spaceKind} "${namespaceSlug}" on ref "${activeRef}". You can inspect it, run it, and fork it into your own workbench when you want to adapt it.`;
+		canvasSummary = `"${workflowName || 'Current Workflow'}" from ${namespaceSlug} on "${activeRef}". Inspect it, run it, or fork the space to make changes.`;
 		nextTitle = 'Inspect or fork this space.';
 		nextCopy = 'Public and shared spaces are readable here. Fork one into your own scope when you want to adapt it.';
 		heroKicker = currentSpaceInfo.space_view === 'public' ? 'Public space' : 'Shared space';
 		heroTitle = `"${spaceName}"`;
 		heroSummary = 'Inspect the current workflow, run it if useful, and fork the space when you want your own editable copy.';
 	} else if (isEmpty) {
-		overviewSummary = `"${spaceName}" is ready for its first workflow. Pick a starter, open a repo, mini app, support, or ops workbench, or ask the assistant for a draft.`;
-		canvasSummary = `"${spaceName}" is ready. Choose a starter, load a workbench, or ask for a first draft.`;
+		overviewSummary = `"${spaceName}" (${repoLocator || 'repo'}) is ready on ref "${activeRef}". Pick a starter, open a repo, mini app, support, or ops workbench, or ask the assistant for a draft.`;
+		canvasSummary = `"${spaceName}" (${repoLocator || 'repo'}) is ready on "${activeRef}". Choose a starter, load a workbench, or ask for a first draft.`;
 		nextTitle = 'Choose a starting point.';
 		nextCopy = 'Use a ready-made workflow, open a repo, mini app, support, or ops workbench, ask the assistant, or browse the gallery.';
 		heroTitle = `"${spaceName}" is ready for its first workflow.`;
 		heroSummary = 'Choose a starter, open a repo, mini app, support, or ops workbench, ask the assistant to draft one, or browse the gallery.';
 	} else {
-		overviewSummary = `Working in "${spaceName}" — "${workflowName || 'Current Workflow'}" is ready to shape and run.`;
-		canvasSummary = `"${workflowName || 'Current Workflow'}" in "${spaceName}". Edit steps, save, and run when ready.`;
+		overviewSummary = `Working in "${spaceName}" (${repoLocator || 'repo'}) on ref "${activeRef}" — "${workflowName || 'Current Workflow'}" is ready to shape and run.`;
+		canvasSummary = `"${workflowName || 'Current Workflow'}" in "${spaceName}" (${repoLocator || 'repo'}) on "${activeRef}". Edit steps, save, and run when ready.`;
 		nextTitle = 'Edit or run the workflow.';
 		nextCopy = 'Add steps on the canvas, save your changes, and run.';
 		heroKicker = 'Current workflow';
@@ -914,7 +1049,7 @@ function _updateWorkbenchOverview() {
 	if (heroKickerEl) heroKickerEl.textContent = heroKicker;
 	if (heroTitleEl) heroTitleEl.textContent = heroTitle;
 	if (heroSummaryEl) heroSummaryEl.textContent = heroSummary;
-	if (canvasSpaceEl) canvasSpaceEl.textContent = spaceName;
+	if (canvasSpaceEl) canvasSpaceEl.textContent = repoLocator ? `${spaceName} · ${repoLocator}` : spaceName;
 	if (canvasWorkflowEl) canvasWorkflowEl.textContent = workflowName || 'Current Workflow';
 	if (canvasSummaryEl) canvasSummaryEl.textContent = canvasSummary;
 	if (askBtn) askBtn.disabled = !isReady;
@@ -982,6 +1117,8 @@ function _updateWorkbenchOverview() {
 function _syncSpaceControls() {
 	const select = $('spaceSelect');
 	const createBtn = $('createSpaceBtn');
+	const openPublicBtn = $('openPublicSpaceBtn');
+	const inspectBtn = $('inspectSpaceBtn');
 	const forkBtn = $('forkSpaceBtn');
 	const removeBtn = $('removeSpaceBtn');
 	const hasApi = !!api;
@@ -992,6 +1129,12 @@ function _syncSpaceControls() {
 	}
 	if (createBtn) {
 		createBtn.disabled = !hasApi;
+	}
+	if (openPublicBtn) {
+		openPublicBtn.disabled = !hasApi;
+	}
+	if (inspectBtn) {
+		inspectBtn.disabled = !hasApi || !currentSpaceId;
 	}
 	if (forkBtn) {
 		forkBtn.disabled = !hasApi || !currentSpaceId;
@@ -1881,6 +2024,8 @@ function setupEventListeners() {
 		}
 	});
 	$('createSpaceBtn').addEventListener('click', createSpace);
+	$('openPublicSpaceBtn')?.addEventListener('click', openPublicSpaceByNamespace);
+	$('inspectSpaceBtn')?.addEventListener('click', inspectCurrentSpace);
 	$('forkSpaceBtn')?.addEventListener('click', forkCurrentSpace);
 	$('removeSpaceBtn').addEventListener('click', removeCurrentSpace);
 	$('workbenchRunBtn')?.addEventListener('click', () => {
@@ -2648,11 +2793,27 @@ window.getNumelWorkbenchContext = function() {
 	};
 };
 
+async function _flushOrDiscardPendingWorkflowChanges(actionLabel = 'continue') {
+	if (!workflowDirty || !visualizer?.currentWorkflow) return true;
+	if (_canEditCurrentSpace()) {
+		await syncWorkflow();
+		return true;
+	}
+	const discard = await NumelConfirm(
+		'Discard Local Changes',
+		`This repo is currently read-only in this workbench. To ${actionLabel}, Numel needs to discard any unsaved local edits you made while inspecting it.`,
+		'Discard Changes',
+		true,
+		'Keep Inspecting',
+	);
+	return !!discard;
+}
+
 window.openLinkedWorkbench = async function(spaceId, workflowName = '') {
 	if (!api || !spaceId) return false;
 	try {
-		if (workflowDirty && visualizer?.currentWorkflow) {
-			await syncWorkflow();
+		if (!await _flushOrDiscardPendingWorkflowChanges('open the linked workbench')) {
+			return false;
 		}
 		const response = await api.selectSpace(spaceId);
 		currentSpaceInfo = response.space || null;
@@ -2678,8 +2839,8 @@ async function createSpace() {
 	if (title === null || !title.trim()) return;
 
 	try {
-		if (workflowDirty && visualizer?.currentWorkflow) {
-			await syncWorkflow();
+		if (!await _flushOrDiscardPendingWorkflowChanges('create a new repo')) {
+			return;
 		}
 		const response = await api.createSpace(title.trim());
 		currentSpaceInfo = response.space || null;
@@ -2688,6 +2849,456 @@ async function createSpace() {
 		addLog('success', `✅ Created space "${currentSpaceInfo?.title || title.trim()}"`);
 	} catch (error) {
 		addLog('error', `❌ Failed to create space: ${error.message}`);
+	}
+}
+
+function _showPublicSpaceLookupDialog(initialNamespace = '', initialSlug = '') {
+	return new Promise((resolve) => {
+		const overlay = document.createElement('div');
+		overlay.className = 'sg-input-dialog-overlay';
+		overlay.innerHTML = `
+			<div class="sg-input-dialog" style="min-width:320px;max-width:420px">
+				<div class="sg-input-dialog-header">
+					<span class="sg-input-dialog-title">Open Public Repo</span>
+					<button class="sg-input-dialog-close">✕</button>
+				</div>
+				<div class="sg-input-dialog-body">
+					<p class="sg-confirm-dialog-message">Open a public repo directly by its canonical owner/slug identity.</p>
+					<div class="nw-space-open-field">
+						<label for="publicRepoNamespaceInput">Owner</label>
+						<input id="publicRepoNamespaceInput" class="nw-input sg-input-dialog-field" type="text" autocomplete="off" spellcheck="false" placeholder="alice">
+					</div>
+					<div class="nw-space-open-field">
+						<label for="publicRepoSlugInput">Repo slug</label>
+						<input id="publicRepoSlugInput" class="nw-input sg-input-dialog-field" type="text" autocomplete="off" spellcheck="false" placeholder="support-workbench">
+					</div>
+				</div>
+				<div class="sg-input-dialog-footer">
+					<button class="sg-input-dialog-btn sg-input-dialog-cancel">Cancel</button>
+					<button class="sg-input-dialog-btn sg-input-dialog-confirm">Open Repo</button>
+				</div>
+			</div>
+		`;
+		document.body.appendChild(overlay);
+		const namespaceInput = overlay.querySelector('#publicRepoNamespaceInput');
+		const slugInput = overlay.querySelector('#publicRepoSlugInput');
+		if (namespaceInput) namespaceInput.value = initialNamespace;
+		if (slugInput) slugInput.value = initialSlug;
+
+		const close = (value = null) => {
+			overlay.remove();
+			resolve(value);
+		};
+		const submit = () => close({
+			namespace: String(namespaceInput?.value || '').trim(),
+			slug: String(slugInput?.value || '').trim(),
+		});
+
+		overlay.querySelector('.sg-input-dialog-close')?.addEventListener('click', () => close(null));
+		overlay.querySelector('.sg-input-dialog-cancel')?.addEventListener('click', () => close(null));
+		overlay.querySelector('.sg-input-dialog-confirm')?.addEventListener('click', submit);
+		overlay.addEventListener('click', (event) => {
+			if (event.target === overlay) close(null);
+		});
+		overlay.addEventListener('keydown', (event) => {
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				close(null);
+			}
+			if (event.key === 'Enter') {
+				event.preventDefault();
+				submit();
+			}
+		});
+		queueMicrotask(() => namespaceInput?.focus());
+	});
+}
+
+function _showCurrentSpaceDetailsDialog(space = null, repoState = {}) {
+	return new Promise((resolve) => {
+		const overlay = document.createElement('div');
+		const locator = _spaceRepoLocator(space);
+		const namespace = String(space?.namespace || space?.owner_username || '').trim();
+		const forkedFrom = String(space?.metadata?.forked_from_space_id || '').trim();
+		const spaceView = _spaceScopeFor(space);
+		const visibility = _spaceVisibilityLabel(space);
+		const editable = !!space?.is_owned;
+		const activeRef = String(repoState?.active_ref || _spaceActiveRef(space)).trim() || 'main';
+		const defaultRef = String(repoState?.default_ref || _spaceDefaultRef(space)).trim() || 'main';
+		const refsHtml = _formatRepoRefList(repoState?.refs || [], activeRef, defaultRef, editable);
+		const historyHtml = _formatRepoHistoryList(repoState?.commits || []);
+		const assetsHtml = _formatRepoAssetList(repoState?.assets || [], 'workflow.json');
+		overlay.className = 'sg-input-dialog-overlay';
+		overlay.innerHTML = `
+			<div class="sg-input-dialog" style="min-width:360px;max-width:640px">
+				<div class="sg-input-dialog-header">
+					<span class="sg-input-dialog-title">Repo Details</span>
+					<button class="sg-input-dialog-close">✕</button>
+				</div>
+				<div class="sg-input-dialog-body">
+					<p class="sg-confirm-dialog-message">This is the current repo identity behind the active workbench.</p>
+					<div class="nw-space-detail-grid">
+						<div class="nw-space-detail-label">Repo</div>
+						<div class="nw-space-detail-value">${_escHtml(locator || space?.id || 'Unknown')}</div>
+						<div class="nw-space-detail-label">Title</div>
+						<div class="nw-space-detail-value">${_escHtml(space?.title || space?.slug || space?.id || 'Untitled')}</div>
+						<div class="nw-space-detail-label">View</div>
+						<div class="nw-space-detail-value">${_escHtml(spaceView)}</div>
+						<div class="nw-space-detail-label">Visibility</div>
+						<div class="nw-space-detail-value">${_escHtml(visibility)}</div>
+						<div class="nw-space-detail-label">Editable</div>
+						<div class="nw-space-detail-value">${editable ? 'Yes' : 'No — fork it into your own repo first'}</div>
+						<div class="nw-space-detail-label">Active ref</div>
+						<div class="nw-space-detail-value">${_escHtml(activeRef)}</div>
+						<div class="nw-space-detail-label">Repo default</div>
+						<div class="nw-space-detail-value">${_escHtml(defaultRef)}</div>
+						<div class="nw-space-detail-label">Current asset</div>
+						<div class="nw-space-detail-value">workflow.json</div>
+						${forkedFrom ? `<div class="nw-space-detail-label">Forked from</div><div class="nw-space-detail-value">${_escHtml(forkedFrom)}</div>` : ''}
+					</div>
+					<div class="nw-space-detail-note">${editable
+						? 'You own this repo. Saving, snapshots, template publishing, and workflow edits all write back to the active ref you select here.'
+						: 'You are viewing a readable repo. Your active ref is personal to this workbench, so you can inspect another branch here without changing the repo default for everyone else.'}</div>
+					<div class="nw-repo-detail-section">
+						<div class="nw-repo-detail-title">Refs</div>
+						<div class="nw-repo-detail-copy">Switch the active ref for this workbench, or create/delete refs when you own the repo.</div>
+						<div class="nw-repo-ref-list">${refsHtml}</div>
+					</div>
+					<div class="nw-repo-detail-section">
+						<div class="nw-repo-detail-title">Recent commits on ${_escHtml(activeRef)}</div>
+						<div class="nw-repo-detail-copy">This is the repo-level history for the current ref, not just workflow snapshots.</div>
+						<div class="nw-repo-history-list">${historyHtml}</div>
+					</div>
+					<div class="nw-repo-detail-section">
+						<div class="nw-repo-detail-title">Assets on ${_escHtml(activeRef)}</div>
+						<div class="nw-repo-detail-copy">Browse the files visible on this ref. The current workbench still centers on <code>workflow.json</code>, but the repo can contain more than one asset.</div>
+						<div class="nw-repo-asset-list">${assetsHtml}</div>
+					</div>
+					<div class="nw-space-detail-actions">
+						${locator ? '<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="copy-locator">Copy owner/slug</button>' : ''}
+						${namespace ? '<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="browse-namespace">Browse Namespace</button>' : ''}
+						${editable ? '<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="create-branch">Create branch</button>' : ''}
+						${editable ? '<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="create-tag">Create tag</button>' : ''}
+						${!editable ? '<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="fork-space">Fork Into Mine</button>' : ''}
+					</div>
+				</div>
+				<div class="sg-input-dialog-footer">
+					<button class="sg-input-dialog-btn sg-input-dialog-confirm">Close</button>
+				</div>
+			</div>
+		`;
+		document.body.appendChild(overlay);
+		const close = (value = null) => {
+			overlay.remove();
+			resolve(value);
+		};
+		overlay.querySelector('.sg-input-dialog-close')?.addEventListener('click', () => close(null));
+		overlay.querySelector('.sg-input-dialog-confirm')?.addEventListener('click', () => close(null));
+		overlay.querySelector('[data-action="copy-locator"]')?.addEventListener('click', () => close({ action: 'copy-locator', locator }));
+		overlay.querySelector('[data-action="browse-namespace"]')?.addEventListener('click', () => close({ action: 'browse-namespace', namespace }));
+		overlay.querySelector('[data-action="create-branch"]')?.addEventListener('click', () => close({ action: 'create-branch', fromRef: activeRef }));
+		overlay.querySelector('[data-action="create-tag"]')?.addEventListener('click', () => close({ action: 'create-tag', fromRef: activeRef }));
+		overlay.querySelector('[data-action="fork-space"]')?.addEventListener('click', () => close({ action: 'fork-space' }));
+		overlay.querySelectorAll('[data-ref-action="switch"]').forEach((button) => {
+			button.addEventListener('click', () => close({ action: 'switch-ref', name: button.getAttribute('data-ref-name') || '' }));
+		});
+		overlay.querySelectorAll('[data-ref-action="delete"]').forEach((button) => {
+			button.addEventListener('click', () => close({ action: 'delete-ref', name: button.getAttribute('data-ref-name') || '' }));
+		});
+		overlay.querySelectorAll('[data-asset-action="preview"]').forEach((button) => {
+			button.addEventListener('click', () => close({ action: 'preview-asset', path: button.getAttribute('data-asset-path') || '' }));
+		});
+		overlay.addEventListener('click', (event) => {
+			if (event.target === overlay) close(null);
+		});
+		overlay.addEventListener('keydown', (event) => {
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				close(null);
+			}
+		});
+		queueMicrotask(() => overlay.querySelector('.sg-input-dialog-confirm')?.focus());
+	});
+}
+
+function _showRepoAssetPreviewDialog(path, payload = {}) {
+	return new Promise((resolve) => {
+		const overlay = document.createElement('div');
+		const text = typeof payload?.text === 'string' ? payload.text : '';
+		const isText = typeof payload?.text === 'string';
+		const byteLength = payload?.content_base64
+			? Math.floor((String(payload.content_base64).length * 3) / 4)
+			: 0;
+		overlay.className = 'sg-input-dialog-overlay';
+		overlay.innerHTML = `
+			<div class="sg-input-dialog" style="min-width:360px;max-width:760px">
+				<div class="sg-input-dialog-header">
+					<span class="sg-input-dialog-title">Asset Preview</span>
+					<button class="sg-input-dialog-close">✕</button>
+				</div>
+				<div class="sg-input-dialog-body">
+					<div class="nw-repo-detail-copy" style="margin-bottom:10px">${_escHtml(path || 'Unknown asset')}</div>
+					${isText
+						? `<pre class="nw-asset-preview">${_escHtml(text)}</pre>`
+						: `<div class="nw-repo-detail-empty">This asset does not expose UTF-8 text preview here.${byteLength ? ` (${_escHtml(_formatFileSize(byteLength))})` : ''}</div>`}
+				</div>
+				<div class="sg-input-dialog-footer">
+					<button class="sg-input-dialog-btn sg-input-dialog-confirm">Close</button>
+				</div>
+			</div>
+		`;
+		document.body.appendChild(overlay);
+		const close = () => {
+			overlay.remove();
+			resolve();
+		};
+		overlay.querySelector('.sg-input-dialog-close')?.addEventListener('click', close);
+		overlay.querySelector('.sg-input-dialog-confirm')?.addEventListener('click', close);
+		overlay.addEventListener('click', (event) => {
+			if (event.target === overlay) close();
+		});
+		overlay.addEventListener('keydown', (event) => {
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				close();
+			}
+		});
+		queueMicrotask(() => overlay.querySelector('.sg-input-dialog-confirm')?.focus());
+	});
+}
+
+function _showNamespaceBrowserDialog(namespace = '', spaces = [], currentLocator = '') {
+	return new Promise((resolve) => {
+		const overlay = document.createElement('div');
+		const spacesHtml = _formatNamespaceSpaceList(spaces, currentLocator);
+		overlay.className = 'sg-input-dialog-overlay';
+		overlay.innerHTML = `
+			<div class="sg-input-dialog" style="min-width:360px;max-width:680px">
+				<div class="sg-input-dialog-header">
+					<span class="sg-input-dialog-title">Public Namespace</span>
+					<button class="sg-input-dialog-close">✕</button>
+				</div>
+				<div class="sg-input-dialog-body">
+					<div class="nw-repo-detail-title">${_escHtml(namespace || 'Unknown owner')}</div>
+					<div class="nw-repo-detail-copy">Browse public repos in this namespace and open one directly into the current workbench.</div>
+					<div class="nw-namespace-space-list">${spacesHtml}</div>
+				</div>
+				<div class="sg-input-dialog-footer">
+					<button class="sg-input-dialog-btn sg-input-dialog-confirm">Close</button>
+				</div>
+			</div>
+		`;
+		document.body.appendChild(overlay);
+		const close = (value = null) => {
+			overlay.remove();
+			resolve(value);
+		};
+		overlay.querySelector('.sg-input-dialog-close')?.addEventListener('click', () => close(null));
+		overlay.querySelector('.sg-input-dialog-confirm')?.addEventListener('click', () => close(null));
+		overlay.querySelectorAll('[data-namespace-action="open"]').forEach((button) => {
+			button.addEventListener('click', () => close({ action: 'open-space', spaceId: button.getAttribute('data-space-id') || '' }));
+		});
+		overlay.addEventListener('click', (event) => {
+			if (event.target === overlay) close(null);
+		});
+		overlay.addEventListener('keydown', (event) => {
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				close(null);
+			}
+		});
+		queueMicrotask(() => overlay.querySelector('.sg-input-dialog-confirm')?.focus());
+	});
+}
+
+async function openPublicSpaceByNamespace() {
+	if (!api) return;
+	const initialNamespace = currentSpaceInfo?.is_owned ? '' : String(currentSpaceInfo?.namespace || '').trim();
+	const initialSlug = currentSpaceInfo?.is_owned ? '' : String(currentSpaceInfo?.slug || '').trim();
+	const payload = await _showPublicSpaceLookupDialog(initialNamespace, initialSlug);
+	if (!payload) return;
+	if (!payload.namespace || !payload.slug) {
+		await NumelAlert('Open Public Repo', 'Enter both the repo owner and the repo slug.');
+		return;
+	}
+	try {
+		if (!await _flushOrDiscardPendingWorkflowChanges('open a different public repo')) {
+			return;
+		}
+		const resolved = await api.resolvePublicSpace(payload.namespace, payload.slug);
+		const response = await api.selectSpace(resolved?.space?.id || '');
+		currentSpaceInfo = response.space || resolved.space || null;
+		currentSpaceId = currentSpaceInfo?.id || null;
+		_setSpaceScope(_spaceScopeFor(currentSpaceInfo));
+		await loadCurrentWorkflow();
+		addLog('info', `🧭 Opened public repo "${_spaceRepoLocator(currentSpaceInfo) || `${payload.namespace}/${payload.slug}`}"`);
+	} catch (error) {
+		addLog('error', `❌ Failed to open public repo: ${error.message}`);
+		await NumelAlert('Open Public Repo', error.message || 'Failed to open the requested public repo.');
+	}
+}
+
+async function inspectCurrentSpace() {
+	if (!currentSpaceInfo) return;
+	while (currentSpaceInfo) {
+		let repoState = {
+			active_ref: _spaceActiveRef(currentSpaceInfo),
+			default_ref: _spaceDefaultRef(currentSpaceInfo),
+			refs: [],
+			commits: [],
+			assets: [],
+		};
+		try {
+			const [refsPayload, historyPayload, assetsPayload] = await Promise.all([
+				api?.repoRefs?.() || Promise.resolve({}),
+				api?.repoHistory?.(12) || Promise.resolve({}),
+				api?.repoAssets?.('') || Promise.resolve({}),
+			]);
+			repoState = {
+				active_ref: refsPayload?.active_ref || historyPayload?.active_ref || _spaceActiveRef(currentSpaceInfo),
+				default_ref: refsPayload?.default_ref || _spaceDefaultRef(currentSpaceInfo),
+				refs: refsPayload?.refs || [],
+				commits: historyPayload?.commits || [],
+				assets: assetsPayload?.assets || [],
+			};
+		} catch (error) {
+			addLog('error', `❌ Failed to load repo details: ${error.message}`);
+		}
+
+		const action = await _showCurrentSpaceDetailsDialog(currentSpaceInfo, repoState);
+		if (!action) return;
+		if (action.action === 'copy-locator' && action.locator) {
+			try {
+				await navigator.clipboard.writeText(action.locator);
+				addLog('success', `📋 Copied repo id "${action.locator}"`);
+			} catch (error) {
+				addLog('error', `❌ Failed to copy repo id: ${error.message}`);
+				await NumelAlert('Repo Details', error.message || 'Failed to copy the repo id.');
+			}
+			continue;
+		}
+		if (action.action === 'browse-namespace' && action.namespace) {
+			try {
+				const namespacePayload = await api.listPublicNamespaceSpaces(action.namespace);
+				const next = await _showNamespaceBrowserDialog(
+					action.namespace,
+					namespacePayload?.spaces || [],
+					_spaceRepoLocator(currentSpaceInfo),
+				);
+				if (next?.action === 'open-space' && next.spaceId) {
+					if (!await _flushOrDiscardPendingWorkflowChanges('open a repo from this namespace')) {
+						continue;
+					}
+					const response = await api.selectSpace(next.spaceId);
+					currentSpaceInfo = response.space || null;
+					currentSpaceId = currentSpaceInfo?.id || next.spaceId;
+					_setSpaceScope(_spaceScopeFor(currentSpaceInfo));
+					await refreshSpaceList(true);
+					addLog('info', `🧭 Opened public repo "${_spaceRepoLocator(currentSpaceInfo) || currentSpaceId}" from namespace "${action.namespace}"`);
+					return;
+				}
+			} catch (error) {
+				addLog('error', `❌ Failed to browse namespace: ${error.message}`);
+				await NumelAlert('Public Namespace', error.message || 'Failed to load public repos for this namespace.');
+			}
+			continue;
+		}
+		if (action.action === 'preview-asset' && action.path) {
+			try {
+				const payload = await api.readRepoAsset(action.path);
+				await _showRepoAssetPreviewDialog(action.path, payload || {});
+			} catch (error) {
+				addLog('error', `❌ Failed to preview asset: ${error.message}`);
+				await NumelAlert('Asset Preview', error.message || 'Failed to preview the selected asset.');
+			}
+			continue;
+		}
+		if (action.action === 'fork-space') {
+			await forkCurrentSpace();
+			return;
+		}
+		if (action.action === 'create-branch' || action.action === 'create-tag') {
+			await _createRepoRefFromDialog(action.action === 'create-tag' ? 'tag' : 'branch', action.fromRef || repoState.active_ref);
+			continue;
+		}
+		if (action.action === 'switch-ref' && action.name) {
+			await _switchCurrentRepoRef(action.name);
+			continue;
+		}
+		if (action.action === 'delete-ref' && action.name) {
+			await _deleteCurrentRepoRef(action.name);
+			continue;
+		}
+		return;
+	}
+}
+
+async function _switchCurrentRepoRef(refName) {
+	if (!api || !currentSpaceInfo) return false;
+	const nextRef = String(refName || '').trim();
+	if (!nextRef || nextRef === _spaceActiveRef(currentSpaceInfo)) return false;
+	try {
+		if (!await _flushOrDiscardPendingWorkflowChanges(`switch to ref "${nextRef}"`)) {
+			return false;
+		}
+		const response = await api.setRepoRef(nextRef);
+		currentSpaceInfo = response?.space || currentSpaceInfo;
+		currentSpaceId = currentSpaceInfo?.id || currentSpaceId;
+		await refreshSpaceList(true);
+		addLog('success', `🌿 Switched the workbench to ref "${nextRef}"`);
+		return true;
+	} catch (error) {
+		addLog('error', `❌ Failed to switch repo ref: ${error.message}`);
+		await NumelAlert('Repo Details', error.message || 'Failed to switch the active repo ref.');
+		return false;
+	}
+}
+
+async function _createRepoRefFromDialog(kind = 'branch', fromRef = 'main') {
+	if (!api || !currentSpaceInfo) return false;
+	const refKind = String(kind || 'branch').trim().toLowerCase() === 'tag' ? 'tag' : 'branch';
+	const promptTitle = refKind === 'tag' ? 'Create Tag' : 'Create Branch';
+	const promptCopy = refKind === 'tag'
+		? `Choose a new tag name starting from "${fromRef}".`
+		: `Choose a new branch name starting from "${fromRef}".`;
+	const defaultValue = refKind === 'tag'
+		? `${fromRef}-snapshot`
+		: `${fromRef}-copy`;
+	const refName = await NumelPrompt(promptTitle, promptCopy, defaultValue, refKind === 'tag' ? 'Create Tag' : 'Create Branch', defaultValue);
+	if (refName === null || !String(refName).trim()) return false;
+	try {
+		await api.createRepoRef(String(refName).trim(), refKind, fromRef);
+		await refreshSpaceList(false);
+		addLog('success', `🌱 Created ${refKind} "${String(refName).trim()}" from "${fromRef}"`);
+		return true;
+	} catch (error) {
+		addLog('error', `❌ Failed to create ${refKind}: ${error.message}`);
+		await NumelAlert(promptTitle, error.message || `Failed to create the ${refKind}.`);
+		return false;
+	}
+}
+
+async function _deleteCurrentRepoRef(refName) {
+	if (!api || !currentSpaceInfo) return false;
+	const nextRef = String(refName || '').trim();
+	if (!nextRef) return false;
+	const ok = await NumelConfirm(
+		'Delete Ref',
+		`Delete ref "${nextRef}" from "${_spaceRepoLocator(currentSpaceInfo) || currentSpaceInfo.title || currentSpaceInfo.id}"?`,
+		'Delete Ref',
+		true,
+		'Keep Ref',
+	);
+	if (!ok) return false;
+	try {
+		await api.deleteRepoRef(nextRef);
+		await refreshSpaceList(false);
+		addLog('success', `🗑 Deleted ref "${nextRef}"`);
+		return true;
+	} catch (error) {
+		addLog('error', `❌ Failed to delete ref: ${error.message}`);
+		await NumelAlert('Delete Ref', error.message || 'Failed to delete the ref.');
+		return false;
 	}
 }
 
@@ -2704,8 +3315,8 @@ async function forkCurrentSpace() {
 	if (title === null || !title.trim()) return;
 
 	try {
-		if (workflowDirty && visualizer?.currentWorkflow) {
-			await syncWorkflow();
+		if (!await _flushOrDiscardPendingWorkflowChanges('fork this repo')) {
+			return;
 		}
 		const nextTitle = title.trim();
 		const response = await api.forkSpace(currentSpaceId, nextTitle, _slugFromTitle(nextTitle));
@@ -2746,8 +3357,10 @@ async function selectCurrentSpace() {
 	if (!api || !nextSpaceId || nextSpaceId === currentSpaceId) return;
 
 	try {
-		if (workflowDirty && visualizer?.currentWorkflow) {
-			await syncWorkflow();
+		if (!await _flushOrDiscardPendingWorkflowChanges('switch repos')) {
+			const select = $('spaceSelect');
+			if (select && currentSpaceId) select.value = currentSpaceId;
+			return;
 		}
 		const response = await api.selectSpace(nextSpaceId);
 		currentSpaceInfo = response.space || null;

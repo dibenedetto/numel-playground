@@ -270,6 +270,23 @@ You can now also think about spaces in three discovery buckets:
 - **Shared** = spaces you can access but do not own
 - **Public** = spaces other users have exposed for browsing and forking
 
+You can also open a public repo directly by its canonical identity:
+
+- `owner/slug`
+
+Once a repo is open, the workbench can also move across refs:
+
+- see the active ref and the repo default ref
+- switch the workbench to another branch or tag
+- inspect recent repo commits on that ref
+- browse the visible assets on that ref
+- create or delete refs when you own the repo
+
+And the public side is becoming more hub-like too:
+
+- you can open a repo directly by `owner/slug`
+- you can browse the public repos inside one owner namespace
+
 When you want to adapt a shared or public space, the normal move is to **fork**
 it into your own space and continue there.
 

@@ -130,8 +130,18 @@ class NumelAPI {
 		return this.json('/spaces/fork', { space_id: spaceId, title, slug });
 	}
 	resolvePublicSpace(namespace, slug) { return this.json('/spaces/public/resolve', { namespace, slug }); }
+	listPublicNamespaceSpaces(namespace) { return this.json('/spaces/public/namespace', { namespace }); }
 	selectSpace(spaceId)          { return this.json('/spaces/select', { space_id: spaceId }); }
 	deleteSpace(spaceId)          { return this.json('/spaces/delete', { space_id: spaceId }); }
+	repoRefs()                    { return this.json('/spaces/repo/refs'); }
+	setRepoRef(name)              { return this.json('/spaces/repo/ref/set', { name }); }
+	createRepoRef(name, kind = 'branch', fromRef = null) {
+		return this.json('/spaces/repo/refs/create', { name, kind, from_ref: fromRef });
+	}
+	deleteRepoRef(name)           { return this.json('/spaces/repo/refs/delete', { name }); }
+	repoHistory(limit = 20)       { return this.json('/spaces/repo/history', { limit }); }
+	repoAssets(prefix = '')       { return this.json('/spaces/repo/assets', { prefix }); }
+	readRepoAsset(path)           { return this.json('/spaces/repo/assets/read', { path }); }
 	getWorkflow()                 { return this.json('/workflow/get'); }
 	validateWorkflow(workflow, opts = {}) { return this.json('/workflow/validate', { workflow, ...opts }); }
 	saveWorkflow(workflow, opts = {}) { return this.json('/workflow/save', { workflow, ...(opts || {}) }); }

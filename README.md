@@ -226,13 +226,25 @@ Numel spaces now behave like lightweight Git-backed project repos.
 
 1. Create or select a **space** in the Workflow panel
 2. Browse spaces by scope: **Mine**, **Shared**, and **Public**
-3. Open the current workbench for that space
-4. Edit or run the current workflow asset for the selected space
-5. Save snapshots, review history, restore versions, or fork a readable space into your own workbench when you want to adapt it
+3. Open the current workbench for that space, or resolve a public repo directly by `owner/slug`
+4. Inspect repo details, switch the active ref for your workbench, browse visible repo assets, and review recent repo commits
+5. Edit or run the current workflow asset for the selected space and active ref
+6. Save snapshots, review history, restore versions, or fork a readable space into your own workbench when you want to adapt it
 
 The default workbench still centers on one current workflow asset for the selected
 space, but the space itself is the durable unit: history, refs, forking, and
 sharing live at the space/repo level.
+
+The active ref is part of the current workbench context. That means you can
+open a repo, switch from `main` to another branch or tag, and the normal
+workflow save/load/run/history paths will follow that ref instead of silently
+writing back to `main`.
+
+The repo details surface now also works as a lightweight repo browser:
+
+- visible refs and recent commits on the active ref
+- visible assets on the active ref, with preview support
+- public namespace browsing so `owner/slug` discovery does not depend only on direct lookup
 
 ---
 

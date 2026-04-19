@@ -317,11 +317,11 @@ class GitSpaceStore(ScaffoldComponent):
         ]
 
     async def get_history(
-        self, space_id: str, path: str = "", limit: int = 20
+        self, space_id: str, path: str = "", limit: int = 20, ref: str = "main"
     ) -> List[SpaceCommit]:
         repo_dir = self._require_repo(space_id)
         rel = self._normalize_relpath(path) if path else ""
-        cmd = ["log", f"-n{limit}", "--format=%H"]
+        cmd = ["log", ref, f"-n{limit}", "--format=%H"]
         if rel:
             cmd.extend(["--", rel])
         commit_ids = self._git(repo_dir, *cmd)

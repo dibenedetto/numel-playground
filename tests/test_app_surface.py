@@ -556,6 +556,18 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(resolve.status_code, 200, resolve.text)
         self.assertEqual(resolve.json()["space"]["id"], public_space_id)
 
+        namespace_listing = await self._client.post(
+            "/spaces/public/namespace",
+            json={"namespace": "alice"},
+            headers=bob_headers,
+        )
+        self.assertEqual(namespace_listing.status_code, 200, namespace_listing.text)
+        self.assertEqual(namespace_listing.json()["namespace"], "alice")
+        self.assertEqual(
+            [item["id"] for item in namespace_listing.json()["spaces"]],
+            [public_space_id],
+        )
+
         select = await self._client.post(
             "/spaces/select",
             json={"space_id": public_space_id},
@@ -569,6 +581,130 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(current.status_code, 200, current.text)
         self.assertEqual(current.json()["space"]["id"], public_space_id)
         self.assertEqual(current.json()["space"]["space_view"], "public")
+
+    async def test_space_repo_refs_drive_branch_specific_current_workflow(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "alice", "email": "alice@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        save_main = await self._client.post(
+            "/workflow/save",
+            json={"workflow": _minimal_workflow_payload()},
+            headers=headers,
+        )
+        self.assertEqual(save_main.status_code, 200, save_main.text)
+        self.assertEqual(save_main.json()["ref"], "main")
+
+        refs_before = await self._client.post("/spaces/repo/refs", json={}, headers=headers)
+        self.assertEqual(refs_before.status_code, 200, refs_before.text)
+        self.assertEqual(refs_before.json()["active_ref"], "main")
+        self.assertIn("main", {item["name"] for item in refs_before.json()["refs"]})
+
+        create_ref = await self._client.post(
+            "/spaces/repo/refs/create",
+            json={"name": "experiment", "kind": "branch"},
+            headers=headers,
+        )
+        self.assertEqual(create_ref.status_code, 200, create_ref.text)
+
+        switch_ref = await self._client.post(
+            "/spaces/repo/ref/set",
+            json={"name": "experiment"},
+            headers=headers,
+        )
+        self.assertEqual(switch_ref.status_code, 200, switch_ref.text)
+        self.assertEqual(switch_ref.json()["active_ref"], "experiment")
+        self.assertEqual(switch_ref.json()["space"]["active_ref"], "experiment")
+
+        experiment_workflow = _minimal_workflow_payload()
+        experiment_workflow["options"] = dict(experiment_workflow["options"])
+        experiment_workflow["options"]["name"] = "Experiment Workflow"
+        experiment_workflow["options"]["description"] = "Saved on the experiment branch"
+
+        save_experiment = await self._client.post(
+            "/workflow/save",
+            json={"workflow": experiment_workflow},
+            headers=headers,
+        )
+        self.assertEqual(save_experiment.status_code, 200, save_experiment.text)
+        self.assertEqual(save_experiment.json()["ref"], "experiment")
+
+        experiment_loaded = await self._client.post("/workflow/get", json={}, headers=headers)
+        self.assertEqual(experiment_loaded.status_code, 200, experiment_loaded.text)
+        self.assertEqual(experiment_loaded.json()["ref"], "experiment")
+        self.assertEqual(experiment_loaded.json()["workflow"]["options"]["name"], "Experiment Workflow")
+
+        experiment_assets = await self._client.post("/spaces/repo/assets", json={}, headers=headers)
+        self.assertEqual(experiment_assets.status_code, 200, experiment_assets.text)
+        self.assertEqual(experiment_assets.json()["active_ref"], "experiment")
+        self.assertEqual(
+            [item["path"] for item in experiment_assets.json()["assets"]],
+            ["workflow.json"],
+        )
+
+        experiment_asset_read = await self._client.post(
+            "/spaces/repo/assets/read",
+            json={"path": "workflow.json"},
+            headers=headers,
+        )
+        self.assertEqual(experiment_asset_read.status_code, 200, experiment_asset_read.text)
+        self.assertEqual(experiment_asset_read.json()["active_ref"], "experiment")
+        self.assertIn("Experiment Workflow", experiment_asset_read.json()["text"])
+
+        experiment_history = await self._client.post(
+            "/spaces/repo/history",
+            json={"limit": 10},
+            headers=headers,
+        )
+        self.assertEqual(experiment_history.status_code, 200, experiment_history.text)
+        self.assertEqual(experiment_history.json()["active_ref"], "experiment")
+        self.assertTrue(experiment_history.json()["commits"])
+        self.assertIn("Experiment Workflow", experiment_history.json()["commits"][0]["message"])
+
+        switch_main = await self._client.post(
+            "/spaces/repo/ref/set",
+            json={"name": "main"},
+            headers=headers,
+        )
+        self.assertEqual(switch_main.status_code, 200, switch_main.text)
+        self.assertEqual(switch_main.json()["active_ref"], "main")
+
+        reloaded_main = await self._client.post("/workflow/get", json={}, headers=headers)
+        self.assertEqual(reloaded_main.status_code, 200, reloaded_main.text)
+        self.assertEqual(reloaded_main.json()["ref"], "main")
+        self.assertEqual(reloaded_main.json()["workflow"]["options"]["name"], "Surface Workflow")
+
+        main_asset_read = await self._client.post(
+            "/spaces/repo/assets/read",
+            json={"path": "workflow.json"},
+            headers=headers,
+        )
+        self.assertEqual(main_asset_read.status_code, 200, main_asset_read.text)
+        self.assertEqual(main_asset_read.json()["active_ref"], "main")
+        self.assertIn("Surface Workflow", main_asset_read.json()["text"])
+
+        refs_after = await self._client.post("/spaces/repo/refs", json={}, headers=headers)
+        self.assertEqual(refs_after.status_code, 200, refs_after.text)
+        self.assertEqual(
+            {item["name"] for item in refs_after.json()["refs"]},
+            {"experiment", "main"},
+        )
+
+        delete_ref = await self._client.post(
+            "/spaces/repo/refs/delete",
+            json={"name": "experiment"},
+            headers=headers,
+        )
+        self.assertEqual(delete_ref.status_code, 200, delete_ref.text)
+        self.assertTrue(delete_ref.json()["ok"])
+        self.assertEqual(delete_ref.json()["active_ref"], "main")
+        self.assertEqual(
+            {item["name"] for item in delete_ref.json()["refs"]},
+            {"main"},
+        )
 
     async def test_admin_diagnostics_surface_local(self) -> None:
         register = await self._client.post(
@@ -2885,7 +3021,5 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.1)
 
         self.assertEqual(final_status, "completed")
-
-
 
 
