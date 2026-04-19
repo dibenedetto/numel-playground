@@ -229,7 +229,7 @@ Numel spaces now behave like lightweight Git-backed project repos.
 3. Open the current workbench for that space, or resolve a public repo directly by `owner/slug`
 4. Inspect repo details, switch the active ref for your workbench, browse visible repo assets, and review recent repo commits
 5. Edit or run the current workflow asset for the selected space and active ref
-6. Save snapshots, review history, restore versions, or fork a readable space into your own workbench when you want to adapt it
+6. Save snapshots, review history, compare refs or commits, restore the active branch from a selected repo state, or fork a readable space into your own workbench when you want to adapt it
 
 The default workbench still centers on one current workflow asset for the selected
 space, but the space itself is the durable unit: history, refs, forking, and
@@ -244,7 +244,18 @@ The repo details surface now also works as a lightweight repo browser:
 
 - visible refs and recent commits on the active ref
 - visible assets on the active ref, with preview support
+- direct opening of workflow assets from the active ref into the workbench
+- repo-level compare for refs and commits against the current active repo state
+- repo-level restore that writes one new commit onto the active branch when you bring that branch back to a selected historical repo state
 - public namespace browsing so `owner/slug` discovery does not depend only on direct lookup
+
+The public side now also has a dedicated **Public Hub** surface:
+
+- namespace pages for browsing all public repos under one owner
+- public repo pages for inspecting one repo before opening or forking it
+- direct open/fork actions from those public pages
+- compare support for public repo refs and commits before you decide to open or fork
+- preview support for public repo assets without first switching the current workbench
 
 ---
 
@@ -1161,14 +1172,6 @@ All endpoints use **POST** method unless otherwise noted.
 | `/admin/executions` | All execution history |
 | `/admin/executions/{id}` | Get execution detail, metadata, and outputs |
 | `/admin/executions/{id}/cancel` | Cancel a running execution |
-
-### Execution History
-| Endpoint | Description |
-|----------|-------------|
-| `/exec-history` | List history (user-scoped, admins see all) |
-| `/exec-history/{id}` | Get single execution record |
-| `/exec-history/clear` | Clear history |
-| `/exec-history/record` | Record new execution (auto-injects user_id) |
 
 ### Console Agent
 | Endpoint | Description |

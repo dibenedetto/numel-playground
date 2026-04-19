@@ -582,6 +582,117 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(current.json()["space"]["id"], public_space_id)
         self.assertEqual(current.json()["space"]["space_view"], "public")
 
+    async def test_public_repo_page_exposes_refs_history_assets_and_preview(self) -> None:
+        alice = await self._client.post(
+            "/auth/register",
+            json={"username": "alice", "email": "alice@local", "password": "pass1234"},
+        )
+        self.assertEqual(alice.status_code, 200, alice.text)
+        alice_headers = self._auth_headers(alice.json()["token"])
+
+        create_public = await self._client.post(
+            "/spaces/create",
+            json={
+                "title": "Alice Public Repo",
+                "slug": "alice-public",
+                "visibility": "public",
+            },
+            headers=alice_headers,
+        )
+        self.assertEqual(create_public.status_code, 200, create_public.text)
+
+        save = await self._client.post(
+            "/workflow/save",
+            json={"workflow": _minimal_workflow_payload()},
+            headers=alice_headers,
+        )
+        self.assertEqual(save.status_code, 200, save.text)
+
+        create_ref = await self._client.post(
+            "/spaces/repo/refs/create",
+            json={"name": "preview", "kind": "branch"},
+            headers=alice_headers,
+        )
+        self.assertEqual(create_ref.status_code, 200, create_ref.text)
+
+        switch_preview = await self._client.post(
+            "/spaces/repo/ref/set",
+            json={"name": "preview"},
+            headers=alice_headers,
+        )
+        self.assertEqual(switch_preview.status_code, 200, switch_preview.text)
+
+        preview_workflow = _minimal_workflow_payload()
+        preview_workflow["options"] = dict(preview_workflow["options"])
+        preview_workflow["options"]["name"] = "Preview Workflow"
+        preview_workflow["options"]["description"] = "Saved on the preview branch"
+        save_preview = await self._client.post(
+            "/workflow/save",
+            json={"workflow": preview_workflow},
+            headers=alice_headers,
+        )
+        self.assertEqual(save_preview.status_code, 200, save_preview.text)
+
+        switch_main = await self._client.post(
+            "/spaces/repo/ref/set",
+            json={"name": "main"},
+            headers=alice_headers,
+        )
+        self.assertEqual(switch_main.status_code, 200, switch_main.text)
+
+        bob = await self._client.post(
+            "/auth/register",
+            json={"username": "bob", "email": "bob@local", "password": "pass1234"},
+        )
+        self.assertEqual(bob.status_code, 200, bob.text)
+        bob_headers = self._auth_headers(bob.json()["token"])
+
+        repo_page = await self._client.post(
+            "/spaces/public/repo",
+            json={"namespace": "alice", "slug": "alice-public"},
+            headers=bob_headers,
+        )
+        self.assertEqual(repo_page.status_code, 200, repo_page.text)
+        page_data = repo_page.json()
+        self.assertEqual(page_data["space"]["namespace_slug"], "alice/alice-public")
+        self.assertEqual(page_data["default_ref"], "main")
+        self.assertEqual(page_data["active_ref"], "main")
+        self.assertEqual(page_data["namespace_repo_count"], 1)
+        self.assertEqual(
+            {item["name"] for item in page_data["refs"]},
+            {"main", "preview"},
+        )
+        self.assertEqual(
+            [item["path"] for item in page_data["assets"]],
+            ["workflow.json"],
+        )
+        self.assertTrue(page_data["commits"])
+        self.assertEqual(
+            [item["id"] for item in page_data["namespace_spaces"]],
+            [page_data["space"]["id"]],
+        )
+
+        preview = await self._client.post(
+            "/spaces/public/repo/assets/read",
+            json={"namespace": "alice", "slug": "alice-public", "path": "workflow.json"},
+            headers=bob_headers,
+        )
+        self.assertEqual(preview.status_code, 200, preview.text)
+        self.assertEqual(preview.json()["path"], "workflow.json")
+        self.assertEqual(preview.json()["active_ref"], "main")
+        self.assertIn("Surface Workflow", preview.json()["text"])
+
+        compare = await self._client.post(
+            "/spaces/public/repo/compare",
+            json={"namespace": "alice", "slug": "alice-public", "left": "preview", "right": "main"},
+            headers=bob_headers,
+        )
+        self.assertEqual(compare.status_code, 200, compare.text)
+        compare_data = compare.json()["comparison"]
+        self.assertEqual(compare_data["summary"]["total"], 1)
+        self.assertEqual(compare_data["changed_paths"][0]["path"], "workflow.json")
+        self.assertEqual(compare_data["changed_paths"][0]["status"], "modified")
+
     async def test_space_repo_refs_drive_branch_specific_current_workflow(self) -> None:
         register = await self._client.post(
             "/auth/register",
@@ -705,6 +816,197 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
             {item["name"] for item in delete_ref.json()["refs"]},
             {"main"},
         )
+
+    async def test_space_repo_asset_open_switches_current_workflow_asset(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "alice", "email": "alice@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        payload = register.json()
+        headers = self._auth_headers(payload["token"])
+        user_id = payload["user"]["id"]
+
+        save_main = await self._client.post(
+            "/workflow/save",
+            json={"workflow": _minimal_workflow_payload()},
+            headers=headers,
+        )
+        self.assertEqual(save_main.status_code, 200, save_main.text)
+        self.assertEqual(save_main.json()["asset_path"], "workflow.json")
+
+        current_space = await self._client.post("/spaces/current", json={}, headers=headers)
+        self.assertEqual(current_space.status_code, 200, current_space.text)
+        space_id = current_space.json()["space"]["id"]
+
+        alt_workflow = _minimal_workflow_payload()
+        alt_workflow["options"] = dict(alt_workflow["options"])
+        alt_workflow["options"]["name"] = "Alternate Workflow"
+        alt_workflow["options"]["description"] = "Lives at a non-default repo path"
+
+        write_alt = await self._client.post(
+            f"/platform/spaces/{space_id}/assets/write",
+            json={
+                "user_id": user_id,
+                "path": "workflows/alternate.json",
+                "kind": "workflow",
+                "title": "Alternate Workflow",
+                "description": "Lives at a non-default repo path",
+                "executable": True,
+                "text": json.dumps(alt_workflow, indent=2),
+                "message": "Add alternate workflow asset",
+                "ref": "main",
+            },
+            headers=headers,
+        )
+        self.assertEqual(write_alt.status_code, 200, write_alt.text)
+
+        assets = await self._client.post("/spaces/repo/assets", json={}, headers=headers)
+        self.assertEqual(assets.status_code, 200, assets.text)
+        self.assertEqual(
+            [item["path"] for item in assets.json()["assets"]],
+            ["workflow.json", "workflows/alternate.json"],
+        )
+
+        open_alt = await self._client.post(
+            "/spaces/repo/assets/open",
+            json={"path": "workflows/alternate.json"},
+            headers=headers,
+        )
+        self.assertEqual(open_alt.status_code, 200, open_alt.text)
+        self.assertEqual(open_alt.json()["asset_path"], "workflows/alternate.json")
+        self.assertEqual(open_alt.json()["space"]["active_asset_path"], "workflows/alternate.json")
+        self.assertEqual(open_alt.json()["workflow"]["options"]["name"], "Alternate Workflow")
+
+        loaded_alt = await self._client.post("/workflow/get", json={}, headers=headers)
+        self.assertEqual(loaded_alt.status_code, 200, loaded_alt.text)
+        self.assertEqual(loaded_alt.json()["asset_path"], "workflows/alternate.json")
+        self.assertEqual(loaded_alt.json()["workflow"]["options"]["name"], "Alternate Workflow")
+
+        alt_history = await self._client.post("/workflow/history", json={"limit": 10}, headers=headers)
+        self.assertEqual(alt_history.status_code, 200, alt_history.text)
+        self.assertEqual(alt_history.json()["path"], "workflows/alternate.json")
+
+        alt_workflow_saved = json.loads(json.dumps(alt_workflow))
+        alt_workflow_saved["options"]["name"] = "Alternate Workflow Saved"
+        alt_workflow_saved["options"]["description"] = "Updated through the active repo asset"
+
+        save_alt = await self._client.post(
+            "/workflow/save",
+            json={"workflow": alt_workflow_saved},
+            headers=headers,
+        )
+        self.assertEqual(save_alt.status_code, 200, save_alt.text)
+        self.assertEqual(save_alt.json()["asset_path"], "workflows/alternate.json")
+
+        alt_asset_read = await self._client.post(
+            "/spaces/repo/assets/read",
+            json={"path": "workflows/alternate.json"},
+            headers=headers,
+        )
+        self.assertEqual(alt_asset_read.status_code, 200, alt_asset_read.text)
+        self.assertIn("Alternate Workflow Saved", alt_asset_read.json()["text"])
+
+        main_asset_read = await self._client.post(
+            "/spaces/repo/assets/read",
+            json={"path": "workflow.json"},
+            headers=headers,
+        )
+        self.assertEqual(main_asset_read.status_code, 200, main_asset_read.text)
+        self.assertIn("Surface Workflow", main_asset_read.json()["text"])
+
+        start_alt = await self._client.post("/workflow/start", json={}, headers=headers)
+        self.assertEqual(start_alt.status_code, 200, start_alt.text)
+        self.assertEqual(start_alt.json()["asset_path"], "workflows/alternate.json")
+
+        executions = await self._client.post("/executions/list", json={}, headers=headers)
+        self.assertEqual(executions.status_code, 200, executions.text)
+        self.assertEqual(executions.json()["executions"][0]["asset_path"], "workflows/alternate.json")
+
+    async def test_space_repo_compare_and_restore_follow_active_branch(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "alice", "email": "alice@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        save_main = await self._client.post(
+            "/workflow/save",
+            json={"workflow": _minimal_workflow_payload()},
+            headers=headers,
+        )
+        self.assertEqual(save_main.status_code, 200, save_main.text)
+
+        create_ref = await self._client.post(
+            "/spaces/repo/refs/create",
+            json={"name": "experiment", "kind": "branch"},
+            headers=headers,
+        )
+        self.assertEqual(create_ref.status_code, 200, create_ref.text)
+
+        switch_experiment = await self._client.post(
+            "/spaces/repo/ref/set",
+            json={"name": "experiment"},
+            headers=headers,
+        )
+        self.assertEqual(switch_experiment.status_code, 200, switch_experiment.text)
+
+        experiment_workflow = _minimal_workflow_payload()
+        experiment_workflow["options"] = dict(experiment_workflow["options"])
+        experiment_workflow["options"]["name"] = "Experiment Workflow"
+        experiment_workflow["options"]["description"] = "Saved on the experiment branch"
+        save_experiment = await self._client.post(
+            "/workflow/save",
+            json={"workflow": experiment_workflow},
+            headers=headers,
+        )
+        self.assertEqual(save_experiment.status_code, 200, save_experiment.text)
+
+        experiment_history = await self._client.post(
+            "/spaces/repo/history",
+            json={"limit": 5},
+            headers=headers,
+        )
+        self.assertEqual(experiment_history.status_code, 200, experiment_history.text)
+        experiment_commit_id = experiment_history.json()["commits"][0]["id"]
+        self.assertTrue(experiment_commit_id)
+
+        switch_main = await self._client.post(
+            "/spaces/repo/ref/set",
+            json={"name": "main"},
+            headers=headers,
+        )
+        self.assertEqual(switch_main.status_code, 200, switch_main.text)
+
+        compare = await self._client.post(
+            "/spaces/repo/compare",
+            json={"left": experiment_commit_id},
+            headers=headers,
+        )
+        self.assertEqual(compare.status_code, 200, compare.text)
+        compare_data = compare.json()["comparison"]
+        self.assertEqual(compare_data["right"]["selector"], "main")
+        self.assertEqual(compare_data["summary"]["total"], 1)
+        self.assertEqual(compare_data["changed_paths"][0]["path"], "workflow.json")
+        self.assertEqual(compare_data["changed_paths"][0]["status"], "modified")
+
+        restore = await self._client.post(
+            "/spaces/repo/restore",
+            json={"source": experiment_commit_id, "note": "Restore main from experiment"},
+            headers=headers,
+        )
+        self.assertEqual(restore.status_code, 200, restore.text)
+        restore_data = restore.json()
+        self.assertEqual(restore_data["ref"], "main")
+        self.assertEqual(restore_data["asset_path"], "workflow.json")
+        self.assertEqual(restore_data["workflow"]["options"]["name"], "Experiment Workflow")
+        self.assertEqual(restore_data["commit"]["message"], "Restore main from experiment")
+
+        reloaded = await self._client.post("/workflow/get", json={}, headers=headers)
+        self.assertEqual(reloaded.status_code, 200, reloaded.text)
+        self.assertEqual(reloaded.json()["ref"], "main")
+        self.assertEqual(reloaded.json()["workflow"]["options"]["name"], "Experiment Workflow")
 
     async def test_admin_diagnostics_surface_local(self) -> None:
         register = await self._client.post(
@@ -3021,5 +3323,3 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(0.1)
 
         self.assertEqual(final_status, "completed")
-
-

@@ -279,13 +279,18 @@ Once a repo is open, the workbench can also move across refs:
 - see the active ref and the repo default ref
 - switch the workbench to another branch or tag
 - inspect recent repo commits on that ref
+- compare a ref or commit against the current repo state
 - browse the visible assets on that ref
+- open a workflow asset from that ref directly into the current workbench
+- restore your active branch from a selected repo commit when you want to bring that branch back to an earlier state
 - create or delete refs when you own the repo
 
 And the public side is becoming more hub-like too:
 
 - you can open a repo directly by `owner/slug`
 - you can browse the public repos inside one owner namespace
+- there is now a dedicated **Public Hub** panel for namespace pages and public repo pages before you decide to open or fork something
+- public repo pages can compare refs or commits before you decide to open or fork
 
 When you want to adapt a shared or public space, the normal move is to **fork**
 it into your own space and continue there.

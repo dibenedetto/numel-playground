@@ -114,6 +114,29 @@ class PublicNamespaceRequest(BaseModel):
 	namespace : str
 
 
+class PublicRepoPageRequest(BaseModel):
+	namespace : str
+	slug      : str
+	ref       : Optional[str] = None
+	limit     : int = 12
+
+
+class PublicRepoAssetReadRequest(BaseModel):
+	namespace : str
+	slug      : str
+	path      : str
+	ref       : Optional[str] = None
+
+
+class PublicRepoCompareRequest(BaseModel):
+	namespace : str
+	slug      : str
+	left      : str
+	right     : Optional[str] = None
+	path      : str = ""
+	limit     : int = 200
+
+
 class SpaceForkRequest(BaseModel):
 	space_id : Optional[str] = None
 	title    : Optional[str] = None
@@ -139,6 +162,22 @@ class SpaceRepoAssetsRequest(BaseModel):
 
 class SpaceRepoAssetReadRequest(BaseModel):
 	path : str
+
+
+class SpaceRepoAssetOpenRequest(BaseModel):
+	path : str
+
+
+class SpaceRepoCompareRequest(BaseModel):
+	left  : str
+	right : Optional[str] = None
+	path  : str = ""
+	limit : int = 200
+
+
+class SpaceRepoRestoreRequest(BaseModel):
+	source : str
+	note   : Optional[str] = None
 
 
 class SpaceRefCreateRequest(BaseModel):
@@ -357,10 +396,12 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		*,
 		viewer_user_id: str,
 		active_ref_overrides: Optional[Dict[str, str]] = None,
+		active_asset_overrides: Optional[Dict[str, str]] = None,
 	) -> List[Dict[str, Any]]:
 		platform = _platform(req)
 		owner_cache: Dict[str, str] = {}
 		ref_overrides = dict(active_ref_overrides or {})
+		asset_overrides = dict(active_asset_overrides or {})
 		decorated: List[Dict[str, Any]] = []
 		for raw_space in spaces or []:
 			space = dict(raw_space or {})
@@ -382,6 +423,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			space_id = str(space.get("id", "") or "").strip()
 			default_ref = str(space.get("default_ref", "") or "main").strip() or "main"
 			active_ref = str(ref_overrides.get(space_id, "") or default_ref).strip() or default_ref
+			active_asset_path = str(asset_overrides.get(space_id, "") or _CURRENT_WORKFLOW_PATH).strip() or _CURRENT_WORKFLOW_PATH
 			space["owner_username"] = owner_username or None
 			space["namespace"] = namespace
 			space["namespace_slug"] = f"{namespace}/{slug}" if slug else namespace
@@ -391,6 +433,9 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			space["default_ref"] = default_ref
 			space["active_ref"] = active_ref
 			space["active_ref_source"] = "viewer" if space_id in ref_overrides else "default"
+			space["active_asset_path"] = active_asset_path
+			space["active_asset_name"] = Path(active_asset_path).name if active_asset_path else _CURRENT_WORKFLOW_PATH
+			space["active_asset_source"] = "viewer" if space_id in asset_overrides else "default"
 			decorated.append(space)
 		return decorated
 
@@ -459,6 +504,39 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			req.state.user.metadata = metadata
 		return metadata
 
+	def _space_asset_overrides(user) -> Dict[str, str]:
+		metadata = dict(getattr(user, "metadata", {}) or {})
+		raw = metadata.get("space_active_assets", {})
+		if not isinstance(raw, dict):
+			return {}
+		result: Dict[str, str] = {}
+		for raw_space_id, raw_path in raw.items():
+			space_id = str(raw_space_id or "").strip()
+			asset_path = str(raw_path or "").strip()
+			if space_id and asset_path:
+				result[space_id] = asset_path
+		return result
+
+	async def _set_current_space_asset_path(req: Request, user_id: str, space_id: str, asset_path: str):
+		user = await _platform(req).get_user(user_id)
+		metadata = dict(getattr(user, "metadata", {}) or {})
+		asset_overrides = dict(metadata.get("space_active_assets", {}) or {})
+		if asset_path:
+			asset_overrides[str(space_id)] = str(asset_path)
+		else:
+			asset_overrides.pop(str(space_id), None)
+		metadata["space_active_assets"] = asset_overrides
+		try:
+			await _platform(req).post_json(
+				f"/platform/users/{user_id}/update",
+				{"metadata": metadata},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		if getattr(req.state, "user", None) and req.state.user.id == user_id:
+			req.state.user.metadata = metadata
+		return metadata
+
 	async def _create_default_space(req: Request, user) -> Dict[str, Any]:
 		payload = {
 			"user_id": user.id,
@@ -486,6 +564,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 				[space],
 				viewer_user_id=user.id,
 				active_ref_overrides=_space_ref_overrides(user),
+				active_asset_overrides=_space_asset_overrides(user),
 			)
 			return user, (current_decorated[0] if current_decorated else space)
 
@@ -501,6 +580,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			[current],
 			viewer_user_id=user.id,
 			active_ref_overrides=_space_ref_overrides(user),
+			active_asset_overrides=_space_asset_overrides(user),
 		)
 		return user, (current_decorated[0] if current_decorated else current)
 
@@ -509,6 +589,36 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			return "main"
 		ref_name = str(space.get("active_ref", "") or space.get("default_ref", "") or "main").strip()
 		return ref_name or "main"
+
+	def _space_default_ref(space: Optional[Dict[str, Any]]) -> str:
+		if not isinstance(space, dict):
+			return "main"
+		ref_name = str(space.get("default_ref", "") or "main").strip()
+		return ref_name or "main"
+
+	def _space_active_asset_path(space: Optional[Dict[str, Any]]) -> str:
+		if not isinstance(space, dict):
+			return _CURRENT_WORKFLOW_PATH
+		asset_path = str(space.get("active_asset_path", "") or _CURRENT_WORKFLOW_PATH).strip()
+		return asset_path or _CURRENT_WORKFLOW_PATH
+
+	def _is_workflow_asset_record(asset: Optional[Dict[str, Any]]) -> bool:
+		return str((asset or {}).get("kind", "") or "").strip().lower() == "workflow"
+
+	def _pick_workbench_asset_path(
+		assets: List[Dict[str, Any]],
+		preferred_path: str = _CURRENT_WORKFLOW_PATH,
+	) -> Optional[str]:
+		workflow_assets = [asset for asset in (assets or []) if _is_workflow_asset_record(asset)]
+		if not workflow_assets:
+			return None
+		preferred = str(preferred_path or "").strip()
+		if preferred and any(str(item.get("path", "") or "").strip() == preferred for item in workflow_assets):
+			return preferred
+		if any(str(item.get("path", "") or "").strip() == _CURRENT_WORKFLOW_PATH for item in workflow_assets):
+			return _CURRENT_WORKFLOW_PATH
+		workflow_assets.sort(key=lambda item: str(item.get("path", "") or ""))
+		return str(workflow_assets[0].get("path", "") or "").strip() or None
 
 	def _workflow_name_from_doc(doc: Optional[Dict[str, Any]]) -> Optional[str]:
 		if not isinstance(doc, dict):
@@ -533,13 +643,19 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			return Workflow.parse_obj(payload)
 		return Workflow(**payload)
 
-	async def _read_current_workflow_doc(req: Request, user_id: str, space_id: str, ref: str = "main") -> Optional[Dict[str, Any]]:
+	async def _read_workflow_asset_doc(
+		req: Request,
+		user_id: str,
+		space_id: str,
+		path: str,
+		ref: str = "main",
+	) -> Optional[Dict[str, Any]]:
 		try:
 			data = await _platform(req).post_json(
 				f"/platform/spaces/{space_id}/assets/read",
 				{
 					"user_id": user_id,
-					"path": _CURRENT_WORKFLOW_PATH,
+					"path": path,
 					"ref": ref,
 				},
 			)
@@ -554,7 +670,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		try:
 			return json.loads(text)
 		except json.JSONDecodeError as exc:
-			raise HTTPException(status_code=500, detail=f"Saved workflow is invalid JSON: {exc}")
+			raise HTTPException(status_code=500, detail=f"Saved workflow asset '{path}' is invalid JSON: {exc}")
 
 	async def _cache_current_workflow(req: Request, workflow: Workflow) -> str:
 		ws = _ws(req)
@@ -659,6 +775,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 				accessible,
 				viewer_user_id=user.id,
 				active_ref_overrides=ref_overrides,
+				active_asset_overrides=_space_asset_overrides(user),
 			)
 		)
 		mine = [space for space in decorated if space.get("space_view") == "mine"]
@@ -700,6 +817,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			[space],
 			viewer_user_id=user.id,
 			active_ref_overrides=_space_ref_overrides(user),
+			active_asset_overrides=_space_asset_overrides(user),
 		)
 		return {"space": decorated[0] if decorated else space}
 
@@ -717,6 +835,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			[space],
 			viewer_user_id=user.id,
 			active_ref_overrides=_space_ref_overrides(user),
+			active_asset_overrides=_space_asset_overrides(user),
 		)
 		return {"space": decorated[0] if decorated else space}
 
@@ -733,6 +852,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			spaces,
 			viewer_user_id=user.id,
 			active_ref_overrides=_space_ref_overrides(user),
+			active_asset_overrides=_space_asset_overrides(user),
 		)
 		space = next(
 			(
@@ -760,6 +880,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 				spaces,
 				viewer_user_id=user.id,
 				active_ref_overrides=_space_ref_overrides(user),
+				active_asset_overrides=_space_asset_overrides(user),
 			)
 		)
 		public_spaces = [
@@ -770,7 +891,183 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		]
 		return {
 			"namespace": namespace,
+			"repo_count": len(public_spaces),
 			"spaces": public_spaces,
+		}
+
+	@app.post("/spaces/public/repo")
+	async def public_repo_page(request: PublicRepoPageRequest, req: Request):
+		user = await _refresh_user(req)
+		namespace = str(request.namespace or "").strip().lower()
+		slug = str(request.slug or "").strip().lower()
+		if not namespace or not slug:
+			raise HTTPException(status_code=400, detail="namespace and slug are required")
+		spaces = await _list_accessible_spaces(req, user.id)
+		decorated = _sort_space_records(
+			await _decorate_space_records(
+				req,
+				spaces,
+				viewer_user_id=user.id,
+				active_ref_overrides=_space_ref_overrides(user),
+				active_asset_overrides=_space_asset_overrides(user),
+			)
+		)
+		space = next(
+			(
+				item for item in decorated
+				if item.get("is_public")
+				and str(item.get("slug", "") or "").strip().lower() == slug
+				and str(item.get("namespace", "") or item.get("owner_username", "") or item.get("owner_user_id", "")).strip().lower() == namespace
+			),
+			None,
+		)
+		if space is None:
+			raise HTTPException(status_code=404, detail=f"Public space '{namespace}/{slug}' not found")
+		active_ref = str(request.ref or _space_default_ref(space)).strip() or _space_default_ref(space)
+		limit = max(1, min(int(request.limit or 12), 50))
+		try:
+			refs_data = await _platform(req).post_json(
+				f"/platform/spaces/{space['id']}/refs/list",
+				{"user_id": user.id},
+			)
+			history_data = await _platform(req).post_json(
+				f"/platform/spaces/{space['id']}/history",
+				{
+					"user_id": user.id,
+					"path": "",
+					"limit": limit,
+					"ref": active_ref,
+				},
+			)
+			assets_data = await _platform(req).post_json(
+				f"/platform/spaces/{space['id']}/assets/list",
+				{
+					"user_id": user.id,
+					"prefix": "",
+					"ref": active_ref,
+				},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		namespace_spaces = [
+			item
+			for item in decorated
+			if item.get("is_public")
+			and str(item.get("namespace", "") or item.get("owner_username", "") or item.get("owner_user_id", "")).strip().lower() == namespace
+		]
+		return {
+			"space": space,
+			"active_ref": active_ref,
+			"default_ref": _space_default_ref(space),
+			"refs": refs_data.get("refs", []) or [],
+			"commits": history_data.get("commits", []) or [],
+			"assets": assets_data.get("assets", []) or [],
+			"namespace": namespace,
+			"namespace_repo_count": len(namespace_spaces),
+			"namespace_spaces": namespace_spaces,
+		}
+
+	@app.post("/spaces/public/repo/assets/read")
+	async def public_repo_asset_read(request: PublicRepoAssetReadRequest, req: Request):
+		user = await _refresh_user(req)
+		namespace = str(request.namespace or "").strip().lower()
+		slug = str(request.slug or "").strip().lower()
+		path = str(request.path or "").strip()
+		if not namespace or not slug:
+			raise HTTPException(status_code=400, detail="namespace and slug are required")
+		if not path:
+			raise HTTPException(status_code=400, detail="path is required")
+		spaces = await _list_accessible_spaces(req, user.id)
+		decorated = _sort_space_records(
+			await _decorate_space_records(
+				req,
+				spaces,
+				viewer_user_id=user.id,
+				active_ref_overrides=_space_ref_overrides(user),
+				active_asset_overrides=_space_asset_overrides(user),
+			)
+		)
+		space = next(
+			(
+				item for item in decorated
+				if item.get("is_public")
+				and str(item.get("slug", "") or "").strip().lower() == slug
+				and str(item.get("namespace", "") or item.get("owner_username", "") or item.get("owner_user_id", "")).strip().lower() == namespace
+			),
+			None,
+		)
+		if space is None:
+			raise HTTPException(status_code=404, detail=f"Public space '{namespace}/{slug}' not found")
+		active_ref = str(request.ref or _space_default_ref(space)).strip() or _space_default_ref(space)
+		try:
+			data = await _platform(req).post_json(
+				f"/platform/spaces/{space['id']}/assets/read",
+				{
+					"user_id": user.id,
+					"path": path,
+					"ref": active_ref,
+				},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		return {
+			"space": space,
+			"active_ref": active_ref,
+			"path": path,
+			"text": data.get("text"),
+			"content_base64": data.get("content_base64"),
+		}
+
+	@app.post("/spaces/public/repo/compare")
+	async def public_repo_compare(request: PublicRepoCompareRequest, req: Request):
+		user = await _refresh_user(req)
+		namespace = str(request.namespace or "").strip().lower()
+		slug = str(request.slug or "").strip().lower()
+		left = str(request.left or "").strip()
+		if not namespace or not slug:
+			raise HTTPException(status_code=400, detail="namespace and slug are required")
+		if not left:
+			raise HTTPException(status_code=400, detail="left is required")
+		spaces = await _list_accessible_spaces(req, user.id)
+		decorated = _sort_space_records(
+			await _decorate_space_records(
+				req,
+				spaces,
+				viewer_user_id=user.id,
+				active_ref_overrides=_space_ref_overrides(user),
+				active_asset_overrides=_space_asset_overrides(user),
+			)
+		)
+		space = next(
+			(
+				item for item in decorated
+				if item.get("is_public")
+				and str(item.get("slug", "") or "").strip().lower() == slug
+				and str(item.get("namespace", "") or item.get("owner_username", "") or item.get("owner_user_id", "")).strip().lower() == namespace
+			),
+			None,
+		)
+		if space is None:
+			raise HTTPException(status_code=404, detail=f"Public space '{namespace}/{slug}' not found")
+		right = str(request.right or _space_default_ref(space)).strip() or _space_default_ref(space)
+		try:
+			data = await _platform(req).post_json(
+				f"/platform/spaces/{space['id']}/compare",
+				{
+					"user_id": user.id,
+					"left": left,
+					"right": right,
+					"path": str(request.path or ""),
+					"limit": max(1, min(int(request.limit or 200), 500)),
+				},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		return {
+			"space": space,
+			"namespace": namespace,
+			"active_ref": right,
+			"comparison": data.get("comparison", {}) or {},
 		}
 
 	@app.post("/spaces/delete")
@@ -824,12 +1121,16 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			source_active_ref = _space_active_ref(current)
 			if source_active_ref:
 				await _set_current_space_ref(req, user.id, space_id, source_active_ref)
+			source_active_asset = _space_active_asset_path(current)
+			if source_active_asset:
+				await _set_current_space_asset_path(req, user.id, space_id, source_active_asset)
 		await _clear_cached_workflow(req)
 		decorated = await _decorate_space_records(
 			req,
 			[space],
 			viewer_user_id=user.id,
 			active_ref_overrides=_space_ref_overrides(user),
+			active_asset_overrides=_space_asset_overrides(user),
 		)
 		return {"space": decorated[0] if decorated else space}
 
@@ -962,6 +1263,33 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			"commits": data.get("commits", []) or [],
 		}
 
+	@app.post("/spaces/repo/compare")
+	async def current_space_repo_compare(request: SpaceRepoCompareRequest, req: Request):
+		user, space = await _ensure_current_space(req)
+		active_ref = _space_active_ref(space)
+		left = str(request.left or "").strip()
+		right = str(request.right or active_ref).strip() or active_ref
+		if not left:
+			raise HTTPException(status_code=400, detail="left is required")
+		try:
+			data = await _platform(req).post_json(
+				f"/platform/spaces/{space['id']}/compare",
+				{
+					"user_id": user.id,
+					"left": left,
+					"right": right,
+					"path": str(request.path or ""),
+					"limit": max(1, min(int(request.limit or 200), 500)),
+				},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		return {
+			"space": space,
+			"active_ref": active_ref,
+			"comparison": data.get("comparison", {}) or {},
+		}
+
 	@app.post("/spaces/repo/assets")
 	async def current_space_repo_assets(request: SpaceRepoAssetsRequest, req: Request):
 		user, space = await _ensure_current_space(req)
@@ -1009,11 +1337,106 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			"content_base64": data.get("content_base64"),
 		}
 
+	@app.post("/spaces/repo/assets/open")
+	async def current_space_repo_asset_open(request: SpaceRepoAssetOpenRequest, req: Request):
+		user, space = await _ensure_current_space(req)
+		path = str(request.path or "").strip()
+		if not path:
+			raise HTTPException(status_code=400, detail="path is required")
+		active_ref = _space_active_ref(space)
+		doc = await _read_workflow_asset_doc(req, user.id, str(space.get("id", "") or ""), path=path, ref=active_ref)
+		if doc is None:
+			raise HTTPException(status_code=404, detail=f"Workflow asset '{path}' was not found on ref '{active_ref}'")
+		validation = validate_workflow_payload(doc, apply_repairs=True)
+		if not validation["valid"]:
+			raise HTTPException(
+				status_code=400,
+				detail={
+					"message": f"Workflow asset '{path}' is not a valid runnable workflow",
+					"errors": validation["errors"],
+					"warnings": validation["warnings"],
+					"repairs": validation["repairs"],
+				},
+			)
+		doc = validation["workflow"]
+		workflow = _workflow_model_from_doc(doc)
+		await _set_current_space_asset_path(req, user.id, str(space.get("id", "") or ""), path)
+		await _cache_current_workflow(req, workflow)
+		_, updated_space = await _ensure_current_space(req)
+		return {
+			"space": updated_space,
+			"ref": active_ref,
+			"asset_path": path,
+			"name": _workflow_name_from_doc(doc) or Path(path).stem or "Workflow",
+			"workflow": doc,
+			"status": "opened",
+		}
+
+	@app.post("/spaces/repo/restore")
+	async def current_space_repo_restore(request: SpaceRepoRestoreRequest, req: Request):
+		user, space = await _ensure_current_space(req)
+		source = str(request.source or "").strip()
+		if not source:
+			raise HTTPException(status_code=400, detail="source is required")
+		active_ref = _space_active_ref(space)
+		try:
+			refs_data = await _platform(req).post_json(
+				f"/platform/spaces/{space['id']}/refs/list",
+				{"user_id": user.id},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		ref_map = {
+			str(item.get("name", "") or "").strip(): str(item.get("kind", "") or "").strip().lower()
+			for item in (refs_data.get("refs", []) or [])
+		}
+		if ref_map.get(active_ref) != "branch":
+			raise HTTPException(status_code=400, detail="Switch to a branch before restoring repo history into it")
+		try:
+			data = await _platform(req).post_json(
+				f"/platform/spaces/{space['id']}/restore",
+				{
+					"user_id": user.id,
+					"source": source,
+					"target_ref": active_ref,
+					"message": str(request.note or "").strip(),
+				},
+			)
+			assets_data = await _platform(req).post_json(
+				f"/platform/spaces/{space['id']}/assets/list",
+				{
+					"user_id": user.id,
+					"prefix": "",
+					"ref": active_ref,
+				},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		assets = assets_data.get("assets", []) or []
+		asset_path = _pick_workbench_asset_path(assets, _space_active_asset_path(space)) or _space_active_asset_path(space)
+		await _set_current_space_asset_path(req, user.id, str(space.get("id", "") or ""), asset_path)
+		doc = await _read_workflow_asset_doc(req, user.id, str(space.get("id", "") or ""), path=asset_path, ref=active_ref)
+		if doc is not None:
+			await _cache_current_workflow(req, _workflow_model_from_doc(doc))
+		else:
+			await _clear_cached_workflow(req)
+		_, updated_space = await _ensure_current_space(req)
+		return {
+			"space": updated_space,
+			"ref": active_ref,
+			"asset_path": asset_path,
+			"name": _workflow_name_from_doc(doc) or (Path(asset_path).stem if doc is not None else "Workflow"),
+			"workflow": doc,
+			"commit": data.get("commit"),
+			"status": "restored",
+		}
+
 	@app.post("/workflow/get")
 	async def get_current_workflow(req: Request):
 		user, space = await _ensure_current_space(req)
 		active_ref = _space_active_ref(space)
-		doc = await _read_current_workflow_doc(req, user.id, str(space.get("id", "") or ""), ref=active_ref)
+		asset_path = _space_active_asset_path(space)
+		doc = await _read_workflow_asset_doc(req, user.id, str(space.get("id", "") or ""), path=asset_path, ref=active_ref)
 		if doc is not None:
 			try:
 				await _cache_current_workflow(req, _workflow_model_from_doc(doc))
@@ -1022,7 +1445,8 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		return {
 			"space": space,
 			"ref": active_ref,
-			"name": _workflow_name_from_doc(doc),
+			"asset_path": asset_path,
+			"name": _workflow_name_from_doc(doc) or Path(asset_path).stem or "Workflow",
 			"workflow": doc,
 		}
 
@@ -1048,6 +1472,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 	async def save_current_workflow(request: CurrentWorkflowSaveRequest, req: Request):
 		user, space = await _ensure_current_space(req)
 		active_ref = _space_active_ref(space)
+		asset_path = _space_active_asset_path(space)
 		validation = validate_workflow_payload(
 			_workflow_doc_from_model(request.workflow),
 			apply_repairs=True,
@@ -1075,7 +1500,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 				f"/platform/spaces/{space['id']}/assets/write",
 				{
 					"user_id": user.id,
-					"path": _CURRENT_WORKFLOW_PATH,
+					"path": asset_path,
 					"kind": "workflow",
 					"title": name,
 					"description": getattr(getattr(workflow, "options", None), "description", "") or "",
@@ -1092,6 +1517,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		return {
 			"space": space,
 			"ref": active_ref,
+			"asset_path": asset_path,
 			"name": name,
 			"workflow": doc,
 			"status": "saved",
@@ -1101,6 +1527,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 	@app.post("/workflow/impl")
 	async def ensure_current_workflow_impl(req: Request):
 		user, space = await _ensure_current_space(req)
+		asset_path = _space_active_asset_path(space)
 		ws = _ws(req)
 		impl = await ws.manager.impl()
 		if not impl:
@@ -1111,6 +1538,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		doc = _workflow_doc_from_model(workflow)
 		return {
 			"space": space,
+			"asset_path": asset_path,
 			"name": _workflow_name_from_doc(doc),
 			"workflow": doc,
 			"status": "implemented",
@@ -1120,12 +1548,13 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 	async def delete_current_workflow(req: Request):
 		user, space = await _ensure_current_space(req)
 		active_ref = _space_active_ref(space)
+		asset_path = _space_active_asset_path(space)
 		try:
 			await _platform(req).post_json(
 				f"/platform/spaces/{space['id']}/assets/delete",
 				{
 					"user_id": user.id,
-					"path": _CURRENT_WORKFLOW_PATH,
+					"path": asset_path,
 					"message": "Delete current workflow",
 					"ref": active_ref,
 				},
@@ -1135,19 +1564,20 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 				raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 		await _clear_cached_workflow(req)
 		await _emit_workflow_changed("", source_session_id=_request_session_id(req))
-		return {"status": "deleted", "space": space, "ref": active_ref}
+		return {"status": "deleted", "space": space, "ref": active_ref, "asset_path": asset_path}
 
 	@app.post("/workflow/history")
 	async def current_workflow_history(request: WorkflowHistoryRequest, req: Request):
 		user, space = await _ensure_current_space(req)
 		active_ref = _space_active_ref(space)
+		asset_path = _space_active_asset_path(space)
 		limit = max(1, min(int(request.limit or 20), 100))
 		try:
 			data = await _platform(req).post_json(
 				f"/platform/spaces/{space['id']}/history",
 				{
 					"user_id": user.id,
-					"path": _CURRENT_WORKFLOW_PATH,
+					"path": asset_path,
 					"limit": limit,
 					"ref": active_ref,
 				},
@@ -1157,7 +1587,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		return {
 			"space": space,
 			"ref": active_ref,
-			"path": _CURRENT_WORKFLOW_PATH,
+			"path": asset_path,
 			"commits": data.get("commits", []) or [],
 		}
 
@@ -1165,12 +1595,13 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 	async def restore_workflow_snapshot(request: WorkflowRestoreRequest, req: Request):
 		user, space = await _ensure_current_space(req)
 		active_ref = _space_active_ref(space)
+		asset_path = _space_active_asset_path(space)
 		commit_id = str(request.commit_id or "").strip()
 		if not commit_id:
 			raise HTTPException(status_code=400, detail="commit_id is required")
-		doc = await _read_current_workflow_doc(req, user.id, str(space.get("id", "") or ""), ref=commit_id)
+		doc = await _read_workflow_asset_doc(req, user.id, str(space.get("id", "") or ""), path=asset_path, ref=commit_id)
 		if doc is None:
-			raise HTTPException(status_code=404, detail=f"Workflow snapshot '{commit_id}' was not found")
+			raise HTTPException(status_code=404, detail=f"Workflow snapshot '{commit_id}' was not found for '{asset_path}'")
 		validation = validate_workflow_payload(doc, apply_repairs=True)
 		if not validation["valid"]:
 			raise HTTPException(
@@ -1197,7 +1628,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 				f"/platform/spaces/{space['id']}/assets/write",
 				{
 					"user_id": user.id,
-					"path": _CURRENT_WORKFLOW_PATH,
+					"path": asset_path,
 					"kind": "workflow",
 					"title": name,
 					"description": getattr(getattr(workflow, "options", None), "description", "") or "",
@@ -1214,6 +1645,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		return {
 			"space": space,
 			"ref": active_ref,
+			"asset_path": asset_path,
 			"name": name,
 			"workflow": doc,
 			"status": "restored",
@@ -1225,9 +1657,10 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 	async def start_current_workflow(request: CurrentWorkflowStartRequest, req: Request):
 		user, space = await _ensure_current_space(req)
 		active_ref = _space_active_ref(space)
-		doc = await _read_current_workflow_doc(req, user.id, str(space.get("id", "") or ""), ref=active_ref)
+		asset_path = _space_active_asset_path(space)
+		doc = await _read_workflow_asset_doc(req, user.id, str(space.get("id", "") or ""), path=asset_path, ref=active_ref)
 		if doc is None:
-			raise HTTPException(status_code=404, detail="No workflow is saved in the current space")
+			raise HTTPException(status_code=404, detail=f"No workflow is saved at '{asset_path}' in the current space")
 		validation = validate_workflow_payload(doc, apply_repairs=True)
 		if not validation["valid"]:
 			raise HTTPException(
@@ -1247,7 +1680,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 					f"/platform/spaces/{space['id']}/assets/write",
 					{
 						"user_id": user.id,
-						"path": _CURRENT_WORKFLOW_PATH,
+						"path": asset_path,
 						"kind": "workflow",
 						"title": name,
 						"description": "",
@@ -1273,7 +1706,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 				{
 					"user_id": user.id,
 					"space_id": space["id"],
-					"asset_path": _CURRENT_WORKFLOW_PATH,
+					"asset_path": asset_path,
 					"ref": active_ref,
 					"inputs": inputs,
 					"resolve_credentials": True,
@@ -1286,6 +1719,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		return {
 			"execution_id": _execution_public_id(record),
 			"platform_execution_id": record.get("execution_id"),
+			"asset_path": asset_path,
 			"status": "started",
 		}
 

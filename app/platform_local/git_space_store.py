@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from domain.models import RefKind, SpaceCommit, SpaceRef
 
@@ -334,6 +334,148 @@ class GitSpaceStore(ScaffoldComponent):
 
     async def get_commit(self, space_id: str, commit_id: str) -> Optional[SpaceCommit]:
         return self._commit_from_id(space_id, commit_id)
+
+    async def compare_snapshots(
+        self,
+        space_id: str,
+        left: str,
+        right: str,
+        path: str = "",
+        limit: int = 200,
+    ) -> Dict[str, object]:
+        repo_dir = self._require_repo(space_id)
+        left_selector = str(left or "").strip()
+        right_selector = str(right or "").strip()
+        if not left_selector or not right_selector:
+            raise ValueError("Both left and right selectors are required")
+        limit = max(1, min(int(limit or 200), 1000))
+        try:
+            left_commit_id = self._git(repo_dir, "rev-parse", left_selector)
+            right_commit_id = self._git(repo_dir, "rev-parse", right_selector)
+        except subprocess.CalledProcessError as exc:
+            raise ValueError(f"Unknown ref or commit in comparison: {left_selector} vs {right_selector}") from exc
+        rel = self._normalize_relpath(path) if path else ""
+        diff_cmd = [
+            "diff",
+            "--name-status",
+            "--find-renames",
+            "--find-copies",
+            left_commit_id,
+            right_commit_id,
+        ]
+        if rel:
+            diff_cmd.extend(["--", rel])
+        diff_out = self._git(repo_dir, *diff_cmd)
+        entries: List[Dict[str, object]] = []
+        counts = {
+            "added": 0,
+            "modified": 0,
+            "deleted": 0,
+            "renamed": 0,
+            "copied": 0,
+            "other": 0,
+        }
+        for line in diff_out.splitlines():
+            if not line.strip():
+                continue
+            parts = [part.strip() for part in line.split("\t") if part.strip()]
+            if not parts:
+                continue
+            raw_status = parts[0]
+            kind = (raw_status[:1] or "M").upper()
+            status = {
+                "A": "added",
+                "M": "modified",
+                "D": "deleted",
+                "R": "renamed",
+                "C": "copied",
+            }.get(kind, "other")
+            entry: Dict[str, object] = {
+                "status": status,
+                "raw_status": raw_status,
+            }
+            if status in {"renamed", "copied"} and len(parts) >= 3:
+                entry["old_path"] = parts[1]
+                entry["path"] = parts[2]
+            elif len(parts) >= 2:
+                entry["path"] = parts[1]
+            counts[status] = int(counts.get(status, 0) or 0) + 1
+            entries.append(entry)
+        total = len(entries)
+        truncated = total > limit
+        left_commit = self._commit_from_id(space_id, left_commit_id)
+        right_commit = self._commit_from_id(space_id, right_commit_id)
+        return {
+            "left": {
+                "selector": left_selector,
+                "commit_id": left_commit_id,
+                "commit": left_commit,
+            },
+            "right": {
+                "selector": right_selector,
+                "commit_id": right_commit_id,
+                "commit": right_commit,
+            },
+            "path": rel,
+            "changed_paths": entries[:limit],
+            "summary": {
+                **counts,
+                "total": total,
+                "truncated": truncated,
+            },
+            "has_changes": total > 0,
+        }
+
+    async def restore_snapshot(
+        self,
+        space_id: str,
+        source: str,
+        target_ref: str = "main",
+        author_user_id: str = "numel",
+        message: str = "",
+    ) -> SpaceCommit:
+        repo_dir = self._require_repo(space_id)
+        source_selector = str(source or "").strip()
+        target_branch = str(target_ref or "").strip()
+        if not source_selector:
+            raise ValueError("source is required")
+        if not target_branch:
+            raise ValueError("target_ref is required")
+        try:
+            self._git(repo_dir, "show-ref", "--verify", f"refs/heads/{target_branch}")
+            source_commit_id = self._git(repo_dir, "rev-parse", source_selector)
+        except subprocess.CalledProcessError as exc:
+            raise ValueError(f"Unknown branch or commit for restore: {target_branch} <- {source_selector}") from exc
+        active_branch = self._git(repo_dir, "rev-parse", "--abbrev-ref", "HEAD")
+        switched = False
+        if active_branch != target_branch:
+            self._git(repo_dir, "checkout", target_branch)
+            switched = True
+        try:
+            current_paths = set(await self.list_paths(space_id, ref=target_branch))
+            source_paths = set(await self.list_paths(space_id, ref=source_commit_id))
+            for rel in sorted(current_paths - source_paths, reverse=True):
+                target = repo_dir / rel
+                if target.exists():
+                    if target.is_dir():
+                        shutil.rmtree(target)
+                    else:
+                        target.unlink()
+            for rel in sorted(source_paths):
+                target = repo_dir / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(await self.read_bytes(space_id, rel, ref=source_commit_id))
+            self._git(repo_dir, "add", "-A")
+            commit_message = message or f"Restore {target_branch} from {source_selector}"
+            return self._commit_or_head(
+                repo_dir,
+                space_id=space_id,
+                author_user_id=author_user_id,
+                message=commit_message,
+            )
+        finally:
+            if switched:
+                self._git(repo_dir, "checkout", active_branch)
 
     async def materialize_ref(self, space_id: str, ref: str, target_dir: str) -> str:
         target = Path(target_dir).resolve()

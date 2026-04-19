@@ -131,6 +131,11 @@ class NumelAPI {
 	}
 	resolvePublicSpace(namespace, slug) { return this.json('/spaces/public/resolve', { namespace, slug }); }
 	listPublicNamespaceSpaces(namespace) { return this.json('/spaces/public/namespace', { namespace }); }
+	publicRepoPage(namespace, slug, ref = null, limit = 12) { return this.json('/spaces/public/repo', { namespace, slug, ref, limit }); }
+	readPublicRepoAsset(namespace, slug, path, ref = null) { return this.json('/spaces/public/repo/assets/read', { namespace, slug, path, ref }); }
+	comparePublicRepo(namespace, slug, left, right = null, path = '', limit = 200) {
+		return this.json('/spaces/public/repo/compare', { namespace, slug, left, right, path, limit });
+	}
 	selectSpace(spaceId)          { return this.json('/spaces/select', { space_id: spaceId }); }
 	deleteSpace(spaceId)          { return this.json('/spaces/delete', { space_id: spaceId }); }
 	repoRefs()                    { return this.json('/spaces/repo/refs'); }
@@ -140,8 +145,13 @@ class NumelAPI {
 	}
 	deleteRepoRef(name)           { return this.json('/spaces/repo/refs/delete', { name }); }
 	repoHistory(limit = 20)       { return this.json('/spaces/repo/history', { limit }); }
+	compareRepo(left, right = null, path = '', limit = 200) {
+		return this.json('/spaces/repo/compare', { left, right, path, limit });
+	}
 	repoAssets(prefix = '')       { return this.json('/spaces/repo/assets', { prefix }); }
 	readRepoAsset(path)           { return this.json('/spaces/repo/assets/read', { path }); }
+	openRepoAsset(path)           { return this.json('/spaces/repo/assets/open', { path }); }
+	restoreRepo(source, note = null) { return this.json('/spaces/repo/restore', { source, note }); }
 	getWorkflow()                 { return this.json('/workflow/get'); }
 	validateWorkflow(workflow, opts = {}) { return this.json('/workflow/validate', { workflow, ...opts }); }
 	saveWorkflow(workflow, opts = {}) { return this.json('/workflow/save', { workflow, ...(opts || {}) }); }
@@ -157,11 +167,6 @@ class NumelAPI {
 	provideUserInput(execId, nodeId, inputData) {
 		return this.json(`/executions/${encodeURIComponent(execId)}/input`, { node_id: nodeId, input_data: inputData });
 	}
-
-	// Legacy compatibility wrappers used by a few in-repo callers.
-	listWorkflows()               { return this.getWorkflow().then((resp) => ({ names: resp?.name ? [resp.name] : [] })); }
-	addWorkflow(workflow, _name)  { return this.saveWorkflow(workflow); }
-	removeWorkflow(_name)         { return this.deleteWorkflow(); }
 
 	// ── Tool Call ────────────────────────────────────────────────
 

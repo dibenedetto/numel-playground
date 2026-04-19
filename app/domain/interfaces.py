@@ -264,6 +264,28 @@ class SpaceProvider(ABC):
     async def get_commit(self, space_id: str, commit_id: str) -> Optional[SpaceCommit]:
         """Load one historical commit."""
 
+    @abstractmethod
+    async def compare_snapshots(
+        self,
+        space_id: str,
+        left: str,
+        right: str,
+        path: str = "",
+        limit: int = 200,
+    ) -> Dict[str, object]:
+        """Compare two refs or commits within a space."""
+
+    @abstractmethod
+    async def restore_snapshot(
+        self,
+        user_id: str,
+        space_id: str,
+        source: str,
+        target_ref: str = "main",
+        message: str = "",
+    ) -> SpaceCommit:
+        """Restore a target branch so it matches a source ref or commit."""
+
 
 class RuntimeProvider(ABC):
     """Run a space asset against an isolated or mock runtime."""

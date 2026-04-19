@@ -15,7 +15,7 @@ import re
 import time
 import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from domain.interfaces import SpaceProvider
 from domain.models import (
@@ -837,3 +837,41 @@ class DbGitSpaceProvider(SpaceProvider, ScaffoldComponent):
 
     async def get_commit(self, space_id: str, commit_id: str) -> Optional[SpaceCommit]:
         return await self.git_store.get_commit(space_id, commit_id)
+
+    async def compare_snapshots(
+        self,
+        space_id: str,
+        left: str,
+        right: str,
+        path: str = "",
+        limit: int = 200,
+    ) -> Dict[str, object]:
+        return await self.git_store.compare_snapshots(
+            space_id,
+            left=left,
+            right=right,
+            path=path,
+            limit=limit,
+        )
+
+    async def restore_snapshot(
+        self,
+        user_id: str,
+        space_id: str,
+        source: str,
+        target_ref: str = "main",
+        message: str = "",
+    ) -> SpaceCommit:
+        with self._connect() as conn:
+            space_row = self._require_space(conn, space_id)
+            await self._ensure_space_access(user_id, space_row, Capability.WRITE)
+        commit = await self.git_store.restore_snapshot(
+            space_id=space_id,
+            source=source,
+            target_ref=target_ref,
+            author_user_id=user_id,
+            message=message,
+        )
+        with self._connect() as conn:
+            self._update_space_head(conn, space_id, commit.id)
+        return commit

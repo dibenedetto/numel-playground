@@ -54,7 +54,6 @@ import threading
 
 from   agent_tasks   import AgentTaskManager, setup_agent_tasks_api
 from   assistant_deployments import AssistantDeploymentManager, setup_assistant_deployments_api
-from   exec_history  import ExecHistoryManager
 from   api       import setup_api
 import credentials as _creds
 from   channels  import ChannelRegistry
@@ -716,21 +715,10 @@ async def run_server(
 					}
 			except Exception:
 				pass
-
-		history_limit = max(500, int(limit or 100) + int(offset or 0)) if status_filter_text else int(limit or 100)
-		items = exec_history.list(workflow_name=workflow_name, limit=history_limit, offset=0 if status_filter_text else offset)
-		if status_filter_text:
-			items = [
-				item for item in items
-				if str(item.get("status", "") or "").strip().casefold() == status_filter_text
-			]
 		return {
-			"executions": [
-				_serialize_admin_execution_summary(item, source="history")
-			for item in items
-			][offset : offset + limit],
+			"executions": [],
 			"active_execution_ids": [],
-			"source": "history",
+			"source": "platform",
 		}
 
 	async def _get_admin_execution_detail(execution_id: str) -> Optional[dict[str, Any]]:
@@ -742,10 +730,7 @@ async def run_server(
 					return _serialize_admin_execution_detail(record, source="platform")
 			except Exception:
 				pass
-		legacy = exec_history.get(execution_id)
-		if legacy is None:
-			return None
-		return _serialize_admin_execution_detail(legacy, source="history")
+		return None
 
 	async def _recent_execution_diagnostics(
 		*,
@@ -962,23 +947,23 @@ async def run_server(
 		_require_admin(request)
 		users = await _platform.list_users(limit=10000, active_only=False)
 		active_users  = [u for u in users if u.active]
-		history_items = exec_history.list(limit=10000)
-		# Active executions from default workspace engine
+		runtime = getattr(_platform_stack, "runtime", None)
+		records = []
 		active_exec_ids = []
 		try:
-			ws_obj = workspace_mgr.get_default_workspace()
-			active_exec_ids = ws_obj.engine.list_executions()
+			if runtime is not None:
+				records = await runtime.list_executions(limit=10000)
+				active_exec_ids = await _list_active_platform_execution_ids()
 		except Exception:
 			pass
-		# Breakdown by status
 		status_counts = {}
-		for h in history_items:
-			s = h.get("status", "unknown")
+		for record in records:
+			s = str(getattr(record, "status", "unknown") or "unknown")
 			status_counts[s] = status_counts.get(s, 0) + 1
 		return {
 			"total_users":       len(users),
 			"active_users":      len(active_users),
-			"total_executions":  len(history_items),
+			"total_executions":  len(records),
 			"active_executions": len(active_exec_ids),
 			"execution_status_breakdown": status_counts,
 		}
@@ -1304,9 +1289,6 @@ async def run_server(
 	)
 	pub_app_mgr.initialize()
 
-	# ── Execution History ─────────────────────────────────────
-	exec_history = ExecHistoryManager()
-
 	# Wire pool, channel registry, and skills into console manager
 	console_mgr.set_channel_pool(channel_pool)
 	console_mgr._channel_reg = channel_registry
@@ -1327,49 +1309,6 @@ async def run_server(
 	setup_skills_api(app, skill_mgr)
 	setup_agent_tasks_api(app, task_mgr)
 	setup_published_apps_api(app, pub_app_mgr, gallery_mgr=gallery_mgr)
-
-	# ── Execution History Routes ───────────────────────────────
-
-	@app.post("/exec-history")
-	async def get_exec_history(request: Request):
-		body = {}
-		try: body = await request.json()
-		except Exception: pass
-		wf_name = body.get("workflow_name")
-		limit   = body.get("limit", 100)
-		offset  = body.get("offset", 0)
-		# Scope to current user (admins see all)
-		user = getattr(request.state, 'user', None)
-		user_id = None
-		if user and not _is_admin(user):
-			user_id = user.id
-		return exec_history.list(workflow_name=wf_name, user_id=user_id, limit=limit, offset=offset)
-
-	@app.post("/exec-history/{execution_id}")
-	async def get_exec_record(execution_id: str):
-		rec = exec_history.get(execution_id)
-		if not rec:
-			raise HTTPException(status_code=404, detail="Not found")
-		return rec
-
-	@app.post("/exec-history/clear")
-	async def clear_exec_history(request: Request):
-		body = {}
-		try: body = await request.json()
-		except Exception: pass
-		wf_name = body.get("workflow_name")
-		exec_history.clear(workflow_name=wf_name)
-		return {"ok": True}
-
-	@app.post("/exec-history/record")
-	async def record_execution(request: Request):
-		body = await request.json()
-		# Inject user_id from auth context
-		user = getattr(request.state, 'user', None)
-		if user and 'user_id' not in body:
-			body['user_id'] = user.id
-		rec = exec_history.record(**body)
-		return rec.model_dump()
 
 	# ── Credential Store ───────────────────────────────────────
 
@@ -1462,7 +1401,6 @@ async def run_server(
 	app.state.gallery_mgr = gallery_mgr
 	app.state.skill_mgr = skill_mgr
 	app.state.published_app_mgr = pub_app_mgr
-	app.state.exec_history = exec_history
 	app.state.event_bus = event_bus
 
 	if not serve:

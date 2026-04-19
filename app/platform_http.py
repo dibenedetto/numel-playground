@@ -756,6 +756,51 @@ def setup_platform_api(app: FastAPI, stack, internal_token: str) -> None:
             raise HTTPException(status_code=404, detail=f"Commit '{commit_id}' not found")
         return {"commit": _jsonable(commit)}
 
+    @app.post("/platform/spaces/{space_id}/compare")
+    async def platform_compare_space_snapshots(space_id: str, req: Request):
+        body = await _body(req)
+        await _require_space_read(req, body, space_id)
+        left = str(body.get("left", "") or "").strip()
+        right = str(body.get("right", "") or "").strip()
+        if not left or not right:
+            raise HTTPException(status_code=400, detail="left and right are required")
+        try:
+            comparison = await stack.spaces.compare_snapshots(
+                space_id,
+                left=left,
+                right=right,
+                path=str(body.get("path", "") or ""),
+                limit=int(body.get("limit", 200) or 200),
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {"comparison": _jsonable(comparison)}
+
+    @app.post("/platform/spaces/{space_id}/restore")
+    async def platform_restore_space_snapshot(space_id: str, req: Request):
+        body = await _body(req)
+        actor = await _resolve_actor(req, body)
+        await _require_space_owner_or_admin(req, body, space_id)
+        source = str(body.get("source", "") or "").strip()
+        target_ref = str(body.get("target_ref", "main") or "main").strip() or "main"
+        if not source:
+            raise HTTPException(status_code=400, detail="source is required")
+        try:
+            commit = await stack.spaces.restore_snapshot(
+                actor.id,
+                space_id,
+                source=source,
+                target_ref=target_ref,
+                message=str(body.get("message", "") or ""),
+            )
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return {"commit": _jsonable(commit)}
+
     @app.post("/platform/executions/start")
     async def platform_start_execution(req: Request):
         body = await _body(req)
