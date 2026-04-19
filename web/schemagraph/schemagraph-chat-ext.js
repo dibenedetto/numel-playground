@@ -12,6 +12,7 @@ const ChatState = Object.freeze({
 	READY: 'ready',
 	SENDING: 'sending',
 	STREAMING: 'streaming',
+	STOPPING: 'stopping',
 	ERROR: 'error'
 });
 
@@ -238,15 +239,18 @@ class ChatOverlayManager {
 		const input = overlay.querySelector('.sg-chat-input');
 		const sendBtn = overlay.querySelector('.sg-chat-send-btn');
 		const clearBtn = overlay.querySelector('.sg-chat-clear-btn');
+		const stopBtn = overlay.querySelector('.sg-chat-stop-btn');
 		const toggleSysBtn = overlay.querySelector('.sg-chat-toggle-sys-btn');
 
 		const newSendBtn = sendBtn?.cloneNode(true);
 		const newClearBtn = clearBtn?.cloneNode(true);
+		const newStopBtn = stopBtn?.cloneNode(true);
 		const newInput = input?.cloneNode(true);
 		const newToggleSysBtn = toggleSysBtn?.cloneNode(true);
 
 		sendBtn?.parentNode?.replaceChild(newSendBtn, sendBtn);
 		clearBtn?.parentNode?.replaceChild(newClearBtn, clearBtn);
+		stopBtn?.parentNode?.replaceChild(newStopBtn, stopBtn);
 		input?.parentNode?.replaceChild(newInput, input);
 		toggleSysBtn?.parentNode?.replaceChild(newToggleSysBtn, toggleSysBtn);
 
@@ -261,6 +265,7 @@ class ChatOverlayManager {
 		const input = overlay.querySelector('.sg-chat-input');
 		const sendBtn = overlay.querySelector('.sg-chat-send-btn');
 		const clearBtn = overlay.querySelector('.sg-chat-clear-btn');
+		const stopBtn = overlay.querySelector('.sg-chat-stop-btn');
 
 		const getNode = () => this.nodeRefs.get(chatId);
 
@@ -296,6 +301,22 @@ class ChatOverlayManager {
 				this.updateMessages(currentNode);
 				this.eventBus.emit('chat:cleared', { nodeId: currentNode.id, chatId });
 			}
+		});
+
+		stopBtn?.addEventListener('click', () => {
+			const currentNode = getNode();
+			if (!currentNode) return;
+			if (currentNode.chatState !== ChatState.SENDING && currentNode.chatState !== ChatState.STREAMING) {
+				return;
+			}
+			currentNode.chatState = ChatState.STOPPING;
+			currentNode.chatError = null;
+			this.updateStatus(currentNode);
+			this.eventBus.emit('chat:stop', {
+				nodeId: currentNode.id,
+				chatId,
+				node: currentNode,
+			});
 		});
 
 		const toggleSysBtn = overlay.querySelector('.sg-chat-toggle-sys-btn');
@@ -570,6 +591,7 @@ class ChatOverlayManager {
 		const container = overlay.querySelector('.sg-chat-container');
 		const statusText = overlay.querySelector('.sg-chat-status-text');
 		const sendBtn = overlay.querySelector('.sg-chat-send-btn');
+		const stopBtn = overlay.querySelector('.sg-chat-stop-btn');
 
 		if (container) {
 			container.className = `sg-chat-container sg-chat-state-${node.chatState}`;
@@ -581,15 +603,24 @@ class ChatOverlayManager {
 		const isIdle  = node.chatState === ChatState.IDLE;
 		const isError = node.chatState === ChatState.ERROR;
 		const isBusy  = node.chatState === ChatState.SENDING || node.chatState === ChatState.STREAMING;
+		const isStopping = node.chatState === ChatState.STOPPING;
 		const canType = isReady || isIdle || isBusy || isError;
 		const canSend = isReady || isIdle || isError;  // allow retry from ERROR and first send from IDLE
+		const canStop = isBusy || isStopping;
 
 		if (sendBtn) sendBtn.disabled = !canSend;
+		if (stopBtn) {
+			stopBtn.disabled = !canStop;
+			stopBtn.hidden = !canStop;
+		}
 
 		const chatInput = overlay.querySelector('.sg-chat-input');
 		if (chatInput) {
-			chatInput.disabled = !canType;
+			chatInput.disabled = !canType || isStopping;
 			chatInput.placeholder = canType ? 'Type a message...' : this._getStatusText(node);
+			if (isStopping) {
+				chatInput.placeholder = 'Stopping...';
+			}
 		}
 	}
 
@@ -633,6 +664,7 @@ class ChatOverlayManager {
 					<span class="sg-chat-status-indicator"></span>
 					<span class="sg-chat-status-text">${this._getStatusText(node)}</span>
 					<div class="sg-chat-status-actions">
+						<button class="sg-chat-btn sg-chat-stop-btn" title="Stop reply" hidden>■</button>
 						<button class="sg-chat-btn sg-chat-toggle-sys-btn" title="Show system messages">S</button>
 						<button class="sg-chat-btn sg-chat-clear-btn" title="Clear chat">&#128465;</button>
 					</div>
@@ -662,6 +694,7 @@ class ChatOverlayManager {
 			case ChatState.READY: return 'Ready';
 			case ChatState.SENDING: return 'Sending...';
 			case ChatState.STREAMING: return 'Receiving...';
+			case ChatState.STOPPING: return 'Stopping...';
 			case ChatState.ERROR: return node.chatError || 'Error';
 			default: return '';
 		}
@@ -673,7 +706,7 @@ class ChatOverlayManager {
 		const text = input?.value?.trim();
 		if (!text) return;
 
-		if (node.chatState === ChatState.SENDING || node.chatState === ChatState.STREAMING) {
+		if (node.chatState === ChatState.SENDING || node.chatState === ChatState.STREAMING || node.chatState === ChatState.STOPPING) {
 			return;
 		}
 
@@ -1847,6 +1880,7 @@ class ChatExtension extends SchemaGraphExtension {
 			startStreaming: (nodeOrId) => {
 				const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
 				if (node?.isChat) {
+					if (node.chatState === ChatState.STOPPING) return;
 					node.chatState = ChatState.STREAMING;
 					node.addMessage(MessageRole.ASSISTANT, '');
 					self.overlayManager.updateStatus(node);
@@ -1863,6 +1897,7 @@ class ChatExtension extends SchemaGraphExtension {
 			endStreaming: (nodeOrId) => {
 				const node = typeof nodeOrId === 'object' ? nodeOrId : self.graph.getNodeById(nodeOrId);
 				if (node?.isChat) {
+					if (node.chatState === ChatState.STOPPING || node.chatState === ChatState.ERROR) return;
 					// Don't set READY here — stay in SENDING so the thinking
 					// indicator persists between tool calls. onRunFinished sets READY.
 					node.chatState = ChatState.SENDING;
@@ -1941,6 +1976,7 @@ class ChatExtension extends SchemaGraphExtension {
 			.sg-chat-state-ready .sg-chat-status-indicator { background: var(--sg-accent-green, #5cb85c); }
 			.sg-chat-state-sending .sg-chat-status-indicator { background: var(--sg-accent-blue, #5bc0de); animation: sg-chat-pulse 0.5s infinite; }
 			.sg-chat-state-streaming .sg-chat-status-indicator { background: var(--sg-accent-blue, #5bc0de); animation: sg-chat-pulse 0.3s infinite; }
+			.sg-chat-state-stopping .sg-chat-status-indicator { background: var(--sg-accent-orange, #f0ad4e); animation: sg-chat-pulse 0.4s infinite; }
 			.sg-chat-state-error .sg-chat-status-indicator { background: var(--sg-accent-red, #d9534f); }
 
 			@keyframes sg-chat-pulse {
@@ -1992,6 +2028,16 @@ class ChatExtension extends SchemaGraphExtension {
 			.sg-chat-btn-active {
 				background: var(--sg-accent, rgba(100, 149, 237, 0.3));
 				color: var(--sg-text-primary, #fff);
+			}
+
+			.sg-chat-stop-btn {
+				color: var(--sg-accent-orange, #f0ad4e);
+				font-size: 11px;
+			}
+
+			.sg-chat-stop-btn:hover:not(:disabled) {
+				background: rgba(240, 173, 78, 0.18);
+				color: var(--sg-text-primary, #fff8e6);
 			}
 
 			.sg-chat-messages {

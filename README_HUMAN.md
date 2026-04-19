@@ -294,6 +294,7 @@ And the public side is becoming more hub-like too:
 - creator pages now show one creator’s public repos together with the templates they have published
 - public repo pages can compare refs or commits before you decide to open or fork
 - gallery items published from a public repo can now point you back to that source repo or to the creator behind it, so the gallery is starting to behave like a curated layer over real repos
+- importing a workflow file is no longer limited to native Numel JSON: the first interop slice now also accepts a pragmatic subset of n8n workflow JSON, including common HTTP, branch, and merge patterns, and converts it into a runnable Numel graph with explicit warnings anywhere manual cleanup is still needed
 
 When you want to adapt a shared or public space, the normal move is to **fork**
 it into your own space and continue there.

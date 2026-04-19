@@ -3998,9 +3998,15 @@ class SchemaGraphApp {
 		const options = slot !== null ? node.nativeInputs[slot].options : null;
 		const optionsSource = slot !== null ? node.nativeInputs[slot]?.optionsSource : null;
 		const editorType = slot !== null ? node.nativeInputs[slot]?.editor : null;
+		const fieldName = slot !== null ? node.inputs?.[slot]?.name : null;
+		const shouldUseCodeEditor = editorType === 'code'
+			|| (!editorType
+				&& slot !== null
+				&& fieldName === 'script'
+				&& ['transform_flow', 'eval_flow', 'retry_flow'].includes(String(node.workflowType || '').trim().toLowerCase()));
 
 		// Code editor gets its own modal — no need for positioning
-		if (editorType === 'code') {
+		if (shouldUseCodeEditor) {
 			this._showCodeEditor(node, slot, currentValue);
 			return;
 		}
@@ -4242,15 +4248,28 @@ class SchemaGraphApp {
 	_showCodeEditor(node, slot, value) {
 		const modal = document.getElementById('sg-codeEditorModal');
 		const body = document.getElementById('sg-codeEditorBody');
+		const titleEl = modal?.querySelector('.sg-code-editor-title');
+		const langWrap = modal?.querySelector('.sg-code-editor-lang');
 		const langSelect = document.getElementById('sg-codeEditorLang');
 		const status = document.getElementById('sg-codeEditorStatus');
 
 		this._codeEditorNode = node;
 		this._codeEditorSlot = slot;
 
-		// Detect language from sibling 'lang' field
-		const lang = this._getNodeLangValue(node);
-		langSelect.value = lang;
+		const fieldTitle = node?.inputMeta?.[slot]?.title
+			|| node?.inputs?.[slot]?.name
+			|| 'Script';
+		if (titleEl) {
+			titleEl.textContent = `Edit ${fieldTitle}`;
+		}
+
+		const hasLangField = this._findNodeInputSlot(node, 'lang') >= 0;
+		if (langWrap) {
+			langWrap.style.display = hasLangField ? '' : 'none';
+		}
+		if (langSelect) {
+			langSelect.value = this._getNodeLangValue(node);
+		}
 
 		// Clear previous editor
 		body.innerHTML = '';
@@ -4311,6 +4330,7 @@ class SchemaGraphApp {
 
 		// Language change handler
 		langSelect.onchange = () => {
+			if (!hasLangField) return;
 			if (this._codeEditorView && window.CodeEditor) {
 				const doc = this._codeEditorView.state.doc.toString();
 				this._codeEditorView.destroy();
@@ -4327,11 +4347,19 @@ class SchemaGraphApp {
 		if (this._codeEditorView) this._codeEditorView.focus();
 	}
 
-	_getNodeLangValue(node) {
-		for (let i = 0; i < node.inputs.length; i++) {
-			if (node.inputs[i]?.name === 'lang' && node.nativeInputs[i]) {
-				return node.nativeInputs[i].value || 'python';
+	_findNodeInputSlot(node, fieldName) {
+		for (let i = 0; i < (node?.inputs?.length || 0); i++) {
+			if (node.inputs[i]?.name === fieldName) {
+				return i;
 			}
+		}
+		return -1;
+	}
+
+	_getNodeLangValue(node) {
+		const langSlot = this._findNodeInputSlot(node, 'lang');
+		if (langSlot >= 0 && node.nativeInputs?.[langSlot]) {
+			return node.nativeInputs[langSlot].value || 'python';
 		}
 		return 'python';
 	}
@@ -4351,16 +4379,14 @@ class SchemaGraphApp {
 
 		// Also update the lang field if changed
 		const langSelect = document.getElementById('sg-codeEditorLang');
-		if (langSelect) {
+		if (langSelect && this._findNodeInputSlot(node, 'lang') >= 0) {
 			const newLang = langSelect.value;
-			for (let i = 0; i < node.inputs.length; i++) {
-				if (node.inputs[i]?.name === 'lang' && node.nativeInputs[i]) {
-					if (node.nativeInputs[i].value !== newLang) {
-						node.nativeInputs[i].value = newLang;
-						const fieldName = node.inputs[i].name;
+			const langSlot = this._findNodeInputSlot(node, 'lang');
+			if (langSlot >= 0 && node.nativeInputs?.[langSlot]) {
+				if (node.nativeInputs[langSlot].value !== newLang) {
+					node.nativeInputs[langSlot].value = newLang;
+					const fieldName = node.inputs[langSlot].name;
 						this.eventBus.emit(GraphEvents.FIELD_CHANGED, { nodeId: node.id, fieldName, value: newLang });
-					}
-					break;
 				}
 			}
 		}

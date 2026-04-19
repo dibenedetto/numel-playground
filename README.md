@@ -259,6 +259,7 @@ The public side now also has a dedicated **Public Hub** surface:
 - compare support for public repo refs and commits before you decide to open or fork
 - preview support for public repo assets without first switching the current workbench
 - gallery cards published from public repos can now point you back to the underlying repo page or the creator behind it, so the gallery starts acting like a curated layer over real repos instead of a dead-end copy
+- file and clipboard import now accept native Numel workflow JSON plus a pragmatic first n8n JSON subset, including common n8n set, HTTP request, if/branch, and merge shapes converted into runnable Numel workbench flows with explicit warnings when manual review is still needed
 
 ---
 
@@ -1145,6 +1146,7 @@ All endpoints use **POST** method unless otherwise noted.
 | `/spaces/select` | Switch the selected accessible space |
 | `/spaces/delete` | Delete a space |
 | `/workflow/get` | Get the current workflow for the selected space |
+| `/workflow/interop/import` | Import native Numel JSON or convert a supported n8n JSON workflow into a runnable Numel workflow |
 | `/workflow/save` | Save the current workflow for the selected space |
 | `/workflow/delete` | Delete the current workflow from the selected space |
 | `/workflow/publish-template` | Publish a reusable template from the current canvas, a chosen ref, or a workflow snapshot |

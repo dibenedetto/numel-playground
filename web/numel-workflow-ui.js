@@ -113,6 +113,7 @@ const GLOBAL_LAYOUT_PRESET_STORAGE_KEY = 'numel_global_layout_preset_v1';
 const PANEL_COLLAPSED_STORAGE_KEY = 'numel_left_panel_collapsed_v1';
 const SECTION_COLLAPSE_STORAGE_KEY = 'numel_left_panel_section_state_v1';
 const ADVANCED_VISIBLE_STORAGE_KEY = 'numel_show_advanced_v1';
+const RUN_ADVANCED_VISIBLE_STORAGE_KEY = 'numel_run_advanced_v1';
 const GLOBAL_LAYOUT_PRESETS = Object.freeze([
 	'workbench',
 	'project-workbench',
@@ -724,6 +725,22 @@ function _setAdvancedSectionsVisible(visible) {
 	if (label) label.textContent = next ? 'Show less' : 'Show more';
 	try {
 		localStorage.setItem(ADVANCED_VISIBLE_STORAGE_KEY, next ? '1' : '0');
+	} catch {}
+}
+
+function _setRunAdvancedVisible(visible) {
+	const next = !!visible;
+	const button = $('runAdvancedToggleBtn');
+	const body = $('runAdvancedBody');
+	if (button) {
+		button.setAttribute('aria-expanded', next ? 'true' : 'false');
+		button.classList.toggle('is-open', next);
+	}
+	if (body) {
+		body.style.display = next ? 'block' : 'none';
+	}
+	try {
+		localStorage.setItem(RUN_ADVANCED_VISIBLE_STORAGE_KEY, next ? '1' : '0');
 	} catch {}
 }
 
@@ -2204,6 +2221,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	_restoreSectionCollapseState();
 	_setPanelCollapsed(_readStorageFlag(PANEL_COLLAPSED_STORAGE_KEY, false));
 	_setAdvancedSectionsVisible(_readStorageFlag(ADVANCED_VISIBLE_STORAGE_KEY, false));
+	_setRunAdvancedVisible(_readStorageFlag(RUN_ADVANCED_VISIBLE_STORAGE_KEY, false));
 	_resetExecutionReplayView();
 	_resetExecutionEvalView();
 	_resetExecutionFailureView();
@@ -2631,6 +2649,9 @@ function setupEventListeners() {
 	// Advanced sections toggle
 	$('advancedToggleBtn')?.addEventListener('click', () => {
 		_setAdvancedSectionsVisible(!document.body.classList.contains('nw-show-advanced'));
+	});
+	$('runAdvancedToggleBtn')?.addEventListener('click', () => {
+		_setRunAdvancedVisible($('runAdvancedBody')?.style.display !== 'block');
 	});
 
 	// Workflow management
@@ -4813,6 +4834,37 @@ function restoreChatState(state) {
 	}
 }
 
+async function _prepareImportedWorkflow(rawDocument, fallbackName) {
+	if (api?.importWorkflowDocument) {
+		return api.importWorkflowDocument(rawDocument, { fileName: fallbackName });
+	}
+	const validation = api?.validateWorkflow
+		? await api.validateWorkflow(rawDocument, { apply_repairs: true })
+		: { workflow: rawDocument, repairs: [], warnings: [] };
+	return {
+		source_format: 'numel',
+		name: rawDocument?.options?.name || fallbackName || 'Imported Workflow',
+		workflow: validation.workflow || rawDocument,
+		repairs: validation.repairs || [],
+		warnings: validation.warnings || [],
+		summary: 'Native Numel workflow JSON detected.',
+	};
+}
+
+function _logImportedWorkflowDetails(imported) {
+	if (!imported || typeof imported !== 'object') return;
+	const sourceFormat = String(imported.source_format || '').trim().toLowerCase();
+	if (sourceFormat && sourceFormat !== 'numel') {
+		addLog('info', `🧭 ${imported.summary || `Imported ${sourceFormat} workflow JSON into Numel.`}`);
+	}
+	for (const repair of imported.repairs || []) {
+		addLog('info', `🛠 ${repair}`);
+	}
+	for (const warning of imported.warnings || []) {
+		addLog('warning', `⚠️ ${warning}`);
+	}
+}
+
 async function handleSingleImport(event) {
 	const file = event.target.files?.[0];
 	if (!file) return;
@@ -4821,29 +4873,25 @@ async function handleSingleImport(event) {
 		schemaGraph.api.lock.lock('Importing content');
 
 		const text = await file.text();
-		const workflow = JSON.parse(text);
-		const validation = api?.validateWorkflow
-			? await api.validateWorkflow(workflow, { apply_repairs: true })
-			: { workflow, repairs: [], warnings: [] };
-		const preparedWorkflow = validation.workflow || workflow;
-		for (const repair of validation.repairs || []) {
-			addLog('info', `🛠 ${repair}`);
-		}
-		for (const warning of validation.warnings || []) {
-			addLog('warning', `⚠️ ${warning}`);
-		}
+		const rawDocument = JSON.parse(text);
+		const imported = await _prepareImportedWorkflow(rawDocument, file.name.replace(/\.json$/i, ''));
+		const preparedWorkflow = imported.workflow || rawDocument;
+		_logImportedWorkflowDetails(imported);
 
 		// Clear current workflow
 		schemaGraph.api.graph.clear();
 		schemaGraph.api.view.reset();
 
 		// Validate
-		const name      = preparedWorkflow?.options?.name || file.name.replace('.json', '');
+		const name      = imported?.name || preparedWorkflow?.options?.name || file.name.replace(/\.json$/i, '');
 		const validated = visualizer.loadWorkflow(preparedWorkflow, name);
 		if (validated) {
 			await syncWorkflow(preparedWorkflow, name, true);
 			enableStart(true);
-			addLog('success', `📂 Imported "${visualizer.currentWorkflowName}"`);
+			const sourceSuffix = imported?.source_format && imported.source_format !== 'numel'
+				? ` from ${String(imported.source_format).toUpperCase()}`
+				: '';
+			addLog('success', `📂 Imported "${visualizer.currentWorkflowName}"${sourceSuffix}`);
 		}
 	} catch (error) {
 		addLog('error', `❌ Failed to import: ${error.message}`);
@@ -4889,10 +4937,10 @@ async function copyWorkflowToClipboard() {
 }
 
 async function pasteWorkflowFromClipboard() {
-	let workflow;
+	let rawDocument;
 	try {
 		const text = await navigator.clipboard.readText();
-		workflow = JSON.parse(text);
+		rawDocument = JSON.parse(text);
 	} catch (err) {
 		addLog('error', `❌ Failed to read clipboard: ${err.message}`);
 		return;
@@ -4901,15 +4949,22 @@ async function pasteWorkflowFromClipboard() {
 	schemaGraph.api.lock.lock('Pasting workflow');
 
 	try {
+		const imported = await _prepareImportedWorkflow(rawDocument, 'Pasted Workflow');
+		const workflow = imported.workflow || rawDocument;
+		_logImportedWorkflowDetails(imported);
+
 		schemaGraph.api.graph.clear();
 		schemaGraph.api.view.reset();
 
-		const name = workflow?.options?.name || 'Pasted Workflow';
+		const name = imported?.name || workflow?.options?.name || 'Pasted Workflow';
 		const loaded = visualizer.loadWorkflow(workflow, name);
 		if (loaded) {
 			await syncWorkflow(workflow, name, true);
 			enableStart(true);
-			addLog('success', `📋 Pasted "${visualizer.currentWorkflowName}"`);
+			const sourceSuffix = imported?.source_format && imported.source_format !== 'numel'
+				? ` from ${String(imported.source_format).toUpperCase()}`
+				: '';
+			addLog('success', `📋 Pasted "${visualizer.currentWorkflowName}"${sourceSuffix}`);
 		}
 		updateClearButtonState();
 	} catch (err) {

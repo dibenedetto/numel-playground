@@ -116,6 +116,13 @@ class AgentHandler {
 		return (this.agent != null);
 	}
 
+	async abortRun() {
+		if (!this.isConnected() || !this.agent?.abortRun) {
+			return false;
+		}
+		return await this.agent.abortRun();
+	}
+
 	async send(message) {
 		if (!this.isConnected()) {
 			return null;
@@ -162,6 +169,7 @@ class AgentChatManager {
 
 		// Handle chat send events from ChatExtension
 		eventBus.on('chat:send', (e) => this._handleSend(e));
+		eventBus.on('chat:stop', (e) => this._handleStop(e));
 
 		// Track workflow execution lifecycle
 		eventBus.on('workflow:started', (e) => { this.executionId = e.execution_id; });
@@ -195,6 +203,9 @@ class AgentChatManager {
 			}
 
 			// Send message
+			entry.abortRequested = false;
+			entry.abortSuppressedUntil = 0;
+			entry.stopping = false;
 			this.app.api.chat.setState(liveNode, ChatState.SENDING);
 			await entry.handler.send(message);
 
@@ -266,7 +277,14 @@ class AgentChatManager {
 
 		handler.connect(url, name, ...Object.values(callbacks));
 
-		this.handlers.set(chatId, { handler, port, dirty: false });
+		this.handlers.set(chatId, {
+			handler,
+			port,
+			dirty: false,
+			abortRequested: false,
+			abortSuppressedUntil: 0,
+			stopping: false,
+		});
 
 		this.app.api.chat.setState(newNode, ChatState.READY);
 
@@ -345,6 +363,9 @@ class AgentChatManager {
 				if (!text) return;
 
 				this.app.api.chat.addMessage(node, MessageRole.USER, text);
+				entry.abortRequested = false;
+				entry.abortSuppressedUntil = 0;
+				entry.stopping = false;
 				this.app.api.chat.setState(node, ChatState.SENDING);
 				await entry.handler.send(text);
 			}
@@ -353,6 +374,84 @@ class AgentChatManager {
 			const liveNode = this._resolveLiveChatNode(node.chatId, node);
 			this.app.api.chat.setState(liveNode, ChatState.ERROR, err.message);
 			this.app.api.chat.addMessage(liveNode, MessageRole.ERROR, err.message);
+		}
+	}
+
+	_isAbortLikeError(error) {
+		const name = String(error?.name || '');
+		const message = String(error?.message || error || '').toLowerCase();
+		return (
+			name === 'AbortError'
+			|| message.includes('bodystreambuffer was aborted')
+			|| message.includes('aborted')
+			|| message.includes('cancelled')
+		);
+	}
+
+	_shouldSuppressAbortError(entry, error) {
+		if (!entry) return false;
+		return this._isAbortLikeError(error) && Number(entry.abortSuppressedUntil || 0) > Date.now();
+	}
+
+	_getLatestAssistantText(node) {
+		const messages = Array.isArray(node?.chatMessages) ? node.chatMessages : [];
+		const lastAssistant = [...messages].reverse().find((message) => message?.role === MessageRole.ASSISTANT);
+		return lastAssistant ? String(lastAssistant.content || '') : '';
+	}
+
+	async _finalizeInterruptedChat(node, { signalEmptyResponse = false } = {}) {
+		if (!node) return;
+		const api = this.app.api.chat;
+		const assistantText = this._getLatestAssistantText(node);
+		const responseText = assistantText || (signalEmptyResponse ? '' : null);
+
+		api.setState(node, ChatState.READY);
+		if (responseText !== null) {
+			const outputField = node.chatConfig?.outputField || 'output';
+			const outputIdx = node.getOutputSlotByName?.(outputField);
+			if (outputIdx >= 0) {
+				node.setOutputData(outputIdx, responseText);
+			}
+			await this._signalChatResponse(node, responseText);
+		}
+	}
+
+	async _handleStop({ node, chatId }) {
+		const liveNode = this._resolveLiveChatNode(chatId, node);
+		const entry = this.handlers.get(chatId);
+		if (!liveNode || !entry?.handler?.isConnected()) {
+			return;
+		}
+		if (entry.stopping) {
+			return;
+		}
+		if (!entry.handler.agent?.abortRun) {
+			this.app.api.chat.setState(liveNode, ChatState.ERROR, 'Stop is not available for this agent connection');
+			this.app.api.chat.addMessage(liveNode, MessageRole.ERROR, 'Stop is not available for this agent connection');
+			return;
+		}
+
+		entry.abortRequested = true;
+		entry.stopping = true;
+		entry.abortSuppressedUntil = Date.now() + 5000;
+		this.app.api.chat.setState(liveNode, ChatState.STOPPING);
+
+		try {
+			await Promise.resolve()
+				.then(() => entry.handler.abortRun())
+				.catch((error) => {
+					if (!this._isAbortLikeError(error)) {
+						throw error;
+					}
+				});
+			entry.abortRequested = false;
+			entry.stopping = false;
+			await this._finalizeInterruptedChat(liveNode, { signalEmptyResponse: true });
+		} catch (error) {
+			entry.abortRequested = false;
+			entry.stopping = false;
+			this.app.api.chat.setState(liveNode, ChatState.ERROR, error?.message || String(error));
+			this.app.api.chat.addMessage(liveNode, MessageRole.ERROR, error?.message || String(error));
 		}
 	}
 
@@ -427,6 +526,7 @@ class AgentChatManager {
 		const api = this.app.api.chat;
 
 		const getNode = () => this._findNodeByChatId(chatId);
+		const getEntry = () => this.handlers.get(chatId);
 
 		// Track pending tool calls to render read_file results as inline previews
 		const pendingTools = {};
@@ -445,6 +545,11 @@ class AgentChatManager {
 			onRunFinished: () => {
 				const n = getNode();
 				if (!n) return;
+				const entry = getEntry();
+				if (entry) {
+					entry.stopping = false;
+					entry.abortRequested = false;
+				}
 				if (n.chatState !== ChatState.ERROR) {
 					api.setState(n, ChatState.READY);
 				}
@@ -453,6 +558,15 @@ class AgentChatManager {
 			onRunError: (error) => {
 				const n = getNode();
 				if (!n) return;
+				const entry = getEntry();
+				if (this._shouldSuppressAbortError(entry, error)) {
+					if (entry) {
+						entry.abortRequested = false;
+						entry.stopping = false;
+					}
+					api.setState(n, ChatState.READY);
+					return;
+				}
 				const msg = error?.message || String(error) || 'Agent error';
 				api.setState(n, ChatState.ERROR, msg);
 				api.addMessage(n, MessageRole.ERROR, msg);
@@ -694,11 +808,17 @@ class AgentChatManager {
 	// ================================================================
 
 	disconnectNode(nodeId) {
-		const entry = this.handlers.get(nodeId);
+		let chatId = nodeId;
+		let entry = this.handlers.get(chatId);
+		if (!entry) {
+			const graphNode = this.app.graph.getNodeById?.(nodeId);
+			chatId = graphNode?.chatId || nodeId;
+			entry = this.handlers.get(chatId);
+		}
 		if (entry?.handler?.isConnected()) {
 			entry.handler.disconnect();
 		}
-		this.handlers.delete(nodeId);
+		this.handlers.delete(chatId);
 	}
 
 	disconnectAll() {

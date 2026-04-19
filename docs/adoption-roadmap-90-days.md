@@ -110,9 +110,10 @@ Progress so far:
 - gallery cards published from public repos now surface their source locator and can jump back to the underlying public repo page, making the gallery feel more like a curated layer over public repos
 - the Extensions panel now has a unified Registry tab that surfaces shared toolkits and skills together with creator, source, trust, featured, and setup signals, which starts the creator-loop side of the roadmap without splitting local and prod behavior
 - the Public Hub now has creator pages that combine one creator's public repos with their published templates, and gallery cards can jump to either the source repo or the creator page, which makes the creator loop much more explicit
+- workflow file and clipboard import now have a first real interop path: native Numel JSON still loads directly, and a pragmatic subset of n8n workflow JSON, including common set, HTTP, branch, and merge shapes, is converted into runnable Numel graphs with explicit manual-review warnings where the mapping is not exact yet
 
 Next execution order:
-1. interop importers
+1. broaden interop coverage beyond the current n8n slice, especially switch/code-heavy flows and other external ecosystems
 
 ## Parallel Adoption Work
 

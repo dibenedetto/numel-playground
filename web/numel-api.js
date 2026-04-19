@@ -154,6 +154,13 @@ class NumelAPI {
 	openRepoAsset(path)           { return this.json('/spaces/repo/assets/open', { path }); }
 	restoreRepo(source, note = null) { return this.json('/spaces/repo/restore', { source, note }); }
 	getWorkflow()                 { return this.json('/workflow/get'); }
+	importWorkflowDocument(document, opts = {}) {
+		return this.json('/workflow/interop/import', {
+			document,
+			source_format: opts?.sourceFormat || null,
+			file_name: opts?.fileName || null,
+		});
+	}
 	validateWorkflow(workflow, opts = {}) { return this.json('/workflow/validate', { workflow, ...opts }); }
 	saveWorkflow(workflow, opts = {}) { return this.json('/workflow/save', { workflow, ...(opts || {}) }); }
 	ensureWorkflowImpl()          { return this.json('/workflow/impl'); }

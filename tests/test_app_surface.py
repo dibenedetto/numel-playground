@@ -103,6 +103,122 @@ def _starter_hello_workflow_payload() -> dict:
     }
 
 
+def _n8n_set_workflow_payload() -> dict:
+    return {
+        "name": "n8n Surface Import",
+        "nodes": [
+            {
+                "id": "1",
+                "name": "Manual Trigger",
+                "type": "n8n-nodes-base.manualTrigger",
+                "position": [80, 180],
+                "parameters": {},
+            },
+            {
+                "id": "2",
+                "name": "Set Fields",
+                "type": "n8n-nodes-base.set",
+                "position": [360, 180],
+                "parameters": {
+                    "keepOnlySet": True,
+                    "values": {
+                        "string": [{"name": "message", "value": "Hello from imported n8n"}],
+                        "number": [{"name": "count", "value": 2}],
+                    },
+                },
+            },
+        ],
+        "connections": {
+            "Manual Trigger": {
+                "main": [[{"node": "Set Fields", "type": "main", "index": 0}]],
+            },
+        },
+    }
+
+
+def _n8n_if_workflow_payload() -> dict:
+    return {
+        "name": "n8n Branch Import",
+        "nodes": [
+            {
+                "id": "1",
+                "name": "Manual Trigger",
+                "type": "n8n-nodes-base.manualTrigger",
+                "position": [80, 200],
+                "parameters": {},
+            },
+            {
+                "id": "2",
+                "name": "Set Status",
+                "type": "n8n-nodes-base.set",
+                "position": [320, 200],
+                "parameters": {
+                    "keepOnlySet": True,
+                    "values": {
+                        "string": [{"name": "status", "value": "ok"}],
+                    },
+                },
+            },
+            {
+                "id": "3",
+                "name": "Status Check",
+                "type": "n8n-nodes-base.if",
+                "position": [600, 200],
+                "parameters": {
+                    "conditions": {
+                        "conditions": [
+                            {
+                                "leftValue": "={{$json.status}}",
+                                "rightValue": "ok",
+                                "operator": {"operation": "equal"},
+                            },
+                        ],
+                        "combinator": "and",
+                    },
+                },
+            },
+            {
+                "id": "4",
+                "name": "True Branch",
+                "type": "n8n-nodes-base.set",
+                "position": [900, 100],
+                "parameters": {
+                    "keepOnlySet": False,
+                    "values": {
+                        "string": [{"name": "decision", "value": "approved"}],
+                    },
+                },
+            },
+            {
+                "id": "5",
+                "name": "False Branch",
+                "type": "n8n-nodes-base.set",
+                "position": [900, 300],
+                "parameters": {
+                    "keepOnlySet": False,
+                    "values": {
+                        "string": [{"name": "decision", "value": "rejected"}],
+                    },
+                },
+            },
+        ],
+        "connections": {
+            "Manual Trigger": {
+                "main": [[{"node": "Set Status", "type": "main", "index": 0}]],
+            },
+            "Set Status": {
+                "main": [[{"node": "Status Check", "type": "main", "index": 0}]],
+            },
+            "Status Check": {
+                "main": [
+                    [{"node": "True Branch", "type": "main", "index": 0}],
+                    [{"node": "False Branch", "type": "main", "index": 0}],
+                ],
+            },
+        },
+    }
+
+
 def _toolkit_edge_workflow_payload(root: str) -> dict:
     return {
         "type": "workflow",
@@ -1241,6 +1357,90 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
             published_snapshot.json()["workflow"]["options"]["name"],
             "Preview Workflow One",
         )
+
+    async def test_workflow_interop_import_accepts_n8n_json_and_runs(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "interop", "email": "interop@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        imported = await self._client.post(
+            "/workflow/interop/import",
+            json={"document": _n8n_set_workflow_payload(), "file_name": "surface-import.json"},
+            headers=headers,
+        )
+        self.assertEqual(imported.status_code, 200, imported.text)
+        payload = imported.json()
+        self.assertEqual(payload["source_format"], "n8n")
+        self.assertEqual(payload["name"], "n8n Surface Import")
+        self.assertIn("Converted n8n workflow", payload["summary"])
+        self.assertTrue(any(node["type"] == "transform_flow" for node in payload["workflow"]["nodes"]))
+
+        save = await self._client.post(
+            "/workflow/save",
+            json={"workflow": payload["workflow"]},
+            headers=headers,
+        )
+        self.assertEqual(save.status_code, 200, save.text)
+
+        start = await self._client.post("/workflow/start", json={}, headers=headers)
+        self.assertEqual(start.status_code, 200, start.text)
+        execution_id = start.json()["execution_id"]
+        self.assertTrue(execution_id)
+
+        final_status = start.json()["status"]
+        for _ in range(60):
+            state = await self._client.post(f"/executions/{execution_id}", json={}, headers=headers)
+            self.assertEqual(state.status_code, 200, state.text)
+            final_status = state.json()["state"]["status"]
+            if final_status in {"completed", "failed", "cancelled"}:
+                break
+            await asyncio.sleep(0.2)
+
+        self.assertEqual(final_status, "completed")
+
+    async def test_workflow_interop_import_accepts_n8n_branch_json_and_runs(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "interop_branch", "email": "interop_branch@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        imported = await self._client.post(
+            "/workflow/interop/import",
+            json={"document": _n8n_if_workflow_payload(), "file_name": "branch-import.json"},
+            headers=headers,
+        )
+        self.assertEqual(imported.status_code, 200, imported.text)
+        payload = imported.json()
+        self.assertEqual(payload["source_format"], "n8n")
+        self.assertTrue(any(node["type"] == "route_flow" for node in payload["workflow"]["nodes"]))
+
+        save = await self._client.post(
+            "/workflow/save",
+            json={"workflow": payload["workflow"]},
+            headers=headers,
+        )
+        self.assertEqual(save.status_code, 200, save.text)
+
+        start = await self._client.post("/workflow/start", json={}, headers=headers)
+        self.assertEqual(start.status_code, 200, start.text)
+        execution_id = start.json()["execution_id"]
+        self.assertTrue(execution_id)
+
+        final_status = start.json()["status"]
+        for _ in range(60):
+            state = await self._client.post(f"/executions/{execution_id}", json={}, headers=headers)
+            self.assertEqual(state.status_code, 200, state.text)
+            final_status = state.json()["state"]["status"]
+            if final_status in {"completed", "failed", "cancelled"}:
+                break
+            await asyncio.sleep(0.2)
+
+        self.assertEqual(final_status, "completed")
 
     async def test_admin_diagnostics_surface_local(self) -> None:
         register = await self._client.post(

@@ -20,6 +20,7 @@ from   typing    import Any, Dict, List, Optional
 
 from   event_bus import EventType, EventBus
 from   backend_factory import build_backend, get_text_generation_models, get_text_generation_sources, list_supported_backends, normalize_backend_name
+from   interop_import import InteropImportError, import_workflow_document
 from   platform_client import PlatformRequestError
 from   runtime_settings import get_runtime_settings
 from   schema    import DEFAULT_BACKEND_NAME, Workflow, WorkflowExecutionOptions
@@ -65,6 +66,12 @@ class CurrentWorkflowStartRequest(BaseModel):
 class WorkflowValidateRequest(BaseModel):
 	workflow      : Dict[str, Any]
 	apply_repairs : bool = True
+
+
+class WorkflowInteropImportRequest(BaseModel):
+	document      : Dict[str, Any]
+	source_format : Optional[str] = None
+	file_name     : Optional[str] = None
 
 
 class UserInputRequest(BaseModel):
@@ -1517,6 +1524,17 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			"name": _workflow_name_from_doc(doc) or Path(asset_path).stem or "Workflow",
 			"workflow": doc,
 		}
+
+	@app.post("/workflow/interop/import")
+	async def interop_import_workflow(request: WorkflowInteropImportRequest):
+		try:
+			return import_workflow_document(
+				request.document or {},
+				file_name=request.file_name,
+				source_format=request.source_format,
+			)
+		except InteropImportError as exc:
+			raise HTTPException(status_code=400, detail=exc.detail)
 
 	@app.post("/workflow/validate")
 	async def validate_current_workflow(request: WorkflowValidateRequest):

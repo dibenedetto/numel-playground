@@ -2,6 +2,7 @@
 
 import copy
 import os
+import re
 import sqlite3
 import tempfile
 import uuid
@@ -114,6 +115,52 @@ def _build_chat_model_agno(source: str, name: str):
 		from agno.models.anthropic import Claude
 		return Claude(id=name)
 	raise ValueError(f"Unsupported Agno chat model source: {source}")
+
+
+def _stringify_agno_response_content(response: Any) -> str:
+	if response is None:
+		return ""
+	content = getattr(response, "content", None)
+	if isinstance(content, list):
+		return "\n".join(str(item) for item in content if item is not None)
+	if content is not None:
+		return str(content)
+	if hasattr(response, "get_content_as_string"):
+		try:
+			return str(response.get_content_as_string() or "")
+		except Exception:
+			return ""
+	return ""
+
+
+def _detect_agno_response_error_text(response: Any) -> str | None:
+	text = _stringify_agno_response_content(response).strip()
+	if not text:
+		return None
+	normalized = text.lower()
+	patterns = (
+		r"\bmodel\b.{0,160}\bnot found\b",
+		r"\bno such model\b",
+		r"\bunknown model\b",
+		r"\bfailed to (?:find|load|get)\b.{0,80}\bmodel\b",
+		r"\bpull(?:ing)?\b.{0,80}\bmodel\b",
+		r"\bconnection refused\b",
+		r"\btimed out\b",
+		r"\bunreachable\b",
+	)
+	if any(re.search(pattern, normalized, re.DOTALL) for pattern in patterns):
+		return text
+	if "status code:" in normalized and "model" in normalized:
+		return text
+	if normalized.startswith("error:") and "model" in normalized:
+		return text
+	return None
+
+
+def _raise_for_agno_response_error(response: Any) -> None:
+	error_text = _detect_agno_response_error_text(response)
+	if error_text:
+		raise RuntimeError(error_text)
 
 
 def _build_chat_memory_db_agno(memory_db_path: str):
@@ -312,7 +359,9 @@ async def run_chat_agent_agno(agent, message: str, *, session_id: str | None = N
 		kwargs["user_id"] = user_id
 	if session_id is not None:
 		kwargs["session_id"] = session_id
-	return await agent.arun(message, **kwargs)
+	response = await agent.arun(message, **kwargs)
+	_raise_for_agno_response_error(response)
+	return response
 
 
 async def continue_chat_run_agno(
@@ -340,7 +389,9 @@ async def continue_chat_run_agno(
 		kwargs["user_id"] = user_id
 	if session_id is not None:
 		kwargs["session_id"] = session_id
-	return await agent.acontinue_run(**kwargs)
+	response = await agent.acontinue_run(**kwargs)
+	_raise_for_agno_response_error(response)
+	return response
 
 
 def extract_chat_response_text_agno(response) -> str:
@@ -501,6 +552,7 @@ async def generate_text_agno(
 		markdown=False,
 	)
 	raw = await agent.arun(input=user_message)
+	_raise_for_agno_response_error(raw)
 	content = getattr(raw, "content", raw)
 	if isinstance(content, list):
 		return "\n".join(str(item) for item in content)
@@ -1085,6 +1137,7 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 					AgnoImage(base64_data=image_b64),
 				]
 		raw    = await agent.arun(input=message, **kwargs)
+		_raise_for_agno_response_error(raw)
 		result = dict(
 			content_type = raw.content_type,
 			content      = raw.content,

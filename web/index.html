@@ -273,30 +273,38 @@
 					<label>Run ID</label>
 					<div id="execId" class="nw-mono-text">-</div>
 				</div>
-				<div class="nw-run-replay-block">
-					<div class="nw-run-replay-header">
-						<span class="nw-run-replay-title">Timeline</span>
-						<div class="nw-run-replay-actions">
-							<button id="replayLatestRunBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button" title="Replay the latest run in the current space">Replay Latest Run</button>
-							<button id="compareLatestRunsBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button" title="Compare the latest run with the previous run in this space">Compare Latest Two Runs</button>
+				<div class="nw-run-advanced">
+					<button id="runAdvancedToggleBtn" class="nw-run-advanced-toggle" type="button" aria-expanded="false">
+						<span class="nw-run-advanced-label">Advanced</span>
+						<svg class="nw-run-advanced-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
+					</button>
+					<div id="runAdvancedBody" class="nw-run-advanced-body" style="display:none;">
+						<div class="nw-run-replay-block">
+							<div class="nw-run-replay-header">
+								<span class="nw-run-replay-title">Timeline</span>
+								<div class="nw-run-replay-actions">
+									<button id="replayLatestRunBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button" title="Replay the latest run in the current space">Replay Latest Run</button>
+									<button id="compareLatestRunsBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button" title="Compare the latest run with the previous run in this space">Compare Latest Two Runs</button>
+								</div>
+							</div>
+							<div id="execReplaySummary" class="nw-run-summary empty">Run the current workflow to build a live timeline, or replay the latest run in this space.</div>
+							<div id="execTimeline" class="nw-exec-timeline" aria-live="polite"></div>
+							<div class="nw-run-eval-block">
+								<div class="nw-run-comparison-title">Evaluations</div>
+								<div id="execEvalSummary" class="nw-run-summary empty">Any eval scores from the current or replayed run will appear here.</div>
+								<div id="execEvalList" class="nw-run-eval-list" aria-live="polite"></div>
+							</div>
+							<div class="nw-run-failure-block">
+								<div class="nw-run-comparison-title">Failure Drill-Down</div>
+								<div id="execFailureSummary" class="nw-run-summary empty">If a run fails, Numel will summarize the failing step and the most useful nearby context here.</div>
+								<div id="execFailureList" class="nw-run-failure-list" aria-live="polite"></div>
+							</div>
+							<div class="nw-run-comparison-block">
+								<div class="nw-run-comparison-title">Comparison</div>
+								<div id="execComparisonSummary" class="nw-run-summary empty">Compare the latest two runs in this space to see what changed.</div>
+								<div id="execComparisonList" class="nw-run-comparison-list" aria-live="polite"></div>
+							</div>
 						</div>
-					</div>
-					<div id="execReplaySummary" class="nw-run-summary empty">Run the current workflow to build a live timeline, or replay the latest run in this space.</div>
-					<div id="execTimeline" class="nw-exec-timeline" aria-live="polite"></div>
-					<div class="nw-run-eval-block">
-						<div class="nw-run-comparison-title">Evaluations</div>
-						<div id="execEvalSummary" class="nw-run-summary empty">Any eval scores from the current or replayed run will appear here.</div>
-						<div id="execEvalList" class="nw-run-eval-list" aria-live="polite"></div>
-					</div>
-					<div class="nw-run-failure-block">
-						<div class="nw-run-comparison-title">Failure Drill-Down</div>
-						<div id="execFailureSummary" class="nw-run-summary empty">If a run fails, Numel will summarize the failing step and the most useful nearby context here.</div>
-						<div id="execFailureList" class="nw-run-failure-list" aria-live="polite"></div>
-					</div>
-					<div class="nw-run-comparison-block">
-						<div class="nw-run-comparison-title">Comparison</div>
-						<div id="execComparisonSummary" class="nw-run-summary empty">Compare the latest two runs in this space to see what changed.</div>
-						<div id="execComparisonList" class="nw-run-comparison-list" aria-live="polite"></div>
 					</div>
 				</div>
 			</section>
