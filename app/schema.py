@@ -1991,7 +1991,12 @@ class Workflow(ComponentType):
 	def get(self) -> Annotated[Workflow, FieldRole.OUTPUT]:
 		return self
 
-	def link(self):
+	def link(self) -> Workflow:
+		if not self.nodes:
+			self.nodes = []
+		if not self.edges:
+			self.edges = []
+
 		roles = (FieldRole.MULTI_INPUT, FieldRole.MULTI_OUTPUT)
 		for node in self.nodes or []:
 			for name, info in type(node).model_fields.items():
@@ -2026,6 +2031,8 @@ class Workflow(ComponentType):
 				dst_field[dst_parts[0]] = src_value
 			else:
 				setattr(target_node, dst_base, src_value)
+
+		return self
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ from   utils                           import log_print
 from   agno.agent                      import Agent
 from   agno.db.postgres                import PostgresDb
 from   agno.db.sqlite                  import SqliteDb
-from   agno.knowledge.embedder.openai  import OpenAIEmbedder
+from   agno.exceptions                 import ModelProviderError
 from   agno.knowledge.embedder.ollama  import OllamaEmbedder
 from   agno.knowledge.knowledge        import Knowledge
 from   agno.memory.manager             import MemoryManager
@@ -232,6 +232,22 @@ def _build_bg_session_summary_manager_agno(model):
 	return _BgSessionSummaryManager(model=model)
 
 
+async def _checked_agent_arun(agent, input, **kwargs):
+	try:
+		response = await agent.arun(input, **kwargs)
+	except ModelProviderError as e:
+		raise RuntimeError(str(e))
+	return response
+
+
+async def _checked_agent_acontinue_run(agent, **kwargs):
+	try:
+		response = await agent.acontinue_run(**kwargs)
+	except ModelProviderError as e:
+		raise RuntimeError(str(e))
+	return response
+
+
 def build_chat_agent_agno(
 	*,
 	model_source: str,
@@ -359,7 +375,7 @@ async def run_chat_agent_agno(agent, message: str, *, session_id: str | None = N
 		kwargs["user_id"] = user_id
 	if session_id is not None:
 		kwargs["session_id"] = session_id
-	response = await agent.arun(message, **kwargs)
+	response = await _checked_agent_arun(agent, message, **kwargs)
 	_raise_for_agno_response_error(response)
 	return response
 
@@ -389,7 +405,7 @@ async def continue_chat_run_agno(
 		kwargs["user_id"] = user_id
 	if session_id is not None:
 		kwargs["session_id"] = session_id
-	response = await agent.acontinue_run(**kwargs)
+	response = await _checked_agent_acontinue_run(agent, **kwargs)
 	_raise_for_agno_response_error(response)
 	return response
 
@@ -479,11 +495,22 @@ def get_text_generation_sources_agno() -> List[str]:
 
 
 def get_text_generation_models_agno(model_source: str | None = None) -> List[str]:
-	by_source = {
-		"ollama": ["qwen3.5:cloud", "mistral:latest", "llama3:latest", "qwen3.5:latest"],
-		"openai": ["gpt-4o-mini", "gpt-4o"],
-		"anthropic": ["claude-sonnet-4-20250514"],
-	}
+	# by_source = {
+	# 	"ollama": ["qwen3.5:cloud", "mistral:latest", "llama3:latest", "qwen3.5:latest"],
+	# 	"openai": ["gpt-4o-mini", "gpt-4o"],
+	# 	"anthropic": ["claude-sonnet-4-20250514"],
+	# }
+
+	by_source = dict()
+
+	if True:
+		import ollama
+		by_source["ollama"] = [model.model for model in ollama.list().models]
+
+	# if True:
+	# 	import OTHER-PROVIDER (openai, abntropic, etc.	)
+	# 	and fill by_source
+
 	source = str(model_source or "").strip().lower()
 	if source:
 		return list(by_source.get(source, []))
@@ -551,7 +578,7 @@ async def generate_text_agno(
 		instructions=system_message,
 		markdown=False,
 	)
-	raw = await agent.arun(input=user_message)
+	raw = await _checked_agent_arun(agent, user_message)
 	_raise_for_agno_response_error(raw)
 	content = getattr(raw, "content", raw)
 	if isinstance(content, list):
@@ -1136,7 +1163,7 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 					{"type": "text", "text": message},
 					AgnoImage(base64_data=image_b64),
 				]
-		raw    = await agent.arun(input=message, **kwargs)
+		raw = await _checked_agent_arun(agent, message, **kwargs)
 		_raise_for_agno_response_error(raw)
 		result = dict(
 			content_type = raw.content_type,

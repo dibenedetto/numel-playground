@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 
 from typing import Any, Callable, Optional, Tuple
 
+from networkx import nodes
+
 from nodes import ImplementedBackend
 from schema import (
+	ComponentType,
 	ContentDBConfig,
 	DEFAULT_BACKEND_NAME,
 	Edge,
@@ -336,3 +340,35 @@ def build_knowledge_runtime(
 	builder = get_backend_builder(backend_name or DEFAULT_BACKEND_NAME)
 	backend = builder(workflow, skill_mgr=None)
 	return backend, backend.handles[knowledge_idx]
+
+
+
+
+if __name__ == "__main__":
+	print("START")
+
+	if False:
+		import asyncio
+		from schema import AgentConfig, ModelConfig
+		flow = Workflow(
+			nodes = [
+				ModelConfig(source="ollama", name="mistral"),
+				AgentConfig(),
+			],
+			edges = [
+				Edge(source=0, target=1, source_slot="config", target_slot="model"),
+			]
+		).link()
+		backend = build_backend(flow)
+		result  = asyncio.run(backend.run_agent(backend.handles[1], "hi"))
+		print(result)
+
+	if True:
+		import ollama
+		model_list = ollama.list()
+		models     = model_list.models
+		print("----------------- list")
+		for model in models:
+			print(model.model)
+
+	print("STOP")
