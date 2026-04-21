@@ -9,7 +9,7 @@ import uuid
 
 
 from   importlib                       import import_module
-from   inspect                         import iscoroutinefunction, getmembers, ismethod
+from   inspect                         import iscoroutinefunction
 from   fastapi                         import FastAPI
 from   toolkit_runtime                 import load_numel_toolkit
 from   typing                          import Any, Dict, List, Tuple
@@ -40,6 +40,9 @@ from   knowledge_runtime               import serialize_knowledge_documents
 from   schema                          import *
 from   nodes                           import ImplementedBackend
 from   utils                           import add_middleware
+
+
+_OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 
 
 # Patch Agno's AG-UI utils: some model providers (e.g. Ollama) return None for
@@ -106,7 +109,7 @@ _patch_agno_session_summary_warnings()
 def _build_chat_model_agno(source: str, name: str):
 	"""Instantiate an Agno chat model from source/name strings."""
 	if source == "ollama":
-		return Ollama(id=name)
+		return Ollama(id=name, host=_OLLAMA_HOST)
 	if source == "openai":
 		# parallel_tool_calls=False prevents the AGUI streaming protocol from
 		# breaking when the model would otherwise issue concurrent tool calls.
@@ -495,30 +498,44 @@ def get_text_generation_sources_agno() -> List[str]:
 
 
 def get_text_generation_models_agno(model_source: str | None = None) -> List[str]:
-	# by_source = {
-	# 	"ollama": ["qwen3.5:cloud", "mistral:latest", "llama3:latest", "qwen3.5:latest"],
-	# 	"openai": ["gpt-4o-mini", "gpt-4o"],
-	# 	"anthropic": ["claude-sonnet-4-20250514"],
-	# }
-
 	by_source = dict()
 
 	if True:
-		import ollama
-		by_source["ollama"] = [model.model for model in ollama.list().models]
+		try:
+			import ollama
+			models = ollama.list().models
+			by_source["ollama"] = [model.model for model in models]
+		except:
+			pass
 
-	# if True:
-	# 	import OTHER-PROVIDER (openai, abntropic, etc.	)
-	# 	and fill by_source
+	if True:
+		try:
+			from openai import OpenAI
+			client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+			models = client.models.list()
+			by_source["openai"] = [model.id for model in models]
+		except:
+			pass
+
+	if True:
+		try:
+			from anthropic import Anthropic
+			client = Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+			models = client.models.list().data
+			by_source["anthropic"] = [model.id for model in models]
+		except:
+			pass
 
 	source = str(model_source or "").strip().lower()
 	if source:
 		return list(by_source.get(source, []))
+
 	merged: List[str] = []
 	for names in by_source.values():
 		for item in names:
 			if item not in merged:
 				merged.append(item)
+
 	return merged
 
 
@@ -540,7 +557,7 @@ def _build_model_for_generation_agno(
 			options["temperature"] = float(temperature)
 		if max_tokens is not None:
 			options["num_predict"] = int(max_tokens)
-		return Ollama(id=name, options=options or None)
+		return Ollama(id=name, host=_OLLAMA_HOST, options=options or None)
 	if source == "openai":
 		return OpenAIChat(
 			id=name,
@@ -697,7 +714,7 @@ def build_backend_agno(workflow: Workflow, skill_mgr=None) -> ImplementedBackend
 		item_config = workflow.nodes[index]
 		assert item_config is not None and item_config.type == "model_config", "Invalid Agno model"
 		if item_config.source == "ollama":
-			item = Ollama(id=item_config.name)
+			item = Ollama(id=item_config.name, host=_OLLAMA_HOST)
 		elif item_config.source == "openai":
 			item = OpenAIChat(id=item_config.name)
 		elif item_config.source == "anthropic":

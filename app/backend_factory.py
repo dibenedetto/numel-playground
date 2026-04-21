@@ -5,8 +5,6 @@ import copy
 
 from typing import Any, Callable, Optional, Tuple
 
-from networkx import nodes
-
 from nodes import ImplementedBackend
 from schema import (
 	ComponentType,
@@ -344,31 +342,48 @@ def build_knowledge_runtime(
 
 
 
-if __name__ == "__main__":
-	print("START")
+# if __name__ == "__main__":
+# 	print("START")
 
-	if False:
-		import asyncio
-		from schema import AgentConfig, ModelConfig
-		flow = Workflow(
-			nodes = [
-				ModelConfig(source="ollama", name="mistral"),
-				AgentConfig(),
-			],
-			edges = [
-				Edge(source=0, target=1, source_slot="config", target_slot="model"),
-			]
-		).link()
-		backend = build_backend(flow)
-		result  = asyncio.run(backend.run_agent(backend.handles[1], "hi"))
-		print(result)
+# 	if True:
+# 		import ollama
+# 		model_list = ollama.list()
+# 		models     = model_list.models
+# 		print("----------------- ollama models -----------------")
+# 		for model in models:
+# 			print(model.model)
+# 		print("-------------------------------------------------")
+# 		result = ollama.chat(
+# 			model    = "mistral",
+# 			messages = [{"role": "user", "content": "hi"}],
+# 			stream   = False,
+# 		)
+# 		print(result)
+# 		print("-------------------------------------------------")
 
-	if True:
-		import ollama
-		model_list = ollama.list()
-		models     = model_list.models
-		print("----------------- list")
-		for model in models:
-			print(model.model)
+# 	if True:
+# 		from agno.agent import Agent
+# 		from agno.models.ollama import Ollama
+# 		agent = Agent(
+# 			model=Ollama(id="qwen3.5:cloud", host="http://localhost:11434"),
+# 			markdown=True,
+# 		)
+# 		agent.print_response("hi", stream=True)
 
-	print("STOP")
+# 	if False:
+# 		import asyncio
+# 		from schema import AgentConfig, ModelConfig
+# 		flow = Workflow(
+# 			nodes = [
+# 				ModelConfig(source="ollama", name="mistral"),
+# 				AgentConfig(),
+# 			],
+# 			edges = [
+# 				Edge(source=0, target=1, source_slot="config", target_slot="model"),
+# 			]
+# 		).link()
+# 		backend = build_backend(flow)
+# 		result  = asyncio.run(backend.run_agent(backend.handles[1], "hi"))
+# 		print(result)
+
+# 	print("STOP")
