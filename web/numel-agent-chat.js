@@ -151,6 +151,18 @@ class AgentChatManager {
 		this.handlers = new Map(); // chatId -> { handler, port, dirty }
 		this.executionId = null;    // current workflow execution ID (null when idle)
 
+		// AGUI's HttpAgent aborts the in-flight fetch synchronously on
+		// abortRun(); the BodyStreamBuffer reader then throws AbortError from
+		// an internal promise chain we can't wrap. Swallow those rejections
+		// globally while a stop is in flight (mirrors numel-console.js).
+		this._onUnhandledRejection = (event) => {
+			const reason = event?.reason;
+			if (!this._shouldSuppressAbortRejection(reason)) return;
+			event.preventDefault();
+			console.info('[AgentChat] Suppressed abort rejection:', reason?.message || String(reason));
+		};
+		window.addEventListener('unhandledrejection', this._onUnhandledRejection);
+
 		this._setupListeners();
 	}
 
@@ -206,11 +218,18 @@ class AgentChatManager {
 			entry.abortRequested = false;
 			entry.abortSuppressedUntil = 0;
 			entry.stopping = false;
+			entry._stopMessageId = null;
 			this.app.api.chat.setState(liveNode, ChatState.SENDING);
 			await entry.handler.send(message);
 
 		} catch (err) {
 			const liveNode = this._resolveLiveChatNode(chatId, node);
+			const entry = this.handlers.get(chatId);
+			if (this._shouldSuppressAbortError(entry, err)) {
+				// Stop was triggered while send() was awaiting runAgent.
+				// _handleStop finalizes the chat state — nothing to report here.
+				return;
+			}
 			this.app.api.chat.setState(liveNode, ChatState.ERROR, err.message);
 			this.app.api.chat.addMessage(liveNode, MessageRole.ERROR, err.message);
 		}
@@ -223,7 +242,7 @@ class AgentChatManager {
 		const agentConfig = this._getConnectedAgentConfig(node);
 		const currentPort = agentConfig?.annotations?.port || agentConfig?.port;
 		const needsReconnect = !entry || entry.dirty || !entry.handler?.isConnected();
-		const needsSync = !!entry?.dirty || !currentPort;
+		const needsSync = !!entry?.dirty;
 
 		if (!needsReconnect && entry.port === currentPort) {
 			return;
@@ -233,7 +252,6 @@ class AgentChatManager {
 
 		let newNode = node;
 		let updatedConfig = agentConfig;
-		let port = currentPort;
 		if (needsSync) {
 			await this.syncWorkflow(null, null, true);
 
@@ -244,21 +262,22 @@ class AgentChatManager {
 			}
 
 			updatedConfig = this._getConnectedAgentConfig(newNode);
-			port = updatedConfig?.annotations?.port || updatedConfig?.port;
 		}
+
+		// Always confirm the backend has allocated ports before trusting the
+		// value on the graph — on fresh imports the port baked into the saved
+		// JSON is stale and no uvicorn has been started on it yet.
+		// manager.impl() is idempotent; the cached impl is returned on repeat.
+		const implResponse = await this.api.ensureWorkflowImpl();
+		if (implResponse?.workflow) {
+			this._applyImplementationPorts(implResponse.workflow);
+			newNode = this._findNodeByChatId(chatId) || newNode;
+			updatedConfig = this._getConnectedAgentConfig(newNode) || updatedConfig;
+		}
+		const port = updatedConfig?.annotations?.port || updatedConfig?.port;
 
 		if (!newNode) {
 			throw new Error('Chat node not found after sync');
-		}
-
-		if (!port) {
-			const implResponse = await this.api.ensureWorkflowImpl();
-			if (implResponse?.workflow) {
-				this._applyImplementationPorts(implResponse.workflow);
-				newNode = this._findNodeByChatId(chatId) || newNode;
-				updatedConfig = this._getConnectedAgentConfig(newNode) || updatedConfig;
-				port = updatedConfig?.annotations?.port || updatedConfig?.port;
-			}
 		}
 
 		if (!port) {
@@ -266,6 +285,9 @@ class AgentChatManager {
 		}
 
 		if (entry?.handler?.isConnected()) {
+			if (entry.aguiSubscription?.unsubscribe) {
+				entry.aguiSubscription.unsubscribe();
+			}
 			entry.handler.disconnect();
 		}
 
@@ -277,14 +299,30 @@ class AgentChatManager {
 
 		handler.connect(url, name, ...Object.values(callbacks));
 
-		this.handlers.set(chatId, {
+		// Suppress AGUI's internal console.error on aborted runs. Without this
+		// hook the library logs "Agent execution failed: AbortError..." every
+		// time the stop button is clicked.
+		const newEntry = {
 			handler,
 			port,
 			dirty: false,
 			abortRequested: false,
 			abortSuppressedUntil: 0,
 			stopping: false,
-		});
+			aguiSubscription: null,
+			_stopMessageId: null,
+		};
+		if (handler.agent?.subscribe) {
+			newEntry.aguiSubscription = handler.agent.subscribe({
+				onRunFailed: ({ error }) => {
+					if (newEntry.abortRequested || this._isAbortLikeError(error)) {
+						return { stopPropagation: true };
+					}
+					return {};
+				},
+			});
+		}
+		this.handlers.set(chatId, newEntry);
 
 		this.app.api.chat.setState(newNode, ChatState.READY);
 
@@ -366,6 +404,7 @@ class AgentChatManager {
 				entry.abortRequested = false;
 				entry.abortSuppressedUntil = 0;
 				entry.stopping = false;
+				entry._stopMessageId = null;
 				this.app.api.chat.setState(node, ChatState.SENDING);
 				await entry.handler.send(text);
 			}
@@ -391,6 +430,34 @@ class AgentChatManager {
 	_shouldSuppressAbortError(entry, error) {
 		if (!entry) return false;
 		return this._isAbortLikeError(error) && Number(entry.abortSuppressedUntil || 0) > Date.now();
+	}
+
+	_shouldSuppressAbortRejection(error) {
+		if (!this._isAbortLikeError(error)) return false;
+		const now = Date.now();
+		for (const entry of this.handlers.values()) {
+			if (!entry) continue;
+			if (entry.abortRequested || entry.stopping) return true;
+			if (Number(entry.abortSuppressedUntil || 0) > now) return true;
+		}
+		return false;
+	}
+
+	_upsertStopMessage(node, entry, content) {
+		if (!node || !content) return null;
+		const api = this.app.api.chat;
+		if (entry?._stopMessageId) {
+			const msg = (node.chatMessages || []).find(m => m.id === entry._stopMessageId);
+			if (msg) {
+				msg.content = content;
+				this.app.chatManager?.overlayManager?.updateMessages(node);
+				return msg;
+			}
+			entry._stopMessageId = null;
+		}
+		const added = api.addMessage(node, MessageRole.STATUS, content);
+		if (entry && added?.id) entry._stopMessageId = added.id;
+		return added;
 	}
 
 	_getLatestAssistantText(node) {
@@ -434,7 +501,9 @@ class AgentChatManager {
 		entry.abortRequested = true;
 		entry.stopping = true;
 		entry.abortSuppressedUntil = Date.now() + 5000;
+		entry._stopMessageId = null;
 		this.app.api.chat.setState(liveNode, ChatState.STOPPING);
+		this._upsertStopMessage(liveNode, entry, 'Stopping agent...');
 
 		try {
 			await Promise.resolve()
@@ -447,11 +516,14 @@ class AgentChatManager {
 			entry.abortRequested = false;
 			entry.stopping = false;
 			await this._finalizeInterruptedChat(liveNode, { signalEmptyResponse: true });
+			this._upsertStopMessage(liveNode, entry, 'Agent stopped.');
+			entry._stopMessageId = null;
 		} catch (error) {
 			entry.abortRequested = false;
 			entry.stopping = false;
+			this._upsertStopMessage(liveNode, entry, `Stop failed: ${error?.message || String(error)}`);
+			entry._stopMessageId = null;
 			this.app.api.chat.setState(liveNode, ChatState.ERROR, error?.message || String(error));
-			this.app.api.chat.addMessage(liveNode, MessageRole.ERROR, error?.message || String(error));
 		}
 	}
 
@@ -814,6 +886,9 @@ class AgentChatManager {
 			const graphNode = this.app.graph.getNodeById?.(nodeId);
 			chatId = graphNode?.chatId || nodeId;
 			entry = this.handlers.get(chatId);
+		}
+		if (entry?.aguiSubscription?.unsubscribe) {
+			entry.aguiSubscription.unsubscribe();
 		}
 		if (entry?.handler?.isConnected()) {
 			entry.handler.disconnect();

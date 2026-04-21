@@ -667,9 +667,13 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			return f'Reusable workflow template published from snapshot "{selector[:8]}" in the "{space_title}" repo.'
 		return f'Reusable workflow template published from the current workbench in the "{space_title}" repo.'
 
-	def _workflow_doc_from_model(workflow: Workflow) -> Dict[str, Any]:
+	def _workflow_doc_from_model(workflow: Workflow, *, keep_runtime_state: bool = False) -> Dict[str, Any]:
 		doc = workflow.model_dump()
 		doc["type"] = "workflow"
+		if not keep_runtime_state:
+			for node in doc.get("nodes", []) or []:
+				if isinstance(node, dict) and node.get("type") == "agent_config":
+					node.pop("port", None)
 		return doc
 
 	def _workflow_model_from_doc(doc: Dict[str, Any]) -> Workflow:
@@ -712,6 +716,12 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 
 	async def _cache_current_workflow(req: Request, workflow: Workflow) -> str:
 		ws = _ws(req)
+		# Runtime-allocated agent ports may have leaked in from persisted JSON.
+		# Clear them so impl() re-allocates against the live uvicorn instance
+		# and no stale value reaches the client before servers are bound.
+		for node in getattr(workflow, "nodes", None) or []:
+			if getattr(node, "type", None) == "agent_config" and hasattr(node, "port"):
+				node.port = None
 		name = (
 			workflow.options.name
 			if getattr(workflow, "options", None) is not None and workflow.options.name
@@ -1621,7 +1631,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		workflow = impl.get("workflow")
 		if workflow is None:
 			raise HTTPException(status_code=404, detail="No active workflow")
-		doc = _workflow_doc_from_model(workflow)
+		doc = _workflow_doc_from_model(workflow, keep_runtime_state=True)
 		return {
 			"space": space,
 			"asset_path": asset_path,

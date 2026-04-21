@@ -20,6 +20,7 @@ const MessageRole = Object.freeze({
 	USER: 'user',
 	ASSISTANT: 'assistant',
 	SYSTEM: 'system',
+	STATUS: 'status',
 	ERROR: 'error'
 });
 
@@ -865,6 +866,7 @@ class ChatOverlayManager {
 			case MessageRole.USER: return 'You';
 			case MessageRole.ASSISTANT: return 'Assistant';
 			case MessageRole.SYSTEM: return 'System';
+			case MessageRole.STATUS: return 'Status';
 			case MessageRole.ERROR: return 'Error';
 			default: return role;
 		}
@@ -2087,6 +2089,15 @@ class ChatExtension extends SchemaGraphExtension {
 				font-style: italic;
 				font-size: 12px;
 				border-left: 3px solid var(--sg-text-quaternary, #555);
+			}
+
+			.sg-chat-msg-status {
+				align-self: center;
+				background: rgba(214, 143, 45, 0.14);
+				color: #f3c982;
+				font-style: italic;
+				font-size: 12px;
+				border-left: 3px solid #d68f2d;
 			}
 
 			.sg-chat-hide-system > .sg-chat-msg-system:not(.sg-chat-msg-has-preview) {

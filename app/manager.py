@@ -273,21 +273,39 @@ class WorkflowManager:
 			await asyncio.sleep(0.05)
 
 
-	async def _shutdown_agent_apps(self, apps: Any):
+	async def _shutdown_agent_apps(self, apps: Any, graceful_timeout_s: float = 3.0):
 		if not apps:
 			return
+		targets = []
 		for item in apps:
 			if not item:
 				continue
 			server = item.get("server")
 			task   = item.get("task")
-			if server and getattr(server, "should_exit", False) is False:
+			if server and not getattr(server, "should_exit", False):
 				server.should_exit = True
-			if task:
-				try:
-					await task
-				except (asyncio.CancelledError, RuntimeError, SystemExit):
-					pass
+			if task and not task.done():
+				targets.append((server, task))
+		if not targets:
+			return
+		pending = [task for _, task in targets]
+		try:
+			await asyncio.wait_for(
+				asyncio.gather(*pending, return_exceptions=True),
+				timeout=graceful_timeout_s,
+			)
+			return
+		except asyncio.TimeoutError:
+			pass
+		# Graceful shutdown did not complete (most often an in-flight AGUI
+		# request holding the uvicorn worker). Force-exit and cancel to free
+		# the port immediately so the next impl() can rebind cleanly.
+		for server, task in targets:
+			if server is not None:
+				server.force_exit = True
+			if not task.done():
+				task.cancel()
+		await asyncio.gather(*pending, return_exceptions=True)
 
 
 	def _build_backend(self, workflow: Workflow) -> ImplementedBackend:
