@@ -11,10 +11,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, get_args, get_origin
+
+from utils import log_print
 
 import credentials as _creds
 from pydantic import BaseModel
@@ -187,6 +190,8 @@ class DockerRuntimeProvider(RuntimeProvider):
         self._records: Dict[str, ExecutionRecord] = {}
         self._engine_links: Dict[str, Dict[str, str]] = {}
         self._monitor_tasks: Dict[str, asyncio.Task] = {}
+        self._last_retention_scan: float = 0.0
+        self._closed: bool = False
 
     def _ensure_ready(self) -> None:
         missing = []
@@ -270,11 +275,7 @@ class DockerRuntimeProvider(RuntimeProvider):
         return records[offset:offset + limit]
 
     def _workflow_from_payload(self, payload: Dict[str, Any]) -> Workflow:
-        if hasattr(Workflow, "model_validate"):
-            return Workflow.model_validate(payload)
-        if hasattr(Workflow, "parse_obj"):
-            return Workflow.parse_obj(payload)
-        return Workflow(**payload)
+        return Workflow.model_validate(payload)
 
     def _derive_workflow_name(self, request: ExecutionRequest, execution_id: str) -> str:
         base = request.asset_path.replace("\\", "/").strip("/").replace("/", "_")
@@ -317,8 +318,26 @@ class DockerRuntimeProvider(RuntimeProvider):
         await workspace.manager.remove(link["workflow_name"])
 
     async def _monitor_execution(self, execution_id: str) -> None:
+        max_duration = float(getattr(self.config, "max_execution_duration_seconds", 0.0) or 0.0)
+        start_time = time.time()
         try:
             while True:
+                if max_duration > 0 and (time.time() - start_time) > max_duration:
+                    link = self._engine_links.get(execution_id)
+                    if link and self.workspace_manager is not None:
+                        workspace = await self.workspace_manager.get_workspace(link["workspace_id"])
+                        if workspace is not None:
+                            try:
+                                await workspace.engine.cancel_execution(link["engine_execution_id"])
+                            except Exception as exc:
+                                log_print(f"[DockerRuntimeProvider] cancel-on-timeout failed: {exc}")
+                    await self._update_record(
+                        execution_id,
+                        status=ExecutionState.FAILED,
+                        finished_at=time.time(),
+                        error=f"Execution exceeded max duration of {max_duration:.0f}s",
+                    )
+                    return
                 link = self._engine_links.get(execution_id)
                 if not link or self.workspace_manager is None:
                     return
@@ -377,6 +396,10 @@ class DockerRuntimeProvider(RuntimeProvider):
         finally:
             self._monitor_tasks.pop(execution_id, None)
             await self._cleanup_workspace_entry(execution_id)
+            try:
+                await self._prune_retained_execution_roots()
+            except Exception as exc:
+                log_print(f"[DockerRuntimeProvider] retention prune failed: {exc}")
 
     async def start_execution(
         self,
@@ -439,6 +462,9 @@ class DockerRuntimeProvider(RuntimeProvider):
                 request.asset_path,
                 ref=request.ref,
             )
+            # AssetKind.OTHER is accepted because generic file-upload assets that
+            # carry workflow JSON are registered without a specific kind. The
+            # payload.get("type") == "workflow" check below enforces content shape.
             if asset is not None and asset.kind not in {AssetKind.WORKFLOW, AssetKind.OTHER}:
                 raise ValueError(
                     f"Local runtime currently supports workflow assets only, got '{asset.kind.value}'"
@@ -536,21 +562,20 @@ class DockerRuntimeProvider(RuntimeProvider):
         record = await self._get_record(execution_id)
         if record is None:
             return False
+        if record.status in self._TERMINAL_STATES:
+            return False
         link = self._engine_links.get(execution_id)
-        cancelled = False
         if link and self.workspace_manager is not None:
             workspace = await self.workspace_manager.get_workspace(link["workspace_id"])
             if workspace is not None:
                 await workspace.engine.cancel_execution(link["engine_execution_id"])
-                cancelled = True
-        if record.status not in self._TERMINAL_STATES:
-            await self._update_record(
-                execution_id,
-                status=ExecutionState.CANCELLED,
-                finished_at=time.time(),
-                error="Cancelled by user",
-            )
-        return cancelled or True
+        await self._update_record(
+            execution_id,
+            status=ExecutionState.CANCELLED,
+            finished_at=time.time(),
+            error="Cancelled by user",
+        )
+        return True
 
     async def get_logs(self, execution_id: str, tail: int = 100) -> str:
         record = await self._get_record(execution_id)
@@ -574,3 +599,43 @@ class DockerRuntimeProvider(RuntimeProvider):
         if record.outputs:
             lines.append(f"output_keys={sorted(record.outputs.keys())}")
         return "\n".join(lines[-tail:])
+
+    async def _prune_retained_execution_roots(self, force: bool = False) -> None:
+        if self.artifact_config is None:
+            return
+        retention = float(getattr(self.config, "artifact_retention_seconds", 0.0) or 0.0)
+        if retention <= 0:
+            return
+        now = time.time()
+        interval = float(getattr(self.config, "retention_scan_interval_seconds", 0.0) or 0.0)
+        if not force and interval > 0 and (now - self._last_retention_scan) < interval:
+            return
+        self._last_retention_scan = now
+        base = Path(self.artifact_config.root_path).resolve() / "executions"
+        if not base.is_dir():
+            return
+        cutoff = now - retention
+        for entry in base.iterdir():
+            if not entry.is_dir():
+                continue
+            try:
+                mtime = entry.stat().st_mtime
+            except OSError:
+                continue
+            if mtime > cutoff:
+                continue
+            try:
+                await asyncio.to_thread(shutil.rmtree, entry, ignore_errors=True)
+            except Exception as exc:
+                log_print(f"[DockerRuntimeProvider] retention rmtree failed for {entry}: {exc}")
+
+    async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        pending = [t for t in self._monitor_tasks.values() if not t.done()]
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        self._monitor_tasks.clear()

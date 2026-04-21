@@ -18,7 +18,7 @@ COPY pyproject.toml ./
 COPY README.md ./
 
 # Install Python deps
-RUN pip install --no-cache-dir -e ".[all]" 2>/dev/null || pip install --no-cache-dir -e . || true
+RUN pip install --no-cache-dir -e .
 
 # Copy application code
 COPY app/ ./app/

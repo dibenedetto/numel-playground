@@ -2105,6 +2105,9 @@ class ChatExtension extends SchemaGraphExtension {
 				border-radius: 4px 4px 4px 2px;
 			}
 
+			/* NOTE: .sg-chat-msg-system and .sg-chat-msg-status mirror the
+			   .nw-console-msg.system / .nw-console-msg.status styles in
+			   numel-console.css. Keep the two pairs visually in sync. */
 			.sg-chat-msg-system {
 				align-self: center;
 				background: rgba(255, 255, 255, 0.05);

@@ -543,6 +543,9 @@
 	border-left: 3px solid var(--sg-accent-green, #5a9e6f);
 	border-radius: 4px 4px 4px 2px;
 }
+/* NOTE: .nw-console-msg.system and .nw-console-msg.status mirror the
+   .sg-chat-msg-system / .sg-chat-msg-status styles in schemagraph-chat-ext.js.
+   Keep the two pairs visually in sync. */
 .nw-console-msg.system {
 	align-self: center;
 	background: rgba(255, 255, 255, 0.05);

@@ -159,7 +159,7 @@ class WorkflowManager:
 			data   = self._workflows.get(name)
 			result = data["workflow"] if data else None
 		else:
-			return None
+			result = None
 		result = copy.deepcopy(result)
 		await self._event_bus.emit(
 			event_type = EventType.MANAGER_WORKFLOW_GOT,
@@ -167,7 +167,7 @@ class WorkflowManager:
 		return result
 
 
-	async def impl(self, name: Optional[str] = None) -> Any:
+	async def impl(self, name: Optional[str] = None, startup_timeout_s: float = 5.0) -> Any:
 		if not name:
 			name = list(self._workflows.keys())[-1] if self._workflows else None
 		data = self._workflows.get(name)
@@ -208,7 +208,7 @@ class WorkflowManager:
 					servers.append(info)
 					port += 1
 
-				await self._wait_for_agent_servers(servers)
+				await self._wait_for_agent_servers(servers, timeout_s=startup_timeout_s)
 			except Exception:
 				await self._shutdown_agent_apps(apps)
 				raise
@@ -247,11 +247,11 @@ class WorkflowManager:
 			await server.serve()
 		except asyncio.CancelledError:
 			raise
-		except BaseException as exc:
+		except Exception as exc:
 			raise RuntimeError(f"Agent server failed on port {port}: {exc}") from exc
 
 
-	async def _wait_for_agent_servers(self, servers: List[Dict[str, Any]], timeout_s: float = 2.0):
+	async def _wait_for_agent_servers(self, servers: List[Dict[str, Any]], timeout_s: float = 5.0):
 		if not servers:
 			return
 		deadline = asyncio.get_running_loop().time() + timeout_s

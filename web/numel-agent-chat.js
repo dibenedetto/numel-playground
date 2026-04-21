@@ -143,6 +143,9 @@ class AgentHandler {
 // ========================================================================
 
 class AgentChatManager {
+	// Set to true to log every AGUI event in devtools.
+	static DEBUG_EVENTS = false;
+
 	constructor(url, app, syncWorkflowFn, api) {
 		this.url = url;
 		this.api = api;  // NumelAPI instance
@@ -182,6 +185,7 @@ class AgentChatManager {
 		// Handle chat send events from ChatExtension
 		eventBus.on('chat:send', (e) => this._handleSend(e));
 		eventBus.on('chat:stop', (e) => this._handleStop(e));
+		eventBus.on('chat:cleared', (e) => this._handleCleared(e));
 
 		// Track workflow execution lifecycle
 		eventBus.on('workflow:started', (e) => { this.executionId = e.execution_id; });
@@ -218,7 +222,7 @@ class AgentChatManager {
 			entry.abortRequested = false;
 			entry.abortSuppressedUntil = 0;
 			entry.stopping = false;
-			entry._stopMessageId = null;
+			entry.stopMessageId = null;
 			this.app.api.chat.setState(liveNode, ChatState.SENDING);
 			await entry.handler.send(message);
 
@@ -310,7 +314,7 @@ class AgentChatManager {
 			abortSuppressedUntil: 0,
 			stopping: false,
 			aguiSubscription: null,
-			_stopMessageId: null,
+			stopMessageId: null,
 		};
 		if (handler.agent?.subscribe) {
 			newEntry.aguiSubscription = handler.agent.subscribe({
@@ -404,7 +408,7 @@ class AgentChatManager {
 				entry.abortRequested = false;
 				entry.abortSuppressedUntil = 0;
 				entry.stopping = false;
-				entry._stopMessageId = null;
+				entry.stopMessageId = null;
 				this.app.api.chat.setState(node, ChatState.SENDING);
 				await entry.handler.send(text);
 			}
@@ -446,17 +450,17 @@ class AgentChatManager {
 	_upsertStopMessage(node, entry, content) {
 		if (!node || !content) return null;
 		const api = this.app.api.chat;
-		if (entry?._stopMessageId) {
-			const msg = (node.chatMessages || []).find(m => m.id === entry._stopMessageId);
+		if (entry?.stopMessageId) {
+			const msg = (node.chatMessages || []).find(m => m.id === entry.stopMessageId);
 			if (msg) {
 				msg.content = content;
 				this.app.chatManager?.overlayManager?.updateMessages(node);
 				return msg;
 			}
-			entry._stopMessageId = null;
+			entry.stopMessageId = null;
 		}
 		const added = api.addMessage(node, MessageRole.STATUS, content);
-		if (entry && added?.id) entry._stopMessageId = added.id;
+		if (entry && added?.id) entry.stopMessageId = added.id;
 		return added;
 	}
 
@@ -501,7 +505,7 @@ class AgentChatManager {
 		entry.abortRequested = true;
 		entry.stopping = true;
 		entry.abortSuppressedUntil = Date.now() + 5000;
-		entry._stopMessageId = null;
+		entry.stopMessageId = null;
 		this.app.api.chat.setState(liveNode, ChatState.STOPPING);
 		this._upsertStopMessage(liveNode, entry, 'Stopping agent...');
 
@@ -517,12 +521,12 @@ class AgentChatManager {
 			entry.stopping = false;
 			await this._finalizeInterruptedChat(liveNode, { signalEmptyResponse: true });
 			this._upsertStopMessage(liveNode, entry, 'Agent stopped.');
-			entry._stopMessageId = null;
+			entry.stopMessageId = null;
 		} catch (error) {
 			entry.abortRequested = false;
 			entry.stopping = false;
 			this._upsertStopMessage(liveNode, entry, `Stop failed: ${error?.message || String(error)}`);
-			entry._stopMessageId = null;
+			entry.stopMessageId = null;
 			this.app.api.chat.setState(liveNode, ChatState.ERROR, error?.message || String(error));
 		}
 	}
@@ -605,7 +609,9 @@ class AgentChatManager {
 
 		return {
 			onEvent: (event) => {
-				console.debug(`[AgentChat:${chatId}]`, event);
+				if (AgentChatManager.DEBUG_EVENTS) {
+					console.debug(`[AgentChat:${chatId}]`, event);
+				}
 				// Track tool call name and args across events
 				if (event.type === AGUI.EventType.TOOL_CALL_START) {
 					pendingTools[event.toolCallId] = { name: event.toolCallName, args: '' };
@@ -897,9 +903,27 @@ class AgentChatManager {
 	}
 
 	disconnectAll() {
-		for (const [nodeId] of this.handlers) {
+		// Snapshot keys — disconnectNode mutates this.handlers.
+		const ids = Array.from(this.handlers.keys());
+		for (const nodeId of ids) {
 			this.disconnectNode(nodeId);
 		}
+	}
+
+	_handleCleared({ chatId }) {
+		const entry = this.handlers.get(chatId);
+		if (!entry) return;
+		// Chat history was wiped — forget the stop-message pointer so the
+		// next stop creates a fresh one instead of patching a stale id.
+		entry.stopMessageId = null;
+	}
+
+	destroy() {
+		if (this._onUnhandledRejection) {
+			window.removeEventListener('unhandledrejection', this._onUnhandledRejection);
+			this._onUnhandledRejection = null;
+		}
+		this.disconnectAll();
 	}
 }
 
