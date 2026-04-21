@@ -609,10 +609,13 @@ class ChatOverlayManager {
 		const canSend = isReady || isIdle || isError;  // allow retry from ERROR and first send from IDLE
 		const canStop = isBusy || isStopping;
 
-		if (sendBtn) sendBtn.disabled = !canSend;
+		if (sendBtn) {
+			sendBtn.disabled = !canSend;
+			sendBtn.style.display = canStop ? 'none' : '';
+		}
 		if (stopBtn) {
 			stopBtn.disabled = !canStop;
-			stopBtn.hidden = !canStop;
+			stopBtn.style.display = canStop ? '' : 'none';
 		}
 
 		const chatInput = overlay.querySelector('.sg-chat-input');
@@ -665,7 +668,6 @@ class ChatOverlayManager {
 					<span class="sg-chat-status-indicator"></span>
 					<span class="sg-chat-status-text">${this._getStatusText(node)}</span>
 					<div class="sg-chat-status-actions">
-						<button class="sg-chat-btn sg-chat-stop-btn" title="Stop reply" hidden>■</button>
 						<button class="sg-chat-btn sg-chat-toggle-sys-btn" title="Show system messages">S</button>
 						<button class="sg-chat-btn sg-chat-clear-btn" title="Clear chat">&#128465;</button>
 					</div>
@@ -683,6 +685,7 @@ class ChatOverlayManager {
 					<button class="sg-chat-send-btn" title="Send">
 						<span class="sg-chat-send-icon">&#10148;</span>
 					</button>
+					<button class="sg-chat-stop-btn" title="Stop assistant" style="display:none">&#9632;</button>
 				</div>
 			</div>
 		`;
@@ -2033,13 +2036,33 @@ class ChatExtension extends SchemaGraphExtension {
 			}
 
 			.sg-chat-stop-btn {
-				color: var(--sg-accent-orange, #f0ad4e);
-				font-size: 11px;
+				background: var(--sg-accent-red, #d9534f);
+				border: none;
+				color: #fff;
+				width: 32px;
+				height: 32px;
+				border-radius: 6px;
+				cursor: pointer;
+				font-size: 14px;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				flex-shrink: 0;
+				animation: sg-chat-stop-pulse 1.5s ease-in-out infinite;
 			}
 
 			.sg-chat-stop-btn:hover:not(:disabled) {
-				background: rgba(240, 173, 78, 0.18);
-				color: var(--sg-text-primary, #fff8e6);
+				background: #e66;
+			}
+
+			.sg-chat-stop-btn:disabled {
+				opacity: 0.5;
+				cursor: not-allowed;
+			}
+
+			@keyframes sg-chat-stop-pulse {
+				0%, 100% { opacity: 1; }
+				50%      { opacity: 0.6; }
 			}
 
 			.sg-chat-messages {
