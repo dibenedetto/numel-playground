@@ -661,16 +661,17 @@
 				</button>
 				<div id="consoleSettingsBody" class="nw-console-settings-body">
 					<div class="nw-console-settings-row">
-						<label for="consoleModelSelect">Model</label>
-						<select id="consoleModelSelect" class="nw-console-model-select" title="Choose which model powers the live Assistant.">
-							<option value="ollama:qwen3.5:cloud">ollama / qwen3.5:cloud</option>
-							<option value="ollama:mistral">ollama / mistral</option>
-							<option value="ollama:llama3">ollama / llama3</option>
-							<option value="ollama:qwen2.5">ollama / qwen2.5</option>
-							<option value="openai:gpt-4o-mini">openai / gpt-4o-mini</option>
-							<option value="openai:gpt-4o">openai / gpt-4o</option>
-							<option value="anthropic:claude-sonnet-4-20250514">anthropic / claude-sonnet-4</option>
-						</select>
+						<label for="consoleModelSource">Model</label>
+						<div class="nw-console-model-pair">
+							<div class="nw-console-model-select-wrap">
+								<select id="consoleModelSource" class="nw-console-model-select" title="Which model source powers the live Assistant."></select>
+								<span class="nw-console-model-spinner" aria-hidden="true"></span>
+							</div>
+							<div class="nw-console-model-select-wrap">
+								<select id="consoleModelName" class="nw-console-model-select" title="Which model name to use from the selected source."></select>
+								<span class="nw-console-model-spinner" aria-hidden="true"></span>
+							</div>
+						</div>
 					</div>
 					<div class="nw-console-settings-row">
 						<label>Toolkits</label>

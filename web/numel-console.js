@@ -10,6 +10,8 @@
 
 console.log('[Numel] Loading console manager...');
 
+const CONSOLE_MODEL_STORAGE_KEY = 'numel_console_model_v1';
+
 class AgentConsoleManager {
 	constructor(serverUrl, syncWorkflowFn, api) {
 		this.serverUrl      = serverUrl;
@@ -37,7 +39,18 @@ class AgentConsoleManager {
 		this._fab         = document.getElementById('consoleToggleBtn');
 		this._badge       = document.getElementById('consoleBadge');
 		this._status      = document.getElementById('consoleStatus');
-		this._modelSelect    = document.getElementById('consoleModelSelect');
+		this._modelSourceSelect = document.getElementById('consoleModelSource');
+		this._modelNameSelect   = document.getElementById('consoleModelName');
+		this._modelSourcesLoaded = false;
+		this._modelNamesBySource = new Map();  // source -> string[] (cached)
+		this._pendingModelSelection = null;    // {source, name} deferred until options load
+		this._fallbackModelSources = ['ollama', 'openai', 'anthropic'];
+		this._fallbackModelNamesBySource = {
+			ollama:    ['qwen3.5:cloud', 'mistral', 'llama3', 'qwen2.5'],
+			openai:    ['gpt-4o-mini', 'gpt-4o'],
+			anthropic: ['claude-sonnet-4-20250514'],
+		};
+		this._seedModelSelects();
 		this._toolkitList    = document.getElementById('consoleToolkitList');
 		this._ttsToggle      = document.getElementById('consoleTtsToggle');
 		this._ttsVoiceSelect = document.getElementById('consoleTtsVoice');
@@ -101,6 +114,7 @@ class AgentConsoleManager {
 		this._setupUI();
 		this._fetchToolkits();
 		this._fetchSkills();
+		this._loadModelOptions();
 		this._setupSTT();  // must run before _setupTTS so sttLangSelect is populated
 		this._setupTTS();
 		this._setInputEnabled(false);
@@ -136,8 +150,16 @@ class AgentConsoleManager {
 			});
 		}
 
-		// Model selector change → restart agent
-		this._modelSelect.addEventListener('change', () => {
+		// Model source change → reload model names for that source
+		this._modelSourceSelect?.addEventListener('change', async () => {
+			await this._loadModelNamesForSource(this._modelSourceSelect.value);
+			this._persistModelSelection();
+			this._updateSettingsSummary();
+			this._onConfigChanged();
+		});
+		// Model name change → restart agent
+		this._modelNameSelect?.addEventListener('change', () => {
+			this._persistModelSelection();
 			this._updateSettingsSummary();
 			this._onConfigChanged();
 		});
@@ -620,9 +642,8 @@ class AgentConsoleManager {
 			this._settingsSummary.textContent = '';
 			return;
 		}
-		const val = this._modelSelect ? this._modelSelect.value : '';
-		const [source, ...rest] = val.split(':');
-		const modelLabel = rest.join(':') || source;
+		const { source, name } = this._getSelectedModel();
+		const modelLabel = name || source || '';
 		const toolkits = this._getSelectedToolkits().filter(t => t !== 'console_toolkit');
 		const sessionHistory = this._sessionHistorySizeInput ? parseInt(this._sessionHistorySizeInput.value, 10) || 5 : 5;
 		const historyRuns = this._historySizeInput ? parseInt(this._historySizeInput.value, 10) || 5 : 5;
@@ -639,9 +660,9 @@ class AgentConsoleManager {
 	}
 
 	_getSelectedModel() {
-		const val = this._modelSelect.value; // "ollama:mistral"
-		const [source, ...rest] = val.split(':');
-		return { source, name: rest.join(':') };
+		const source = this._modelSourceSelect ? this._modelSourceSelect.value : '';
+		const name   = this._modelNameSelect   ? this._modelNameSelect.value   : '';
+		return { source, name };
 	}
 
 	_getSelectedToolkits() {
@@ -953,18 +974,188 @@ class AgentConsoleManager {
 	}
 
 	_ensureModelOption(source, name) {
-		if (!this._modelSelect || !source || !name) return;
-		const value = `${source}:${name}`;
-		const exists = [...this._modelSelect.options].some((opt) => opt.value === value);
-		if (exists) {
-			this._modelSelect.value = value;
+		if (!source || !name) return;
+		// Defer until model source options have been loaded so we can pick the
+		// right source dropdown and then fetch names for it.
+		if (!this._modelSourcesLoaded) {
+			this._pendingModelSelection = { source, name };
 			return;
 		}
-		const opt = document.createElement('option');
-		opt.value = value;
-		opt.textContent = `${source} / ${name}`;
-		this._modelSelect.appendChild(opt);
-		this._modelSelect.value = value;
+		this._applyModelSelection(source, name);
+	}
+
+	async _applyModelSelection(source, name) {
+		if (!this._modelSourceSelect || !this._modelNameSelect) return;
+		const sourceExists = [...this._modelSourceSelect.options].some((o) => o.value === source);
+		if (!sourceExists) {
+			const opt = document.createElement('option');
+			opt.value = source;
+			opt.textContent = source;
+			this._modelSourceSelect.appendChild(opt);
+		}
+		if (this._modelSourceSelect.value !== source) {
+			this._modelSourceSelect.value = source;
+			await this._loadModelNamesForSource(source);
+		}
+		const nameExists = [...this._modelNameSelect.options].some((o) => o.value === name);
+		if (!nameExists) {
+			const opt = document.createElement('option');
+			opt.value = name;
+			opt.textContent = name;
+			this._modelNameSelect.appendChild(opt);
+		}
+		this._modelNameSelect.value = name;
+		this._persistModelSelection();
+	}
+
+	// ── Dynamic model options loading (via /options API) ──────────
+	_fallbackModelNames(source) {
+		return [...(this._fallbackModelNamesBySource[source] || this._fallbackModelNamesBySource.ollama)];
+	}
+
+	_setModelSelectLoading(selectEl, loading) {
+		if (!selectEl) return;
+		const wrap = selectEl.closest('.nw-console-model-select-wrap');
+		if (wrap) wrap.classList.toggle('is-loading', !!loading);
+		selectEl.disabled = !!loading;
+	}
+
+	_seedModelSelects() {
+		if (!this._modelSourceSelect || !this._modelNameSelect) return;
+		const cached = this._readPersistedModelSelection();
+		const sources = cached.source && !this._fallbackModelSources.includes(cached.source)
+			? [cached.source, ...this._fallbackModelSources]
+			: this._fallbackModelSources;
+		this._setSelectOptions(this._modelSourceSelect, sources, cached.source || null);
+		const source = this._modelSourceSelect.value || this._fallbackModelSources[0];
+		const names = this._fallbackModelNames(source);
+		if (cached.source === source && cached.name && !names.includes(cached.name)) {
+			names.push(cached.name);
+		}
+		this._setSelectOptions(
+			this._modelNameSelect,
+			names,
+			cached.source === source ? cached.name : null,
+		);
+	}
+
+	_readPersistedModelSelection() {
+		try {
+			const raw = localStorage.getItem(CONSOLE_MODEL_STORAGE_KEY);
+			if (!raw) return { source: '', name: '' };
+			const parsed = JSON.parse(raw);
+			return {
+				source: typeof parsed?.source === 'string' ? parsed.source : '',
+				name:   typeof parsed?.name   === 'string' ? parsed.name   : '',
+			};
+		} catch {
+			return { source: '', name: '' };
+		}
+	}
+
+	_persistModelSelection() {
+		const { source, name } = this._getSelectedModel();
+		if (!source && !name) return;
+		try {
+			localStorage.setItem(
+				CONSOLE_MODEL_STORAGE_KEY,
+				JSON.stringify({ source, name }),
+			);
+		} catch {}
+	}
+
+	_setSelectOptions(selectEl, values, preferred = null) {
+		if (!selectEl) return;
+		const previous = preferred || selectEl.value || '';
+		selectEl.innerHTML = '';
+		const seen = new Set();
+		(values || []).forEach((v) => {
+			const val = String(v);
+			if (!val || seen.has(val)) return;
+			seen.add(val);
+			const opt = document.createElement('option');
+			opt.value = val;
+			opt.textContent = val;
+			selectEl.appendChild(opt);
+		});
+		if (previous && seen.has(previous)) {
+			selectEl.value = previous;
+		} else if (selectEl.options.length) {
+			selectEl.selectedIndex = 0;
+		}
+	}
+
+	async _loadModelOptions() {
+		if (!this._modelSourceSelect || !this._modelNameSelect) return;
+		const cached = this._readPersistedModelSelection();
+		this._setModelSelectLoading(this._modelSourceSelect, true);
+		try {
+			try {
+				const response = await this.api.options('model_sources');
+				let sources = Array.isArray(response?.options) ? response.options.map(String) : [];
+				if (!sources.length) sources = [...this._fallbackModelSources];
+				if (cached.source && !sources.includes(cached.source)) {
+					sources = [cached.source, ...sources];
+				}
+				this._setSelectOptions(this._modelSourceSelect, sources, cached.source || null);
+			} catch (err) {
+				console.warn('[Console] Failed to load model_sources, using fallback:', err);
+				this._setSelectOptions(
+					this._modelSourceSelect,
+					this._fallbackModelSources,
+					cached.source || null,
+				);
+			}
+			this._modelSourcesLoaded = true;
+			const currentSource = this._modelSourceSelect.value;
+			if (currentSource) {
+				await this._loadModelNamesForSource(currentSource);
+			}
+			if (this._pendingModelSelection) {
+				const { source, name } = this._pendingModelSelection;
+				this._pendingModelSelection = null;
+				await this._applyModelSelection(source, name);
+			}
+			this._persistModelSelection();
+			this._updateSettingsSummary();
+		} finally {
+			this._setModelSelectLoading(this._modelSourceSelect, false);
+		}
+	}
+
+	async _loadModelNamesForSource(source) {
+		if (!this._modelNameSelect || !source) return;
+		const cached = this._readPersistedModelSelection();
+		const preferredName = cached.source === source ? cached.name : null;
+		const withCached = (list) => {
+			if (preferredName && !list.includes(preferredName)) return [...list, preferredName];
+			return list;
+		};
+		if (this._modelNamesBySource.has(source)) {
+			this._setSelectOptions(
+				this._modelNameSelect,
+				withCached(this._modelNamesBySource.get(source)),
+				preferredName,
+			);
+			return;
+		}
+		this._setModelSelectLoading(this._modelNameSelect, true);
+		try {
+			const response = await this.api.options('model_names', { source });
+			const names = Array.isArray(response?.options) ? response.options.map(String) : [];
+			const list = names.length ? names : this._fallbackModelNames(source);
+			this._modelNamesBySource.set(source, list);
+			this._setSelectOptions(this._modelNameSelect, withCached(list), preferredName);
+		} catch (err) {
+			console.warn(`[Console] Failed to load model_names for ${source}, using fallback:`, err);
+			this._setSelectOptions(
+				this._modelNameSelect,
+				withCached(this._fallbackModelNames(source)),
+				preferredName,
+			);
+		} finally {
+			this._setModelSelectLoading(this._modelNameSelect, false);
+		}
 	}
 
 	async _applyConsoleWorkflowState(data) {
