@@ -2379,51 +2379,6 @@ body.nw-layout-workbench .nw-event-log {
    RUN TIMELINE / REPLAY
    ======================================================================== */
 
-.nw-run-advanced {
-	margin-top: 12px;
-	display: grid;
-	gap: 10px;
-}
-
-.nw-run-advanced-toggle {
-	display: inline-flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 10px;
-	width: 100%;
-	padding: 10px 12px;
-	border-radius: var(--nw-radius-control);
-	border: 1px solid var(--nw-border-soft);
-	background: var(--sg-bg-tertiary);
-	color: var(--sg-text-primary);
-	font: inherit;
-	cursor: pointer;
-}
-
-.nw-run-advanced-toggle:hover {
-	background: color-mix(in srgb, var(--sg-bg-tertiary) 88%, white 12%);
-}
-
-.nw-run-advanced-label {
-	font-size: 12px;
-	font-weight: 600;
-}
-
-.nw-run-advanced-chevron {
-	width: 16px;
-	height: 16px;
-	fill: none;
-	stroke: currentColor;
-	stroke-width: 2;
-	stroke-linecap: round;
-	stroke-linejoin: round;
-	transition: transform 160ms ease;
-}
-
-.nw-run-advanced-toggle.is-open .nw-run-advanced-chevron {
-	transform: rotate(180deg);
-}
-
 .nw-run-advanced-body {
 	display: grid;
 	gap: 12px;

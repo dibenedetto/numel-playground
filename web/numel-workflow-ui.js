@@ -730,13 +730,10 @@ function _setAdvancedSectionsVisible(visible) {
 
 function _setRunAdvancedVisible(visible) {
 	const next = !!visible;
-	const button = $('runAdvancedToggleBtn');
 	const body = $('runAdvancedBody');
-	if (button) {
-		button.setAttribute('aria-expanded', next ? 'true' : 'false');
-		button.classList.toggle('is-open', next);
-	}
 	if (body) {
+		const section = body.closest('.nw-collapsible');
+		if (section) section.classList.toggle('expanded', next);
 		body.style.display = next ? 'block' : 'none';
 	}
 	try {
@@ -2650,9 +2647,8 @@ function setupEventListeners() {
 	$('advancedToggleBtn')?.addEventListener('click', () => {
 		_setAdvancedSectionsVisible(!document.body.classList.contains('nw-show-advanced'));
 	});
-	$('runAdvancedToggleBtn')?.addEventListener('click', () => {
-		_setRunAdvancedVisible($('runAdvancedBody')?.style.display !== 'block');
-	});
+	// Run > Advanced now uses the generic collapsible handler below.
+	// Its data-persist-key attribute routes state through localStorage.
 
 	// Workflow management
 	$('clearWorkflowBtnSingle').addEventListener('click', clearWorkflow);
@@ -2692,12 +2688,13 @@ function setupEventListeners() {
 			const targetId = header.getAttribute('data-target');
 			const content = document.getElementById(targetId);
 
-			if (section.classList.contains('expanded')) {
-				section.classList.remove('expanded');
-				content.style.display = 'none';
-			} else {
-				section.classList.add('expanded');
-				content.style.display = 'block';
+			const open = !section.classList.contains('expanded');
+			section.classList.toggle('expanded', open);
+			if (content) content.style.display = open ? 'block' : 'none';
+
+			const persistKey = header.getAttribute('data-persist-key');
+			if (persistKey) {
+				try { localStorage.setItem(persistKey, open ? '1' : '0'); } catch {}
 			}
 		});
 	});

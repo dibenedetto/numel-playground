@@ -273,12 +273,13 @@
 					<label>Run ID</label>
 					<div id="execId" class="nw-mono-text">-</div>
 				</div>
-				<div class="nw-run-advanced">
-					<button id="runAdvancedToggleBtn" class="nw-run-advanced-toggle" type="button" aria-expanded="false">
-						<span class="nw-run-advanced-label">Advanced</span>
-						<svg class="nw-run-advanced-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"/></svg>
-					</button>
-					<div id="runAdvancedBody" class="nw-run-advanced-body" style="display:none;">
+				<!-- Run Advanced (Collapsible, styled like the Options subsection) -->
+				<div class="nw-collapsible nw-subsection nw-subsection-clean">
+					<div id="runAdvancedToggleBtn" class="nw-collapsible-header" data-target="runAdvancedBody" data-persist-key="numel_run_advanced_v1">
+						<span class="nw-sub-collapse-icon"></span>
+						<span class="nw-subsection-title">Advanced</span>
+					</div>
+					<div id="runAdvancedBody" class="nw-collapsible-content nw-run-advanced-body" style="display: none;">
 						<div class="nw-run-replay-block">
 							<div class="nw-run-replay-header">
 								<span class="nw-run-replay-title">Timeline</span>
