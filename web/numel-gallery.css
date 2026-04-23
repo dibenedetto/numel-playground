@@ -133,6 +133,23 @@
 	color: var(--sg-text-quaternary);
 }
 
+.nw-gallery-filter {
+	width: 100%;
+	box-sizing: border-box;
+	background: var(--sg-bg-primary);
+	border: 1px solid var(--nw-border-soft, var(--sg-border-color));
+	border-radius: var(--nw-radius-control, 10px);
+	color: var(--sg-text-primary);
+	padding: 6px 10px;
+	font-size: 12px;
+	font-family: inherit;
+	outline: none;
+}
+
+.nw-gallery-filter:focus {
+	border-color: var(--sg-border-highlight);
+}
+
 /* Category filter chips */
 .nw-gallery-cat-bar {
 	display: flex;
@@ -208,6 +225,56 @@
 	font-weight: 600;
 	color: var(--sg-text-primary);
 }
+
+.nw-gallery-card-badges {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.nw-gallery-badge {
+	display: inline-flex;
+	align-items: center;
+	padding: 2px 8px;
+	border-radius: 999px;
+	font-size: 10px;
+	font-weight: 600;
+	border: 1px solid var(--sg-border-color);
+	background: var(--sg-bg-tertiary);
+	color: var(--sg-text-primary);
+}
+
+.nw-gallery-badge-featured {
+	background: rgba(242, 184, 55, 0.14);
+	color: var(--sg-accent-yellow, #f2b837);
+}
+
+.nw-gallery-badge-curated {
+	background: rgba(70, 162, 218, 0.12);
+	color: var(--sg-accent-blue, #46a2da);
+}
+
+.nw-gallery-badge-repo {
+	background: rgba(111, 179, 79, 0.14);
+	color: var(--sg-accent-green, #6fb34f);
+}
+
+.nw-gallery-badge-public {
+	background: rgba(212, 122, 0, 0.12);
+	color: var(--sg-accent-orange, #d47a00);
+}
+
+.nw-gallery-badge-system {
+	background: rgba(120, 120, 120, 0.12);
+	color: var(--sg-text-primary);
+}
+
+.nw-gallery-card-meta {
+	font-size: 11px;
+	line-height: 1.5;
+	color: var(--sg-text-secondary);
+}
+
 .nw-gallery-card-desc {
 	font-size: 11px;
 	color: var(--sg-text-secondary);

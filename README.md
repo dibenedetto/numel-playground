@@ -387,7 +387,8 @@ Web console users authenticated via the login modal are auto-linked — no expli
 - **Workflow-backed planner turns** — planner turns now execute through the same workflow-backed runtime direction as the rest of Numel, while tab/session debounce remains control-plane logic
 - **Model selection** dropdown (switch LLMs on the fly)
 - **Toolkit picker** — enable/disable toolkits per session (also via `/toolkit` command)
-- **Extensions panel** — a unified Registry tab now surfaces shared toolkits and skills together with creator, source, trust, and setup signals, while the raw Toolkits and Skills tabs still handle upload/remove/view/setup actions
+- **Extensions panel** — a unified Registry tab now surfaces shared toolkits and skills together with creator, source, trust, provenance, compatibility, and setup signals; it also supports search, filtering, and per-extension detail dialogs, while the raw Toolkits and Skills tabs still handle upload/remove/view/setup actions
+- **Gallery + Public Hub ecosystem signals** — published templates now expose creator, version, source-repo provenance, and curated/featured discovery cues in both the Gallery and creator pages, so public reuse feels closer to a real ecosystem than a flat list
 - **Voice features**: Text-to-speech (with voice/language selection), speech-to-text (microphone input)
 - **Backend-managed memory** — Assistant memory now relies on the backend memory model only, with graph-configurable history, session, and long-term memory behavior
 - **Repo-first spaces** — each authenticated user gets isolated Git-backed spaces, can browse accessible shared/public spaces, and can fork readable spaces into their own workbench

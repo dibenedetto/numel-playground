@@ -864,6 +864,8 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["creator"], "alice")
         self.assertEqual(payload["repo_count"], 1)
         self.assertEqual(payload["template_count"], 1)
+        self.assertEqual(payload["featured_template_count"], 1)
+        self.assertEqual(payload["curated_template_count"], 1)
         self.assertEqual(
             [item["namespace_slug"] for item in payload["spaces"]],
             ["alice/alice-public"],
@@ -874,6 +876,12 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(template["metadata"]["source"]["namespace"], "alice")
         self.assertEqual(template["metadata"]["source"]["slug"], "alice-public")
         self.assertEqual(template["metadata"]["source"]["ref"], "main")
+        self.assertEqual(template["provenance"]["version_label"], "main")
+        self.assertTrue(template["provenance"]["repo_backed"])
+        self.assertTrue(template["provenance"]["public_source"])
+        self.assertTrue(template["provenance"]["featured"])
+        self.assertTrue(template["provenance"]["curated"])
+        self.assertIn("alice/alice-public", template["provenance"]["source_label"])
 
     async def test_space_repo_refs_drive_branch_specific_current_workflow(self) -> None:
         register = await self._client.post(
@@ -1197,6 +1205,9 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(payload["counts"]["total"], 0)
         self.assertGreater(payload["counts"]["toolkits"], 0)
         self.assertGreater(payload["counts"]["skills"], 0)
+        self.assertIn("shared", payload["counts"])
+        self.assertIn("setup_pending", payload["counts"])
+        self.assertIn("enabled", payload["counts"])
 
         entries = payload["entries"]
         self.assertTrue(any(item["kind"] == "toolkit" for item in entries))
@@ -1207,6 +1218,10 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(file_toolkit["source"], "builtin")
         self.assertEqual(file_toolkit["trust"], "core")
         self.assertEqual(file_toolkit["author"], "Numel")
+        self.assertEqual(file_toolkit["module_name"], "toolkits.file_toolkit")
+        self.assertFalse(file_toolkit["setup_pending"])
+        self.assertIn("local", file_toolkit["platforms"])
+        self.assertIn("prod", file_toolkit["platforms"])
         self.assertIn("inspect", file_toolkit["actions"])
         self.assertFalse(file_toolkit["removable"])
 
@@ -1215,6 +1230,9 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(git_skill["trust"], "core")
         self.assertEqual(git_skill["author"], "system")
         self.assertIn("git", git_skill["tags"])
+        self.assertIn("scripts", git_skill)
+        self.assertIn("install", git_skill)
+        self.assertIn("requires", git_skill)
         self.assertIn("view", git_skill["actions"])
         self.assertIn("setup", git_skill["actions"])
 

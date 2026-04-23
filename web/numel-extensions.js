@@ -9,6 +9,10 @@ const NumelExtensions = (() => {
 	let _panel;
 	let _registryList;
 	let _registrySummary;
+	let _registrySearchInput;
+	let _registryFilterSelect;
+	let _registryEntries = [];
+	let _registryCounts = {};
 	let _toolkitList;
 	let _skillList;
 	let _uploadBtn;
@@ -106,37 +110,102 @@ const NumelExtensions = (() => {
 		_registryList.innerHTML = '<div class="nw-ext-empty">Loading extension registry...</div>';
 		try {
 			const payload = await _api().extensionsRegistry();
-			_renderRegistry(payload || { entries: [], counts: {} });
+			_registryEntries = Array.isArray(payload?.entries) ? payload.entries : [];
+			_registryCounts = payload?.counts || {};
+			_renderRegistry();
 		} catch (e) {
 			_registryList.innerHTML = `<div class="nw-ext-empty">Error loading extension registry: ${_esc(e.message)}</div>`;
 		}
 	}
 
-	function _renderRegistry(payload) {
+	function _registrySearchValue() {
+		return String(_registrySearchInput?.value || '').trim().toLowerCase();
+	}
+
+	function _registryFilterValue() {
+		return String(_registryFilterSelect?.value || 'all').trim().toLowerCase();
+	}
+
+	function _registryPlatformsLabel(item) {
+		const platforms = Array.isArray(item?.platforms) ? item.platforms.filter(Boolean) : [];
+		if (!platforms.length) return 'Local + prod';
+		if (platforms.includes('local') && platforms.includes('prod')) return 'Local + prod';
+		return platforms.map((value) => String(value)).join(', ');
+	}
+
+	function _registrySetupSummary(item) {
+		if (item?.kind === 'toolkit') return 'No setup required';
+		const installCount = Number(item?.install_count || 0);
+		const requires = item?.requires && typeof item.requires === 'object' ? item.requires : {};
+		const envCount = Array.isArray(requires.env) ? requires.env.length : 0;
+		const binCount = Array.isArray(requires.bins) ? requires.bins.length : 0;
+		const anyBinCount = Array.isArray(requires.anyBins) ? requires.anyBins.length : 0;
+		const parts = [];
+		if (installCount > 0) parts.push(`${installCount} install step${installCount === 1 ? '' : 's'}`);
+		if (envCount > 0) parts.push(`${envCount} env var${envCount === 1 ? '' : 's'}`);
+		if (binCount > 0) parts.push(`${binCount} ${binCount === 1 ? 'binary' : 'binaries'}`);
+		if (anyBinCount > 0) parts.push(`${anyBinCount} optional binary group${anyBinCount === 1 ? '' : 's'}`);
+		if (!parts.length) return item?.setup_done ? 'Ready to use' : 'No setup required';
+		return item?.setup_done ? `Setup complete · ${parts.join(' · ')}` : `Needs setup · ${parts.join(' · ')}`;
+	}
+
+	function _matchesRegistryEntry(item, search, filter) {
+		const text = [
+			item?.title,
+			item?.name,
+			item?.author,
+			item?.description,
+			...(Array.isArray(item?.tags) ? item.tags : []),
+			_registrySetupSummary(item),
+			_registryPlatformsLabel(item),
+		].filter(Boolean).join(' ').toLowerCase();
+		if (search && !text.includes(search)) return false;
+		switch (filter) {
+			case 'featured': return !!item?.featured;
+			case 'setup': return !!item?.setup_pending;
+			case 'shared': return String(item?.source || '') === 'shared';
+			case 'enabled': return item?.kind === 'skill' && !!item?.enabled;
+			case 'toolkit': return item?.kind === 'toolkit';
+			case 'skill': return item?.kind === 'skill';
+			default: return true;
+		}
+	}
+
+	function _renderRegistry() {
 		if (!_registryList) return;
-		const entries = Array.isArray(payload?.entries) ? payload.entries : [];
-		const counts = payload?.counts || {};
+		const entries = Array.isArray(_registryEntries) ? _registryEntries : [];
+		const counts = _registryCounts || {};
+		const search = _registrySearchValue();
+		const filter = _registryFilterValue();
+		const visibleEntries = entries.filter((item) => _matchesRegistryEntry(item, search, filter));
 		if (_registrySummary) {
 			_registrySummary.innerHTML = `
-				<strong>${_esc(String(counts.total ?? entries.length))}</strong> extensions
+				<strong>${_esc(String(visibleEntries.length))}</strong> shown
+				<span>· ${_esc(String(counts.total ?? entries.length))} total</span>
 				<span>· ${_esc(String(counts.toolkits ?? entries.filter(item => item.kind === 'toolkit').length))} toolkits</span>
 				<span>· ${_esc(String(counts.skills ?? entries.filter(item => item.kind === 'skill').length))} skills</span>
 				<span>· ${_esc(String(counts.featured ?? entries.filter(item => item.featured).length))} featured</span>
+				<span>· ${_esc(String(counts.shared ?? entries.filter(item => item.source === 'shared').length))} shared</span>
+				<span>· ${_esc(String(counts.setup_pending ?? entries.filter(item => item.setup_pending).length))} need setup</span>
 			`;
 		}
 		if (!entries.length) {
 			_registryList.innerHTML = '<div class="nw-ext-empty">No extensions are currently available.</div>';
 			return;
 		}
+		if (!visibleEntries.length) {
+			_registryList.innerHTML = '<div class="nw-ext-empty">No registry entries match the current search or filter.</div>';
+			return;
+		}
 		_registryList.innerHTML = '';
-		for (const item of entries) {
+		for (const item of visibleEntries) {
 			const badges = [
 				`<span class="nw-ext-badge ${_extensionBadgeClass('kind', item.kind)}">${_esc(item.kind === 'toolkit' ? 'Toolkit' : 'Skill')}</span>`,
 				`<span class="nw-ext-badge ${_extensionBadgeClass('source', item.source)}">${_esc(item.source === 'builtin' ? 'Built-in' : 'Shared')}</span>`,
 				`<span class="nw-ext-badge ${_extensionBadgeClass('trust', item.trust)}">${_esc(item.trust === 'core' ? 'Core' : 'Shared')}</span>`,
 				item.featured ? `<span class="nw-ext-badge ${_extensionBadgeClass('featured', 'featured')}">Featured</span>` : '',
 				item.kind === 'skill' ? _boolBadge(!!item.enabled, 'Enabled', 'Disabled') : '',
-				item.kind === 'skill'
+				item.setup_pending
 					? `<span class="nw-ext-badge ${item.setup_done ? 'nw-ext-badge-enabled' : 'nw-ext-badge-setup'}">${item.setup_done ? 'Setup Done' : 'Setup Pending'}</span>`
 					: '',
 			].filter(Boolean).join('');
@@ -148,14 +217,16 @@ const NumelExtensions = (() => {
 				item.version ? `v${_esc(item.version)}` : '',
 				item.name ? _esc(item.name) : '',
 			].filter(Boolean).join(' · ');
+			const setupSummary = _registrySetupSummary(item);
+			const platformSummary = _registryPlatformsLabel(item);
 			const actions = [];
 			if (item.kind === 'toolkit') {
-				actions.push(`<button class="nw-btn nw-btn-sm nw-btn-secondary" data-kind="toolkit" data-action="inspect" data-name="${_escAttr(item.name)}">Inspect</button>`);
+				actions.push(`<button class="nw-btn nw-btn-sm nw-btn-secondary" data-kind="toolkit" data-action="details" data-id="${_escAttr(item.id)}" data-name="${_escAttr(item.name)}">Details</button>`);
 				if (_isAdmin() && item.removable) {
 					actions.push(`<button class="nw-btn nw-btn-sm nw-btn-danger" data-kind="toolkit" data-action="remove" data-name="${_escAttr(item.name)}">Remove</button>`);
 				}
 			} else {
-				actions.push(`<button class="nw-btn nw-btn-sm nw-btn-secondary" data-kind="skill" data-action="view" data-name="${_escAttr(item.name)}">View</button>`);
+				actions.push(`<button class="nw-btn nw-btn-sm nw-btn-secondary" data-kind="skill" data-action="details" data-id="${_escAttr(item.id)}" data-name="${_escAttr(item.name)}">Details</button>`);
 				actions.push(`<button class="nw-btn nw-btn-sm nw-btn-secondary" data-kind="skill" data-action="setup" data-name="${_escAttr(item.name)}">Setup</button>`);
 				actions.push(`<button class="nw-btn nw-btn-sm ${item.enabled ? 'nw-btn-secondary' : 'nw-btn-success'}" data-kind="skill" data-action="${item.enabled ? 'disable' : 'enable'}" data-name="${_escAttr(item.name)}">${item.enabled ? 'Disable' : 'Enable'}</button>`);
 				if (item.removable) {
@@ -172,6 +243,8 @@ const NumelExtensions = (() => {
 				<div class="nw-admin-card-detail">
 					${_esc(item.description || 'No description available.')}
 					<div class="nw-ext-registry-meta">${metaBits || 'Shared extension'}</div>
+					<div class="nw-ext-registry-meta">Setup: ${_esc(setupSummary)}</div>
+					<div class="nw-ext-registry-meta">Compatibility: ${_esc(platformSummary)}</div>
 					${tags}
 				</div>
 				<div class="nw-admin-card-actions">${actions.join('')}</div>`;
@@ -186,14 +259,17 @@ const NumelExtensions = (() => {
 		const kind = btn.dataset.kind;
 		const action = btn.dataset.action;
 		const name = btn.dataset.name;
-		if (!kind || !action || !name) return;
+		const id = btn.dataset.id;
+		if (!kind || !action) return;
 		if (kind === 'toolkit') {
-			if (action === 'inspect') return _inspectToolkit(name);
+			if (action === 'details') return _showRegistryDetails(id || `toolkit:${name}`);
+			if (!name) return;
 			if (action === 'remove') return _removeToolkit(name);
 			return;
 		}
 		try {
-			if (action === 'view') return _viewSkill(name);
+			if (action === 'details') return _showRegistryDetails(id || `skill:${name}`);
+			if (!name) return;
 			if (action === 'setup') return _setupSkill(name);
 			if (action === 'enable') await _api().skillsEnable(name);
 			if (action === 'disable') await _api().skillsDisable(name);
@@ -202,6 +278,94 @@ const NumelExtensions = (() => {
 			await _loadRegistry();
 		} catch (e2) {
 			_messageDialog('Skill Error', `Action failed for "${name}": ${e2.message}`);
+		}
+	}
+
+	async function _showRegistryDetails(entryId) {
+		const item = (_registryEntries || []).find((candidate) => candidate?.id === entryId);
+		if (!item) {
+			return _messageDialog('Extension Details', `Could not find registry entry "${entryId}".`);
+		}
+		if (item.kind === 'toolkit') {
+			try {
+				const data = await _api().toolkitInspect(item.name);
+				const params = (data.params || []).map(p =>
+					`<li><span class="nw-ext-code">${_esc(p.name)}</span> : ${_esc(p.type || 'Any')}${p.required ? ' (required)' : ''}${p.default != null ? ` = ${_esc(String(p.default))}` : ''}</li>`
+				).join('');
+				const methods = (data.methods || []).map(m =>
+					`<li><span class="nw-ext-code">${_esc(m.name)}${_esc(m.signature || '')}</span>${m.description ? ` - ${_esc(m.description)}` : ''}</li>`
+				).join('');
+				_dialog(
+					`Extension: ${item.title || item.name}`,
+					`
+						<div class="nw-ext-note">${_esc(item.description || 'No description available.')}</div>
+						<div class="nw-ext-detail-grid">
+							<div><strong>Kind</strong><span>${_esc(item.kind)}</span></div>
+							<div><strong>Source</strong><span>${_esc(item.source)}</span></div>
+							<div><strong>Trust</strong><span>${_esc(item.trust)}</span></div>
+							<div><strong>Compatibility</strong><span>${_esc(_registryPlatformsLabel(item))}</span></div>
+							<div><strong>Module</strong><span class="nw-ext-code">${_esc(item.module_name || item.name)}</span></div>
+							<div><strong>Path</strong><span class="nw-ext-code">${_esc(item.path || 'Unknown')}</span></div>
+						</div>
+						<h4>Constructor Parameters</h4>
+						${params ? `<ul>${params}</ul>` : '<div class="nw-ext-empty">No constructor parameters.</div>'}
+						<h4>Methods</h4>
+						${methods ? `<ul>${methods}</ul>` : '<div class="nw-ext-empty">No public methods found.</div>'}
+					`,
+					null,
+					{ wide: true }
+				);
+			} catch (e) {
+				_messageDialog('Extension Details Error', `Could not load details for "${item.name}": ${e.message}`);
+			}
+			return;
+		}
+
+		try {
+			const skill = await _api().skillsGet(item.name);
+			if (skill && skill.error) throw new Error(skill.error);
+			const requires = item.requires && Object.keys(item.requires).length
+				? `<div class="nw-ext-pre">${_esc(JSON.stringify(item.requires, null, 2))}</div>`
+				: '<div class="nw-ext-empty">No explicit environment or binary requirements.</div>';
+			const install = Array.isArray(item.install) && item.install.length
+				? `<div class="nw-ext-pre">${_esc(JSON.stringify(item.install, null, 2))}</div>`
+				: '<div class="nw-ext-empty">No install steps declared.</div>';
+			const scripts = Array.isArray(item.scripts) && item.scripts.length
+				? `<div class="nw-ext-pre">${_esc(item.scripts.join('\n'))}</div>`
+				: '<div class="nw-ext-empty">No bundled scripts.</div>';
+			const examples = Array.isArray(item.examples) && item.examples.length
+				? `<ul>${item.examples.map((example) => `<li>${_esc(example)}</li>`).join('')}</ul>`
+				: '<div class="nw-ext-empty">No example prompts.</div>';
+			_dialog(
+				`Extension: ${item.title || item.name}`,
+				`
+					<div class="nw-ext-note">${_esc(item.description || 'No description available.')}</div>
+					<div class="nw-ext-detail-grid">
+						<div><strong>Kind</strong><span>${_esc(item.kind)}</span></div>
+						<div><strong>Source</strong><span>${_esc(item.source)}</span></div>
+						<div><strong>Trust</strong><span>${_esc(item.trust)}</span></div>
+						<div><strong>Compatibility</strong><span>${_esc(_registryPlatformsLabel(item))}</span></div>
+						<div><strong>Setup</strong><span>${_esc(_registrySetupSummary(item))}</span></div>
+						<div><strong>Path</strong><span class="nw-ext-code">${_esc(item.path || 'Unknown')}</span></div>
+						<div><strong>Primary env</strong><span>${_esc(item.primary_env || '—')}</span></div>
+						<div><strong>Version</strong><span>${_esc(item.version || '—')}</span></div>
+					</div>
+					<h4>Requirements</h4>
+					${requires}
+					<h4>Install</h4>
+					${install}
+					<h4>Scripts</h4>
+					${scripts}
+					<h4>Example Prompts</h4>
+					${examples}
+					<h4>Body</h4>
+					<div class="nw-ext-pre">${_esc(skill.body || 'No body content.')}</div>
+				`,
+				null,
+				{ wide: true }
+			);
+		} catch (e) {
+			_messageDialog('Extension Details Error', `Could not load details for "${item.name}": ${e.message}`);
 		}
 	}
 
@@ -507,6 +671,8 @@ const NumelExtensions = (() => {
 		_panel = document.getElementById('extensionsPanel');
 		_registrySummary = document.getElementById('extensionsRegistrySummary');
 		_registryList = document.getElementById('extensionsRegistryList');
+		_registrySearchInput = document.getElementById('extensionsRegistrySearch');
+		_registryFilterSelect = document.getElementById('extensionsRegistryFilter');
 		_toolkitList = document.getElementById('extensionsToolkitList');
 		_skillList = document.getElementById('extensionsSkillList');
 		_uploadBtn = document.getElementById('extensionsUploadToolkitBtn');
@@ -516,6 +682,8 @@ const NumelExtensions = (() => {
 		document.getElementById('extensionsOpenBtnConsole')?.addEventListener('click', toggle);
 		document.getElementById('extensionsCloseBtn')?.addEventListener('click', close);
 		document.getElementById('extensionsRefreshRegistry')?.addEventListener('click', _loadRegistry);
+		_registrySearchInput?.addEventListener('input', () => _renderRegistry());
+		_registryFilterSelect?.addEventListener('change', () => _renderRegistry());
 		document.getElementById('extensionsRefreshToolkits')?.addEventListener('click', _loadToolkits);
 		document.getElementById('extensionsRefreshSkills')?.addEventListener('click', _loadSkills);
 		document.getElementById('extensionsAddSkillBtn')?.addEventListener('click', _showAddSkillDialog);

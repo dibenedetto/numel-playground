@@ -20,11 +20,13 @@ class GalleryManager {
 		this._categories  = [];
 		this._activeCategory = null;
 		this._searchTimer = null;
+		this._items = [];
 
 		this._fab     = document.getElementById('galleryToggleBtn');
 		this._panel   = document.getElementById('galleryPanel');
 		this._closeBtn = document.getElementById('galleryCloseBtn');
 		this._searchInput = document.getElementById('gallerySearch');
+		this._filterSelect = document.getElementById('galleryDiscoveryFilter');
 		this._catBar  = document.getElementById('galleryCategoryBar');
 		this._grid    = document.getElementById('galleryGrid');
 
@@ -38,6 +40,7 @@ class GalleryManager {
 			clearTimeout(this._searchTimer);
 			this._searchTimer = setTimeout(() => this._load(), 300);
 		});
+		this._filterSelect?.addEventListener('change', () => this._renderGrid(this._items));
 	}
 
 	toggle() { this._open ? this.close() : this.open(); }
@@ -93,24 +96,70 @@ class GalleryManager {
 	async _load() {
 		this._grid.innerHTML = '<div class="nw-gallery-loading">Loading...</div>';
 		try {
-			const items = await this.api.galleryList({
+			this._items = await this.api.galleryList({
 				category: this._activeCategory || undefined,
 				search: this._searchInput.value.trim() || undefined,
 			});
-			this._renderGrid(items);
+			this._renderGrid(this._items);
 		} catch (err) {
 			this._grid.innerHTML = `<div class="nw-gallery-empty">Failed to load: ${err.message}</div>`;
 		}
 	}
 
+	_matchesDiscoveryFilter(item) {
+		const filter = String(this._filterSelect?.value || 'all').trim().toLowerCase();
+		const provenance = item?.provenance || {};
+		switch (filter) {
+			case 'featured': return !!provenance.featured;
+			case 'curated': return !!provenance.curated;
+			case 'repo': return !!provenance.repo_backed;
+			case 'public': return !!provenance.public_source;
+			case 'builtin': return String(item?.author || '').trim().toLowerCase() === 'system';
+			case 'community': return String(item?.author || '').trim().toLowerCase() !== 'system';
+			default: return true;
+		}
+	}
+
 	_renderGrid(items) {
 		this._grid.innerHTML = '';
-		if (!items.length) {
+		const visibleItems = Array.isArray(items) ? items.filter((item) => this._matchesDiscoveryFilter(item)) : [];
+		if (!Array.isArray(items) || !items.length) {
 			this._grid.innerHTML = '<div class="nw-gallery-empty">No workflows found.</div>';
 			return;
 		}
-		for (const item of items) {
+		if (!visibleItems.length) {
+			this._grid.innerHTML = '<div class="nw-gallery-empty">No workflows match the current gallery filter.</div>';
+			return;
+		}
+		for (const item of visibleItems) {
 			this._grid.appendChild(this._makeCard(item));
+		}
+	}
+
+	_cardBadges(item) {
+		const provenance = item?.provenance || {};
+		const badges = [];
+		if (provenance.featured) badges.push('<span class="nw-gallery-badge nw-gallery-badge-featured">Featured</span>');
+		else if (provenance.curated) badges.push('<span class="nw-gallery-badge nw-gallery-badge-curated">Curated</span>');
+		if (provenance.repo_backed) badges.push('<span class="nw-gallery-badge nw-gallery-badge-repo">Repo-backed</span>');
+		if (provenance.public_source) badges.push('<span class="nw-gallery-badge nw-gallery-badge-public">Public Source</span>');
+		if (String(item?.author || '').trim().toLowerCase() === 'system') {
+			badges.push('<span class="nw-gallery-badge nw-gallery-badge-system">Built-in</span>');
+		}
+		return badges.join('');
+	}
+
+	_formatDate(ts) {
+		const value = Number(ts || 0);
+		if (!Number.isFinite(value) || value <= 0) return '';
+		try {
+			return new Date(value * 1000).toLocaleDateString(undefined, {
+				year: 'numeric',
+				month: 'short',
+				day: 'numeric',
+			});
+		} catch {
+			return '';
 		}
 	}
 
@@ -142,6 +191,10 @@ class GalleryManager {
 	}
 
 	_sourceSummary(item) {
+		const provenanceLabel = String(item?.provenance?.source_label || '').trim();
+		if (provenanceLabel) {
+			return `Source: ${provenanceLabel}`;
+		}
 		const source = item?.metadata?.source || {};
 		const sourceType = String(source.type || '').trim().toLowerCase();
 		if (!sourceType) return '';
@@ -216,10 +269,27 @@ class GalleryManager {
 		card.className = 'nw-gallery-card';
 		const sourceSummary = this._sourceSummary(item);
 		const sourceRepo = this._sourceRepoInfo(item);
+		const provenance = item?.provenance || {};
+		const author = String(item?.author || '').trim();
+		const versionLabel = String(provenance.version_label || '').trim();
+		const publishedDate = this._formatDate(item?.created_at);
+		const metaParts = [
+			author || 'Unknown creator',
+			versionLabel ? `Version ${versionLabel}` : '',
+			publishedDate ? `Published ${publishedDate}` : '',
+		].filter(Boolean).join(' · ');
 
 		const title = document.createElement('div');
 		title.className = 'nw-gallery-card-title';
 		title.textContent = item.title || item.id;
+
+		const badges = document.createElement('div');
+		badges.className = 'nw-gallery-card-badges';
+		badges.innerHTML = this._cardBadges(item);
+
+		const meta = document.createElement('div');
+		meta.className = 'nw-gallery-card-meta';
+		meta.textContent = metaParts;
 
 		const desc = document.createElement('div');
 		desc.className = 'nw-gallery-card-desc';
@@ -285,6 +355,8 @@ class GalleryManager {
 		footer.appendChild(tags);
 		footer.appendChild(actions);
 		card.appendChild(title);
+		if (badges.innerHTML) card.appendChild(badges);
+		if (meta.textContent) card.appendChild(meta);
 		if (item.description) card.appendChild(desc);
 		if (sourceSummary) card.appendChild(source);
 		card.appendChild(footer);

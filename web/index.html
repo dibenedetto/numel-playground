@@ -508,6 +508,15 @@
 		</div>
 		<div class="nw-gallery-toolbar">
 			<input id="gallerySearch" class="nw-gallery-search" type="text" placeholder="Search workflows..." autocomplete="off" aria-label="Search workflows">
+			<select id="galleryDiscoveryFilter" class="nw-gallery-filter" aria-label="Filter gallery items">
+				<option value="all">All Items</option>
+				<option value="featured">Featured</option>
+				<option value="curated">Curated</option>
+				<option value="repo">Repo-backed</option>
+				<option value="public">Public Source</option>
+				<option value="builtin">Built-in</option>
+				<option value="community">Community</option>
+			</select>
 			<div id="galleryCategoryBar" class="nw-gallery-cat-bar"></div>
 		</div>
 		<div id="galleryGrid" class="nw-gallery-grid"></div>
@@ -1040,8 +1049,18 @@
 				<div id="extensionsTabRegistry" class="nw-ext-tab-content active">
 					<div class="nw-admin-toolbar">
 						<button id="extensionsRefreshRegistry" class="nw-btn nw-btn-sm">Refresh</button>
+						<input id="extensionsRegistrySearch" class="nw-input nw-ext-registry-search" type="text" placeholder="Search extensions, creators, tags..." autocomplete="off">
+						<select id="extensionsRegistryFilter" class="nw-input nw-ext-registry-filter">
+							<option value="all">All</option>
+							<option value="featured">Featured</option>
+							<option value="setup">Needs setup</option>
+							<option value="shared">Shared</option>
+							<option value="enabled">Enabled skills</option>
+							<option value="toolkit">Toolkits</option>
+							<option value="skill">Skills</option>
+						</select>
 					</div>
-					<div class="nw-ext-note">Registry brings shared toolkits and skills into one curated surface with creator, source, trust, and setup signals. Use the Toolkits or Skills tabs when you want raw management actions.</div>
+					<div class="nw-ext-note">Registry brings shared toolkits and skills into one curated surface with creator, source, trust, setup, provenance, and compatibility signals. Use the Toolkits or Skills tabs when you want raw management actions.</div>
 					<div id="extensionsRegistrySummary" class="nw-ext-registry-summary"></div>
 					<div id="extensionsRegistryList" class="nw-admin-list"></div>
 				</div>

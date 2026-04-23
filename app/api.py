@@ -969,13 +969,20 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		all_gallery_items = _gallery_manager(req).list(author=creator)
 		gallery_items = sorted(
 			all_gallery_items,
-			key=lambda item: float(item.get("created_at") or 0.0),
-			reverse=True,
+			key=lambda item: (
+				0 if (item.get("provenance", {}) or {}).get("featured") else 1,
+				0 if (item.get("provenance", {}) or {}).get("curated") else 1,
+				0 if (item.get("provenance", {}) or {}).get("repo_backed") else 1,
+				-float(item.get("created_at") or 0.0),
+				str(item.get("title", "") or "").lower(),
+			),
 		)[:limit]
 		return {
 			"creator": creator,
 			"repo_count": len(public_spaces),
 			"template_count": len(all_gallery_items),
+			"featured_template_count": sum(1 for item in all_gallery_items if (item.get("provenance", {}) or {}).get("featured")),
+			"curated_template_count": sum(1 for item in all_gallery_items if (item.get("provenance", {}) or {}).get("curated")),
 			"spaces": public_spaces,
 			"gallery_items": gallery_items,
 		}
@@ -4104,6 +4111,7 @@ Example (mesh processing with toolkit):
 			"id": f"toolkit:{mod_name}",
 			"kind": "toolkit",
 			"name": mod_name,
+			"module_name": mod_name,
 			"title": _titleize_extension_name(mod_name),
 			"description": "",
 			"author": "Numel" if builtin else "Community",
@@ -4120,13 +4128,17 @@ Example (mesh processing with toolkit):
 			"version": "",
 			"enabled": None,
 			"setup_done": None,
+			"setup_pending": False,
 			"builtin": builtin,
 			"removable": mod_name.startswith("contrib.toolkits."),
+			"path": "",
+			"platforms": ["local", "prod"],
 			"actions": ["inspect", *([] if builtin else ["remove"])],
 		}
 		try:
-			md, _resolved = _resolve_toolkit_module(mod_name)
+			md, resolved = _resolve_toolkit_module(mod_name)
 			tk_cls = _find_toolkit_class(md)
+			entry["path"] = str(resolved)
 			if tk_cls:
 				entry["description"] = (tk_cls.__doc__ or "").strip().split('\n')[0]
 				entry["class_name"] = tk_cls.__name__
@@ -4176,9 +4188,23 @@ Example (mesh processing with toolkit):
 			"removable": removable,
 			"requires": summary.get("requires", {}) or {},
 			"examples": list(summary.get("examples", []) or []),
+			"scripts": list(summary.get("scripts", []) or []),
+			"references": list(summary.get("references", []) or []),
+			"install": list(summary.get("install", []) or []),
+			"primary_env": str(summary.get("primaryEnv", "") or summary.get("primary_env", "") or ""),
+			"os": list(summary.get("os", []) or []),
+			"path": skill_path,
+			"platforms": list(summary.get("os", []) or ["local", "prod"]),
 			"script_count": len(summary.get("scripts", []) or []),
 			"reference_count": len(summary.get("references", []) or []),
 			"install_count": len(summary.get("install", []) or []),
+			"setup_pending": (
+				not bool(summary.get("setup_done", False))
+				and (
+					len(summary.get("install", []) or []) > 0
+					or bool(summary.get("requires", {}) or {})
+				)
+			),
 			"actions": [
 				"view",
 				"setup",
@@ -4210,6 +4236,9 @@ Example (mesh processing with toolkit):
 				"toolkits": sum(1 for item in entries if item.get("kind") == "toolkit"),
 				"skills": sum(1 for item in entries if item.get("kind") == "skill"),
 				"featured": sum(1 for item in entries if item.get("featured")),
+				"shared": sum(1 for item in entries if item.get("source") == "shared"),
+				"setup_pending": sum(1 for item in entries if item.get("setup_pending")),
+				"enabled": sum(1 for item in entries if item.get("kind") == "skill" and item.get("enabled")),
 			},
 		}
 

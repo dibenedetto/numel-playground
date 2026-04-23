@@ -478,8 +478,13 @@ That is where it starts to feel less like a demo canvas and more like an AI syst
 
 The Extensions panel is now starting to reflect that more clearly too: there is
 a shared Registry view that shows toolkits and skills together with creator,
-source, trust, and setup signals, while the lower-level Toolkits and Skills
-tabs are still there for direct management work.
+source, trust, provenance, compatibility, and setup signals. It also gives you
+search, filters, and a details view for each extension, while the lower-level
+Toolkits and Skills tabs are still there for direct management work.
+
+The same is becoming true for sharing too: the Gallery and Public Hub now show
+more of where a template came from, which version or repo state it reflects,
+and whether it is a more curated public artifact or just a generic list entry.
 
 ## A Simple Mental Model
 

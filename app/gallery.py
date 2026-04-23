@@ -123,6 +123,69 @@ class GalleryManager:
 
 	# ── Public API ────────────────────────────────────────────
 
+	def _decorate_item(self, item: GalleryItem) -> Dict[str, Any]:
+		data = item.model_dump()
+		metadata = data.get("metadata", {}) or {}
+		source = metadata.get("source", {}) or {}
+		source_kind = str(source.get("type", "") or "").strip().lower()
+		namespace = str(source.get("namespace", "") or "").strip().lower()
+		slug = str(source.get("slug", "") or "").strip().lower()
+		namespace_slug = str(source.get("namespace_slug", "") or "").strip()
+		ref_name = str(source.get("ref", "") or source.get("active_ref", "") or "").strip()
+		commit_id = str(source.get("commit_id", "") or "").strip()
+		asset_path = str(source.get("asset_path", "") or "").strip()
+		public_source = bool(source.get("is_public")) or str(source.get("visibility", "") or "").strip().lower() == "public"
+		repo_backed = bool(namespace_slug or (namespace and slug))
+		if commit_id:
+			version_label = f"snapshot {commit_id[:8]}"
+		elif ref_name:
+			version_label = ref_name
+		elif source_kind == "canvas":
+			version_label = "canvas"
+		else:
+			version_label = "unversioned"
+		if namespace and slug:
+			source_label = f"{namespace}/{slug}"
+		elif namespace_slug:
+			source_label = namespace_slug
+		else:
+			source_label = ""
+		if source_label and ref_name:
+			source_label = f"{source_label} @ {ref_name}"
+		elif source_label and commit_id:
+			source_label = f"{source_label} @ {commit_id[:8]}"
+		elif not source_label and commit_id:
+			source_label = f"snapshot {commit_id[:8]}"
+		elif not source_label and source_kind == "canvas":
+			source_label = "current canvas"
+		if asset_path:
+			source_label = f"{source_label} · {asset_path}" if source_label else asset_path
+		explicit_featured = bool(metadata.get("featured"))
+		curated = explicit_featured or public_source or str(data.get("author", "") or "").strip().lower() == "system"
+		featured = explicit_featured or (public_source and repo_backed)
+		data["provenance"] = {
+			"source_kind": source_kind or "gallery",
+			"source_label": source_label,
+			"version_label": version_label,
+			"repo_backed": repo_backed,
+			"public_source": public_source,
+			"featured": featured,
+			"curated": curated,
+			"asset_path": asset_path or "workflow.json",
+			"namespace_slug": source_label.split(" · ")[0] if source_label else "",
+		}
+		return data
+
+	def _sort_key(self, item: Dict[str, Any]):
+		provenance = item.get("provenance", {}) or {}
+		return (
+			0 if provenance.get("featured") else 1,
+			0 if provenance.get("curated") else 1,
+			0 if provenance.get("repo_backed") else 1,
+			-float(item.get("created_at") or 0.0),
+			str(item.get("title", "") or "").lower(),
+		)
+
 	def list(self, category: str = None, tags: List[str] = None,
 	         search: str = None, author: str = None) -> List[dict]:
 		results = list(self._items.values())
@@ -135,13 +198,29 @@ class GalleryManager:
 			results = [i for i in results if str(i.author or "").strip().lower() == wanted]
 		if search:
 			q = search.lower()
-			results = [i for i in results
-			           if q in i.title.lower() or q in i.description.lower()]
-		return [i.model_dump(exclude={"workflow"}) for i in results]
+			matched = []
+			for item in results:
+				decorated = self._decorate_item(item)
+				haystack = " ".join([
+					str(decorated.get("title", "") or ""),
+					str(decorated.get("description", "") or ""),
+					str(decorated.get("author", "") or ""),
+					str((decorated.get("provenance", {}) or {}).get("source_label", "") or ""),
+					str((decorated.get("provenance", {}) or {}).get("version_label", "") or ""),
+					" ".join(str(tag) for tag in (decorated.get("tags", []) or [])),
+				]).lower()
+				if q in haystack:
+					matched.append(item)
+			results = matched
+		decorated_results = [self._decorate_item(i) for i in results]
+		decorated_results.sort(key=self._sort_key)
+		for item in decorated_results:
+			item.pop("workflow", None)
+		return decorated_results
 
 	def get(self, id: str) -> Optional[dict]:
 		item = self._items.get(id)
-		return item.model_dump() if item else None
+		return self._decorate_item(item) if item else None
 
 	def publish(self, workflow: dict, title: str, description: str = "",
 	            category: str = "community", tags: List[str] = None,
@@ -159,7 +238,7 @@ class GalleryManager:
 		)
 		self._items[item.id] = item
 		self._save_item(item)
-		return item.model_dump()
+		return self._decorate_item(item)
 
 	def remove(self, id: str) -> bool:
 		if id not in self._items:

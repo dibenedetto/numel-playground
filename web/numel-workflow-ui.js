@@ -394,6 +394,27 @@ function _publicHubGallerySourceInfo(item = null) {
 	return null;
 }
 
+function _publicHubGalleryVersionLabel(item = null) {
+	const provenance = item?.provenance || {};
+	const versionLabel = String(provenance.version_label || '').trim();
+	if (versionLabel) return versionLabel;
+	const source = item?.metadata?.source || {};
+	const commitId = String(source.commit_id || '').trim();
+	if (commitId) return `snapshot ${commitId.slice(0, 8)}`;
+	const refName = String(source.ref || source.active_ref || '').trim();
+	return refName || '';
+}
+
+function _publicHubTemplateBadges(item = null) {
+	const provenance = item?.provenance || {};
+	const badges = [];
+	if (provenance.featured) badges.push('<span class="nw-public-hub-badge nw-public-hub-badge-featured">Featured</span>');
+	else if (provenance.curated) badges.push('<span class="nw-public-hub-badge nw-public-hub-badge-curated">Curated</span>');
+	if (provenance.repo_backed) badges.push('<span class="nw-public-hub-badge nw-public-hub-badge-repo">Repo-backed</span>');
+	if (provenance.public_source) badges.push('<span class="nw-public-hub-badge nw-public-hub-badge-public">Public Source</span>');
+	return badges.join('');
+}
+
 function _formatCreatorTemplateCards(items = []) {
 	if (!Array.isArray(items) || !items.length) {
 		return '<div class="nw-repo-detail-empty">This creator has not published templates yet.</div>';
@@ -404,6 +425,8 @@ function _formatCreatorTemplateCards(items = []) {
 		const tags = Array.isArray(item?.tags) ? item.tags.filter(Boolean).slice(0, 4) : [];
 		const author = String(item?.author || '').trim();
 		const sourceInfo = _publicHubGallerySourceInfo(item);
+		const versionLabel = _publicHubGalleryVersionLabel(item);
+		const badgeHtml = _publicHubTemplateBadges(item);
 		const sourceLabel = sourceInfo
 			? `${sourceInfo.namespace}/${sourceInfo.slug}${sourceInfo.ref ? ` @ ${sourceInfo.ref}` : ''}`
 			: '';
@@ -411,8 +434,9 @@ function _formatCreatorTemplateCards(items = []) {
 			<div class="nw-public-hub-card">
 				<div class="nw-public-hub-card-head">
 					<div class="nw-public-hub-card-title">${_escHtml(title)}</div>
-					<div class="nw-public-hub-card-copy">${_escHtml(author || 'Unknown creator')}${sourceLabel ? ` · ${_escHtml(sourceLabel)}` : ''}</div>
+					<div class="nw-public-hub-card-copy">${_escHtml(author || 'Unknown creator')}${versionLabel ? ` · version ${_escHtml(versionLabel)}` : ''}${sourceLabel ? ` · ${_escHtml(sourceLabel)}` : ''}</div>
 				</div>
+				${badgeHtml ? `<div class="nw-public-hub-badges">${badgeHtml}</div>` : ''}
 				${description ? `<div class="nw-public-hub-card-description">${_escHtml(description)}</div>` : ''}
 				${tags.length ? `<div class="nw-public-hub-card-description">Tags: ${_escHtml(tags.join(', '))}</div>` : ''}
 				<div class="nw-public-hub-card-actions">
@@ -466,14 +490,16 @@ function _renderPublicHubView() {
 		const creator = String(payload?.creator || _publicHubState.creator || '').trim();
 		const repoCount = Number(payload?.repo_count || (payload?.spaces || []).length || 0);
 		const templateCount = Number(payload?.template_count || (payload?.gallery_items || []).length || 0);
-		status.textContent = `${creator} has ${repoCount} public repo${repoCount === 1 ? '' : 's'} and ${templateCount} published template${templateCount === 1 ? '' : 's'}.`;
+		const featuredTemplateCount = Number(payload?.featured_template_count || 0);
+		const curatedTemplateCount = Number(payload?.curated_template_count || 0);
+		status.textContent = `${creator} has ${repoCount} public repo${repoCount === 1 ? '' : 's'} and ${templateCount} published template${templateCount === 1 ? '' : 's'}${featuredTemplateCount ? ` · ${featuredTemplateCount} featured` : curatedTemplateCount ? ` · ${curatedTemplateCount} curated` : ''}.`;
 		content.innerHTML = `
 			<div class="nw-public-hub-page">
 				<div class="nw-public-hub-hero">
 					<div class="nw-public-hub-eyebrow">Creator Page</div>
 					<div class="nw-public-hub-title">${_escHtml(creator || 'Unknown creator')}</div>
 					<div class="nw-public-hub-copy">Browse this creator’s public repos and published templates together, then open, fork, or reuse what looks promising.</div>
-					<div class="nw-public-hub-meta">${repoCount} public repo${repoCount === 1 ? '' : 's'} · ${templateCount} published template${templateCount === 1 ? '' : 's'}</div>
+					<div class="nw-public-hub-meta">${repoCount} public repo${repoCount === 1 ? '' : 's'} · ${templateCount} published template${templateCount === 1 ? '' : 's'}${featuredTemplateCount ? ` · ${featuredTemplateCount} featured` : curatedTemplateCount ? ` · ${curatedTemplateCount} curated` : ''}</div>
 					<div class="nw-space-detail-actions">
 						<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-public-hub-action="browse-namespace" data-namespace="${_escHtml(creator)}">Browse Namespace</button>
 					</div>
