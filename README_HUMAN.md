@@ -288,6 +288,8 @@ Once a repo is open, the workbench can also move across refs:
 - compare a ref or commit against the current repo state
 - browse the visible assets on that ref
 - open a workflow asset from that ref directly into the current workbench
+- browse the same repo assets directly from the main Workflow section without reopening Repo Details every time
+- save the current canvas as another workflow asset on the active ref, so one repo can hold multiple runnable workflow files
 - create or edit normal text assets on that ref directly from Repo Details when you want lightweight notes, prompts, or sidecar files to live with the repo
 - restore your active branch from a selected repo commit when you want to bring that branch back to an earlier state
 - publish a reusable template from the current canvas, a chosen ref head, or a saved workflow snapshot

@@ -45,6 +45,15 @@ let _publicHubState = {
 	creatorPayload: null,
 	repoPayload: null,
 };
+let _workflowAssetBrowserState = {
+	loading: false,
+	error: '',
+	spaceId: '',
+	activeRef: 'main',
+	activeAssetPath: 'workflow.json',
+	assets: [],
+};
+let _workflowAssetBrowserRequestSeq = 0;
 
 // ── Task 2: Wire tooltip edge data store ─────────────────────────────────────
 // Key: "workflowNodeIdx:fieldName" → last output value from that slot
@@ -339,6 +348,125 @@ function _formatRepoAssetList(assets = [], activePath = 'workflow.json', options
 			</div>
 		`;
 	}).join('');
+}
+
+function _defaultWorkflowAssetPath() {
+	const activePath = String(_spaceActiveAssetPath(currentSpaceInfo) || 'workflow.json').trim().replace(/\\/g, '/');
+	const currentName = _currentWorkflowLabel() || _repoAssetDisplayTitle(activePath).replace(/\.json$/i, '');
+	const baseName = _slugFromTitle(currentName, 'workflow');
+	const dir = activePath && activePath !== 'workflow.json' && activePath.includes('/')
+		? activePath.split('/').slice(0, -1).join('/')
+		: 'flows';
+	let suggested = `${dir}/${baseName}.json`;
+	if (suggested === activePath) {
+		suggested = `${dir}/${baseName}-copy.json`;
+	}
+	return suggested;
+}
+
+function _syncWorkflowAssetControls() {
+	const hasApi = !!api;
+	const hasSpace = !!currentSpaceId;
+	const canEdit = _canEditCurrentSpace();
+	const hasWorkflow = !!_currentWorkflowForReuse?.();
+	const refreshBtn = $('workflowAssetRefreshBtn');
+	const saveAsBtn = $('workflowAssetSaveAsBtn');
+	const createBtn = $('workflowAssetCreateBtn');
+	const inspectBtn = $('workflowAssetInspectBtn');
+	if (refreshBtn) refreshBtn.disabled = !hasApi || !hasSpace;
+	if (saveAsBtn) saveAsBtn.disabled = !hasApi || !hasSpace || !canEdit || !hasWorkflow;
+	if (createBtn) createBtn.disabled = !hasApi || !hasSpace || !canEdit;
+	if (inspectBtn) inspectBtn.disabled = !hasApi || !hasSpace;
+}
+
+function _renderWorkflowAssetBrowser() {
+	const summaryEl = $('workflowAssetSummary');
+	const browserEl = $('workflowAssetBrowser');
+	if (!summaryEl || !browserEl) return;
+	if (!currentSpaceInfo) {
+		summaryEl.textContent = 'Choose or create a repo to browse its assets from the workbench.';
+		browserEl.innerHTML = '<div class="nw-repo-detail-empty">No repo is active in the workbench yet.</div>';
+		_syncWorkflowAssetControls();
+		return;
+	}
+	const state = _workflowAssetBrowserState || {};
+	const activeRef = String(state.activeRef || _spaceActiveRef(currentSpaceInfo) || 'main').trim() || 'main';
+	const activeAssetPath = String(state.activeAssetPath || _spaceActiveAssetPath(currentSpaceInfo) || 'workflow.json').trim() || 'workflow.json';
+	const assetCount = Array.isArray(state.assets) ? state.assets.length : 0;
+	const locator = _spaceRepoLocator(currentSpaceInfo) || currentSpaceInfo?.title || currentSpaceInfo?.id || 'repo';
+	const canEdit = _canEditCurrentSpace();
+	const modeCopy = canEdit
+		? `Working in ${locator} on ref "${activeRef}" with "${activeAssetPath}" as the current asset.`
+		: `Inspecting ${locator} on ref "${activeRef}" with "${activeAssetPath}" as the current asset.`;
+	if (state.loading) {
+		summaryEl.textContent = `${modeCopy} Loading repo assets...`;
+		browserEl.innerHTML = '<div class="nw-repo-detail-empty">Loading repo assets for the active ref...</div>';
+		_syncWorkflowAssetControls();
+		return;
+	}
+	if (state.error) {
+		summaryEl.textContent = `${modeCopy} Numel could not refresh the repo asset list yet.`;
+		browserEl.innerHTML = `<div class="nw-repo-detail-empty">${_escHtml(state.error)}</div>`;
+		_syncWorkflowAssetControls();
+		return;
+	}
+	summaryEl.textContent = `${modeCopy} ${assetCount > 0 ? `${assetCount} asset${assetCount === 1 ? '' : 's'} visible on this ref.` : 'No assets are visible on this ref yet.'} Workflow assets open directly in the workbench, while text assets can be previewed or edited here.`;
+	browserEl.innerHTML = _formatRepoAssetList(state.assets || [], activeAssetPath, { editable: canEdit });
+	_syncWorkflowAssetControls();
+}
+
+async function _refreshWorkflowAssetBrowser() {
+	const browserEl = $('workflowAssetBrowser');
+	if (!browserEl) return;
+	if (!api || !currentSpaceInfo || !currentSpaceId) {
+		_workflowAssetBrowserState = {
+			loading: false,
+			error: '',
+			spaceId: '',
+			activeRef: 'main',
+			activeAssetPath: 'workflow.json',
+			assets: [],
+		};
+		_renderWorkflowAssetBrowser();
+		return;
+	}
+	const requestSeq = ++_workflowAssetBrowserRequestSeq;
+	const spaceId = String(currentSpaceInfo?.id || currentSpaceId || '').trim();
+	_workflowAssetBrowserState = {
+		..._workflowAssetBrowserState,
+		loading: true,
+		error: '',
+		spaceId,
+		activeRef: _spaceActiveRef(currentSpaceInfo),
+		activeAssetPath: _spaceActiveAssetPath(currentSpaceInfo),
+	};
+	_renderWorkflowAssetBrowser();
+	try {
+		const payload = await api.repoAssets('');
+		if (requestSeq !== _workflowAssetBrowserRequestSeq) return;
+		const currentSpaceIdNow = String(currentSpaceInfo?.id || currentSpaceId || '').trim();
+		if (!currentSpaceIdNow || currentSpaceIdNow !== spaceId) return;
+		_workflowAssetBrowserState = {
+			loading: false,
+			error: '',
+			spaceId,
+			activeRef: String(payload?.active_ref || _spaceActiveRef(currentSpaceInfo)).trim() || _spaceActiveRef(currentSpaceInfo),
+			activeAssetPath: _spaceActiveAssetPath(currentSpaceInfo),
+			assets: Array.isArray(payload?.assets) ? payload.assets : [],
+		};
+	} catch (error) {
+		if (requestSeq !== _workflowAssetBrowserRequestSeq) return;
+		_workflowAssetBrowserState = {
+			..._workflowAssetBrowserState,
+			loading: false,
+			error: error.message || 'Failed to load repo assets.',
+			spaceId,
+			activeRef: _spaceActiveRef(currentSpaceInfo),
+			activeAssetPath: _spaceActiveAssetPath(currentSpaceInfo),
+			assets: [],
+		};
+	}
+	_renderWorkflowAssetBrowser();
 }
 
 function _formatNamespaceSpaceList(spaces = [], currentLocator = '') {
@@ -1475,6 +1603,7 @@ function _syncReuseControls() {
 	if (snapshotBtn) snapshotBtn.disabled = !hasApi || !hasWorkflow || !canEdit;
 	if (historyBtn) historyBtn.disabled = !hasApi || !currentSpaceId;
 	if (publishBtn) publishBtn.disabled = !hasApi || !hasWorkflow || !canEdit;
+	_syncWorkflowAssetControls();
 }
 
 function _closeSidePanelDom(id) {
@@ -2641,6 +2770,31 @@ function setupEventListeners() {
 	$('inspectSpaceBtn')?.addEventListener('click', inspectCurrentSpace);
 	$('forkSpaceBtn')?.addEventListener('click', forkCurrentSpace);
 	$('removeSpaceBtn').addEventListener('click', removeCurrentSpace);
+	$('workflowAssetRefreshBtn')?.addEventListener('click', () => { void _refreshWorkflowAssetBrowser(); });
+	$('workflowAssetCreateBtn')?.addEventListener('click', () => { void _createCurrentRepoTextAsset(); });
+	$('workflowAssetSaveAsBtn')?.addEventListener('click', () => { void _saveCurrentCanvasAsRepoWorkflowAsset(); });
+	$('workflowAssetInspectBtn')?.addEventListener('click', () => { void inspectCurrentSpace(); });
+	$('workflowAssetBrowser')?.addEventListener('click', async (event) => {
+		const button = event.target.closest('[data-asset-action]');
+		if (!button) return;
+		const action = button.getAttribute('data-asset-action') || '';
+		const path = button.getAttribute('data-asset-path') || '';
+		if (!path) return;
+		if (action === 'preview') {
+			await _previewCurrentRepoAsset(path);
+			return;
+		}
+		if (action === 'edit') {
+			await _editCurrentRepoAsset(path, {
+				title: button.getAttribute('data-asset-title') || '',
+				kind: button.getAttribute('data-asset-kind') || 'data',
+			});
+			return;
+		}
+		if (action === 'open') {
+			await _openCurrentRepoWorkflowAsset(path, `open workflow asset "${path}"`);
+		}
+	});
 	$('workbenchRunBtn')?.addEventListener('click', () => {
 		if (!$('workbenchRunBtn')?.disabled) $('startBtn')?.click();
 	});
@@ -3339,12 +3493,14 @@ async function refreshSpaceList(loadWorkflow = false) {
 			await loadCurrentWorkflow();
 		}
 		_updateWorkbenchOverview();
+		void _refreshWorkflowAssetBrowser();
 	} catch (error) {
 		availableSpaces = [];
 		availableSpaceGroups = { mine: [], shared: [], public: [] };
 		_setSpaceScope('mine');
 		addLog('error', `❌ Failed to refresh spaces: ${error.message}`);
 		_updateWorkbenchOverview();
+		void _refreshWorkflowAssetBrowser();
 	}
 }
 
@@ -3395,10 +3551,12 @@ async function loadCurrentWorkflow() {
 		_syncReuseControls();
 		_updateStarterExperience(!currentWorkflowHasContent);
 		_updateWorkbenchOverview();
+		void _refreshWorkflowAssetBrowser();
 	} catch (error) {
 		addLog('error', `❌ Failed to load workflow: ${error.message}`);
 		_syncReuseControls();
 		_updateWorkbenchOverview();
+		void _refreshWorkflowAssetBrowser();
 	}
 }
 
@@ -3779,7 +3937,7 @@ function _showRepoAssetEditorDialog(options = {}) {
 		const submit = () => {
 			const path = String(pathInput?.value || '').trim();
 			if (!path) {
-				titleInput?.focus();
+				pathInput?.focus();
 				throw new Error('Asset path is required.');
 			}
 			close({
@@ -3809,6 +3967,96 @@ function _showRepoAssetEditorDialog(options = {}) {
 			}
 		});
 		queueMicrotask(() => (createMode ? pathInput : textInput)?.focus());
+	});
+}
+
+function _showWorkflowAssetSaveDialog(options = {}) {
+	return new Promise((resolve) => {
+		const overlay = document.createElement('div');
+		const initialPath = String(options.path || _defaultWorkflowAssetPath()).trim();
+		const initialTitle = String(options.title || _currentWorkflowLabel() || _repoAssetDisplayTitle(initialPath)).trim();
+		const initialMessage = String(options.message || '').trim();
+		const openAfterSave = options.openAfterSave !== false;
+		overlay.className = 'sg-input-dialog-overlay';
+		overlay.innerHTML = `
+			<div class="sg-input-dialog" style="min-width:420px;max-width:680px">
+				<div class="sg-input-dialog-header">
+					<span class="sg-input-dialog-title">Save Canvas As Workflow Asset</span>
+					<button class="sg-input-dialog-close">✕</button>
+				</div>
+				<div class="sg-input-dialog-body">
+					<p class="sg-confirm-dialog-message">Save the current canvas as another workflow asset on the active ref. This keeps the repo project-oriented instead of forcing everything through one workflow file.</p>
+					<div class="nw-space-open-field">
+						<label for="workflowAssetSavePath">Path</label>
+						<input id="workflowAssetSavePath" class="nw-input sg-input-dialog-field" type="text" autocomplete="off" spellcheck="false" placeholder="flows/my-workflow.json">
+					</div>
+					<div class="nw-space-open-field">
+						<label for="workflowAssetSaveTitle">Title</label>
+						<input id="workflowAssetSaveTitle" class="nw-input sg-input-dialog-field" type="text" autocomplete="off" spellcheck="false" placeholder="My Workflow">
+					</div>
+					<div class="nw-space-open-field">
+						<label for="workflowAssetSaveMessage">Commit note</label>
+						<input id="workflowAssetSaveMessage" class="nw-input sg-input-dialog-field" type="text" autocomplete="off" spellcheck="false" placeholder="Add workflow asset">
+					</div>
+					<label class="nw-starter-modal-pref" style="margin-top:10px">
+						<input id="workflowAssetSaveOpenAfter" type="checkbox" ${openAfterSave ? 'checked' : ''}>
+						<span>Open this workflow asset in the workbench after saving</span>
+					</label>
+				</div>
+				<div class="sg-input-dialog-footer">
+					<button class="sg-input-dialog-btn sg-input-dialog-cancel">Cancel</button>
+					<button class="sg-input-dialog-btn sg-input-dialog-confirm">Save Asset</button>
+				</div>
+			</div>
+		`;
+		document.body.appendChild(overlay);
+		const pathInput = overlay.querySelector('#workflowAssetSavePath');
+		const titleInput = overlay.querySelector('#workflowAssetSaveTitle');
+		const messageInput = overlay.querySelector('#workflowAssetSaveMessage');
+		const openCheckbox = overlay.querySelector('#workflowAssetSaveOpenAfter');
+		if (pathInput) pathInput.value = initialPath;
+		if (titleInput) titleInput.value = initialTitle;
+		if (messageInput) messageInput.value = initialMessage;
+
+		const close = (value = null) => {
+			overlay.remove();
+			resolve(value);
+		};
+		const submit = () => {
+			let path = String(pathInput?.value || '').trim().replace(/\\/g, '/');
+			if (!path) {
+				pathInput?.focus();
+				throw new Error('Workflow asset path is required.');
+			}
+			if (!/\.[a-z0-9]+$/i.test(path)) {
+				path += '.json';
+			}
+			close({
+				path,
+				title: String(titleInput?.value || '').trim() || _repoAssetDisplayTitle(path),
+				message: String(messageInput?.value || '').trim(),
+				openAfterSave: !!openCheckbox?.checked,
+			});
+		};
+		overlay.querySelector('.sg-input-dialog-close')?.addEventListener('click', () => close(null));
+		overlay.querySelector('.sg-input-dialog-cancel')?.addEventListener('click', () => close(null));
+		overlay.querySelector('.sg-input-dialog-confirm')?.addEventListener('click', () => {
+			try {
+				submit();
+			} catch (error) {
+				NumelAlert('Save Workflow Asset', error.message || 'Unable to save this workflow asset yet.');
+			}
+		});
+		overlay.addEventListener('click', (event) => {
+			if (event.target === overlay) close(null);
+		});
+		overlay.addEventListener('keydown', (event) => {
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				close(null);
+			}
+		});
+		queueMicrotask(() => pathInput?.focus());
 	});
 }
 
@@ -3995,6 +4243,139 @@ async function openPublicSpaceByNamespace() {
 	}
 }
 
+async function _previewCurrentRepoAsset(path) {
+	if (!api || !path) return false;
+	try {
+		const payload = await api.readRepoAsset(path);
+		await _showRepoAssetPreviewDialog(path, payload || {});
+		return true;
+	} catch (error) {
+		addLog('error', `❌ Failed to preview asset: ${error.message}`);
+		await NumelAlert('Asset Preview', error.message || 'Failed to preview the selected asset.');
+		return false;
+	}
+}
+
+async function _createCurrentRepoTextAsset(defaults = {}) {
+	if (!api || !currentSpaceInfo) return false;
+	try {
+		const draft = await _showRepoAssetEditorDialog({
+			createMode: true,
+			path: defaults.path || 'notes/README.md',
+			title: defaults.title || 'README',
+			message: defaults.message || 'Add repo notes',
+			text: typeof defaults.text === 'string' ? defaults.text : '',
+		});
+		if (!draft) return false;
+		await api.writeRepoAsset({
+			path: draft.path,
+			title: draft.title,
+			text: draft.text,
+			message: draft.message || `Add asset '${draft.path}'`,
+			kind: 'data',
+		});
+		await _refreshWorkflowAssetBrowser();
+		addLog('success', `📝 Saved text asset "${draft.path}" on ref "${_spaceActiveRef(currentSpaceInfo)}"`);
+		return true;
+	} catch (error) {
+		addLog('error', `❌ Failed to create asset: ${error.message}`);
+		await NumelAlert('Text Asset', error.message || 'Failed to create the text asset.');
+		return false;
+	}
+}
+
+async function _editCurrentRepoAsset(path, options = {}) {
+	if (!api || !currentSpaceInfo || !path) return false;
+	try {
+		const payload = await api.readRepoAsset(path);
+		if (typeof payload?.text !== 'string') {
+			throw new Error('Only UTF-8 text assets can be edited inline right now.');
+		}
+		const draft = await _showRepoAssetEditorDialog({
+			createMode: false,
+			path,
+			title: options.title || _repoAssetDisplayTitle(path),
+			message: options.message || `Update asset '${path}'`,
+			text: payload.text,
+		});
+		if (!draft) return false;
+		await api.writeRepoAsset({
+			path,
+			title: draft.title,
+			text: draft.text,
+			message: draft.message || `Update asset '${path}'`,
+			kind: options.kind || 'data',
+		});
+		await _refreshWorkflowAssetBrowser();
+		addLog('success', `📝 Updated text asset "${path}" on ref "${_spaceActiveRef(currentSpaceInfo)}"`);
+		return true;
+	} catch (error) {
+		addLog('error', `❌ Failed to edit asset: ${error.message}`);
+		await NumelAlert('Text Asset', error.message || 'Failed to edit the selected text asset.');
+		return false;
+	}
+}
+
+async function _openCurrentRepoWorkflowAsset(path, contextLabel = '') {
+	if (!api || !currentSpaceInfo || !path) return false;
+	try {
+		if (!await _flushOrDiscardPendingWorkflowChanges(contextLabel || `open workflow asset "${path}"`)) {
+			return false;
+		}
+		const response = await api.openRepoAsset(path);
+		currentSpaceInfo = response?.space || currentSpaceInfo;
+		currentSpaceId = currentSpaceInfo?.id || currentSpaceId;
+		await refreshSpaceList(true);
+		addLog('success', `📂 Opened workflow asset "${path}" in the workbench`);
+		return true;
+	} catch (error) {
+		addLog('error', `❌ Failed to open workflow asset: ${error.message}`);
+		await NumelAlert('Open Workflow Asset', error.message || 'Failed to open the selected workflow asset in the workbench.');
+		return false;
+	}
+}
+
+async function _saveCurrentCanvasAsRepoWorkflowAsset() {
+	if (!api || !currentSpaceInfo) return false;
+	const workflow = _currentWorkflowForReuse();
+	if (!workflow) {
+		await NumelAlert('Save Workflow Asset', 'Load or build a workflow first, then Numel can save the current canvas as another workflow asset.');
+		return false;
+	}
+	const activeAssetPath = String(_spaceActiveAssetPath(currentSpaceInfo) || 'workflow.json').trim().replace(/\\/g, '/');
+	try {
+		const draft = await _showWorkflowAssetSaveDialog({
+			path: _defaultWorkflowAssetPath(),
+			title: _currentWorkflowLabel() || _repoAssetDisplayTitle(activeAssetPath),
+			message: `Add workflow asset '${_defaultWorkflowAssetPath()}'`,
+			openAfterSave: true,
+		});
+		if (!draft) return false;
+		const normalizedPath = String(draft.path || '').trim().replace(/\\/g, '/');
+		if (!normalizedPath) return false;
+		if (normalizedPath === activeAssetPath) {
+			throw new Error('Choose a different workflow asset path, or use the normal Save button for the current asset.');
+		}
+		await api.writeRepoAsset({
+			path: normalizedPath,
+			title: draft.title || _currentWorkflowLabel() || _repoAssetDisplayTitle(normalizedPath),
+			text: JSON.stringify(workflow, null, '\t'),
+			message: draft.message || `Add workflow asset '${normalizedPath}'`,
+			kind: 'workflow',
+		});
+		await _refreshWorkflowAssetBrowser();
+		addLog('success', `🧩 Saved the current canvas as workflow asset "${normalizedPath}"`);
+		if (draft.openAfterSave) {
+			return await _openCurrentRepoWorkflowAsset(normalizedPath, `open workflow asset "${normalizedPath}"`);
+		}
+		return true;
+	} catch (error) {
+		addLog('error', `❌ Failed to save workflow asset: ${error.message}`);
+		await NumelAlert('Save Workflow Asset', error.message || 'Failed to save the current canvas as another workflow asset.');
+		return false;
+	}
+}
+
 async function inspectCurrentSpace() {
 	if (!currentSpaceInfo) return;
 	while (currentSpaceInfo) {
@@ -4041,81 +4422,20 @@ async function inspectCurrentSpace() {
 			continue;
 		}
 		if (action.action === 'preview-asset' && action.path) {
-			try {
-				const payload = await api.readRepoAsset(action.path);
-				await _showRepoAssetPreviewDialog(action.path, payload || {});
-			} catch (error) {
-				addLog('error', `❌ Failed to preview asset: ${error.message}`);
-				await NumelAlert('Asset Preview', error.message || 'Failed to preview the selected asset.');
-			}
+			await _previewCurrentRepoAsset(action.path);
 			continue;
 		}
 		if (action.action === 'create-asset') {
-			try {
-				const draft = await _showRepoAssetEditorDialog({
-					createMode: true,
-					path: 'notes/README.md',
-					title: 'README',
-					message: 'Add repo notes',
-					text: '',
-				});
-				if (!draft) continue;
-				await api.writeRepoAsset({
-					path: draft.path,
-					title: draft.title,
-					text: draft.text,
-					message: draft.message || `Add asset '${draft.path}'`,
-					kind: 'data',
-				});
-				addLog('success', `📝 Saved text asset "${draft.path}" on ref "${repoState.active_ref}"`);
-			} catch (error) {
-				addLog('error', `❌ Failed to create asset: ${error.message}`);
-				await NumelAlert('Text Asset', error.message || 'Failed to create the text asset.');
-			}
+			await _createCurrentRepoTextAsset();
 			continue;
 		}
 		if (action.action === 'edit-asset' && action.path) {
-			try {
-				const payload = await api.readRepoAsset(action.path);
-				if (typeof payload?.text !== 'string') {
-					throw new Error('Only UTF-8 text assets can be edited inline right now.');
-				}
-				const draft = await _showRepoAssetEditorDialog({
-					createMode: false,
-					path: action.path,
-					title: action.title || _repoAssetDisplayTitle(action.path),
-					message: `Update asset '${action.path}'`,
-					text: payload.text,
-				});
-				if (!draft) continue;
-				await api.writeRepoAsset({
-					path: action.path,
-					title: draft.title,
-					text: draft.text,
-					message: draft.message || `Update asset '${action.path}'`,
-					kind: action.kind || 'data',
-				});
-				addLog('success', `📝 Updated text asset "${action.path}" on ref "${repoState.active_ref}"`);
-			} catch (error) {
-				addLog('error', `❌ Failed to edit asset: ${error.message}`);
-				await NumelAlert('Text Asset', error.message || 'Failed to edit the selected text asset.');
-			}
+			await _editCurrentRepoAsset(action.path, { title: action.title, kind: action.kind || 'data' });
 			continue;
 		}
 		if (action.action === 'open-asset' && action.path) {
-			try {
-				if (!await _flushOrDiscardPendingWorkflowChanges(`open workflow asset "${action.path}"`)) {
-					continue;
-				}
-				const response = await api.openRepoAsset(action.path);
-				currentSpaceInfo = response?.space || currentSpaceInfo;
-				currentSpaceId = currentSpaceInfo?.id || currentSpaceId;
-				await refreshSpaceList(true);
-				addLog('success', `📂 Opened workflow asset "${action.path}" in the workbench`);
+			if (await _openCurrentRepoWorkflowAsset(action.path, `open workflow asset "${action.path}"`)) {
 				return;
-			} catch (error) {
-				addLog('error', `❌ Failed to open workflow asset: ${error.message}`);
-				await NumelAlert('Open Workflow Asset', error.message || 'Failed to open the selected workflow asset in the workbench.');
 			}
 			continue;
 		}

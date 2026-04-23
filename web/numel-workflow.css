@@ -1280,6 +1280,50 @@ body.nw-layout-workbench .nw-space-pill.is-active {
 	gap: 8px;
 }
 
+.nw-repo-asset-browser-summary {
+	padding: 10px 12px;
+	border-radius: 12px;
+	border: 1px solid var(--sg-border-color);
+	background: var(--sg-panel-alt);
+	font-size: 12px;
+	line-height: 1.55;
+	color: var(--sg-text-secondary);
+}
+
+.nw-repo-asset-browser-actions {
+	margin-top: 10px;
+}
+
+.nw-repo-asset-browser {
+	display: grid;
+	gap: 8px;
+	margin-top: 10px;
+	max-height: 320px;
+	overflow-y: auto;
+	padding-right: 4px;
+	scrollbar-width: thin;
+	scrollbar-color: var(--nw-scrollbar-thumb) transparent;
+}
+
+.nw-repo-asset-browser::-webkit-scrollbar {
+	width: var(--nw-scrollbar-size);
+}
+
+.nw-repo-asset-browser::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.nw-repo-asset-browser::-webkit-scrollbar-thumb {
+	background: var(--nw-scrollbar-thumb);
+	border-radius: 999px;
+	border: 2px solid transparent;
+	background-clip: padding-box;
+}
+
+.nw-repo-asset-browser::-webkit-scrollbar-thumb:hover {
+	background: var(--nw-scrollbar-thumb-hover);
+}
+
 .nw-repo-compare-head {
 	display: grid;
 	grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -179,6 +179,25 @@
 				<div class="nw-field">
 					<div id="singleWorkflowName" class="nw-mono-text">None</div>
 				</div>
+
+				<div class="nw-collapsible nw-subsection nw-subsection-clean">
+					<div id="workflowAssetsToggleBtn" class="nw-collapsible-header" data-target="workflowAssetsContent" data-persist-key="numel_workflow_assets_v1">
+						<span class="nw-sub-collapse-icon"></span>
+						<span class="nw-subsection-title">Repo Assets</span>
+					</div>
+					<div id="workflowAssetsContent" class="nw-collapsible-content" style="display: none;">
+						<div id="workflowAssetSummary" class="nw-repo-asset-browser-summary">Choose or open a repo to browse its assets from the workbench.</div>
+						<div class="nw-space-detail-actions nw-repo-asset-browser-actions">
+							<button id="workflowAssetRefreshBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button" disabled title="Refresh the asset list for the active ref">Refresh</button>
+							<button id="workflowAssetSaveAsBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button" disabled title="Save the current canvas as another workflow asset on this ref">Save Canvas As Asset</button>
+							<button id="workflowAssetCreateBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button" disabled title="Create a repo-backed text asset">New Text Asset</button>
+							<button id="workflowAssetInspectBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button" disabled title="Open the full repo details view">Repo Details</button>
+						</div>
+						<div id="workflowAssetBrowser" class="nw-repo-asset-browser">
+							<div class="nw-repo-detail-empty">No repo is active in the workbench yet.</div>
+						</div>
+					</div>
+				</div>
 				<div class="nw-btn-grid">
 					<button id="singleImportBtn" class="nw-btn nw-btn-secondary nw-btn-with-icon" disabled title="Import from file">
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/></svg>

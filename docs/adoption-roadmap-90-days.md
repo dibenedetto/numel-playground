@@ -112,14 +112,14 @@ Progress so far:
 - the Public Hub now has creator pages that combine one creator's public repos with their published templates, and gallery cards can jump to either the source repo or the creator page, which makes the creator loop much more explicit
 - published templates now carry computed provenance and discovery metadata, so Gallery and creator pages can show version labels, repo-backed/public-source signals, and curated or featured ordering instead of acting like flat template dumps
 - the repo details surface now supports inline creation and editing of text assets on the active ref, which is the first practical multi-asset editing step beyond the workflow file itself
+- the main Workflow section now exposes a repo-asset browser plus a "save canvas as workflow asset" flow, so multi-workflow repos are practical from the workbench instead of being trapped behind the Repo Details dialog
 - assistant deployment proactive tasks can now preserve a real multi-source trigger fan-in through one `event_listener_flow`, including listener modes like `any`, `all`, and `race`, instead of flattening back to only one source during network export, apply, or runtime start
 - graph-first operational visibility is now real instead of aspirational: the Run panel can open a runtime workflow graph, Assistant Deployments can open a live network graph, and the admin execution drawer can open an execution graph backed by stored runtime metadata
 - workflow file and clipboard import now have a first real interop path: native Numel JSON still loads directly, and a pragmatic subset of n8n workflow JSON, including common set, HTTP, branch, and merge shapes, is converted into runnable Numel graphs with explicit manual-review warnings where the mapping is not exact yet
 
 Next execution order:
-1. keep polishing the repo-plus-playground surface around richer asset browsing, broader multi-asset opening/editing, and smoother repo-level compare/restore flows
-2. broaden interop coverage beyond the current n8n slice, especially switch/code-heavy flows and other external ecosystems
-3. do the final end-of-roadmap UI validation and polish pass across the now-expanded repo, graph, deployment, registry, and ecosystem surfaces
+1. broaden interop coverage beyond the current n8n slice, especially switch/code-heavy flows and other external ecosystems
+2. do the final end-of-roadmap UI validation and polish pass across the now-expanded repo, graph, deployment, registry, and ecosystem surfaces
 
 Note:
 - interop expansion is intentionally deferrable; the registry and creator/public ecosystem work can continue independently when product focus favors the ecosystem loop first
@@ -129,17 +129,12 @@ Note:
 
 From the current starting point, the main remaining roadmap items are:
 
-1. repo-plus-playground polish
-- richer asset browsing beyond the current workflow-first path
-- better multi-asset opening/editing
-- smoother compare/restore UX at repo and asset level
-
-2. interop expansion
+1. interop expansion
 - broaden beyond the current n8n subset
 - support harder switch/code-heavy and loop/wait-style imports
 - later choose the next external ecosystem to target
 
-3. final end-of-roadmap UI validation and polish
+2. final end-of-roadmap UI validation and polish
 - do one broader UI pass after the roadmap implementation is functionally in place
 - use that pass to tune Public Hub, repo browser, registry, deployment/runtime graph views, and interop edges together
 

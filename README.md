@@ -246,6 +246,8 @@ The repo details surface now also works as a lightweight repo browser:
 - visible refs and recent commits on the active ref
 - visible assets on the active ref, with preview support
 - direct opening of workflow assets from the active ref into the workbench
+- a repo-asset browser directly inside the Workflow section, so the active ref and current asset stay visible while you work
+- save-the-canvas-as-another-workflow-asset support, so one repo can hold multiple real workflow files instead of forcing everything through one path
 - inline creation and editing of text assets on the active ref for repo notes, prompts, and other sidecar files
 - repo-level compare for refs and commits against the current active repo state
 - repo-level restore that writes one new commit onto the active branch when you bring that branch back to a selected historical repo state
