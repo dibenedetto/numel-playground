@@ -640,12 +640,14 @@ async def run_server(
 
 	def _serialize_admin_execution_detail(record: Any, *, source: str = "platform") -> dict[str, Any]:
 		summary = _serialize_admin_execution_summary(record, source=source)
-		metadata = _execution_record_value(record, "metadata", {}) or {}
+		metadata = dict(_execution_record_value(record, "metadata", {}) or {})
+		graph = metadata.pop("workflow_graph", None)
 		outputs = _execution_record_value(record, "outputs", {}) or {}
 		summary.update(
 			{
 				"metadata": _sanitize_config_value(metadata),
 				"outputs": outputs,
+				"graph": graph if isinstance(graph, dict) else None,
 			}
 		)
 		return summary
@@ -782,7 +784,13 @@ async def run_server(
 				"finished_at": record.finished_at,
 				"error": record.error,
 				"output_keys": _summarize_execution_outputs(record.outputs),
-				"metadata": _sanitize_config_value(record.metadata or {}),
+				"metadata": _sanitize_config_value(
+					{
+						key: value
+						for key, value in dict(record.metadata or {}).items()
+						if key != "workflow_graph"
+					}
+				),
 			})
 		return {
 			"available": True,

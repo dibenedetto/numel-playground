@@ -1,11 +1,11 @@
 {
   "type": "assistant_deployment_example",
-  "name": "Webhook Incident Triage",
+  "name": "Incident Triage Fan-In",
   "profile": "ops",
-  "description": "Wakes up on incoming webhook events, summarizes the incident payload, and keeps operator approval in the loop for outgoing messages.",
-  "instructions": "Treat incoming webhook events like operational incidents. Summarize the signal, call out urgency, and keep the update concise and practical.",
+  "description": "Wakes up from more than one event source, summarizes the triggering signal, and keeps operator approval in the loop for outgoing messages.",
+  "instructions": "Treat incoming trigger events like operational incidents. Whether the trigger came from the incident webhook or the intake channel, summarize the signal, call out urgency, and keep the update concise and practical.",
   "linked_space_title": "Operations Workbench",
-  "linked_workflow_name": "Webhook Incident Workbench",
+  "linked_workflow_name": "Incident Fan-In Workbench",
   "model_source": "anthropic",
   "model_name": "claude-sonnet-4-20250514",
   "toolkit_names": ["workspace_toolkit", "channel_toolkit", "agent_endpoint_toolkit"],
@@ -14,15 +14,28 @@
   "routing_rules": [],
   "proactive_tasks": [
     {
-      "name": "Inbound Incident Webhook",
-      "prompt": "Read the triggering webhook payload, identify what happened, summarize the impact, and suggest the next operator action.",
+      "name": "Inbound Incident Fan-In",
+      "prompt": "Read the triggering event, identify whether it came from the incident webhook or the intake channel, summarize what happened, estimate the impact, and suggest the next operator action.",
       "interval_sec": 0,
-      "trigger_kind": "webhook",
-      "trigger": {
-        "endpoint": "/hook/incidents",
-        "methods": "POST",
-        "secret": "replace_with_shared_secret"
-      },
+      "trigger_mode": "any",
+      "trigger_sources": [
+        {
+          "kind": "webhook",
+          "trigger": {
+            "endpoint": "/hook/incidents",
+            "methods": "POST",
+            "secret": "replace_with_shared_secret"
+          },
+          "interval_sec": 0
+        },
+        {
+          "kind": "channel",
+          "trigger": {
+            "channel_id": "replace_with_intake_channel_id"
+          },
+          "interval_sec": 0
+        }
+      ],
       "channel_id": "replace_with_delivery_channel_id",
       "recipient_id": "replace_with_recipient_id",
       "enabled": true,
@@ -35,8 +48,9 @@
   },
   "auto_start": true,
   "notes": [
-    "This example shows an event-driven proactive deployment instead of a timer-driven one.",
-    "Use the webhook trigger when another system should wake the assistant up.",
-    "Keep interval_sec at 0 for non-timer proactive tasks."
+    "This example shows the correct event-driven proactive shape: one task with multiple trigger sources feeding one listener.",
+    "The webhook source is useful when another system should wake the assistant up.",
+    "The channel source is useful when an operator or another assistant should be able to wake the same task up.",
+    "Keep interval_sec at 0 for non-timer proactive sources."
   ]
 }

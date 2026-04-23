@@ -92,7 +92,7 @@ Typical shapes include:
 - `channel_receive_flow`
 - `fswatch_source_flow`
 - `browser_source_flow`
-- then `event_listener_flow`
+- then one `event_listener_flow` that can fan in one or more of those sources with modes like `any`, `all`, or `race`
 - then the proactive runtime node
 
 This is important because proactive behavior is now part of the same graph vocabulary as the rest of the system.

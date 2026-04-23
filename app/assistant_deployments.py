@@ -53,6 +53,13 @@ class AssistantRoutingRule(BaseModel):
     enabled: bool = True
 
 
+class AssistantProactiveTriggerSource(BaseModel):
+    kind: str = "timer"
+    trigger: Optional[Dict[str, Any]] = None
+    interval_sec: int = 0
+    source_id: Optional[str] = None
+
+
 class AssistantProactiveTask(BaseModel):
     id: str = Field(default_factory=lambda: f"proactive_{uuid.uuid4().hex[:8]}")
     name: str
@@ -60,6 +67,8 @@ class AssistantProactiveTask(BaseModel):
     interval_sec: int = 900
     trigger_kind: str = "timer"
     trigger: Optional[Dict[str, Any]] = None
+    trigger_mode: Literal["any", "all", "race"] = "any"
+    trigger_sources: List[AssistantProactiveTriggerSource] = Field(default_factory=list)
     channel_id: Optional[str] = None
     recipient_id: Optional[str] = None
     enabled: bool = True
@@ -778,6 +787,100 @@ class AssistantDeploymentManager:
         return normalized
 
     @staticmethod
+    def _normalize_trigger_mode(value: Any) -> str:
+        mode = str(value or "any").strip().lower() or "any"
+        if mode not in {"any", "all", "race"}:
+            mode = "any"
+        return mode
+
+    @staticmethod
+    def _normalize_proactive_trigger_source(
+        raw: Any,
+        *,
+        fallback_kind: str = "timer",
+        fallback_interval: int = 900,
+    ) -> Optional[AssistantProactiveTriggerSource]:
+        if raw is None:
+            return None
+        source = raw if isinstance(raw, AssistantProactiveTriggerSource) else AssistantProactiveTriggerSource(**raw)
+        source.kind = str(source.kind or fallback_kind).strip().lower() or fallback_kind
+        source.source_id = str(source.source_id or "").strip() or None
+        if source.trigger is None:
+            trigger: Dict[str, Any] = {}
+        elif isinstance(source.trigger, dict):
+            trigger = dict(source.trigger)
+        else:
+            trigger = {"value": source.trigger}
+
+        if source.kind == "timer":
+            source.interval_sec = max(30, int(source.interval_sec or fallback_interval or 0))
+            normalized_trigger: Dict[str, Any] = {"immediate": bool(trigger.get("immediate", False))}
+            if trigger.get("max_triggers") not in (None, ""):
+                normalized_trigger["max_triggers"] = int(trigger.get("max_triggers") or -1)
+            source.trigger = normalized_trigger
+        elif source.kind == "fswatch":
+            source.interval_sec = max(0, int(source.interval_sec or 0))
+            source.trigger = {
+                "path": str(trigger.get("path") or ".").strip() or ".",
+                "recursive": bool(trigger.get("recursive", True)),
+                "patterns": str(trigger.get("patterns") or "*").strip() or "*",
+                "events": str(trigger.get("events") or "created,modified,deleted,moved").strip() or "created,modified,deleted,moved",
+                "debounce_ms": max(0, int(trigger.get("debounce_ms") or 100)),
+            }
+        elif source.kind == "webhook":
+            source.interval_sec = max(0, int(source.interval_sec or 0))
+            normalized_trigger = {
+                "endpoint": str(trigger.get("endpoint") or "").strip(),
+                "methods": str(trigger.get("methods") or "POST").strip() or "POST",
+            }
+            if trigger.get("secret") not in (None, ""):
+                normalized_trigger["secret"] = str(trigger.get("secret") or "")
+            source.trigger = normalized_trigger
+        elif source.kind == "channel":
+            source.interval_sec = max(0, int(source.interval_sec or 0))
+            normalized_trigger = {}
+            if trigger.get("channel_id") not in (None, ""):
+                normalized_trigger["channel_id"] = str(trigger.get("channel_id") or "").strip()
+            if trigger.get("channel_types") not in (None, ""):
+                normalized_trigger["channel_types"] = str(trigger.get("channel_types") or "").strip()
+            if trigger.get("sender_filter") not in (None, ""):
+                normalized_trigger["sender_filter"] = str(trigger.get("sender_filter") or "").strip()
+            source.trigger = normalized_trigger or None
+        elif source.kind == "browser":
+            source.interval_sec = max(0, int(source.interval_sec or 0))
+            normalized_trigger = {
+                "device_type": str(trigger.get("device_type") or "webcam").strip() or "webcam",
+                "mode": str(trigger.get("mode") or "event").strip() or "event",
+                "interval_ms": max(100, int(trigger.get("interval_ms") or 1000)),
+            }
+            if trigger.get("resolution") not in (None, ""):
+                normalized_trigger["resolution"] = str(trigger.get("resolution") or "").strip()
+            if trigger.get("audio_format") not in (None, ""):
+                normalized_trigger["audio_format"] = str(trigger.get("audio_format") or "").strip()
+            source.trigger = normalized_trigger
+        else:
+            return None
+        return source
+
+    @staticmethod
+    def _task_trigger_sources(task: AssistantProactiveTask) -> List[AssistantProactiveTriggerSource]:
+        sources = list(task.trigger_sources or [])
+        if sources:
+            return sources
+        fallback_kind = str(task.trigger_kind or "timer").strip().lower() or "timer"
+        fallback_interval = max(30, int(task.interval_sec or 0)) if fallback_kind == "timer" else int(task.interval_sec or 0)
+        source = AssistantDeploymentManager._normalize_proactive_trigger_source(
+            {
+                "kind": fallback_kind,
+                "trigger": task.trigger,
+                "interval_sec": fallback_interval,
+            },
+            fallback_kind=fallback_kind,
+            fallback_interval=fallback_interval,
+        )
+        return [source] if source is not None else []
+
+    @staticmethod
     def _normalize_proactive_tasks(tasks: Optional[List[Any]]) -> List[AssistantProactiveTask]:
         normalized: List[AssistantProactiveTask] = []
         seen_ids = set()
@@ -789,63 +892,33 @@ class AssistantDeploymentManager:
             task.prompt = str(task.prompt or "").strip()
             task.channel_id = (task.channel_id or "").strip() or None
             task.recipient_id = (task.recipient_id or "").strip() or None
-            task.trigger_kind = str(task.trigger_kind or "timer").strip().lower() or "timer"
-            if task.trigger is None:
-                trigger: Dict[str, Any] = {}
-            elif isinstance(task.trigger, dict):
-                trigger = dict(task.trigger)
-            else:
-                trigger = {"value": task.trigger}
-
-            if task.trigger_kind == "timer":
-                task.interval_sec = max(30, int(task.interval_sec or 0))
-                normalized_trigger: Dict[str, Any] = {"immediate": bool(trigger.get("immediate", False))}
-                if trigger.get("max_triggers") not in (None, ""):
-                    normalized_trigger["max_triggers"] = int(trigger.get("max_triggers") or -1)
-                task.trigger = normalized_trigger
-            elif task.trigger_kind == "fswatch":
-                task.interval_sec = max(0, int(task.interval_sec or 0))
-                task.trigger = {
-                    "path": str(trigger.get("path") or ".").strip() or ".",
-                    "recursive": bool(trigger.get("recursive", True)),
-                    "patterns": str(trigger.get("patterns") or "*").strip() or "*",
-                    "events": str(trigger.get("events") or "created,modified,deleted,moved").strip() or "created,modified,deleted,moved",
-                    "debounce_ms": max(0, int(trigger.get("debounce_ms") or 100)),
-                }
-            elif task.trigger_kind == "webhook":
-                task.interval_sec = max(0, int(task.interval_sec or 0))
-                normalized_trigger = {
-                    "endpoint": str(trigger.get("endpoint") or "").strip(),
-                    "methods": str(trigger.get("methods") or "POST").strip() or "POST",
-                }
-                if trigger.get("secret") not in (None, ""):
-                    normalized_trigger["secret"] = str(trigger.get("secret") or "")
-                task.trigger = normalized_trigger
-            elif task.trigger_kind == "channel":
-                task.interval_sec = max(0, int(task.interval_sec or 0))
-                normalized_trigger = {}
-                if trigger.get("channel_id") not in (None, ""):
-                    normalized_trigger["channel_id"] = str(trigger.get("channel_id") or "").strip()
-                if trigger.get("channel_types") not in (None, ""):
-                    normalized_trigger["channel_types"] = str(trigger.get("channel_types") or "").strip()
-                if trigger.get("sender_filter") not in (None, ""):
-                    normalized_trigger["sender_filter"] = str(trigger.get("sender_filter") or "").strip()
-                task.trigger = normalized_trigger or None
-            elif task.trigger_kind == "browser":
-                task.interval_sec = max(0, int(task.interval_sec or 0))
-                normalized_trigger = {
-                    "device_type": str(trigger.get("device_type") or "webcam").strip() or "webcam",
-                    "mode": str(trigger.get("mode") or "event").strip() or "event",
-                    "interval_ms": max(100, int(trigger.get("interval_ms") or 1000)),
-                }
-                if trigger.get("resolution") not in (None, ""):
-                    normalized_trigger["resolution"] = str(trigger.get("resolution") or "").strip()
-                if trigger.get("audio_format") not in (None, ""):
-                    normalized_trigger["audio_format"] = str(trigger.get("audio_format") or "").strip()
-                task.trigger = normalized_trigger
-            else:
-                task.interval_sec = max(0, int(task.interval_sec or 0))
-                task.trigger = trigger or None
+            task.trigger_mode = AssistantDeploymentManager._normalize_trigger_mode(task.trigger_mode)
+            fallback_kind = str(task.trigger_kind or "timer").strip().lower() or "timer"
+            fallback_interval = max(30, int(task.interval_sec or 0)) if fallback_kind == "timer" else int(task.interval_sec or 0)
+            raw_sources = list(task.trigger_sources or [])
+            if not raw_sources:
+                raw_sources = [{
+                    "kind": fallback_kind,
+                    "trigger": task.trigger,
+                    "interval_sec": fallback_interval,
+                }]
+            trigger_sources: List[AssistantProactiveTriggerSource] = []
+            for raw_source in raw_sources:
+                source = AssistantDeploymentManager._normalize_proactive_trigger_source(
+                    raw_source,
+                    fallback_kind=fallback_kind,
+                    fallback_interval=fallback_interval,
+                )
+                if source is None:
+                    continue
+                trigger_sources.append(source)
+            if not trigger_sources:
+                continue
+            primary_source = trigger_sources[0]
+            task.trigger_sources = trigger_sources
+            task.trigger_kind = primary_source.kind
+            task.trigger = dict(primary_source.trigger or {}) or None
+            task.interval_sec = int(primary_source.interval_sec or 0)
             if not task.name or not task.prompt:
                 continue
             if task.id in seen_ids:
@@ -1620,8 +1693,21 @@ class AssistantDeploymentManager:
         if getattr(self._channel_pool, "_ws_mgr", None) and "console_toolkit" not in toolkit_names:
             toolkit_names = ["console_toolkit"] + list(toolkit_names)
 
-        source_id = _proactive_source_id(deployment.id, task.id)
-        trigger_config = {"source_id": source_id, **dict(task.trigger or {})}
+        trigger_sources = []
+        normalized_sources = self._task_trigger_sources(task)
+        for index, source in enumerate(normalized_sources):
+            source_id = str(source.source_id or "").strip() or (
+                _proactive_source_id(deployment.id, task.id)
+                if index == 0
+                else f"{_proactive_source_id(deployment.id, task.id)}_{index + 1}"
+            )
+            trigger_sources.append(
+                {
+                    "kind": str(source.kind or "timer"),
+                    "interval_sec": int(source.interval_sec or 0),
+                    "trigger_config": {"source_id": source_id, **dict(source.trigger or {})},
+                }
+            )
         built = build_assistant_proactive_workflow(
             deployment_name=deployment.name,
             deployment_profile=deployment.profile,
@@ -1639,7 +1725,9 @@ class AssistantDeploymentManager:
             memory_config=normalize_assistant_memory_config(console_config.get("memory") or {}),
             memory_db_path=self._runtime_memory_db_path(f"deployment_{deployment.id}"),
             trigger_kind=str(task.trigger_kind or "timer"),
-            trigger_config=trigger_config,
+            trigger_config=dict(task.trigger or {}),
+            trigger_sources=trigger_sources,
+            trigger_mode=self._normalize_trigger_mode(getattr(task, "trigger_mode", "any")),
         )
         payload = bind_runtime_toolkits_to_workflow(
             built["workflow"],
@@ -2319,20 +2407,27 @@ def setup_assistant_deployments_api(app: FastAPI, deployment_mgr: AssistantDeplo
         user_id, is_admin = _get_user(request)
         allowed_channel_ids = set((deployment.channel_ids if deployment else []) or [])
         for task in proactive_tasks:
-            trigger_kind = str(task.trigger_kind or "timer").strip().lower() or "timer"
-            if trigger_kind not in _PROACTIVE_TRIGGER_KINDS:
-                raise HTTPException(400, f"Proactive task '{task.name}' uses unsupported trigger kind '{trigger_kind}'")
-            if trigger_kind == "timer" and task.interval_sec < 30:
-                raise HTTPException(400, f"Proactive task '{task.name}' must use an interval of at least 30 seconds")
-            trigger = task.trigger if isinstance(task.trigger, dict) else {}
-            if trigger_kind == "channel":
-                trigger_channel_id = str(trigger.get("channel_id") or "").strip()
-                if trigger_channel_id:
-                    adapter = channel_registry.get(trigger_channel_id) if channel_registry else None
-                    if adapter is None:
-                        raise HTTPException(400, f"Unknown proactive trigger channel: {trigger_channel_id}")
-                    if not is_admin and adapter.config.created_by and adapter.config.created_by != user_id:
-                        raise HTTPException(403, f"Trigger channel '{trigger_channel_id}' belongs to another user")
+            trigger_mode = AssistantDeploymentManager._normalize_trigger_mode(getattr(task, "trigger_mode", "any"))
+            if trigger_mode not in {"any", "all", "race"}:
+                raise HTTPException(400, f"Proactive task '{task.name}' uses unsupported trigger mode '{trigger_mode}'")
+            trigger_sources = AssistantDeploymentManager._task_trigger_sources(task)
+            if not trigger_sources:
+                raise HTTPException(400, f"Proactive task '{task.name}' must define at least one trigger source")
+            for source in trigger_sources:
+                trigger_kind = str(source.kind or "timer").strip().lower() or "timer"
+                if trigger_kind not in _PROACTIVE_TRIGGER_KINDS:
+                    raise HTTPException(400, f"Proactive task '{task.name}' uses unsupported trigger kind '{trigger_kind}'")
+                if trigger_kind == "timer" and int(source.interval_sec or 0) < 30:
+                    raise HTTPException(400, f"Proactive task '{task.name}' must use a timer interval of at least 30 seconds")
+                trigger = source.trigger if isinstance(source.trigger, dict) else {}
+                if trigger_kind == "channel":
+                    trigger_channel_id = str(trigger.get("channel_id") or "").strip()
+                    if trigger_channel_id:
+                        adapter = channel_registry.get(trigger_channel_id) if channel_registry else None
+                        if adapter is None:
+                            raise HTTPException(400, f"Unknown proactive trigger channel: {trigger_channel_id}")
+                        if not is_admin and adapter.config.created_by and adapter.config.created_by != user_id:
+                            raise HTTPException(403, f"Trigger channel '{trigger_channel_id}' belongs to another user")
             if not task.channel_id:
                 continue
             adapter = channel_registry.get(task.channel_id) if channel_registry else None

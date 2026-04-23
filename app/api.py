@@ -192,6 +192,16 @@ class SpaceRepoAssetOpenRequest(BaseModel):
 	path : str
 
 
+class SpaceRepoAssetWriteRequest(BaseModel):
+	path        : str
+	text        : str = ""
+	message     : str = ""
+	title       : Optional[str] = None
+	description : str = ""
+	kind        : str = "data"
+	executable  : bool = False
+
+
 class SpaceRepoCompareRequest(BaseModel):
 	left  : str
 	right : Optional[str] = None
@@ -753,6 +763,80 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		engine_execution_id = str(metadata.get("engine_execution_id", "") or "").strip()
 		return engine_execution_id or str(record.get("execution_id", "") or "")
 
+	def _workflow_graph_payload(
+		doc: Dict[str, Any],
+		*,
+		asset_path: str = "",
+		ref: str = "",
+		workflow_name: str = "",
+	) -> Optional[Dict[str, Any]]:
+		if not isinstance(doc, dict):
+			return None
+		raw_nodes = doc.get("nodes")
+		raw_edges = doc.get("edges")
+		if not isinstance(raw_nodes, list) or not raw_nodes:
+			return None
+		nodes: List[Dict[str, Any]] = []
+		for index, node in enumerate(raw_nodes):
+			if not isinstance(node, dict):
+				continue
+			extra = node.get("extra") if isinstance(node.get("extra"), dict) else {}
+			raw_pos = extra.get("pos") if isinstance(extra.get("pos"), list) else None
+			x = 180 * (index % 4)
+			y = 140 * (index // 4)
+			if raw_pos and len(raw_pos) >= 2:
+				try:
+					x = int(float(raw_pos[0]))
+					y = int(float(raw_pos[1]))
+				except Exception:
+					pass
+			label = (
+				str(extra.get("name") or "").strip()
+				or str(node.get("name") or "").strip()
+				or str(node.get("type") or "").strip()
+				or f"Node {index}"
+			)
+			nodes.append(
+				{
+					"id": str(index),
+					"node_index": index,
+					"workflow_node_id": str(node.get("id") or "").strip() or None,
+					"type": str(node.get("type") or "").strip() or "node",
+					"label": label,
+					"pos": [x, y],
+				}
+			)
+		edges: List[Dict[str, Any]] = []
+		if isinstance(raw_edges, list):
+			for edge in raw_edges:
+				if not isinstance(edge, dict):
+					continue
+				source = edge.get("source")
+				target = edge.get("target")
+				if source is None or target is None:
+					continue
+				edges.append(
+					{
+						"source": str(source),
+						"target": str(target),
+						"source_slot": str(edge.get("source_slot") or "").strip() or None,
+						"target_slot": str(edge.get("target_slot") or "").strip() or None,
+					}
+				)
+		return {
+			"type": "workflow_runtime_graph",
+			"name": workflow_name or _workflow_name_from_doc(doc) or Path(asset_path or "workflow.json").stem or "Workflow",
+			"asset_path": str(asset_path or "").strip() or "workflow.json",
+			"ref": str(ref or "").strip() or "main",
+			"nodes": nodes,
+			"edges": edges,
+		}
+
+	def _execution_graph_payload(record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+		metadata = record.get("metadata", {}) or {}
+		graph = metadata.get("workflow_graph")
+		return graph if isinstance(graph, dict) else None
+
 	async def _find_execution_record(req: Request, execution_id: str) -> Optional[Dict[str, Any]]:
 		user = _require_auth(req)
 		try:
@@ -779,6 +863,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		return {
 			"execution_id": _execution_public_id(record),
 			"platform_execution_id": record.get("execution_id"),
+			"graph": _execution_graph_payload(record),
 			"state": {
 				"status": record.get("status"),
 				"start_time": record.get("started_at"),
@@ -795,6 +880,7 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			"execution_id": public_id,
 			"platform_execution_id": record.get("execution_id"),
 			"workflow_id": record.get("asset_path"),
+			"graph": _execution_graph_payload(record),
 			"status": record.get("status"),
 			"start_time": record.get("started_at"),
 			"end_time": record.get("finished_at"),
@@ -1429,6 +1515,39 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			"content_base64": data.get("content_base64"),
 		}
 
+	@app.post("/spaces/repo/assets/write")
+	async def current_space_repo_asset_write(request: SpaceRepoAssetWriteRequest, req: Request):
+		user, space = await _ensure_current_space(req)
+		path = str(request.path or "").strip()
+		if not path:
+			raise HTTPException(status_code=400, detail="path is required")
+		active_ref = _space_active_ref(space)
+		title = request.title if request.title is not None else Path(path).name
+		try:
+			data = await _platform(req).post_json(
+				f"/platform/spaces/{space['id']}/assets/write",
+				{
+					"user_id": user.id,
+					"path": path,
+					"kind": str(request.kind or "data").strip() or "data",
+					"title": str(title or "").strip(),
+					"description": str(request.description or "").strip(),
+					"executable": bool(request.executable),
+					"text": str(request.text or ""),
+					"message": str(request.message or "").strip() or f"Update asset '{path}'",
+					"ref": active_ref,
+				},
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		return {
+			"space": space,
+			"active_ref": active_ref,
+			"path": path,
+			"commit": data.get("commit", {}) or {},
+			"status": "saved",
+		}
+
 	@app.post("/spaces/repo/assets/open")
 	async def current_space_repo_asset_open(request: SpaceRepoAssetOpenRequest, req: Request):
 		user, space = await _ensure_current_space(req)
@@ -1919,6 +2038,12 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			if isinstance(raw_options, dict):
 				workflow_name = str(raw_options.get("name", "") or "").strip()
 		try:
+			workflow_graph = _workflow_graph_payload(
+				doc,
+				asset_path=asset_path,
+				ref=active_ref,
+				workflow_name=workflow_name,
+			)
 			data = await _platform(req).post_json(
 				"/platform/executions/start",
 				{
@@ -1928,7 +2053,10 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 					"ref": active_ref,
 					"inputs": inputs,
 					"resolve_credentials": True,
-					"metadata": {"workflow_name": workflow_name} if workflow_name else {},
+					"metadata": {
+						**({"workflow_name": workflow_name} if workflow_name else {}),
+						**({"workflow_graph": workflow_graph} if workflow_graph else {}),
+					},
 				},
 			)
 		except PlatformRequestError as exc:

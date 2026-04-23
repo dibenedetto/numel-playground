@@ -735,6 +735,8 @@ class AssistantProactiveRuntimeConfig(ConfigType):
 	interval_sec   : Annotated[int                                           , FieldRole.INPUT   ] = Field(default=900, description="Task interval in seconds")
 	trigger_kind   : Annotated[str                                           , FieldRole.INPUT   ] = Field(default="timer", description="Trigger kind backing this task, such as timer, fswatch, webhook, channel, or browser")
 	trigger        : Annotated[Optional[Dict[str, Any]]                      , FieldRole.INPUT   ] = Field(default=None, description="Trigger-specific configuration payload used by the workflow-backed proactive runtime")
+	trigger_mode   : Annotated[str                                           , FieldRole.INPUT   ] = Field(default="any", description="Listener mode for multi-source trigger fan-in, such as any, all, or race")
+	trigger_sources: Annotated[Optional[List[Dict[str, Any]]]                , FieldRole.INPUT   ] = Field(default=None, description="Full set of trigger source specs backing this task when it listens to multiple event sources")
 	trigger_event  : Annotated[Optional[Any]                                 , FieldRole.INPUT   ] = Field(default=None, description="Connected event payload from the task's exported event listener subgraph")
 	trigger_source_id : Annotated[Optional[str]                              , FieldRole.INPUT   ] = Field(default=None, description="Connected triggering source id from the task's exported event listener subgraph")
 	channel_id     : Annotated[Optional[str]                                 , FieldRole.INPUT   ] = Field(default=None, description="Preferred delivery channel id")

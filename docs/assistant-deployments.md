@@ -147,6 +147,15 @@ not only:
 
 - the assistant runs on a schedule
 
+The important graph rule is:
+
+- one task can have one source or many sources
+- those sources fan in through one `event_listener_flow`
+- the listener mode decides `any`, `all`, or `race`
+
+So the event listener is the right place to coordinate multiple sources.
+What should not happen anymore is flattening that fan-in back into only one trigger source during export, apply, or runtime start.
+
 ### Approval Flows
 
 There are now two approval surfaces:
@@ -170,6 +179,7 @@ The Assistant Deployments panel now acts as a lightweight operator console:
 - pending approval cards
 - per-deployment inspect dialog
 - network-wide inspect dialog
+- live network graph dialog
 - drill-down from the network inspector into one deployment
 - copyable deployment and network snapshots
 - linked workbench navigation

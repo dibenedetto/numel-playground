@@ -13,6 +13,7 @@ The Assistant Deployments panel is where you:
 - run proactive tasks manually
 - open the linked workbench
 - inspect the full live network as one system
+- inspect the live deployment network as a graph when you want the topology, not only the textual status view
 
 The important shift is:
 

@@ -4,10 +4,74 @@ import json
 
 from assistant_memory_contract import normalize_assistant_memory_config
 from copy import deepcopy
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from console_workflow import build_console_workflow_export
 from schema import DEFAULT_BACKEND_NAME
+
+
+def _build_trigger_node(
+	*,
+	task_name: str,
+	trigger_kind: str,
+	trigger_config: Dict[str, Any],
+	task_interval_sec: int,
+	pos: List[int],
+) -> Dict[str, Any]:
+	source_id = str(trigger_config.get("source_id") or "")
+	if not source_id:
+		raise ValueError("Proactive trigger requires source_id")
+	label = task_name or "Trigger"
+	if trigger_kind == "timer":
+		return {
+			"type": "timer_source_flow",
+			"source_id": source_id,
+			"interval_ms": max(30, int(task_interval_sec or 0)) * 1000,
+			"max_triggers": -1,
+			"immediate": bool(trigger_config.get("immediate", False)),
+			"extra": {"pos": pos, "name": label or "Timer Trigger"},
+		}
+	if trigger_kind == "fswatch":
+		return {
+			"type": "fswatch_source_flow",
+			"source_id": source_id,
+			"path": str(trigger_config.get("path") or "."),
+			"recursive": bool(trigger_config.get("recursive", True)),
+			"patterns": trigger_config.get("patterns") or "*",
+			"events": trigger_config.get("events") or "created,modified,deleted,moved",
+			"debounce_ms": max(0, int(trigger_config.get("debounce_ms") or 100)),
+			"extra": {"pos": pos, "name": label or "File Trigger"},
+		}
+	if trigger_kind == "webhook":
+		return {
+			"type": "webhook_source_flow",
+			"source_id": source_id,
+			"endpoint": str(trigger_config.get("endpoint") or f"/hook/{source_id}"),
+			"methods": trigger_config.get("methods") or "POST",
+			"secret": trigger_config.get("secret"),
+			"extra": {"pos": pos, "name": label or "Webhook Trigger"},
+		}
+	if trigger_kind == "channel":
+		return {
+			"type": "channel_receive_flow",
+			"source_id": source_id,
+			"channel_id": str(trigger_config.get("channel_id") or ""),
+			"channel_types": trigger_config.get("channel_types") or "",
+			"sender_filter": trigger_config.get("sender_filter"),
+			"extra": {"pos": pos, "name": label or "Channel Trigger"},
+		}
+	if trigger_kind == "browser":
+		return {
+			"type": "browser_source_flow",
+			"source_id": source_id,
+			"device_type": str(trigger_config.get("device_type") or "webcam"),
+			"mode": str(trigger_config.get("mode") or "event"),
+			"interval_ms": max(100, int(trigger_config.get("interval_ms") or 1000)),
+			"resolution": trigger_config.get("resolution"),
+			"audio_format": trigger_config.get("audio_format"),
+			"extra": {"pos": pos, "name": label or "Browser Trigger"},
+		}
+	raise ValueError(f"Unsupported proactive trigger kind: {trigger_kind}")
 
 
 def build_assistant_proactive_workflow(
@@ -29,6 +93,8 @@ def build_assistant_proactive_workflow(
 	memory_db_path: Optional[str] = None,
 	trigger_kind: str = "timer",
 	trigger_config: Optional[Dict[str, Any]] = None,
+	trigger_sources: Optional[List[Dict[str, Any]]] = None,
+	trigger_mode: str = "any",
 	backend_name: str = DEFAULT_BACKEND_NAME,
 ) -> Dict[str, Any]:
 	"""Build a long-running proactive workflow for one deployment task.
@@ -86,66 +152,38 @@ def build_assistant_proactive_workflow(
 	start_idx = len(nodes)
 	nodes.append({"type": "start_flow", "extra": {"pos": [40, 20], "name": "Start"}})
 
-	trigger_cfg = dict(trigger_config or {})
-	trigger_idx = len(nodes)
-	source_id = str(trigger_cfg.get("source_id") or "")
-	if not source_id:
-		raise ValueError("Proactive trigger requires source_id")
+	normalized_trigger_mode = str(trigger_mode or "any").strip().lower() or "any"
+	if normalized_trigger_mode not in {"any", "all", "race"}:
+		normalized_trigger_mode = "any"
+	normalized_sources = list(trigger_sources or [])
+	if not normalized_sources:
+		normalized_sources = [{
+			"kind": str(trigger_kind or "timer").strip().lower() or "timer",
+			"interval_sec": max(30, int(task_interval_sec or 0)) if str(trigger_kind or "timer").strip().lower() == "timer" else int(task_interval_sec or 0),
+			"trigger_config": dict(trigger_config or {}),
+		}]
 
-	trigger_kind = str(trigger_kind or "timer").strip().lower() or "timer"
-	trigger_node: Optional[Dict[str, Any]] = None
-	if trigger_kind == "timer":
-		trigger_node = {
-			"type": "timer_source_flow",
-			"source_id": source_id,
-			"interval_ms": max(30, int(task_interval_sec or 0)) * 1000,
-			"max_triggers": -1,
-			"immediate": bool(trigger_cfg.get("immediate", False)),
-			"extra": {"pos": [260, 20], "name": task_name or "Timer Trigger"},
-		}
-	elif trigger_kind == "fswatch":
-		trigger_node = {
-			"type": "fswatch_source_flow",
-			"source_id": source_id,
-			"path": str(trigger_cfg.get("path") or "."),
-			"recursive": bool(trigger_cfg.get("recursive", True)),
-			"patterns": trigger_cfg.get("patterns") or "*",
-			"events": trigger_cfg.get("events") or "created,modified,deleted,moved",
-			"debounce_ms": max(0, int(trigger_cfg.get("debounce_ms") or 100)),
-			"extra": {"pos": [260, 20], "name": task_name or "File Trigger"},
-		}
-	elif trigger_kind == "webhook":
-		trigger_node = {
-			"type": "webhook_source_flow",
-			"source_id": source_id,
-			"endpoint": str(trigger_cfg.get("endpoint") or f"/hook/{source_id}"),
-			"methods": trigger_cfg.get("methods") or "POST",
-			"secret": trigger_cfg.get("secret"),
-			"extra": {"pos": [260, 20], "name": task_name or "Webhook Trigger"},
-		}
-	elif trigger_kind == "channel":
-		trigger_node = {
-			"type": "channel_receive_flow",
-			"source_id": source_id,
-			"channel_id": str(trigger_cfg.get("channel_id") or ""),
-			"channel_types": trigger_cfg.get("channel_types") or "",
-			"sender_filter": trigger_cfg.get("sender_filter"),
-			"extra": {"pos": [260, 20], "name": task_name or "Channel Trigger"},
-		}
-	elif trigger_kind == "browser":
-		trigger_node = {
-			"type": "browser_source_flow",
-			"source_id": source_id,
-			"device_type": str(trigger_cfg.get("device_type") or "webcam"),
-			"mode": str(trigger_cfg.get("mode") or "event"),
-			"interval_ms": max(100, int(trigger_cfg.get("interval_ms") or 1000)),
-			"resolution": trigger_cfg.get("resolution"),
-			"audio_format": trigger_cfg.get("audio_format"),
-			"extra": {"pos": [260, 20], "name": task_name or "Browser Trigger"},
-		}
-	else:
-		raise ValueError(f"Unsupported proactive trigger kind: {trigger_kind}")
-	nodes.append(trigger_node)
+	trigger_indexes: List[int] = []
+	source_ids: List[str] = []
+	for index, source in enumerate(normalized_sources):
+		source_kind = str(source.get("kind") or trigger_kind or "timer").strip().lower() or "timer"
+		source_interval = int(source.get("interval_sec") or (task_interval_sec if source_kind == "timer" else 0))
+		source_cfg = dict(source.get("trigger_config") or source.get("trigger") or {})
+		source_id = str(source_cfg.get("source_id") or "")
+		if not source_id:
+			raise ValueError("Proactive trigger requires source_id")
+		source_ids.append(source_id)
+		trigger_indexes.append(len(nodes))
+		label = task_name if index == 0 else f"{task_name} Trigger {index + 1}"
+		nodes.append(
+			_build_trigger_node(
+				task_name=label,
+				trigger_kind=source_kind,
+				trigger_config=source_cfg,
+				task_interval_sec=source_interval,
+				pos=[260, 20 + index * 120],
+			)
+		)
 
 	loop_start_idx = len(nodes)
 	nodes.append(
@@ -153,7 +191,7 @@ def build_assistant_proactive_workflow(
 			"type": "loop_start_flow",
 			"condition": True,
 			"max_iter": 1000000,
-			"extra": {"pos": [500, 20], "name": "Trigger Loop"},
+			"extra": {"pos": [500, 20 + max(0, len(trigger_indexes) - 1) * 60], "name": "Trigger Loop"},
 		}
 	)
 
@@ -161,8 +199,8 @@ def build_assistant_proactive_workflow(
 	nodes.append(
 		{
 			"type": "event_listener_flow",
-			"mode": "any",
-			"extra": {"pos": [740, 20], "name": "Wait for Trigger"},
+			"mode": normalized_trigger_mode,
+			"extra": {"pos": [740, 20 + max(0, len(trigger_indexes) - 1) * 60], "name": "Wait for Trigger"},
 		}
 	)
 
@@ -227,11 +265,16 @@ def build_assistant_proactive_workflow(
 	end_idx = len(nodes)
 	nodes.append({"type": "end_flow", "extra": {"pos": [2120, 20], "name": "End"}})
 
+	if not trigger_indexes:
+		raise ValueError("Proactive runtime requires at least one trigger source")
+	edges.append({"source": start_idx, "target": trigger_indexes[0], "source_slot": "flow_out", "target_slot": "flow_in"})
+	for index, trigger_idx in enumerate(trigger_indexes):
+		next_target = trigger_indexes[index + 1] if index + 1 < len(trigger_indexes) else loop_start_idx
+		edges.append({"source": trigger_idx, "target": next_target, "source_slot": "flow_out", "target_slot": "flow_in"})
+		edges.append({"source": trigger_idx, "target": event_listener_idx, "source_slot": "registered_id", "target_slot": f"sources.trigger_{index + 1}"})
+
 	edges.extend(
 		[
-			{"source": start_idx, "target": trigger_idx, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": trigger_idx, "target": loop_start_idx, "source_slot": "flow_out", "target_slot": "flow_in"},
-			{"source": trigger_idx, "target": event_listener_idx, "source_slot": "registered_id", "target_slot": "sources.trigger"},
 			{"source": loop_start_idx, "target": event_listener_idx, "source_slot": "flow_out", "target_slot": "flow_in"},
 			{"source": event_listener_idx, "target": build_prompt_idx, "source_slot": "event", "target_slot": "input"},
 			{"source": event_listener_idx, "target": build_prompt_idx, "source_slot": "flow_out", "target_slot": "flow_in"},
@@ -255,7 +298,8 @@ def build_assistant_proactive_workflow(
 	return {
 		"workflow": workflow,
 		"response_node_index": extract_reply_idx,
-		"trigger_node_index": trigger_idx,
-		"trigger_kind": trigger_kind,
-		"source_ids": [source_id],
+		"trigger_node_index": trigger_indexes[0],
+		"trigger_kind": str(normalized_sources[0].get("kind") or trigger_kind or "timer").strip().lower() or "timer",
+		"trigger_mode": normalized_trigger_mode,
+		"source_ids": source_ids,
 	}

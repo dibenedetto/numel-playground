@@ -285,10 +285,33 @@ function _formatRepoHistoryList(commits = [], options = {}) {
 	}).join('');
 }
 
-function _formatRepoAssetList(assets = [], activePath = 'workflow.json') {
+const _REPO_TEXT_ASSET_EXTENSIONS = new Set([
+	'.txt', '.md', '.markdown', '.json', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.env',
+	'.csv', '.tsv', '.xml', '.html', '.htm', '.css', '.js', '.mjs', '.cjs', '.ts', '.tsx',
+	'.py', '.ps1', '.sh', '.bat', '.cmd', '.sql', '.graphql', '.gql',
+]);
+
+function _isLikelyRepoTextAsset(path = '', kind = 'data') {
+	const normalizedKind = String(kind || 'data').trim().toLowerCase() || 'data';
+	if (normalizedKind === 'workflow') return false;
+	if (['toolkit', 'skill', 'template'].includes(normalizedKind)) return true;
+	const normalizedPath = String(path || '').trim().toLowerCase();
+	const dot = normalizedPath.lastIndexOf('.');
+	if (dot < 0) return false;
+	return _REPO_TEXT_ASSET_EXTENSIONS.has(normalizedPath.slice(dot));
+}
+
+function _repoAssetDisplayTitle(path = '') {
+	const normalized = String(path || '').trim().replace(/\\/g, '/');
+	const parts = normalized.split('/').filter(Boolean);
+	return parts[parts.length - 1] || normalized || 'asset.txt';
+}
+
+function _formatRepoAssetList(assets = [], activePath = 'workflow.json', options = {}) {
 	if (!Array.isArray(assets) || !assets.length) {
 		return '<div class="nw-repo-detail-empty">No assets are visible on this ref yet.</div>';
 	}
+	const editable = !!options.editable;
 	return assets.map((asset) => {
 		const path = String(asset?.path || '').trim();
 		if (!path) return '';
@@ -296,6 +319,8 @@ function _formatRepoAssetList(assets = [], activePath = 'workflow.json') {
 		const size = Number(asset?.size_bytes || 0);
 		const isCurrent = path === activePath;
 		const isWorkflow = kind === 'workflow';
+		const canEditText = editable && _isLikelyRepoTextAsset(path, kind);
+		const title = String(asset?.title || '').trim() || _repoAssetDisplayTitle(path);
 		return `
 			<div class="nw-repo-asset-row${isCurrent ? ' is-current' : ''}">
 				<div class="nw-repo-asset-meta">
@@ -308,6 +333,7 @@ function _formatRepoAssetList(assets = [], activePath = 'workflow.json') {
 				</div>
 				<div class="nw-repo-asset-actions">
 					${isWorkflow && !isCurrent ? `<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-asset-action="open" data-asset-path="${_escHtml(path)}">Open In Workbench</button>` : ''}
+					${canEditText ? `<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-asset-action="edit" data-asset-path="${_escHtml(path)}" data-asset-title="${_escHtml(title)}" data-asset-kind="${_escHtml(kind)}">Edit Text</button>` : ''}
 					<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-asset-action="preview" data-asset-path="${_escHtml(path)}">Preview</button>
 				</div>
 			</div>
@@ -2693,6 +2719,7 @@ function setupEventListeners() {
 	// Execution
 	$('startBtn').addEventListener('click', startExecution);
 	$('cancelBtn').addEventListener('click', cancelExecution);
+	$('inspectRuntimeGraphBtn')?.addEventListener('click', inspectRuntimeGraph);
 	$('replayLatestRunBtn')?.addEventListener('click', replayLatestExecution);
 	$('compareLatestRunsBtn')?.addEventListener('click', compareLatestExecutions);
 
@@ -3138,7 +3165,7 @@ function setupClientEvents() {
 			const graphNode = visualizer?.graphNodes[idx];
 			if (graphNode) graphNode.executionErrorText = null;
 		} catch (_e) {}
-		_appendExecutionReplayEvent('info', `Node ${idx} started`, label);
+		_appendExecutionReplayEvent('info', `Node ${idx} started`, label, { nodeId: String(idx), status: 'running' });
 		addLog('info', `▶️ [${idx}] ${label}`);
 	});
 
@@ -3172,7 +3199,7 @@ function setupClientEvents() {
 		if (_executionReplayView) {
 			_executionReplayView.summary = _describeExecutionReplaySummary(_executionReplayView);
 		}
-		_appendExecutionReplayEvent('success', `Node ${idx} completed`, outputs ? `Outputs captured for ${label}` : label);
+		_appendExecutionReplayEvent('success', `Node ${idx} completed`, outputs ? `Outputs captured for ${label}` : label, { nodeId: String(idx), status: 'completed' });
 		addLog('success', `✅ [${idx}] ${label}`);
 	});
 
@@ -3188,7 +3215,7 @@ function setupClientEvents() {
 				graphNode.executionErrorText = event.error || null;
 			}
 		} catch (_e) {}
-		_appendExecutionReplayEvent('error', `Node ${idx} failed`, `${label}: ${event.error || 'Unknown error'}`, { nodeId: String(idx) });
+		_appendExecutionReplayEvent('error', `Node ${idx} failed`, `${label}: ${event.error || 'Unknown error'}`, { nodeId: String(idx), status: 'failed' });
 		addLog('error', `❌ [${idx}] ${label}: ${event.error}`);
 	});
 
@@ -3198,7 +3225,7 @@ function setupClientEvents() {
 		const label = event.data?.node_label || `Node ${idx}`;
 		const waitType = event.data?.wait_type || 'unknown';
 		visualizer?.updateNodeState(idx, 'waiting');
-		_appendExecutionReplayEvent('warning', `Node ${idx} waiting`, `${label} (${waitType})`);
+		_appendExecutionReplayEvent('warning', `Node ${idx} waiting`, `${label} (${waitType})`, { nodeId: String(idx), status: 'waiting' });
 		addLog('info', `⏳ [${idx}] ${label} waiting (${waitType})`);
 
 		// Auto-activate agent chat when engine reaches it
@@ -3215,7 +3242,7 @@ function setupClientEvents() {
 		const idx = parseInt(event.node_id);
 		const label = event.data?.node_label || `Node ${idx}`;
 		visualizer?.updateNodeState(idx, 'running');
-		_appendExecutionReplayEvent('info', `Node ${idx} resumed`, label);
+		_appendExecutionReplayEvent('info', `Node ${idx} resumed`, label, { nodeId: String(idx), status: 'running' });
 		addLog('info', `▶️ [${idx}] ${label} resumed`);
 	});
 
@@ -3520,7 +3547,7 @@ function _showCurrentSpaceDetailsDialog(space = null, repoState = {}) {
 		const canRestoreHistory = editable && String(activeRefRecord?.kind || 'branch').trim().toLowerCase() === 'branch';
 		const refsHtml = _formatRepoRefList(repoState?.refs || [], activeRef, defaultRef, editable, { allowCompare: true });
 		const historyHtml = _formatRepoHistoryList(repoState?.commits || [], { allowCompare: true, allowRestore: canRestoreHistory });
-		const assetsHtml = _formatRepoAssetList(repoState?.assets || [], activeAssetPath);
+		const assetsHtml = _formatRepoAssetList(repoState?.assets || [], activeAssetPath, { editable });
 		overlay.className = 'sg-input-dialog-overlay';
 		overlay.innerHTML = `
 			<div class="sg-input-dialog" style="min-width:360px;max-width:640px">
@@ -3566,6 +3593,7 @@ function _showCurrentSpaceDetailsDialog(space = null, repoState = {}) {
 						<div class="nw-repo-detail-title">Assets on ${_escHtml(activeRef)}</div>
 						<div class="nw-repo-detail-copy">Browse the files visible on this ref. Workflow assets can be opened directly into the current workbench, while other files can be previewed here.</div>
 						<div class="nw-repo-asset-list">${assetsHtml}</div>
+						${editable ? `<div class="nw-space-detail-actions"><button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="create-asset">New Text Asset</button></div>` : ''}
 					</div>
 					<div class="nw-space-detail-actions">
 						${locator ? '<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="copy-locator">Copy owner/slug</button>' : ''}
@@ -3618,9 +3646,18 @@ function _showCurrentSpaceDetailsDialog(space = null, repoState = {}) {
 		overlay.querySelectorAll('[data-asset-action="preview"]').forEach((button) => {
 			button.addEventListener('click', () => close({ action: 'preview-asset', path: button.getAttribute('data-asset-path') || '' }));
 		});
+		overlay.querySelectorAll('[data-asset-action="edit"]').forEach((button) => {
+			button.addEventListener('click', () => close({
+				action: 'edit-asset',
+				path: button.getAttribute('data-asset-path') || '',
+				title: button.getAttribute('data-asset-title') || '',
+				kind: button.getAttribute('data-asset-kind') || 'data',
+			}));
+		});
 		overlay.querySelectorAll('[data-asset-action="open"]').forEach((button) => {
 			button.addEventListener('click', () => close({ action: 'open-asset', path: button.getAttribute('data-asset-path') || '' }));
 		});
+		overlay.querySelector('[data-action="create-asset"]')?.addEventListener('click', () => close({ action: 'create-asset' }));
 		overlay.addEventListener('click', (event) => {
 			if (event.target === overlay) close(null);
 		});
@@ -3677,6 +3714,101 @@ function _showRepoAssetPreviewDialog(path, payload = {}) {
 			}
 		});
 		queueMicrotask(() => overlay.querySelector('.sg-input-dialog-confirm')?.focus());
+	});
+}
+
+function _showRepoAssetEditorDialog(options = {}) {
+	return new Promise((resolve) => {
+		const overlay = document.createElement('div');
+		const createMode = !!options.createMode;
+		const initialPath = String(options.path || '').trim();
+		const initialTitle = String(options.title || _repoAssetDisplayTitle(initialPath)).trim();
+		const initialText = typeof options.text === 'string' ? options.text : '';
+		const initialMessage = String(options.message || '').trim();
+		overlay.className = 'sg-input-dialog-overlay';
+		overlay.innerHTML = `
+			<div class="sg-input-dialog" style="min-width:420px;max-width:860px">
+				<div class="sg-input-dialog-header">
+					<span class="sg-input-dialog-title">${createMode ? 'New Text Asset' : 'Edit Text Asset'}</span>
+					<button class="sg-input-dialog-close">✕</button>
+				</div>
+				<div class="sg-input-dialog-body">
+					<p class="sg-confirm-dialog-message">${createMode
+						? 'Create a repo-backed text asset that lives beside your workflows on the active ref.'
+						: 'Edit this text asset directly on the active ref without leaving the repo details flow.'}</p>
+					<div class="nw-space-open-field">
+						<label for="repoAssetEditorPath">Path</label>
+						<input id="repoAssetEditorPath" class="nw-input sg-input-dialog-field" type="text" autocomplete="off" spellcheck="false" placeholder="notes/README.md">
+					</div>
+					<div class="nw-space-open-field">
+						<label for="repoAssetEditorTitle">Title</label>
+						<input id="repoAssetEditorTitle" class="nw-input sg-input-dialog-field" type="text" autocomplete="off" spellcheck="false" placeholder="README">
+					</div>
+					<div class="nw-space-open-field">
+						<label for="repoAssetEditorMessage">Commit note</label>
+						<input id="repoAssetEditorMessage" class="nw-input sg-input-dialog-field" type="text" autocomplete="off" spellcheck="false" placeholder="Update repo notes">
+					</div>
+					<div class="nw-space-open-field">
+						<label for="repoAssetEditorText">Contents</label>
+						<textarea id="repoAssetEditorText" class="nw-input nw-asset-editor-text sg-input-dialog-field" rows="18" spellcheck="false" placeholder="Write the asset contents here..."></textarea>
+					</div>
+				</div>
+				<div class="sg-input-dialog-footer">
+					<button class="sg-input-dialog-btn sg-input-dialog-cancel">Cancel</button>
+					<button class="sg-input-dialog-btn sg-input-dialog-confirm">${createMode ? 'Create Asset' : 'Save Asset'}</button>
+				</div>
+			</div>
+		`;
+		document.body.appendChild(overlay);
+		const pathInput = overlay.querySelector('#repoAssetEditorPath');
+		const titleInput = overlay.querySelector('#repoAssetEditorTitle');
+		const messageInput = overlay.querySelector('#repoAssetEditorMessage');
+		const textInput = overlay.querySelector('#repoAssetEditorText');
+		if (pathInput) {
+			pathInput.value = initialPath;
+			pathInput.readOnly = !createMode;
+		}
+		if (titleInput) titleInput.value = initialTitle;
+		if (messageInput) messageInput.value = initialMessage;
+		if (textInput) textInput.value = initialText;
+
+		const close = (value = null) => {
+			overlay.remove();
+			resolve(value);
+		};
+		const submit = () => {
+			const path = String(pathInput?.value || '').trim();
+			if (!path) {
+				titleInput?.focus();
+				throw new Error('Asset path is required.');
+			}
+			close({
+				path,
+				title: String(titleInput?.value || '').trim() || _repoAssetDisplayTitle(path),
+				message: String(messageInput?.value || '').trim(),
+				text: String(textInput?.value || ''),
+			});
+		};
+
+		overlay.querySelector('.sg-input-dialog-close')?.addEventListener('click', () => close(null));
+		overlay.querySelector('.sg-input-dialog-cancel')?.addEventListener('click', () => close(null));
+		overlay.querySelector('.sg-input-dialog-confirm')?.addEventListener('click', () => {
+			try {
+				submit();
+			} catch (error) {
+				NumelAlert('Asset Editor', error.message || 'Unable to save this asset yet.');
+			}
+		});
+		overlay.addEventListener('click', (event) => {
+			if (event.target === overlay) close(null);
+		});
+		overlay.addEventListener('keydown', (event) => {
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				close(null);
+			}
+		});
+		queueMicrotask(() => (createMode ? pathInput : textInput)?.focus());
 	});
 }
 
@@ -3915,6 +4047,58 @@ async function inspectCurrentSpace() {
 			} catch (error) {
 				addLog('error', `❌ Failed to preview asset: ${error.message}`);
 				await NumelAlert('Asset Preview', error.message || 'Failed to preview the selected asset.');
+			}
+			continue;
+		}
+		if (action.action === 'create-asset') {
+			try {
+				const draft = await _showRepoAssetEditorDialog({
+					createMode: true,
+					path: 'notes/README.md',
+					title: 'README',
+					message: 'Add repo notes',
+					text: '',
+				});
+				if (!draft) continue;
+				await api.writeRepoAsset({
+					path: draft.path,
+					title: draft.title,
+					text: draft.text,
+					message: draft.message || `Add asset '${draft.path}'`,
+					kind: 'data',
+				});
+				addLog('success', `📝 Saved text asset "${draft.path}" on ref "${repoState.active_ref}"`);
+			} catch (error) {
+				addLog('error', `❌ Failed to create asset: ${error.message}`);
+				await NumelAlert('Text Asset', error.message || 'Failed to create the text asset.');
+			}
+			continue;
+		}
+		if (action.action === 'edit-asset' && action.path) {
+			try {
+				const payload = await api.readRepoAsset(action.path);
+				if (typeof payload?.text !== 'string') {
+					throw new Error('Only UTF-8 text assets can be edited inline right now.');
+				}
+				const draft = await _showRepoAssetEditorDialog({
+					createMode: false,
+					path: action.path,
+					title: action.title || _repoAssetDisplayTitle(action.path),
+					message: `Update asset '${action.path}'`,
+					text: payload.text,
+				});
+				if (!draft) continue;
+				await api.writeRepoAsset({
+					path: action.path,
+					title: draft.title,
+					text: draft.text,
+					message: draft.message || `Update asset '${action.path}'`,
+					kind: action.kind || 'data',
+				});
+				addLog('success', `📝 Updated text asset "${action.path}" on ref "${repoState.active_ref}"`);
+			} catch (error) {
+				addLog('error', `❌ Failed to edit asset: ${error.message}`);
+				await NumelAlert('Text Asset', error.message || 'Failed to edit the selected text asset.');
 			}
 			continue;
 		}
@@ -4806,6 +4990,10 @@ window.loadWorkflowFromServer = async function(workflow, name, { source = 'assis
 window.exportCurrentWorkflowForAssistant = function() {
 	if (!visualizer?.exportWorkflow) return null;
 	return visualizer.exportWorkflow();
+};
+
+window.showNumelRuntimeGraphDialog = function(options = {}) {
+	return _showRuntimeGraphDialog(options);
 };
 
 function saveChatState() {
@@ -6195,11 +6383,21 @@ function _executionReplayTypeForStatus(status) {
 	}
 }
 
+function _cloneRuntimeGraph(graph) {
+	if (!graph || typeof graph !== 'object') return null;
+	try {
+		return JSON.parse(JSON.stringify(graph));
+	} catch (_error) {
+		return null;
+	}
+}
+
 function _createEmptyExecutionReplayView(message = 'Run the current workflow to build a live timeline, or replay the latest run in this space.') {
 	return {
 		executionId: null,
 		platformExecutionId: null,
 		workflowName: '',
+		graph: null,
 		status: 'idle',
 		startedAt: null,
 		endedAt: null,
@@ -6242,6 +6440,7 @@ function _createEmptyExecutionFailureView(message = 'If a run fails, Numel will 
 function _cloneExecutionReplayView(view) {
 	return {
 		...view,
+		graph: _cloneRuntimeGraph(view?.graph),
 		metadata: { ...(view?.metadata || {}) },
 		nodeOutputs: { ...(view?.nodeOutputs || {}) },
 		events: Array.isArray(view?.events) ? view.events.map((entry) => ({ ...entry })) : [],
@@ -6452,6 +6651,67 @@ function _executionWorkflowLabel(results, fallback = '') {
 	return _sanitizeExecutionWorkflowLabel(assetLabel) || 'Current workflow';
 }
 
+function _workflowToRuntimeGraphPayload(workflow, fallbackTitle = 'Workflow') {
+	if (!workflow || typeof workflow !== 'object' || !Array.isArray(workflow.nodes) || !workflow.nodes.length) {
+		return null;
+	}
+	const nodes = workflow.nodes.map((node, index) => {
+		const extra = node?.extra && typeof node.extra === 'object' ? node.extra : {};
+		const pos = Array.isArray(extra.pos) && extra.pos.length >= 2
+			? [Number(extra.pos[0]) || 0, Number(extra.pos[1]) || 0]
+			: [180 * (index % 4), 140 * Math.floor(index / 4)];
+		return {
+			id: String(index),
+			node_index: index,
+			workflow_node_id: String(node?.id || '').trim() || null,
+			type: String(node?.type || '').trim() || 'node',
+			label: String(extra.name || node?.name || node?.type || `Node ${index}`).trim() || `Node ${index}`,
+			pos,
+			status: node?.status,
+			runtime_status: node?.runtime_status,
+			last_status: node?.last_status,
+			enabled: node?.enabled,
+			profile: node?.profile,
+			channel_type: node?.channel_type,
+			kind: node?.kind,
+			trigger_mode: node?.trigger_mode,
+			trigger_sources: Array.isArray(node?.trigger_sources) ? node.trigger_sources : undefined,
+		};
+	});
+	const edges = Array.isArray(workflow.edges)
+		? workflow.edges
+			.filter((edge) => edge && typeof edge === 'object' && edge.source !== undefined && edge.target !== undefined)
+			.map((edge) => ({
+				source: String(edge.source),
+				target: String(edge.target),
+				source_slot: String(edge.source_slot || '').trim() || null,
+				target_slot: String(edge.target_slot || '').trim() || null,
+			}))
+		: [];
+	return {
+		type: 'workflow_runtime_graph',
+		name: String(workflow?.options?.name || fallbackTitle || 'Workflow').trim() || 'Workflow',
+		nodes,
+		edges,
+	};
+}
+
+function _normalizeRuntimeGraphPayload(graphLike, fallbackTitle = 'Workflow') {
+	if (!graphLike || typeof graphLike !== 'object') return null;
+	if (graphLike.type === 'workflow_runtime_graph' && Array.isArray(graphLike.nodes)) {
+		const graph = _cloneRuntimeGraph(graphLike);
+		if (!graph?.name) graph.name = fallbackTitle || 'Workflow';
+		return graph;
+	}
+	if (Array.isArray(graphLike.workflow?.nodes)) {
+		return _workflowToRuntimeGraphPayload(graphLike.workflow, graphLike.name || fallbackTitle);
+	}
+	if (Array.isArray(graphLike.nodes) || Array.isArray(graphLike.workflow?.nodes)) {
+		return _workflowToRuntimeGraphPayload(graphLike, fallbackTitle);
+	}
+	return null;
+}
+
 function _mergeExecutionResultsWithReplayView(results, existingView) {
 	if (!existingView) return results || {};
 	const merged = { ...(results || {}) };
@@ -6490,6 +6750,9 @@ function _mergeExecutionResultsWithReplayView(results, existingView) {
 	}
 	if (!merged.platform_execution_id && existingView.platformExecutionId) {
 		merged.platform_execution_id = existingView.platformExecutionId;
+	}
+	if (!merged.graph && existingView.graph) {
+		merged.graph = _cloneRuntimeGraph(existingView.graph);
 	}
 	return merged;
 }
@@ -6602,6 +6865,260 @@ function _syncReplayButtonState() {
 		if (!button) continue;
 		button.disabled = !api;
 	}
+	const graphButton = $('inspectRuntimeGraphBtn');
+	if (graphButton) {
+		const hasGraph = !!_normalizeRuntimeGraphPayload(
+			_executionReplayView?.graph || (typeof window.exportCurrentWorkflowForAssistant === 'function'
+				? window.exportCurrentWorkflowForAssistant()
+				: null),
+			_currentWorkflowLabel(),
+		);
+		graphButton.disabled = !hasGraph;
+	}
+}
+
+function _normalizeRuntimeGraphStatus(status) {
+	const normalized = String(status || '').trim().toLowerCase();
+	if (!normalized) return 'idle';
+	if (['running', 'starting'].includes(normalized)) return 'running';
+	if (['waiting', 'pending', 'approval'].includes(normalized)) return 'waiting';
+	if (['completed', 'success', 'ok', 'healthy'].includes(normalized)) return 'completed';
+	if (['failed', 'error', 'rejected', 'stopped'].includes(normalized)) return 'failed';
+	if (['disabled', 'inactive'].includes(normalized)) return 'disabled';
+	return 'idle';
+}
+
+function _runtimeGraphStatusMeta(status) {
+	const normalized = _normalizeRuntimeGraphStatus(status);
+	return {
+		status: normalized,
+		label: {
+			idle: 'Idle',
+			running: 'Running',
+			waiting: 'Waiting',
+			completed: 'Completed',
+			failed: 'Failed',
+			disabled: 'Disabled',
+		}[normalized] || 'Idle',
+	};
+}
+
+function _runtimeGraphNodeCopy(node, statusMeta) {
+	const type = String(node?.type || '').trim();
+	if (type === 'assistant_deployment_runtime_config') {
+		const bits = [String(node?.profile || '').trim(), statusMeta.label];
+		return bits.filter(Boolean).join(' · ');
+	}
+	if (type === 'assistant_proactive_runtime_config') {
+		const triggerMode = String(node?.trigger_mode || '').trim();
+		const triggerCount = Array.isArray(node?.trigger_sources) ? node.trigger_sources.length : 0;
+		const bits = [triggerCount ? `${triggerCount} source${triggerCount === 1 ? '' : 's'}` : '', triggerMode || '', statusMeta.label];
+		return bits.filter(Boolean).join(' · ');
+	}
+	if (type === 'assistant_approval_runtime_config') {
+		const bits = [String(node?.kind || '').trim(), statusMeta.label];
+		return bits.filter(Boolean).join(' · ');
+	}
+	if (type === 'channel_runtime_config') {
+		const bits = [String(node?.channel_type || '').trim(), statusMeta.label];
+		return bits.filter(Boolean).join(' · ');
+	}
+	return `${String(node?.type || 'node').replace(/_flow$|_config$/g, '').replace(/_/g, ' ')} · ${statusMeta.label}`;
+}
+
+function _executionGraphStatusMap(view = _executionReplayView) {
+	const statusMap = {};
+	if (!view || typeof view !== 'object') return statusMap;
+	if (view.source === 'live' && Array.isArray(visualizer?.graphNodes)) {
+		visualizer.graphNodes.forEach((node, index) => {
+			if (node?.executionState) statusMap[String(index)] = _normalizeRuntimeGraphStatus(node.executionState);
+		});
+	}
+	for (const entry of Array.isArray(view.events) ? view.events : []) {
+		const nodeId = String(entry?.nodeId || '').trim();
+		if (!nodeId) continue;
+		const eventStatus = _normalizeRuntimeGraphStatus(entry?.status || '');
+		if (eventStatus && eventStatus !== 'idle') statusMap[nodeId] = eventStatus;
+	}
+	for (const nodeId of Object.keys(view.nodeOutputs || {})) {
+		if (!statusMap[nodeId] || statusMap[nodeId] === 'idle') {
+			statusMap[nodeId] = 'completed';
+		}
+	}
+	const metadata = view.metadata || {};
+	const failedNodes = Array.isArray(metadata?.failed_nodes) ? metadata.failed_nodes : [];
+	for (const nodeId of failedNodes) {
+		statusMap[String(nodeId)] = 'failed';
+	}
+	if (metadata?.last_failed_node !== undefined && metadata?.last_failed_node !== null) {
+		statusMap[String(metadata.last_failed_node)] = 'failed';
+	}
+	return statusMap;
+}
+
+function _executionGraphSummary(view = _executionReplayView) {
+	if (!view?.executionId) {
+		return ['Current workflow graph'];
+	}
+	return [
+		_describeExecutionReplaySummary(view),
+		`Execution ${String(view.executionId).substring(0, 8)}${view.platformExecutionId ? ` · platform ${String(view.platformExecutionId).substring(0, 8)}` : ''}`,
+	];
+}
+
+function _showRuntimeGraphDialog(options = {}) {
+	return new Promise((resolve) => {
+		const graph = _normalizeRuntimeGraphPayload(options.graph, options.title || 'Runtime Graph');
+		const summaryLines = Array.isArray(options.summary)
+			? options.summary.filter(Boolean).map((line) => String(line))
+			: [String(options.summary || '').trim()].filter(Boolean);
+		const statusMap = options.statusMap && typeof options.statusMap === 'object' ? options.statusMap : {};
+		const overlay = document.createElement('div');
+		overlay.className = 'sg-input-dialog-overlay';
+		if (!graph?.nodes?.length) {
+			overlay.innerHTML = `
+				<div class="sg-input-dialog" style="min-width:360px;max-width:640px">
+					<div class="sg-input-dialog-header">
+						<span class="sg-input-dialog-title">${_escHtml(options.title || 'Runtime Graph')}</span>
+						<button class="sg-input-dialog-close">✕</button>
+					</div>
+					<div class="sg-input-dialog-body">
+						<div class="nw-repo-detail-empty">${_escHtml(options.emptyMessage || 'No graph is available yet for this runtime surface.')}</div>
+					</div>
+					<div class="sg-input-dialog-footer">
+						<button class="sg-input-dialog-btn sg-input-dialog-confirm">Close</button>
+					</div>
+				</div>
+			`;
+			document.body.appendChild(overlay);
+			const closeEmpty = () => {
+				overlay.remove();
+				resolve();
+			};
+			overlay.querySelector('.sg-input-dialog-close')?.addEventListener('click', closeEmpty);
+			overlay.querySelector('.sg-input-dialog-confirm')?.addEventListener('click', closeEmpty);
+			overlay.addEventListener('click', (event) => {
+				if (event.target === overlay) closeEmpty();
+			});
+			queueMicrotask(() => overlay.querySelector('.sg-input-dialog-confirm')?.focus());
+			return;
+		}
+
+		const nodeWidth = 190;
+		const nodeHeight = 84;
+		const padX = 70;
+		const padY = 50;
+		const nodes = graph.nodes.map((node, index) => {
+			const rawPos = Array.isArray(node?.pos) && node.pos.length >= 2 ? node.pos : [180 * (index % 4), 140 * Math.floor(index / 4)];
+			return {
+				...node,
+				id: String(node?.id ?? node?.node_index ?? index),
+				x: Number(rawPos[0]) || 0,
+				y: Number(rawPos[1]) || 0,
+			};
+		});
+		const minX = Math.min(...nodes.map((node) => node.x));
+		const minY = Math.min(...nodes.map((node) => node.y));
+		const normalizedNodes = nodes.map((node) => ({
+			...node,
+			left: Math.round(node.x - minX + padX),
+			top: Math.round(node.y - minY + padY),
+		}));
+		const nodeMap = new Map(normalizedNodes.map((node) => [String(node.id), node]));
+		const canvasWidth = Math.max(520, ...normalizedNodes.map((node) => node.left + nodeWidth + padX));
+		const canvasHeight = Math.max(320, ...normalizedNodes.map((node) => node.top + nodeHeight + padY));
+		const edges = Array.isArray(graph.edges) ? graph.edges : [];
+		const edgeSvg = edges.map((edge) => {
+			const source = nodeMap.get(String(edge?.source ?? ''));
+			const target = nodeMap.get(String(edge?.target ?? ''));
+			if (!source || !target) return '';
+			const x1 = source.left + nodeWidth;
+			const y1 = source.top + nodeHeight / 2;
+			const x2 = target.left;
+			const y2 = target.top + nodeHeight / 2;
+			const midX = Math.round((x1 + x2) / 2);
+			return `<path class="nw-runtime-graph-edge" d="M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}" />`;
+		}).join('');
+		const nodesHtml = normalizedNodes.map((node) => {
+			const statusMeta = _runtimeGraphStatusMeta(
+				statusMap[String(node.id)]
+				|| statusMap[String(node.node_index)]
+				|| statusMap[String(node.workflow_node_id || '')]
+				|| node?.runtime_status
+				|| node?.last_status
+				|| node?.status
+				|| (node?.enabled === false ? 'disabled' : 'idle'),
+			);
+			return `
+				<div class="nw-runtime-graph-node is-${_escHtml(statusMeta.status)}" style="left:${node.left}px;top:${node.top}px;width:${nodeWidth}px;min-height:${nodeHeight}px">
+					<div class="nw-runtime-graph-node-head">
+						<div class="nw-runtime-graph-node-title">${_escHtml(node.label || node.type || 'Node')}</div>
+						<div class="nw-runtime-graph-node-badge">${_escHtml(statusMeta.label)}</div>
+					</div>
+					<div class="nw-runtime-graph-node-copy">${_escHtml(_runtimeGraphNodeCopy(node, statusMeta))}</div>
+				</div>
+			`;
+		}).join('');
+
+		overlay.innerHTML = `
+			<div class="sg-input-dialog nw-runtime-graph-dialog" style="min-width:420px;max-width:1100px">
+				<div class="sg-input-dialog-header">
+					<span class="sg-input-dialog-title">${_escHtml(options.title || graph.name || 'Runtime Graph')}</span>
+					<button class="sg-input-dialog-close">✕</button>
+				</div>
+				<div class="sg-input-dialog-body">
+					${summaryLines.length ? `<div class="nw-runtime-graph-summary">${summaryLines.map((line) => `<div>${_escHtml(line)}</div>`).join('')}</div>` : ''}
+					<div class="nw-runtime-graph-scroller">
+						<div class="nw-runtime-graph-canvas" style="width:${canvasWidth}px;height:${canvasHeight}px">
+							<svg class="nw-runtime-graph-edges" viewBox="0 0 ${canvasWidth} ${canvasHeight}" preserveAspectRatio="none" aria-hidden="true">
+								${edgeSvg}
+							</svg>
+							${nodesHtml}
+						</div>
+					</div>
+				</div>
+				<div class="sg-input-dialog-footer">
+					<button class="sg-input-dialog-btn sg-input-dialog-confirm">Close</button>
+				</div>
+			</div>
+		`;
+		document.body.appendChild(overlay);
+		const close = () => {
+			overlay.remove();
+			resolve();
+		};
+		overlay.querySelector('.sg-input-dialog-close')?.addEventListener('click', close);
+		overlay.querySelector('.sg-input-dialog-confirm')?.addEventListener('click', close);
+		overlay.addEventListener('click', (event) => {
+			if (event.target === overlay) close();
+		});
+		overlay.addEventListener('keydown', (event) => {
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				close();
+			}
+		});
+		queueMicrotask(() => overlay.querySelector('.sg-input-dialog-confirm')?.focus());
+	});
+}
+
+async function inspectRuntimeGraph() {
+	const view = _executionReplayView;
+	const currentWorkflow = typeof window.exportCurrentWorkflowForAssistant === 'function'
+		? window.exportCurrentWorkflowForAssistant()
+		: null;
+	const graph = _normalizeRuntimeGraphPayload(view?.graph || currentWorkflow, view?.workflowName || _currentWorkflowLabel());
+	if (!graph) {
+		await NumelAlert('Runtime Graph', 'Load or run a workflow first so Numel has a graph to inspect.');
+		return;
+	}
+	await _showRuntimeGraphDialog({
+		title: 'Runtime Graph',
+		graph,
+		statusMap: _executionGraphStatusMap(view),
+		summary: _executionGraphSummary(view),
+		emptyMessage: 'No runtime graph is available for the current workflow yet.',
+	});
 }
 
 function _renderExecutionReplayView() {
@@ -6981,6 +7498,7 @@ function _appendExecutionReplayEvent(type, title, detail = '', opts = {}) {
 		detail: detail || '',
 		time: opts.time || new Date().toISOString(),
 		nodeId: opts.nodeId || '',
+		status: opts.status || '',
 	});
 	while (_executionReplayView.events.length > 120) {
 		_executionReplayView.events.shift();
@@ -6993,10 +7511,14 @@ function _appendExecutionReplayEvent(type, title, detail = '', opts = {}) {
 }
 
 function _beginExecutionReplay(executionId, platformExecutionId, workflowName) {
+	const currentWorkflow = typeof window.exportCurrentWorkflowForAssistant === 'function'
+		? window.exportCurrentWorkflowForAssistant()
+		: null;
 	_executionReplayView = {
 		executionId: executionId || null,
 		platformExecutionId: platformExecutionId || executionId || null,
 		workflowName: _sanitizeExecutionWorkflowLabel(workflowName || visualizer?.currentWorkflowName || '') || 'Current workflow',
+		graph: _normalizeRuntimeGraphPayload(currentWorkflow, workflowName || visualizer?.currentWorkflowName || 'Current workflow'),
 		metadata: {},
 		status: 'starting',
 		startedAt: null,
@@ -7236,6 +7758,10 @@ function _buildExecutionReplayFromResults(results, baseView = null) {
 	view.platformExecutionId = results?.platform_execution_id || view.platformExecutionId || view.executionId;
 	view.workflowId = results?.workflow_id || view.workflowId || '';
 	view.metadata = { ...(results?.metadata || view.metadata || {}) };
+	view.graph = _normalizeRuntimeGraphPayload(
+		results?.graph || view.graph,
+		_executionWorkflowLabel(results, view.workflowName || ''),
+	);
 	const baseStatus = String(view.status || '').toLowerCase();
 	const resultsStatus = _normalizeExecutionStatus(results?.status || view.status || 'idle', {
 		endTime: results?.end_time,

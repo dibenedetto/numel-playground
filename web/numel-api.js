@@ -151,6 +151,7 @@ class NumelAPI {
 	}
 	repoAssets(prefix = '')       { return this.json('/spaces/repo/assets', { prefix }); }
 	readRepoAsset(path)           { return this.json('/spaces/repo/assets/read', { path }); }
+	writeRepoAsset(opts = {})     { return this.json('/spaces/repo/assets/write', opts); }
 	openRepoAsset(path)           { return this.json('/spaces/repo/assets/open', { path }); }
 	restoreRepo(source, note = null) { return this.json('/spaces/repo/restore', { source, note }); }
 	getWorkflow()                 { return this.json('/workflow/get'); }

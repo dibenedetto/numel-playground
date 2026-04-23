@@ -258,6 +258,12 @@ A **workbench** is the practical working environment you see on screen:
 - the run/debug panels
 - the surrounding tools for channels, deployments, knowledge, and apps
 
+Those surrounding tools now include graph-first inspection too:
+
+- the Run panel can open a runtime graph for the current or replayed workflow run
+- Assistant Deployments can open a live network graph for deployments, proactive tasks, channels, and approvals
+- the admin execution drawer can open an execution graph for the selected run
+
 So:
 
 - a **space** is the repo-like container
@@ -282,6 +288,7 @@ Once a repo is open, the workbench can also move across refs:
 - compare a ref or commit against the current repo state
 - browse the visible assets on that ref
 - open a workflow asset from that ref directly into the current workbench
+- create or edit normal text assets on that ref directly from Repo Details when you want lightweight notes, prompts, or sidecar files to live with the repo
 - restore your active branch from a selected repo commit when you want to bring that branch back to an earlier state
 - publish a reusable template from the current canvas, a chosen ref head, or a saved workflow snapshot
 - create or delete refs when you own the repo
@@ -319,6 +326,7 @@ It answers questions like:
 - which skills and toolkits it uses
 - whether it needs approval before doing something risky
 - whether it should run proactive tasks from schedules or events
+- whether one proactive task should wake up from one source or a whole fan-in of sources
 - which workbench it belongs to
 
 Once you start using deployments for real channels, the Assistant Deployments
@@ -333,6 +341,12 @@ If you want the operator-oriented explanation rather than the design-oriented
 one, see [docs/assistant-deployment-operations.md](docs/assistant-deployment-operations.md).
 
 Assistant deployments can also be opened into the workbench as a live network graph and applied back from the workbench later. That means the operational side of Numel is increasingly using the same workflow language as the design side.
+
+That matters for proactive behavior too: a deployment is no longer forced to
+pretend one task has only one event source. A single proactive task can now be
+backed by multiple source nodes feeding one `EventListenerFlow`, which is a
+better fit for real operator workflows like "wake up on webhook or on channel
+traffic" or "wait for both a file change and a channel event."
 
 The same idea now applies to Assistant memory too: memory behavior is part of
 the backend/runtime model, and the main controls are the graph-shaped ones for
@@ -485,6 +499,11 @@ Toolkits and Skills tabs are still there for direct management work.
 The same is becoming true for sharing too: the Gallery and Public Hub now show
 more of where a template came from, which version or repo state it reflects,
 and whether it is a more curated public artifact or just a generic list entry.
+
+The repo side is getting more practical too: Repo Details is no longer only a
+viewer. It can now act as a lightweight repo work area where you inspect refs,
+preview assets, open workflow files into the workbench, and make quick text
+edits to repo-backed notes or helper files without leaving Numel.
 
 ## A Simple Mental Model
 

@@ -3,7 +3,7 @@
 
 // eslint-disable-next-line no-unused-vars
 const NumelAssistantDeployments = (() => {
-	let _panel, _closeBtn, _openBtn, _openInlineBtn, _refreshBtn, _helpBtn, _inspectBtn, _openWorkflowBtn, _applyWorkflowBtn, _addBtn, _listEl, _summaryEl;
+	let _panel, _closeBtn, _openBtn, _openInlineBtn, _refreshBtn, _helpBtn, _inspectBtn, _graphBtn, _openWorkflowBtn, _applyWorkflowBtn, _addBtn, _listEl, _summaryEl;
 	let _statusFilterEl, _searchEl, _pendingOnlyEl;
 	let _lastItems = [];
 	const _pendingOps = new Map();
@@ -159,7 +159,22 @@ async function _post(path, body = {}) {
 		return task?.trigger && typeof task.trigger === 'object' ? { ...task.trigger } : {};
 	}
 
+	function _taskTriggerSources(task = {}) {
+		const rows = Array.isArray(task?.trigger_sources) ? task.trigger_sources.filter((row) => row && typeof row === 'object') : [];
+		if (rows.length) return rows;
+		return [{
+			kind: _taskTriggerKind(task),
+			trigger: _taskTriggerPayload(task),
+			interval_sec: Number(task?.interval_sec || 0) || 0,
+		}];
+	}
+
 	function _taskTriggerLabel(task = {}) {
+		const sources = _taskTriggerSources(task);
+		if (sources.length > 1) {
+			const mode = String(task?.trigger_mode || 'any').trim().toLowerCase() || 'any';
+			return `${sources.length} sources (${mode})`;
+		}
 		const kind = _taskTriggerKind(task);
 		const trigger = _taskTriggerPayload(task);
 		if (kind === 'timer') return _taskIntervalLabel(task.interval_sec);
@@ -1173,6 +1188,9 @@ async function _post(path, body = {}) {
 		const selectedChannel = String(task.channel_id || '');
 		const triggerKind = _taskTriggerKind(task);
 		const trigger = _taskTriggerPayload(task);
+		const triggerSources = _taskTriggerSources(task);
+		const hasMultipleSources = triggerSources.length > 1;
+		const triggerMode = String(task.trigger_mode || 'any').trim().toLowerCase() || 'any';
 		const deliveryOptions = [
 			'<option value="">Use first bound channel</option>',
 			...(channels || []).map((channel) => `<option value="${_esc(channel.id)}" ${channel.id === selectedChannel ? 'selected' : ''}>${_esc(channel.name || channel.id)} (${_esc(channel.channel_type || 'channel')})</option>`),
@@ -1184,7 +1202,7 @@ async function _post(path, body = {}) {
 		const maxTriggersRaw = trigger.max_triggers;
 		const maxTriggersValue = maxTriggersRaw == null ? '' : String(maxTriggersRaw);
 		return `
-			<div class="nw-assist-task-card" data-role="proactive-task" data-id="${_esc(task.id || '')}" data-trigger-kind="${_esc(triggerKind)}">
+			<div class="nw-assist-task-card" data-role="proactive-task" data-id="${_esc(task.id || '')}" data-trigger-kind="${_esc(triggerKind)}" data-trigger-mode="${_esc(triggerMode)}" data-trigger-sources-json="${_esc(JSON.stringify(triggerSources))}">
 				<div class="nw-assist-task-header">
 					<span>Proactive Task</span>
 					<button type="button" class="nw-btn nw-btn-sm nw-btn-secondary" data-role="remove-proactive-task">Remove</button>
@@ -1206,6 +1224,7 @@ async function _post(path, body = {}) {
 					</div>
 				</div>
 				<div class="nw-assist-task-trigger-note" data-role="trigger-summary">${_esc(_proactiveTriggerHelp(triggerKind))}</div>
+				${hasMultipleSources ? `<div class="nw-ext-note">This task listens to ${_esc(String(triggerSources.length))} event sources in <strong>${_esc(triggerMode)}</strong> mode. Edit the full trigger fan-in from the network workflow view.</div>` : ''}
 				<label>Prompt</label>
 				<textarea data-field="prompt" rows="3" placeholder="Summarize the latest inbound activity and send the top items.">${_esc(task.prompt || '')}</textarea>
 				<div class="nw-assist-trigger-panel" data-trigger-kind="timer" ${triggerKind === 'timer' ? '' : 'hidden'}>
@@ -1415,12 +1434,22 @@ async function _post(path, body = {}) {
 				if (resolution) trigger.resolution = resolution;
 				if (audioFormat) trigger.audio_format = audioFormat;
 			}
+			let triggerSources = [];
+			try {
+				triggerSources = JSON.parse(row.dataset.triggerSourcesJson || '[]');
+			} catch {
+				triggerSources = [];
+			}
+			const triggerMode = String(row.dataset.triggerMode || 'any').trim().toLowerCase() || 'any';
+			const hasMultipleSources = Array.isArray(triggerSources) && triggerSources.length > 1;
 			return {
 				id: row.dataset.id || undefined,
 				name: row.querySelector('[data-field="name"]')?.value.trim(),
 				prompt: row.querySelector('[data-field="prompt"]')?.value.trim(),
 				trigger_kind: triggerKind,
 				trigger: Object.keys(trigger).length ? trigger : undefined,
+				trigger_mode: hasMultipleSources ? triggerMode : 'any',
+				trigger_sources: hasMultipleSources ? triggerSources : undefined,
 				interval_sec: intervalSec,
 				channel_id: row.querySelector('[data-field="channel_id"]')?.value.trim() || '',
 				recipient_id: row.querySelector('[data-field="recipient_id"]')?.value.trim() || '',
@@ -1485,6 +1514,46 @@ async function _post(path, body = {}) {
 			await window.loadWorkflowFromServer(workflow, name, { source: 'assistant-deployment-network' });
 			await NumelAlert('Assistant Deployment Network', `Opened "${_esc(name)}" in the current workbench as the live assistant network graph.`);
 			close();
+		} catch (err) {
+			await NumelAlert('Assistant Deployment Network', `Error: ${_esc(err.message)}`);
+		} finally {
+			if (btn) {
+				btn.disabled = false;
+				btn.textContent = originalLabel;
+			}
+		}
+	}
+
+	async function _showNetworkGraphDialog() {
+		const btn = _graphBtn;
+		const originalLabel = btn?.textContent || 'Inspect Network Graph';
+		if (btn) {
+			btn.disabled = true;
+			btn.textContent = 'Loading...';
+		}
+		try {
+			const data = await _post('/assistant-deployments/network-workflow');
+			const workflow = data?.workflow;
+			if (!workflow?.nodes?.length) {
+				throw new Error('The live assistant network does not expose any graph nodes yet.');
+			}
+			if (typeof window.showNumelRuntimeGraphDialog !== 'function') {
+				throw new Error('Runtime graph dialog is not available yet.');
+			}
+			const deploymentCount = Array.isArray(_lastItems) ? _lastItems.length : 0;
+			const proactiveCount = (Array.isArray(_lastItems) ? _lastItems : []).reduce((total, item) => total + ((item?.proactive_tasks || []).length || 0), 0);
+			const approvalCount = (Array.isArray(_lastItems) ? _lastItems : []).reduce((total, item) => {
+				const runtime = item?.runtime || {};
+				return total + Number(runtime.pending_approval_count || 0);
+			}, 0);
+			await window.showNumelRuntimeGraphDialog({
+				title: data?.name || 'Assistant Deployment Network Graph',
+				graph: workflow,
+				summary: [
+					`${deploymentCount} deployment${deploymentCount === 1 ? '' : 's'} · ${proactiveCount} proactive task${proactiveCount === 1 ? '' : 's'} · ${approvalCount} pending approval${approvalCount === 1 ? '' : 's'}`,
+					'This graph reflects the current live deployment network, including channels, routes, proactive fan-in, and pending approvals.',
+				],
+			});
 		} catch (err) {
 			await NumelAlert('Assistant Deployment Network', `Error: ${_esc(err.message)}`);
 		} finally {
@@ -2267,6 +2336,7 @@ ${_esc(deploymentHint)}</div></div>
 		_refreshBtn = document.getElementById('assistantDeploymentRefreshBtn');
 		_helpBtn = document.getElementById('assistantDeploymentHelpBtn');
 		_inspectBtn = document.getElementById('assistantDeploymentInspectBtn');
+		_graphBtn = document.getElementById('assistantDeploymentGraphBtn');
 		_openWorkflowBtn = document.getElementById('assistantDeploymentOpenWorkflowBtn');
 		_applyWorkflowBtn = document.getElementById('assistantDeploymentApplyWorkflowBtn');
 		_addBtn = document.getElementById('assistantDeploymentAddBtn');
@@ -2282,6 +2352,7 @@ ${_esc(deploymentHint)}</div></div>
 		if (_refreshBtn) _refreshBtn.onclick = refresh;
 		if (_helpBtn) _helpBtn.onclick = _showStatusGuideDialog;
 		if (_inspectBtn) _inspectBtn.onclick = _showNetworkInspectDialog;
+		if (_graphBtn) _graphBtn.onclick = _showNetworkGraphDialog;
 		if (_openWorkflowBtn) _openWorkflowBtn.onclick = _openNetworkInWorkbench;
 		if (_applyWorkflowBtn) _applyWorkflowBtn.onclick = _applyWorkbenchNetwork;
 		if (_addBtn) _addBtn.onclick = _showAddDialog;

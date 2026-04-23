@@ -618,6 +618,13 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(final_status, "completed")
 
+        results = await self._client.post(f"/executions/{execution_id}/results", json={}, headers=headers)
+        self.assertEqual(results.status_code, 200, results.text)
+        results_data = results.json()
+        self.assertEqual(results_data["status"], "completed")
+        self.assertTrue(results_data["graph"]["nodes"])
+        self.assertEqual(results_data["graph"]["name"], "Surface Workflow")
+
         listing = await self._client.post("/executions/list", json={}, headers=headers)
         self.assertEqual(listing.status_code, 200, listing.text)
         execution_ids = listing.json()["execution_ids"]
@@ -1113,6 +1120,75 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(executions.status_code, 200, executions.text)
         self.assertEqual(executions.json()["executions"][0]["asset_path"], "workflows/alternate.json")
 
+    async def test_space_repo_text_asset_write_round_trip(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "alice", "email": "alice@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        save_main = await self._client.post(
+            "/workflow/save",
+            json={"workflow": _minimal_workflow_payload()},
+            headers=headers,
+        )
+        self.assertEqual(save_main.status_code, 200, save_main.text)
+
+        write_notes = await self._client.post(
+            "/spaces/repo/assets/write",
+            json={
+                "path": "notes/readme.md",
+                "title": "Repo Notes",
+                "text": "# Notes\n\nFirst draft",
+                "message": "Add repo notes",
+            },
+            headers=headers,
+        )
+        self.assertEqual(write_notes.status_code, 200, write_notes.text)
+        self.assertEqual(write_notes.json()["active_ref"], "main")
+        self.assertEqual(write_notes.json()["path"], "notes/readme.md")
+        self.assertEqual(write_notes.json()["status"], "saved")
+
+        assets = await self._client.post("/spaces/repo/assets", json={}, headers=headers)
+        self.assertEqual(assets.status_code, 200, assets.text)
+        self.assertEqual(
+            [item["path"] for item in assets.json()["assets"]],
+            ["notes/readme.md", "workflow.json"],
+        )
+
+        first_read = await self._client.post(
+            "/spaces/repo/assets/read",
+            json={"path": "notes/readme.md"},
+            headers=headers,
+        )
+        self.assertEqual(first_read.status_code, 200, first_read.text)
+        self.assertEqual(first_read.json()["path"], "notes/readme.md")
+        self.assertIn("First draft", first_read.json()["text"])
+
+        update_notes = await self._client.post(
+            "/spaces/repo/assets/write",
+            json={
+                "path": "notes/readme.md",
+                "title": "Repo Notes",
+                "text": "# Notes\n\nSecond draft",
+                "message": "Update repo notes",
+            },
+            headers=headers,
+        )
+        self.assertEqual(update_notes.status_code, 200, update_notes.text)
+        self.assertEqual(update_notes.json()["active_ref"], "main")
+        self.assertEqual(update_notes.json()["path"], "notes/readme.md")
+        self.assertEqual(update_notes.json()["status"], "saved")
+
+        second_read = await self._client.post(
+            "/spaces/repo/assets/read",
+            json={"path": "notes/readme.md"},
+            headers=headers,
+        )
+        self.assertEqual(second_read.status_code, 200, second_read.text)
+        self.assertIn("Second draft", second_read.json()["text"])
+
     async def test_space_repo_compare_and_restore_follow_active_branch(self) -> None:
         register = await self._client.post(
             "/auth/register",
@@ -1562,6 +1638,8 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(detail_data["metadata"]["workflow_name"], "Surface Workflow")
         self.assertEqual(detail_data["asset_path"], "workflow.json")
         self.assertEqual(detail_data["status"], "completed")
+        self.assertTrue(detail_data["graph"]["nodes"])
+        self.assertEqual(detail_data["graph"]["name"], "Surface Workflow")
 
     async def test_admin_execution_list_can_filter_by_status_local(self) -> None:
         register = await self._client.post(
@@ -2278,6 +2356,169 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(channel_rows[channel_id]["auto_start"])
         self.assertEqual(channel_rows[channel_id]["session_id"], "shared_support_session")
         self.assertEqual(channel_rows[channel_id]["allowed_users"], ["customer_1", "customer_2"])
+
+    async def test_assistant_deployment_network_workflow_apply_preserves_multi_source_trigger_fanin(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "networkfanin", "email": "networkfanin@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        channel_resp = await self._client.post(
+            "/channels/add",
+            json={"name": "Ops Webhook", "channel_type": "webhook", "auto_start": False},
+            headers=headers,
+        )
+        self.assertEqual(channel_resp.status_code, 200, channel_resp.text)
+        channel_id = channel_resp.json()["id"]
+
+        deployment_resp = await self._client.post(
+            "/assistant-deployments/create",
+            json={"name": "Support Front Door", "channel_ids": [channel_id]},
+            headers=headers,
+        )
+        self.assertEqual(deployment_resp.status_code, 200, deployment_resp.text)
+        deployment_id = deployment_resp.json()["id"]
+
+        network_resp = await self._client.post(
+            "/assistant-deployments/network-workflow",
+            json={},
+            headers=headers,
+        )
+        self.assertEqual(network_resp.status_code, 200, network_resp.text)
+        workflow = network_resp.json()["workflow"]
+
+        deployment_index = next(
+            index
+            for index, node in enumerate(workflow["nodes"])
+            if node.get("type") == "assistant_deployment_runtime_config" and node.get("deployment_id") == deployment_id
+        )
+
+        task_index = len(workflow["nodes"])
+        workflow["nodes"].append(
+            {
+                "type": "assistant_proactive_runtime_config",
+                "task_id": "fanin_digest",
+                "name": "Daily Digest",
+                "prompt": "Summarize new support events.",
+                "trigger_kind": "webhook",
+                "trigger_mode": "all",
+                "channel_id": channel_id,
+                "recipient_id": "ops-room",
+                "enabled": True,
+                "send_response": True,
+                "extra": {"pos": [760, 340], "name": "Daily Digest"},
+            }
+        )
+        webhook_index = len(workflow["nodes"])
+        workflow["nodes"].append(
+            {
+                "type": "webhook_source_flow",
+                "source_id": "fanin_webhook",
+                "endpoint": "/hook/support-digest",
+                "methods": "POST",
+                "extra": {"pos": [280, 300], "name": "Digest Webhook"},
+            }
+        )
+        channel_source_index = len(workflow["nodes"])
+        workflow["nodes"].append(
+            {
+                "type": "channel_receive_flow",
+                "source_id": "fanin_channel",
+                "channel_id": channel_id,
+                "sender_filter": "^ops_",
+                "extra": {"pos": [280, 380], "name": "Digest Channel"},
+            }
+        )
+        listener_index = len(workflow["nodes"])
+        workflow["nodes"].append(
+            {
+                "type": "event_listener_flow",
+                "mode": "all",
+                "extra": {"pos": [520, 340], "name": "Digest Listener"},
+            }
+        )
+
+        workflow["edges"].extend(
+            [
+                {
+                    "source": task_index,
+                    "target": deployment_index,
+                    "source_slot": "config",
+                    "target_slot": "proactive_tasks.daily_digest",
+                },
+                {
+                    "source": webhook_index,
+                    "target": listener_index,
+                    "source_slot": "registered_id",
+                    "target_slot": "sources.webhook",
+                },
+                {
+                    "source": webhook_index,
+                    "target": listener_index,
+                    "source_slot": "flow_out",
+                    "target_slot": "flow_in",
+                },
+                {
+                    "source": channel_source_index,
+                    "target": listener_index,
+                    "source_slot": "registered_id",
+                    "target_slot": "sources.channel",
+                },
+                {
+                    "source": channel_source_index,
+                    "target": listener_index,
+                    "source_slot": "flow_out",
+                    "target_slot": "flow_in",
+                },
+                {
+                    "source": listener_index,
+                    "target": task_index,
+                    "source_slot": "event",
+                    "target_slot": "trigger_event",
+                },
+                {
+                    "source": listener_index,
+                    "target": task_index,
+                    "source_slot": "source_id",
+                    "target_slot": "trigger_source_id",
+                },
+            ]
+        )
+
+        apply_resp = await self._client.post(
+            "/assistant-deployments/network-workflow/apply",
+            json={"workflow": workflow},
+            headers=headers,
+        )
+        self.assertEqual(apply_resp.status_code, 200, apply_resp.text)
+        self.assertTrue(apply_resp.json()["applied"])
+
+        deployment_get = await self._client.post(
+            "/assistant-deployments/get",
+            json={"id": deployment_id},
+            headers=headers,
+        )
+        self.assertEqual(deployment_get.status_code, 200, deployment_get.text)
+        task = deployment_get.json()["proactive_tasks"][0]
+        self.assertEqual(task["trigger_mode"], "all")
+        self.assertEqual(task["trigger_kind"], "webhook")
+        self.assertEqual(task["trigger"]["endpoint"], "/hook/support-digest")
+        self.assertEqual(len(task["trigger_sources"]), 2)
+        self.assertEqual(
+            [source["kind"] for source in task["trigger_sources"]],
+            ["webhook", "channel"],
+        )
+
+        exported_again = await self._client.post(
+            "/assistant-deployments/network-workflow",
+            json={},
+            headers=headers,
+        )
+        self.assertEqual(exported_again.status_code, 200, exported_again.text)
+        listener_nodes = [node for node in exported_again.json()["workflow"]["nodes"] if node.get("type") == "event_listener_flow"]
+        self.assertTrue(any(node.get("mode") == "all" for node in listener_nodes))
 
     async def test_assistant_deployment_network_workflow_apply_deletes_missing_runtime_objects(self) -> None:
         register = await self._client.post(

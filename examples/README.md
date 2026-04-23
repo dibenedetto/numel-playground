@@ -91,9 +91,11 @@ approval in the loop for outgoing messages.
 
 ### assistant-deployment-webhook-proactive.json
 
-Shows an **event-driven** proactive deployment that wakes up from a webhook
-instead of a timer. Useful when another system should trigger the assistant
-only when something actually happens.
+Shows the correct **event-driven** proactive shape for deployments: one task,
+multiple trigger sources, one `event_listener_flow`, and a listener mode such as
+`any`. The shipped example uses a webhook source plus a channel source so the
+same task can wake up from more than one real event stream instead of being
+flattened back to one trigger.
 
 ---
 

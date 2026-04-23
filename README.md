@@ -229,7 +229,8 @@ Numel spaces now behave like lightweight Git-backed project repos.
 3. Open the current workbench for that space, or resolve a public repo directly by `owner/slug`
 4. Inspect repo details, switch the active ref for your workbench, browse visible repo assets, and review recent repo commits
 5. Edit or run the current workflow asset for the selected space and active ref
-6. Save snapshots, review history, compare refs or commits, restore the active branch from a selected repo state, publish a template from the current canvas, a chosen ref, or a workflow snapshot, or fork a readable space into your own workbench when you want to adapt it
+6. Create or edit repo-backed text assets such as notes, prompts, or sidecar docs directly from Repo Details without leaving the workbench
+7. Save snapshots, review history, compare refs or commits, restore the active branch from a selected repo state, publish a template from the current canvas, a chosen ref, or a workflow snapshot, or fork a readable space into your own workbench when you want to adapt it
 
 The default workbench still centers on one current workflow asset for the selected
 space, but the space itself is the durable unit: history, refs, forking, and
@@ -245,6 +246,7 @@ The repo details surface now also works as a lightweight repo browser:
 - visible refs and recent commits on the active ref
 - visible assets on the active ref, with preview support
 - direct opening of workflow assets from the active ref into the workbench
+- inline creation and editing of text assets on the active ref for repo notes, prompts, and other sidecar files
 - repo-level compare for refs and commits against the current active repo state
 - repo-level restore that writes one new commit onto the active branch when you bring that branch back to a selected historical repo state
 - template publishing from the current canvas, a selected ref head, or a saved workflow snapshot
@@ -367,8 +369,10 @@ Web console users authenticated via the login modal are auto-linked — no expli
 - Route from a front-door deployment to specialist deployments, with conversation-level handoff that stays with the specialist until another handoff happens
 - Choose handoff selector policies: `keyword`, `hybrid`, or fully `workflow`, with `hybrid` semantic handoff selection now the default
 - Add proactive jobs that run on a schedule or from event-driven triggers such as webhook, channel, file watch, and browser sources
+- Let one proactive task fan in multiple event sources through a single `event_listener_flow`, preserving listener modes like `any`, `all`, and `race` across export, apply, and runtime
 - Require approval before proactive delivery and/or before tool execution
 - Operate everything from the Assistant Deployments panel with activity, failures, pending approvals, and linked-workbench navigation
+- Inspect the live deployment network as a graph directly from the deployments panel, and inspect current workflow runs as graphs from the Run panel and admin execution drawer
 - Export the live deployment network into the workbench with `Open Live Network In Workbench` and apply edited network graphs back into runtime with `Apply Workbench To Network`
 - Let less technical users operate a prepared deployment from one panel, while more technical users keep refining the underlying workbench
 

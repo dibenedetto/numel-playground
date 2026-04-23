@@ -71,32 +71,64 @@ _PROACTIVE_SOURCE_TYPES = {
 }
 
 
+def _task_trigger_sources(deployment_id: str, task: Dict[str, Any]) -> List[Dict[str, Any]]:
+	task_id = str(task.get("id") or task.get("task_id") or _generated_id("proactive"))
+	raw_sources = list(task.get("trigger_sources") or [])
+	if not raw_sources:
+		raw_sources = [{
+			"kind": str(task.get("trigger_kind") or "timer").strip().lower() or "timer",
+			"trigger": dict(task.get("trigger") or {}),
+			"interval_sec": int(task.get("interval_sec") or 0),
+		}]
+	normalized: List[Dict[str, Any]] = []
+	for index, raw_source in enumerate(raw_sources):
+		if not isinstance(raw_source, dict):
+			continue
+		kind = str(raw_source.get("kind") or task.get("trigger_kind") or "timer").strip().lower() or "timer"
+		trigger = dict(raw_source.get("trigger") or {})
+		source_id = str(raw_source.get("source_id") or trigger.get("source_id") or "").strip()
+		if not source_id:
+			source_id = _proactive_source_id(deployment_id, task_id) if index == 0 else f"{_proactive_source_id(deployment_id, task_id)}_{index + 1}"
+		normalized.append(
+			{
+				"kind": kind,
+				"trigger": trigger,
+				"interval_sec": int(raw_source.get("interval_sec") or task.get("interval_sec") or 0),
+				"source_id": source_id,
+			}
+		)
+	return normalized
+
+
 def _build_proactive_source_node(
 	*,
 	deployment_id: str,
 	task: Dict[str, Any],
+	source_spec: Dict[str, Any],
+	source_index: int,
 	pos: Tuple[int, int],
 ) -> Dict[str, Any]:
 	task_id = str(task.get("id") or task.get("task_id") or _generated_id("proactive"))
 	task_name = str(task.get("name") or "Proactive Trigger")
-	trigger_kind = str(task.get("trigger_kind") or "timer").strip().lower() or "timer"
-	trigger = dict(task.get("trigger") or {})
-	source_id = str(trigger.get("source_id") or _proactive_source_id(deployment_id, task_id))
+	trigger_kind = str(source_spec.get("kind") or task.get("trigger_kind") or "timer").strip().lower() or "timer"
+	trigger = dict(source_spec.get("trigger") or {})
+	source_id = str(source_spec.get("source_id") or _proactive_source_id(deployment_id, task_id))
+	label = task_name if source_index == 0 else f"{task_name} Trigger {source_index + 1}"
 
 	if trigger_kind == "timer":
 		return _node_payload(
 			"timer_source_flow",
-			label=task_name,
+			label=label,
 			pos=pos,
 			source_id=source_id,
-			interval_ms=max(30000, int(task.get("interval_sec") or 900) * 1000),
+			interval_ms=max(30000, int(source_spec.get("interval_sec") or task.get("interval_sec") or 900) * 1000),
 			max_triggers=int(trigger.get("max_triggers", -1) or -1),
 			immediate=bool(trigger.get("immediate", False)),
 		)
 	if trigger_kind == "fswatch":
 		return _node_payload(
 			"fswatch_source_flow",
-			label=task_name,
+			label=label,
 			pos=pos,
 			source_id=source_id,
 			path=str(trigger.get("path") or "."),
@@ -108,7 +140,7 @@ def _build_proactive_source_node(
 	if trigger_kind == "webhook":
 		return _node_payload(
 			"webhook_source_flow",
-			label=task_name,
+			label=label,
 			pos=pos,
 			source_id=source_id,
 			endpoint=str(trigger.get("endpoint") or f"/hook/{source_id}"),
@@ -118,7 +150,7 @@ def _build_proactive_source_node(
 	if trigger_kind == "channel":
 		return _node_payload(
 			"channel_receive_flow",
-			label=task_name,
+			label=label,
 			pos=pos,
 			source_id=source_id,
 			channel_id=str(trigger.get("channel_id") or ""),
@@ -128,7 +160,7 @@ def _build_proactive_source_node(
 	if trigger_kind == "browser":
 		return _node_payload(
 			"browser_source_flow",
-			label=task_name,
+			label=label,
 			pos=pos,
 			source_id=source_id,
 			device_type=str(trigger.get("device_type") or "webcam"),
@@ -139,16 +171,16 @@ def _build_proactive_source_node(
 		)
 	return _node_payload(
 		"timer_source_flow",
-		label=task_name,
+		label=label,
 		pos=pos,
 		source_id=source_id,
-		interval_ms=max(30000, int(task.get("interval_sec") or 900) * 1000),
+		interval_ms=max(30000, int(source_spec.get("interval_sec") or task.get("interval_sec") or 900) * 1000),
 		max_triggers=-1,
 		immediate=False,
 	)
 
 
-def _trigger_from_source_node(node: Dict[str, Any]) -> tuple[str, Optional[Dict[str, Any]], int]:
+def _trigger_from_source_node(node: Dict[str, Any]) -> tuple[str, Optional[Dict[str, Any]], int, Optional[str]]:
 	node_type = str(node.get("type") or "").strip()
 	if node_type == "timer_source_flow":
 		interval_ms = max(30000, int(node.get("interval_ms") or 30000))
@@ -159,6 +191,7 @@ def _trigger_from_source_node(node: Dict[str, Any]) -> tuple[str, Optional[Dict[
 				"max_triggers": int(node.get("max_triggers", -1) or -1),
 			},
 			max(30, int(interval_ms / 1000)),
+			_optional_text(node.get("source_id")),
 		)
 	if node_type == "fswatch_source_flow":
 		return (
@@ -171,6 +204,7 @@ def _trigger_from_source_node(node: Dict[str, Any]) -> tuple[str, Optional[Dict[
 				"debounce_ms": max(0, int(node.get("debounce_ms") or 100)),
 			},
 			0,
+			_optional_text(node.get("source_id")),
 		)
 	if node_type == "webhook_source_flow":
 		trigger = {
@@ -183,6 +217,7 @@ def _trigger_from_source_node(node: Dict[str, Any]) -> tuple[str, Optional[Dict[
 			"webhook",
 			trigger,
 			0,
+			_optional_text(node.get("source_id")),
 		)
 	if node_type == "channel_receive_flow":
 		trigger = {
@@ -195,6 +230,7 @@ def _trigger_from_source_node(node: Dict[str, Any]) -> tuple[str, Optional[Dict[
 			"channel",
 			trigger,
 			0,
+			_optional_text(node.get("source_id")),
 		)
 	if node_type == "browser_source_flow":
 		trigger = {
@@ -210,6 +246,7 @@ def _trigger_from_source_node(node: Dict[str, Any]) -> tuple[str, Optional[Dict[
 			"browser",
 			trigger,
 			0,
+			_optional_text(node.get("source_id")),
 		)
 	raise ValueError(f"Unsupported proactive source node type: {node_type or '(missing)'}")
 
@@ -367,21 +404,27 @@ def build_assistant_network_workflow(
 		proactive_keys = used_route_keys.setdefault(f"{deployment_id}:proactive", set())
 		for task_index, task in enumerate(deployment.get("proactive_tasks") or []):
 			task_runtime = task.get("runtime") or {}
-			source_node_index = len(nodes)
-			nodes.append(
-				_build_proactive_source_node(
-					deployment_id=deployment_id,
-					task=task,
-					pos=(source_x - 270, source_y + 170 + task_index * 150),
+			trigger_sources = _task_trigger_sources(deployment_id, task)
+			source_node_indexes: List[int] = []
+			base_y = source_y + 170 + task_index * 180
+			for source_offset, source_spec in enumerate(trigger_sources):
+				source_node_indexes.append(len(nodes))
+				nodes.append(
+					_build_proactive_source_node(
+						deployment_id=deployment_id,
+						task=task,
+						source_spec=source_spec,
+						source_index=source_offset,
+						pos=(source_x - 270, base_y + source_offset * 90),
+					)
 				)
-			)
 			listener_index = len(nodes)
 			nodes.append(
 				_node_payload(
 					"event_listener_flow",
 					label=f"{str(task.get('name') or 'Proactive Task')} Listener",
-					pos=(source_x - 30, source_y + 170 + task_index * 150),
-					mode="any",
+					pos=(source_x - 30, base_y + max(0, len(trigger_sources) - 1) * 45),
+					mode=str(task.get("trigger_mode") or "any").strip().lower() or "any",
 				)
 			)
 			node_index = len(nodes)
@@ -396,6 +439,8 @@ def build_assistant_network_workflow(
 					interval_sec=int(task.get("interval_sec")) if task.get("interval_sec") not in (None, "") else (900 if str(task.get("trigger_kind") or "timer").strip().lower() == "timer" else 0),
 					trigger_kind=str(task.get("trigger_kind") or "timer"),
 					trigger=dict(task.get("trigger") or {}) or None,
+					trigger_mode=str(task.get("trigger_mode") or "any").strip().lower() or "any",
+					trigger_sources=[dict(source) for source in trigger_sources],
 					channel_id=str(task.get("channel_id") or "") or None,
 					recipient_id=str(task.get("recipient_id") or "") or None,
 					enabled=bool(task.get("enabled", True)),
@@ -415,22 +460,23 @@ def build_assistant_network_workflow(
 					"target_slot": f"proactive_tasks.{task_key}",
 				}
 			)
-			edges.append(
-				{
-					"source": source_node_index,
-					"target": listener_index,
-					"source_slot": "registered_id",
-					"target_slot": "sources.trigger",
-				}
-			)
-			edges.append(
-				{
-					"source": source_node_index,
-					"target": listener_index,
-					"source_slot": "flow_out",
-					"target_slot": "flow_in",
-				}
-			)
+			for source_offset, source_node_index in enumerate(source_node_indexes):
+				edges.append(
+					{
+						"source": source_node_index,
+						"target": listener_index,
+						"source_slot": "registered_id",
+						"target_slot": f"sources.trigger_{source_offset + 1}",
+					}
+				)
+				edges.append(
+					{
+						"source": source_node_index,
+						"target": listener_index,
+						"source_slot": "flow_out",
+						"target_slot": "flow_in",
+					}
+				)
 			edges.append(
 				{
 					"source": listener_index,
@@ -599,6 +645,8 @@ def parse_assistant_network_workflow_import(workflow: Dict[str, Any]) -> Dict[st
 				"interval_sec": max(0, int(raw.get("interval_sec") or 0)),
 				"trigger_kind": _optional_text(raw.get("trigger_kind")) or "timer",
 				"trigger": dict(trigger or {}) or None,
+				"trigger_mode": _optional_text(raw.get("trigger_mode")) or "any",
+				"trigger_sources": [dict(item) for item in (raw.get("trigger_sources") or []) if isinstance(item, dict)],
 				"channel_id": _optional_text(raw.get("channel_id")),
 				"recipient_id": _optional_text(raw.get("recipient_id")),
 				"enabled": bool(raw.get("enabled", True)),
@@ -706,12 +754,21 @@ def parse_assistant_network_workflow_import(workflow: Dict[str, Any]) -> Dict[st
 		listener_index = task_listeners.get(task_index)
 		if listener_index is not None:
 			source_indexes = [idx for idx in listener_sources.get(listener_index, []) if idx in source_nodes]
-			if len(source_indexes) > 1:
-				warnings.append(
-					f"Proactive task '{task['name'] or task['id']}' is connected to multiple trigger sources; using the first one."
-				)
 			if source_indexes:
-				trigger_kind, trigger_payload, derived_interval = _trigger_from_source_node(source_nodes[source_indexes[0]])
+				trigger_sources = []
+				for source_index in source_indexes:
+					trigger_kind, trigger_payload, derived_interval, source_id = _trigger_from_source_node(source_nodes[source_index])
+					trigger_sources.append(
+						{
+							"kind": trigger_kind,
+							"trigger": trigger_payload,
+							"interval_sec": derived_interval,
+							"source_id": source_id,
+						}
+					)
+				trigger_kind = str(trigger_sources[0].get("kind") or "timer")
+				trigger_payload = dict(trigger_sources[0].get("trigger") or {}) or None
+				derived_interval = int(trigger_sources[0].get("interval_sec") or 0)
 				if task.get("trigger_kind") and str(task.get("trigger_kind")) != trigger_kind:
 					warnings.append(
 						f"Proactive task '{task['name'] or task['id']}' used its connected source node instead of the inline trigger_kind."
@@ -719,10 +776,14 @@ def parse_assistant_network_workflow_import(workflow: Dict[str, Any]) -> Dict[st
 				task["trigger_kind"] = trigger_kind
 				task["trigger"] = trigger_payload
 				task["interval_sec"] = derived_interval
+				task["trigger_mode"] = listener_nodes.get(listener_index, {}).get("mode") or task.get("trigger_mode") or "any"
+				task["trigger_sources"] = trigger_sources
 			else:
 				warnings.append(
 					f"Proactive task '{task['name'] or task['id']}' is connected to an event listener with no source nodes; keeping inline trigger settings."
 				)
+		elif not task.get("trigger_sources"):
+			task["trigger_sources"] = _task_trigger_sources("imported", task)
 		deployment_nodes[deployment_index]["proactive_tasks"].append(dict(task))
 
 	if ignored_approvals or approval_nodes:

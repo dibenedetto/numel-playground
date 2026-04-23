@@ -9,6 +9,7 @@ const NumelAdmin = (() => {
 	let _panel, _closeBtn, _openBtn;
 	let _tabs;
 	let _selectedExecutionId = '';
+	let _selectedExecutionDetail = null;
 	let _executionJumpTimer = 0;
 
 	// ── Helpers ──────────────────────────────────────────────────
@@ -251,11 +252,13 @@ const NumelAdmin = (() => {
 
 	function _closeExecutionDrawer() {
 		_selectedExecutionId = '';
+		_selectedExecutionDetail = null;
 		const drawer = document.getElementById('adminExecDrawer');
 		const content = document.getElementById('adminExecDrawerContent');
 		const title = document.getElementById('adminExecDrawerTitle');
 		const subtitle = document.getElementById('adminExecDrawerSubtitle');
 		const cancelBtn = document.getElementById('adminExecDrawerCancel');
+		const graphBtn = document.getElementById('adminExecDrawerGraph');
 		if (drawer) {
 			drawer.classList.remove('open');
 			drawer.setAttribute('aria-hidden', 'true');
@@ -264,6 +267,7 @@ const NumelAdmin = (() => {
 		if (title) title.textContent = 'Execution Details';
 		if (subtitle) subtitle.textContent = '';
 		if (cancelBtn) cancelBtn.style.display = 'none';
+		if (graphBtn) graphBtn.style.display = 'none';
 		_clearExecutionSelection();
 	}
 
@@ -318,22 +322,61 @@ const NumelAdmin = (() => {
 		`).join('');
 	}
 
+	function _buildExecutionGraphStatusMap(execution) {
+		const statusMap = {};
+		const outputs = execution?.outputs && typeof execution.outputs === 'object' ? execution.outputs : {};
+		Object.keys(outputs).forEach((nodeId) => {
+			statusMap[String(nodeId)] = 'completed';
+		});
+		const metadata = execution?.metadata && typeof execution.metadata === 'object' ? execution.metadata : {};
+		const failedNodes = Array.isArray(metadata.failed_nodes) ? metadata.failed_nodes : [];
+		failedNodes.forEach((nodeId) => {
+			statusMap[String(nodeId)] = 'failed';
+		});
+		if (metadata.last_failed_node !== undefined && metadata.last_failed_node !== null) {
+			statusMap[String(metadata.last_failed_node)] = 'failed';
+		}
+		return statusMap;
+	}
+
+	async function _showSelectedExecutionGraph() {
+		const execution = _selectedExecutionDetail;
+		if (!execution?.graph || typeof window.showNumelRuntimeGraphDialog !== 'function') {
+			await NumelAlert('Execution Graph', 'This execution does not expose a runtime graph yet.');
+			return;
+		}
+		await window.showNumelRuntimeGraphDialog({
+			title: `Execution Graph · ${execution.display_name || execution.workflow_name || execution.execution_id || 'Execution'}`,
+			graph: execution.graph,
+			statusMap: _buildExecutionGraphStatusMap(execution),
+			summary: [
+				`${execution.status || 'unknown'} · ${execution.asset_path || 'workflow.json'} @ ${execution.ref || 'main'}`,
+				`Execution ${execution.execution_id || 'unknown'}${execution.user_id ? ` · user ${execution.user_id}` : ''}`,
+			],
+		});
+	}
+
 	async function _loadExecutionDetail(executionId = _selectedExecutionId) {
 		if (!executionId) return;
 		const title = document.getElementById('adminExecDrawerTitle');
 		const subtitle = document.getElementById('adminExecDrawerSubtitle');
 		const content = document.getElementById('adminExecDrawerContent');
 		const cancelBtn = document.getElementById('adminExecDrawerCancel');
+		const graphBtn = document.getElementById('adminExecDrawerGraph');
 		if (!content) return;
 		try {
 			const data = await _post(`/admin/executions/${executionId}`, {});
 			const execution = data.execution || {};
+			_selectedExecutionDetail = execution;
 			if (title) title.textContent = execution.display_name || execution.workflow_name || 'Execution Details';
 			if (subtitle) {
 				subtitle.textContent = `${execution.execution_id || executionId}${execution.status ? ` • ${execution.status}` : ''}`;
 			}
 			if (cancelBtn) {
 				cancelBtn.style.display = _executionCanCancel(execution) ? '' : 'none';
+			}
+			if (graphBtn) {
+				graphBtn.style.display = execution?.graph?.nodes?.length ? '' : 'none';
 			}
 			const outputKeys = Array.isArray(execution.output_keys) && execution.output_keys.length
 				? execution.output_keys.map((key) => `<span class="nw-admin-active-tag">${_esc(key)}</span>`).join(' ')
@@ -352,8 +395,10 @@ const NumelAdmin = (() => {
 				${_renderJsonCard('Execution Outputs', execution.outputs || {})}
 			`;
 		} catch (e) {
+			_selectedExecutionDetail = null;
 			content.innerHTML = `<div style="color:var(--sg-accent-red);font-size:12px;">Error: ${_esc(e.message)}</div>`;
 			if (cancelBtn) cancelBtn.style.display = 'none';
+			if (graphBtn) graphBtn.style.display = 'none';
 		}
 	}
 
@@ -723,6 +768,7 @@ const NumelAdmin = (() => {
 		const rexClose = document.getElementById('adminExecDrawerClose');
 		const rexBack = document.getElementById('adminExecDrawerBack');
 		const rexRefresh = document.getElementById('adminExecDrawerRefresh');
+		const rexGraph = document.getElementById('adminExecDrawerGraph');
 		const rexCancel = document.getElementById('adminExecDrawerCancel');
 		if (ru) ru.onclick = _loadUsers;
 		if (re) re.onclick = _loadExecutions;
@@ -731,6 +777,7 @@ const NumelAdmin = (() => {
 		if (rexClose) rexClose.onclick = _closeExecutionDrawer;
 		if (rexBack) rexBack.onclick = _closeExecutionDrawer;
 		if (rexRefresh) rexRefresh.onclick = () => _loadExecutionDetail();
+		if (rexGraph) rexGraph.onclick = _showSelectedExecutionGraph;
 		if (rexCancel) rexCancel.onclick = () => _cancelExecutionFromAdmin(_selectedExecutionId);
 
 		// Active-only toggle
