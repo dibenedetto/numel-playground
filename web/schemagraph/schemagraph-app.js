@@ -3998,7 +3998,7 @@ class SchemaGraphApp {
 		const options = slot !== null ? node.nativeInputs[slot].options : null;
 		const optionsSource = slot !== null ? node.nativeInputs[slot]?.optionsSource : null;
 		const editorType = slot !== null ? node.nativeInputs[slot]?.editor : null;
-		const fieldName = slot !== null ? node.inputs?.[slot]?.name : null;
+		const fieldName = slot !== null ? (node.inputMeta?.[slot]?.name || node.inputs?.[slot]?.name) : null;
 		const shouldUseCodeEditor = editorType === 'code'
 			|| (!editorType
 				&& slot !== null
@@ -4267,8 +4267,9 @@ class SchemaGraphApp {
 		if (langWrap) {
 			langWrap.style.display = hasLangField ? '' : 'none';
 		}
+		const lang = this._getNodeLangValue(node);
 		if (langSelect) {
-			langSelect.value = this._getNodeLangValue(node);
+			langSelect.value = lang;
 		}
 
 		// Clear previous editor
@@ -6375,7 +6376,16 @@ class SchemaGraphApp {
 		const hasEditBox = !isMulti && !inp.link && node.nativeInputs?.[j] !== undefined;
 		if (hasEditBox) {
 			const boxX = x + 10, boxY = sy + 6, boxW = 70, boxH = 12;
-			const editorHint = node.nativeInputs[j].editor;
+			const rawEditorHint = node.nativeInputs[j].editor;
+			const inputName = node.inputMeta?.[j]?.name || inp?.name;
+			const editorHint = (rawEditorHint === 'code' || rawEditorHint === 'toolkit_args')
+				? rawEditorHint
+				: (
+					inputName === 'script'
+					&& ['transform_flow', 'eval_flow', 'retry_flow'].includes(String(node.workflowType || '').trim().toLowerCase())
+				)
+					? 'code'
+					: rawEditorHint;
 			if (editorHint === 'toolkit_args' || editorHint === 'code') {
 				// Draw a button-like indicator for special editors
 				const accentColor = editorHint === 'code' ? 'rgba(80,180,120,0.25)' : 'rgba(70,162,218,0.25)';
