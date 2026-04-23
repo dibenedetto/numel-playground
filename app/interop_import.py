@@ -59,7 +59,9 @@ _N8N_MANUAL_TYPES = {"manualtrigger", "start"}
 _N8N_WEBHOOK_TYPES = {"webhook"}
 _N8N_SET_TYPES = {"set", "editfields"}
 _N8N_IF_TYPES = {"if"}
+_N8N_SWITCH_TYPES = {"switch"}
 _N8N_MERGE_TYPES = {"merge"}
+_N8N_WAIT_TYPES = {"wait"}
 _N8N_CODE_TYPES = {"code", "function", "functionitem"}
 _N8N_HTTP_TYPES = {"httprequest"}
 _N8N_IGNORED_TYPES = {"stickynote"}
@@ -482,6 +484,18 @@ def _append_n8n_component(
 		)
 		return component, False
 
+	if kind == "switch":
+		component = _build_switch_component(
+			node,
+			x=x,
+			y=y,
+			numel_nodes=numel_nodes,
+			numel_edges=numel_edges,
+			edge_keys=edge_keys,
+			warnings=warnings,
+		)
+		return component, False
+
 	if kind == "merge":
 		merge_index = _append_node(
 			numel_nodes,
@@ -524,17 +538,28 @@ def _append_n8n_component(
 			data_output=(tool_index, "output"),
 		), False
 
-	if kind == "code":
+	if kind == "wait":
+		delay_node = _build_wait_delay_node(node, x=x, y=y, warnings=warnings)
+		if delay_node is not None:
+			delay_index = _append_node(numel_nodes, delay_node)
+			return _Component(
+				key=node_name,
+				label=label,
+				entry=delay_index,
+				exit=delay_index,
+				data_inputs=[(delay_index, "input")],
+				data_output=(delay_index, "output"),
+			), False
 		placeholder_index = _append_node(
 			numel_nodes,
 			_build_placeholder_transform_node(
 				node,
 				x=x,
 				y=y,
-				reason="Original n8n code nodes need manual porting into Numel Python transforms or toolkits.",
+				reason="Only time-interval waits can be imported automatically right now; review this wait node manually.",
 			),
 		)
-		warnings.append(f"Code node '{label}' was imported as a review placeholder because Numel cannot safely translate n8n code automatically.")
+		warnings.append(f"Wait node '{label}' needs manual review because its wait mode is not a simple time interval.")
 		return _Component(
 			key=node_name,
 			label=label,
@@ -543,6 +568,23 @@ def _append_n8n_component(
 			data_inputs=[(placeholder_index, "input")],
 			data_output=(placeholder_index, "output"),
 		), True
+
+	if kind == "code":
+		transform_node, requires_manual_review = _build_code_transform_node(
+			node,
+			x=x,
+			y=y,
+			warnings=warnings,
+		)
+		transform_index = _append_node(numel_nodes, transform_node)
+		return _Component(
+			key=node_name,
+			label=label,
+			entry=transform_index,
+			exit=transform_index,
+			data_inputs=[(transform_index, "input")],
+			data_output=(transform_index, "output"),
+		), requires_manual_review
 
 	placeholder_index = _append_node(
 		numel_nodes,
@@ -633,6 +675,56 @@ def _build_if_component(
 			0: (route_index, "output.true"),
 			1: (route_index, "output.false"),
 		},
+	)
+
+
+def _build_switch_component(
+	node: Dict[str, Any],
+	*,
+	x: int,
+	y: int,
+	numel_nodes: List[Dict[str, Any]],
+	numel_edges: List[Dict[str, Any]],
+	edge_keys: set[Tuple[int, int, str, str]],
+	warnings: List[str],
+) -> _Component:
+	label = str(node.get("name") or "Switch").strip() or "Switch"
+	params = node.get("parameters") or {}
+	cases = _extract_switch_cases(params, warnings=warnings, node_name=label)
+	output_map = {case["branch"]: None for case in cases}
+	classifier_index = _append_node(
+		numel_nodes,
+		{
+			"type": "transform_flow",
+			"lang": "python",
+			"context": {
+				"cases": cases,
+			},
+			"script": _n8n_classifier_script(mode="switch"),
+			"extra": {"pos": [x, y], "name": f"{label} Classifier"},
+		},
+	)
+	route_index = _append_node(
+		numel_nodes,
+		{
+			"type": "route_flow",
+			"output": output_map,
+			"extra": {"pos": [x + 260, y], "name": label},
+		},
+	)
+	_add_edge(numel_edges, edge_keys, classifier_index, route_index, "output", "target")
+	branch_outputs = {
+		index: (route_index, f"output.{case['branch']}")
+		for index, case in enumerate(cases)
+	}
+	branch_outputs[len(cases)] = (route_index, "default")
+	return _Component(
+		key=node.get("name") or label,
+		label=label,
+		entry=classifier_index,
+		exit=route_index,
+		data_inputs=[(classifier_index, "input"), (route_index, "input")],
+		branch_outputs=branch_outputs,
 	)
 
 
@@ -774,6 +866,105 @@ def _extract_if_rules(params: Dict[str, Any], *, warnings: List[str], node_name:
 		warnings.append(f"If node '{node_name}' had no supported conditions; Numel imported it with a default truthiness check.")
 		rules.append({"path": [], "operator": "truthy", "expected": None})
 	return rules, logic
+
+
+def _extract_switch_cases(params: Dict[str, Any], *, warnings: List[str], node_name: str) -> List[Dict[str, Any]]:
+	raw_source = params.get("rules") or params.get("conditions") or {}
+	raw_cases: List[Dict[str, Any]] = []
+	if isinstance(raw_source, dict):
+		for key in ("values", "rules", "conditions"):
+			items = raw_source.get(key)
+			if isinstance(items, list):
+				raw_cases.extend(item for item in items if isinstance(item, dict))
+				if raw_cases:
+					break
+		if not raw_cases:
+			for value_kind, items in raw_source.items():
+				if value_kind in {"options", "combineOperation", "combinator", "conditions", "rules", "values"}:
+					continue
+				if not isinstance(items, list):
+					continue
+				for item in items:
+					if not isinstance(item, dict):
+						continue
+					copy_item = dict(item)
+					copy_item.setdefault("legacy_kind", str(value_kind))
+					raw_cases.append(copy_item)
+	elif isinstance(raw_source, list):
+		raw_cases.extend(item for item in raw_source if isinstance(item, dict))
+
+	cases: List[Dict[str, Any]] = []
+	for index, raw_case in enumerate(raw_cases):
+		case_rules, case_logic = _extract_switch_case_rule_group(raw_case, warnings=warnings, node_name=node_name)
+		if not case_rules:
+			continue
+		branch_name = str(
+			raw_case.get("outputKey")
+			or raw_case.get("renameOutput")
+			or raw_case.get("label")
+			or raw_case.get("name")
+			or f"case_{index + 1}"
+		).strip() or f"case_{index + 1}"
+		cases.append(
+			{
+				"branch": _slug_key(branch_name),
+				"label": branch_name,
+				"rules": case_rules,
+				"logic": case_logic,
+			}
+		)
+
+	if not cases:
+		warnings.append(f"Switch node '{node_name}' had no supported rules; Numel imported it with a single default branch.")
+		cases.append(
+			{
+				"branch": "case_1",
+				"label": "case_1",
+				"rules": [{"path": [], "left_literal": None, "operator": "truthy", "expected": None}],
+				"logic": "all",
+			}
+		)
+	return cases
+
+
+def _extract_switch_case_rule_group(raw_case: Dict[str, Any], *, warnings: List[str], node_name: str) -> Tuple[List[Dict[str, Any]], str]:
+	if any(key in raw_case for key in ("leftValue", "value1", "operator", "operation")):
+		rule = _compile_if_rule(raw_case, warnings=warnings, node_name=node_name)
+		return ([rule] if rule is not None else []), "all"
+	case_logic = "all"
+	raw_rules: List[Dict[str, Any]] = []
+	if isinstance(raw_case, dict):
+		combinator = (
+			raw_case.get("combinator")
+			or raw_case.get("combineOperation")
+			or ((raw_case.get("options") or {}).get("combinator") if isinstance(raw_case.get("options"), dict) else None)
+		)
+		if str(combinator or "").strip().lower() in {"or", "any"}:
+			case_logic = "any"
+		if isinstance(raw_case.get("conditions"), list):
+			raw_rules.extend(item for item in raw_case.get("conditions") or [] if isinstance(item, dict))
+		elif isinstance(raw_case.get("rules"), list):
+			raw_rules.extend(item for item in raw_case.get("rules") or [] if isinstance(item, dict))
+		elif isinstance(raw_case.get("values"), list):
+			raw_rules.extend(item for item in raw_case.get("values") or [] if isinstance(item, dict))
+		else:
+			for value_kind, items in raw_case.items():
+				if value_kind in {"options", "combineOperation", "combinator", "conditions", "rules", "values"}:
+					continue
+				if not isinstance(items, list):
+					continue
+				for item in items:
+					if not isinstance(item, dict):
+						continue
+					copy_item = dict(item)
+					copy_item.setdefault("legacy_kind", str(value_kind))
+					raw_rules.append(copy_item)
+	rules: List[Dict[str, Any]] = []
+	for raw_rule in raw_rules:
+		rule = _compile_if_rule(raw_rule, warnings=warnings, node_name=node_name)
+		if rule is not None:
+			rules.append(rule)
+	return rules, case_logic
 
 
 def _compile_if_rule(raw_rule: Dict[str, Any], *, warnings: List[str], node_name: str) -> Optional[Dict[str, Any]]:
@@ -965,6 +1156,24 @@ def _n8n_classifier_script(*, mode: str) -> str:
 			+ "decision = any(matches) if logic == 'any' else all(matches)\n"
 			+ "output = 'true' if decision else 'false'\n"
 		)
+	if mode == "switch":
+		return (
+			body
+			+ "cases = list(context.get('cases') or [])\n"
+			+ "selected = 'default'\n"
+			+ "for case in cases:\n"
+			+ "\tcase_rules = list(case.get('rules') or [])\n"
+			+ "\tcase_logic = str(case.get('logic') or 'all').lower()\n"
+			+ "\tmatches = []\n"
+			+ "\tfor rule in case_rules:\n"
+			+ "\t\tcurrent = _interop_get_path(input, rule.get('path') or []) if rule.get('left_literal') in (None, '') else rule.get('left_literal')\n"
+			+ "\t\tmatches.append(_interop_match(current, rule.get('operator') or 'equal', rule.get('expected')))\n"
+			+ "\tdecision = any(matches) if case_logic == 'any' else all(matches)\n"
+			+ "\tif decision:\n"
+			+ "\t\tselected = str(case.get('branch') or 'default')\n"
+			+ "\t\tbreak\n"
+			+ "output = selected\n"
+		)
 	raise ValueError(f"Unsupported classifier mode '{mode}'")
 
 
@@ -1124,6 +1333,198 @@ def _extract_http_json_body(params: Dict[str, Any], *, warnings: List[str], node
 	return None
 
 
+def _build_wait_delay_node(node: Dict[str, Any], *, x: int, y: int, warnings: List[str]) -> Optional[Dict[str, Any]]:
+	label = str(node.get("name") or "Wait").strip() or "Wait"
+	params = node.get("parameters") or {}
+	duration_ms = _extract_wait_duration_ms(params, warnings=warnings, node_name=label)
+	if duration_ms is None:
+		return None
+	return {
+		"type": "delay_flow",
+		"duration_ms": duration_ms,
+		"extra": {"pos": [x, y], "name": label},
+	}
+
+
+def _extract_wait_duration_ms(params: Dict[str, Any], *, warnings: List[str], node_name: str) -> Optional[int]:
+	amount = (
+		params.get("amount")
+		or params.get("waitAmount")
+		or params.get("value")
+		or ((params.get("interval") or {}).get("amount") if isinstance(params.get("interval"), dict) else None)
+	)
+	unit = (
+		params.get("unit")
+		or params.get("waitUnit")
+		or params.get("timeUnit")
+		or ((params.get("interval") or {}).get("unit") if isinstance(params.get("interval"), dict) else None)
+		or "seconds"
+	)
+	if amount not in (None, ""):
+		try:
+			number = float(amount)
+		except Exception:
+			warnings.append(f"Wait node '{node_name}' uses a non-numeric duration; Numel could not import it as a delay automatically.")
+			return None
+		normalized_unit = re.sub(r"[^a-z]+", "", str(unit or "").strip().lower())
+		unit_multipliers = {
+			"ms": 1,
+			"millisecond": 1,
+			"milliseconds": 1,
+			"second": 1000,
+			"seconds": 1000,
+			"s": 1000,
+			"minute": 60_000,
+			"minutes": 60_000,
+			"m": 60_000,
+			"hour": 3_600_000,
+			"hours": 3_600_000,
+			"h": 3_600_000,
+			"day": 86_400_000,
+			"days": 86_400_000,
+			"d": 86_400_000,
+		}
+		multiplier = unit_multipliers.get(normalized_unit)
+		if multiplier is None:
+			warnings.append(f"Wait node '{node_name}' uses unsupported unit '{unit}'; Numel could not import it as a delay automatically.")
+			return None
+		return max(0, int(number * multiplier))
+	resume_mode = str(params.get("resume") or params.get("resumeMode") or "").strip().lower()
+	if resume_mode:
+		warnings.append(f"Wait node '{node_name}' uses resume mode '{resume_mode}', which needs manual review.")
+	return None
+
+
+def _build_code_transform_node(
+	node: Dict[str, Any],
+	*,
+	x: int,
+	y: int,
+	warnings: List[str],
+) -> Tuple[Dict[str, Any], bool]:
+	label = str(node.get("name") or "Code").strip() or "Code"
+	params = node.get("parameters") or {}
+	source_language, original_code = _extract_n8n_code_source(params)
+	script = _translate_n8n_code_to_python(
+		original_code,
+		language=source_language,
+		warnings=warnings,
+		node_name=label,
+	)
+	if script is None:
+		warnings.append(f"Code node '{label}' was imported as a review placeholder because Numel could not safely translate its script automatically.")
+		return _build_placeholder_transform_node(
+			node,
+			x=x,
+			y=y,
+			reason="Original n8n code node needs manual porting into a Numel transform or toolkit.",
+		), True
+	return {
+		"type": "transform_flow",
+		"lang": "python",
+		"context": {
+			"node_name": label,
+			"node_type": str(node.get("type") or ""),
+			"parameters": params,
+			"original_code": original_code,
+			"source_language": source_language,
+		},
+		"script": script,
+		"extra": {"pos": [x, y], "name": label},
+	}, False
+
+
+def _extract_n8n_code_source(params: Dict[str, Any]) -> Tuple[str, str]:
+	language = str(params.get("language") or "").strip().lower()
+	if params.get("pythonCode") not in (None, ""):
+		return ("python", str(params.get("pythonCode") or ""))
+	if params.get("jsCode") not in (None, ""):
+		return (language or "javascript", str(params.get("jsCode") or ""))
+	if params.get("functionCode") not in (None, ""):
+		return (language or "javascript", str(params.get("functionCode") or ""))
+	if params.get("code") not in (None, ""):
+		return (language or "javascript", str(params.get("code") or ""))
+	return (language or "javascript", "")
+
+
+def _translate_n8n_code_to_python(
+	code: str,
+	*,
+	language: str,
+	warnings: List[str],
+	node_name: str,
+) -> Optional[str]:
+	text = str(code or "").replace("\r\n", "\n").strip()
+	if not text:
+		warnings.append(f"Code node '{node_name}' had no script body; Numel imported it as a placeholder.")
+		return None
+	normalized_language = str(language or "").strip().lower()
+	if normalized_language in {"python", "py"}:
+		rewritten = _rewrite_top_level_returns_to_output(text)
+		if "output" not in rewritten:
+			rewritten = f"{rewritten}\noutput = input"
+			warnings.append(f"Python code node '{node_name}' did not assign 'output'; Numel now passes the input through unless the script changes it.")
+		else:
+			warnings.append(f"Python code node '{node_name}' was imported directly as a Numel transform.")
+		return rewritten
+	if normalized_language in {"javascript", "js", ""}:
+		translated = _translate_simple_n8n_javascript(text)
+		if translated is None:
+			return None
+		warnings.append(f"JavaScript code node '{node_name}' was translated into a best-effort Numel Python transform; review it before relying on it in production.")
+		return translated
+	return None
+
+
+def _rewrite_top_level_returns_to_output(code: str) -> str:
+	lines: List[str] = []
+	for raw_line in str(code or "").splitlines():
+		line = raw_line.rstrip()
+		stripped = line.lstrip()
+		indent = line[: len(line) - len(stripped)]
+		if stripped.startswith("return "):
+			lines.append(f"{indent}output = {stripped[len('return '):]}")
+		elif stripped == "return":
+			lines.append(f"{indent}output = None")
+		else:
+			lines.append(line)
+	return "\n".join(lines).strip()
+
+
+def _translate_simple_n8n_javascript(code: str) -> Optional[str]:
+	text = str(code or "").replace("\r\n", "\n").strip()
+	if not text:
+		return None
+	for forbidden in ("=>", "function ", "console.", "require(", "await ", "?.", "??", "...", "new ", "for (", "while (", "try {", "catch ", "class "):
+		if forbidden in text:
+			return None
+	lines: List[str] = []
+	for raw_line in text.splitlines():
+		line = raw_line.strip()
+		if not line:
+			continue
+		if line.endswith(";"):
+			line = line[:-1]
+		line = re.sub(r"^(const|let|var)\s+", "", line)
+		line = line.replace("!==", "!=").replace("===", "==")
+		line = line.replace("&&", " and ").replace("||", " or ")
+		line = re.sub(r"\btrue\b", "True", line)
+		line = re.sub(r"\bfalse\b", "False", line)
+		line = re.sub(r"\bnull\b", "None", line)
+		line = re.sub(r"\$input\.item\.json\b", "input", line)
+		line = re.sub(r"\$json\.([A-Za-z_][A-Za-z0-9_]*)", lambda m: f"input.get({m.group(1)!r})", line)
+		line = re.sub(r"\$json\b", "input", line)
+		if line.startswith("return "):
+			line = f"output = {line[len('return '):]}"
+		lines.append(line)
+	if not lines:
+		return None
+	translated = "\n".join(lines).strip()
+	if "output =" not in translated:
+		return None
+	return translated
+
+
 def _build_placeholder_transform_node(node: Dict[str, Any], *, x: int, y: int, reason: str) -> Dict[str, Any]:
 	label = str(node.get("name") or "Imported Node").strip() or "Imported Node"
 	params = node.get("parameters") or {}
@@ -1196,8 +1597,12 @@ def _n8n_node_kind(node: Dict[str, Any]) -> str:
 		return "set"
 	if type_slug in _N8N_IF_TYPES:
 		return "if"
+	if type_slug in _N8N_SWITCH_TYPES:
+		return "switch"
 	if type_slug in _N8N_MERGE_TYPES:
 		return "merge"
+	if type_slug in _N8N_WAIT_TYPES:
+		return "wait"
 	if type_slug in _N8N_CODE_TYPES:
 		return "code"
 	if type_slug in _N8N_HTTP_TYPES:

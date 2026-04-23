@@ -4416,6 +4416,18 @@ body.nw-layout-project-workbench .nw-auth-title {
 	border: 1px solid var(--sg-border-color);
 }
 
+.nw-public-hub-status.is-warning {
+	background: color-mix(in srgb, #f0ad4e 12%, transparent);
+	border-color: color-mix(in srgb, #f0ad4e 34%, transparent);
+	color: color-mix(in srgb, #f0ad4e 82%, white 18%);
+}
+
+.nw-public-hub-status.is-error {
+	background: color-mix(in srgb, var(--sg-accent-red, #d9534f) 12%, transparent);
+	border-color: color-mix(in srgb, var(--sg-accent-red, #d9534f) 34%, transparent);
+	color: color-mix(in srgb, var(--sg-accent-red, #d9534f) 82%, white 18%);
+}
+
 .nw-public-hub-content {
 	display: grid;
 	gap: 12px;
@@ -4468,6 +4480,27 @@ body.nw-layout-project-workbench .nw-auth-title {
 	display: flex;
 	flex-wrap: wrap;
 	gap: 8px;
+}
+
+.nw-public-hub-empty-card {
+	display: grid;
+	gap: 10px;
+	padding: 14px;
+	border: 1px dashed var(--sg-border-color);
+	border-radius: 14px;
+	background: color-mix(in srgb, var(--sg-bg-secondary) 82%, transparent);
+}
+
+.nw-public-hub-empty-title {
+	font-size: 14px;
+	font-weight: 700;
+	color: var(--sg-text-primary);
+}
+
+.nw-public-hub-empty-copy {
+	font-size: 12px;
+	line-height: 1.55;
+	color: var(--sg-text-secondary);
 }
 
 .nw-public-hub-badges {
@@ -4580,6 +4613,26 @@ body.nw-layout-project-workbench .nw-auth-title {
 .nw-ext-registry-filter {
 	flex: 0 0 164px;
 	min-width: 164px;
+}
+
+.nw-ext-registry-active {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 10px;
+}
+
+.nw-ext-registry-pill {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 10px;
+	border-radius: 999px;
+	font-size: 11px;
+	font-weight: 600;
+	border: 1px solid var(--sg-border-color);
+	background: color-mix(in srgb, var(--sg-bg-secondary) 82%, transparent);
+	color: var(--sg-text-secondary);
 }
 
 .nw-ext-registry-meta,

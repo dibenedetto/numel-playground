@@ -606,23 +606,48 @@ function _renderPublicHubView() {
 	const content = $('publicHubContent');
 	const status = $('publicHubStatus');
 	if (!content || !status) return;
+
+	const setStatus = (message, tone = '') => {
+		status.textContent = message || '';
+		status.classList.remove('is-warning', 'is-error');
+		if (tone === 'warning') status.classList.add('is-warning');
+		if (tone === 'error') status.classList.add('is-error');
+	};
+	const quickActions = [];
+	const currentNamespace = String(currentSpaceInfo?.namespace || '').trim();
+	const currentSlug = String(currentSpaceInfo?.slug || '').trim();
+	const currentIsPublic = String(currentSpaceInfo?.space_view || '').trim().toLowerCase() === 'public';
+	if (currentIsPublic && currentNamespace && currentSlug) {
+		quickActions.push(`<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-public-hub-action="view-repo" data-namespace="${_escHtml(currentNamespace)}" data-slug="${_escHtml(currentSlug)}">View Current Public Repo</button>`);
+	}
+	if (currentNamespace) {
+		quickActions.push(`<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-public-hub-action="browse-namespace" data-namespace="${_escHtml(currentNamespace)}">Browse Current Namespace</button>`);
+		quickActions.push(`<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-public-hub-action="view-creator" data-creator="${_escHtml(currentNamespace)}">Open Current Creator Page</button>`);
+	}
+	const emptyCard = (title, copy) => `
+		<div class="nw-public-hub-empty-card">
+			<div class="nw-public-hub-empty-title">${_escHtml(title)}</div>
+			<div class="nw-public-hub-empty-copy">${_escHtml(copy)}</div>
+			${quickActions.length ? `<div class="nw-space-detail-actions">${quickActions.join('')}</div>` : ''}
+		</div>
+	`;
 	if (_publicHubState.loading) {
-		status.textContent = 'Loading public hub data...';
+		setStatus('Loading public hub data...');
 		content.innerHTML = '<div class="nw-repo-detail-empty">Loading public hub data...</div>';
 		return;
 	}
 	if (_publicHubState.error) {
-		status.textContent = _publicHubState.error;
-		content.innerHTML = `<div class="nw-repo-detail-empty">${_escHtml(_publicHubState.error)}</div>`;
+		setStatus(_publicHubState.error, 'error');
+		content.innerHTML = emptyCard('Public Hub Error', _publicHubState.error);
 		return;
 	}
 	if (_publicHubState.mode === 'namespace' && _publicHubState.namespacePayload) {
 		const payload = _publicHubState.namespacePayload;
 		const namespace = String(payload?.namespace || _publicHubState.namespace || '').trim();
 		const count = Number(payload?.repo_count || (payload?.spaces || []).length || 0);
-		status.textContent = count
+		setStatus(count
 			? `${namespace} has ${count} public repo${count === 1 ? '' : 's'} available.`
-			: `No public repos are visible for ${namespace}.`;
+			: `No public repos are visible for ${namespace}.`, count ? '' : 'warning');
 		content.innerHTML = `
 			<div class="nw-public-hub-page">
 				<div class="nw-public-hub-hero">
@@ -646,7 +671,7 @@ function _renderPublicHubView() {
 		const templateCount = Number(payload?.template_count || (payload?.gallery_items || []).length || 0);
 		const featuredTemplateCount = Number(payload?.featured_template_count || 0);
 		const curatedTemplateCount = Number(payload?.curated_template_count || 0);
-		status.textContent = `${creator} has ${repoCount} public repo${repoCount === 1 ? '' : 's'} and ${templateCount} published template${templateCount === 1 ? '' : 's'}${featuredTemplateCount ? ` · ${featuredTemplateCount} featured` : curatedTemplateCount ? ` · ${curatedTemplateCount} curated` : ''}.`;
+		setStatus(`${creator} has ${repoCount} public repo${repoCount === 1 ? '' : 's'} and ${templateCount} published template${templateCount === 1 ? '' : 's'}${featuredTemplateCount ? ` · ${featuredTemplateCount} featured` : curatedTemplateCount ? ` · ${curatedTemplateCount} curated` : ''}.`, (!repoCount && !templateCount) ? 'warning' : '');
 		content.innerHTML = `
 			<div class="nw-public-hub-page">
 				<div class="nw-public-hub-hero">
@@ -681,7 +706,7 @@ function _renderPublicHubView() {
 		const activeRef = String(payload?.active_ref || _spaceDefaultRef(space) || 'main').trim() || 'main';
 		const defaultRef = String(payload?.default_ref || _spaceDefaultRef(space) || 'main').trim() || 'main';
 		const currentAsset = _spaceActiveAssetPath(space);
-		status.textContent = `Viewing public repo ${locator} on ref ${activeRef}.`;
+		setStatus(`Viewing public repo ${locator} on ref ${activeRef}.`);
 		content.innerHTML = `
 			<div class="nw-public-hub-page">
 				<div class="nw-public-hub-hero">
@@ -731,8 +756,11 @@ function _renderPublicHubView() {
 		`;
 		return;
 	}
-	status.textContent = 'Browse a public namespace, creator page, or public repo page by owner/slug.';
-	content.innerHTML = '<div class="nw-repo-detail-empty">Public repo, namespace, and creator pages will appear here.</div>';
+	setStatus('Browse a public namespace, creator page, or public repo page by owner/slug.', 'warning');
+	content.innerHTML = emptyCard(
+		'Public Hub',
+		'Namespace pages, creator pages, and public repo pages appear here. Start with an owner name, a creator, or an owner/slug pair.'
+	);
 }
 
 function _extractWorkflowDisplayName(workflow = null) {

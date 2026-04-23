@@ -263,7 +263,7 @@ The public side now also has a dedicated **Public Hub** surface:
 - compare support for public repo refs and commits before you decide to open or fork
 - preview support for public repo assets without first switching the current workbench
 - gallery cards published from public repos can now point you back to the underlying repo page or the creator behind it, so the gallery starts acting like a curated layer over real repos instead of a dead-end copy
-- file and clipboard import now accept native Numel workflow JSON plus a pragmatic first n8n JSON subset, including common n8n set, HTTP request, if/branch, and merge shapes converted into runnable Numel workbench flows with explicit warnings when manual review is still needed
+- file and clipboard import now accept native Numel workflow JSON plus a broader pragmatic n8n JSON subset, including common n8n set, HTTP request, if/branch, switch, merge, simple time-wait, and portable code-node shapes converted into runnable Numel workbench flows with explicit warnings when manual review is still needed
 
 ---
 

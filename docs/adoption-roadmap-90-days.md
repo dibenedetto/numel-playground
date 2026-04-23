@@ -115,28 +115,25 @@ Progress so far:
 - the main Workflow section now exposes a repo-asset browser plus a "save canvas as workflow asset" flow, so multi-workflow repos are practical from the workbench instead of being trapped behind the Repo Details dialog
 - assistant deployment proactive tasks can now preserve a real multi-source trigger fan-in through one `event_listener_flow`, including listener modes like `any`, `all`, and `race`, instead of flattening back to only one source during network export, apply, or runtime start
 - graph-first operational visibility is now real instead of aspirational: the Run panel can open a runtime workflow graph, Assistant Deployments can open a live network graph, and the admin execution drawer can open an execution graph backed by stored runtime metadata
-- workflow file and clipboard import now have a first real interop path: native Numel JSON still loads directly, and a pragmatic subset of n8n workflow JSON, including common set, HTTP, branch, and merge shapes, is converted into runnable Numel graphs with explicit manual-review warnings where the mapping is not exact yet
+- workflow file and clipboard import now have a real interop path: native Numel JSON still loads directly, and a pragmatic subset of n8n workflow JSON, including common set, HTTP, branch, switch, merge, simple time-wait, and portable code-node shapes, is converted into runnable Numel graphs with explicit manual-review warnings where the mapping is not exact yet
 
 Next execution order:
-1. broaden interop coverage beyond the current n8n slice, especially switch/code-heavy flows and other external ecosystems
-2. do the final end-of-roadmap UI validation and polish pass across the now-expanded repo, graph, deployment, registry, and ecosystem surfaces
+1. do the final end-of-roadmap UI validation and polish pass across the now-expanded repo, graph, deployment, registry, and ecosystem surfaces
 
 Note:
-- interop expansion is intentionally deferrable; the registry and creator/public ecosystem work can continue independently when product focus favors the ecosystem loop first
 - the main UI test pass can be deferred until the end of this roadmap implementation, so intermediate work should optimize for coherent end-state coverage rather than per-slice visual signoff
 
 ## Remaining Focus Areas
 
 From the current starting point, the main remaining roadmap items are:
 
-1. interop expansion
-- broaden beyond the current n8n subset
-- support harder switch/code-heavy and loop/wait-style imports
-- later choose the next external ecosystem to target
-
-2. final end-of-roadmap UI validation and polish
+1. final end-of-roadmap UI validation and polish
 - do one broader UI pass after the roadmap implementation is functionally in place
 - use that pass to tune Public Hub, repo browser, registry, deployment/runtime graph views, and interop edges together
+
+Future ecosystem work after this roadmap:
+
+- broaden interop beyond the current n8n subset into harder code-heavy/loop-heavy shapes and later other external ecosystems
 
 ## Parallel Adoption Work
 

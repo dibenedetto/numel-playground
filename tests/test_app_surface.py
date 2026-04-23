@@ -219,6 +219,148 @@ def _n8n_if_workflow_payload() -> dict:
     }
 
 
+def _n8n_switch_wait_workflow_payload() -> dict:
+    return {
+        "name": "n8n Switch Wait Import",
+        "nodes": [
+            {
+                "id": "1",
+                "name": "Manual Trigger",
+                "type": "n8n-nodes-base.manualTrigger",
+                "position": [80, 200],
+                "parameters": {},
+            },
+            {
+                "id": "2",
+                "name": "Set Stage",
+                "type": "n8n-nodes-base.set",
+                "position": [320, 200],
+                "parameters": {
+                    "keepOnlySet": True,
+                    "values": {
+                        "string": [{"name": "stage", "value": "review"}],
+                    },
+                },
+            },
+            {
+                "id": "3",
+                "name": "Stage Switch",
+                "type": "n8n-nodes-base.switch",
+                "position": [620, 200],
+                "parameters": {
+                    "rules": {
+                        "values": [
+                            {
+                                "leftValue": "={{$json.stage}}",
+                                "rightValue": "review",
+                                "operator": {"operation": "equal"},
+                                "label": "review",
+                            },
+                        ],
+                    },
+                },
+            },
+            {
+                "id": "4",
+                "name": "Review Wait",
+                "type": "n8n-nodes-base.wait",
+                "position": [920, 120],
+                "parameters": {
+                    "resume": "timeInterval",
+                    "amount": 5,
+                    "unit": "ms",
+                },
+            },
+            {
+                "id": "5",
+                "name": "After Wait",
+                "type": "n8n-nodes-base.set",
+                "position": [1180, 120],
+                "parameters": {
+                    "keepOnlySet": False,
+                    "values": {
+                        "string": [{"name": "decision", "value": "review-complete"}],
+                    },
+                },
+            },
+            {
+                "id": "6",
+                "name": "Default Branch",
+                "type": "n8n-nodes-base.set",
+                "position": [920, 300],
+                "parameters": {
+                    "keepOnlySet": False,
+                    "values": {
+                        "string": [{"name": "decision", "value": "default-branch"}],
+                    },
+                },
+            },
+        ],
+        "connections": {
+            "Manual Trigger": {
+                "main": [[{"node": "Set Stage", "type": "main", "index": 0}]],
+            },
+            "Set Stage": {
+                "main": [[{"node": "Stage Switch", "type": "main", "index": 0}]],
+            },
+            "Stage Switch": {
+                "main": [
+                    [{"node": "Review Wait", "type": "main", "index": 0}],
+                    [{"node": "Default Branch", "type": "main", "index": 0}],
+                ],
+            },
+            "Review Wait": {
+                "main": [[{"node": "After Wait", "type": "main", "index": 0}]],
+            },
+        },
+    }
+
+
+def _n8n_code_workflow_payload() -> dict:
+    return {
+        "name": "n8n Code Surface Import",
+        "nodes": [
+            {
+                "id": "1",
+                "name": "Manual Trigger",
+                "type": "n8n-nodes-base.manualTrigger",
+                "position": [80, 180],
+                "parameters": {},
+            },
+            {
+                "id": "2",
+                "name": "Set Count",
+                "type": "n8n-nodes-base.set",
+                "position": [320, 180],
+                "parameters": {
+                    "keepOnlySet": True,
+                    "values": {
+                        "number": [{"name": "count", "value": 2}],
+                    },
+                },
+            },
+            {
+                "id": "3",
+                "name": "Increase Count",
+                "type": "n8n-nodes-base.code",
+                "position": [620, 180],
+                "parameters": {
+                    "language": "javascript",
+                    "jsCode": "const base = $json.count || 0;\nreturn {\"count\": base + 1, \"status\": \"ready\"};",
+                },
+            },
+        ],
+        "connections": {
+            "Manual Trigger": {
+                "main": [[{"node": "Set Count", "type": "main", "index": 0}]],
+            },
+            "Set Count": {
+                "main": [[{"node": "Increase Count", "type": "main", "index": 0}]],
+            },
+        },
+    }
+
+
 def _toolkit_edge_workflow_payload(root: str) -> dict:
     return {
         "type": "workflow",
@@ -1512,6 +1654,95 @@ class AppSurfaceTests(unittest.IsolatedAsyncioTestCase):
         payload = imported.json()
         self.assertEqual(payload["source_format"], "n8n")
         self.assertTrue(any(node["type"] == "route_flow" for node in payload["workflow"]["nodes"]))
+
+        save = await self._client.post(
+            "/workflow/save",
+            json={"workflow": payload["workflow"]},
+            headers=headers,
+        )
+        self.assertEqual(save.status_code, 200, save.text)
+
+        start = await self._client.post("/workflow/start", json={}, headers=headers)
+        self.assertEqual(start.status_code, 200, start.text)
+        execution_id = start.json()["execution_id"]
+        self.assertTrue(execution_id)
+
+        final_status = start.json()["status"]
+        for _ in range(60):
+            state = await self._client.post(f"/executions/{execution_id}", json={}, headers=headers)
+            self.assertEqual(state.status_code, 200, state.text)
+            final_status = state.json()["state"]["status"]
+            if final_status in {"completed", "failed", "cancelled"}:
+                break
+            await asyncio.sleep(0.2)
+
+        self.assertEqual(final_status, "completed")
+
+    async def test_workflow_interop_import_accepts_n8n_switch_wait_json_and_runs(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "interop_switch", "email": "interop_switch@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        imported = await self._client.post(
+            "/workflow/interop/import",
+            json={"document": _n8n_switch_wait_workflow_payload(), "file_name": "switch-wait-import.json"},
+            headers=headers,
+        )
+        self.assertEqual(imported.status_code, 200, imported.text)
+        payload = imported.json()
+        self.assertEqual(payload["source_format"], "n8n")
+        self.assertTrue(any(node["type"] == "route_flow" for node in payload["workflow"]["nodes"]))
+        self.assertTrue(any(node["type"] == "delay_flow" for node in payload["workflow"]["nodes"]))
+
+        save = await self._client.post(
+            "/workflow/save",
+            json={"workflow": payload["workflow"]},
+            headers=headers,
+        )
+        self.assertEqual(save.status_code, 200, save.text)
+
+        start = await self._client.post("/workflow/start", json={}, headers=headers)
+        self.assertEqual(start.status_code, 200, start.text)
+        execution_id = start.json()["execution_id"]
+        self.assertTrue(execution_id)
+
+        final_status = start.json()["status"]
+        for _ in range(60):
+            state = await self._client.post(f"/executions/{execution_id}", json={}, headers=headers)
+            self.assertEqual(state.status_code, 200, state.text)
+            final_status = state.json()["state"]["status"]
+            if final_status in {"completed", "failed", "cancelled"}:
+                break
+            await asyncio.sleep(0.2)
+
+        self.assertEqual(final_status, "completed")
+
+    async def test_workflow_interop_import_accepts_n8n_code_json_and_runs(self) -> None:
+        register = await self._client.post(
+            "/auth/register",
+            json={"username": "interop_code", "email": "interop_code@local", "password": "pass1234"},
+        )
+        self.assertEqual(register.status_code, 200, register.text)
+        headers = self._auth_headers(register.json()["token"])
+
+        imported = await self._client.post(
+            "/workflow/interop/import",
+            json={"document": _n8n_code_workflow_payload(), "file_name": "code-import.json"},
+            headers=headers,
+        )
+        self.assertEqual(imported.status_code, 200, imported.text)
+        payload = imported.json()
+        self.assertEqual(payload["source_format"], "n8n")
+        imported_code_node = next(
+            node
+            for node in payload["workflow"]["nodes"]
+            if node["type"] == "transform_flow" and (node.get("extra", {}).get("name") or "") == "Increase Count"
+        )
+        self.assertIn("output =", imported_code_node["script"])
+        self.assertTrue(any("best-effort" in warning.lower() for warning in payload["warnings"]))
 
         save = await self._client.post(
             "/workflow/save",

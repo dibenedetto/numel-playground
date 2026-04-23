@@ -11,6 +11,7 @@ const NumelExtensions = (() => {
 	let _registrySummary;
 	let _registrySearchInput;
 	let _registryFilterSelect;
+	let _registryClearBtn;
 	let _registryEntries = [];
 	let _registryCounts = {};
 	let _toolkitList;
@@ -126,6 +127,12 @@ const NumelExtensions = (() => {
 		return String(_registryFilterSelect?.value || 'all').trim().toLowerCase();
 	}
 
+	function _clearRegistryFilters() {
+		if (_registrySearchInput) _registrySearchInput.value = '';
+		if (_registryFilterSelect) _registryFilterSelect.value = 'all';
+		_renderRegistry();
+	}
+
 	function _registryPlatformsLabel(item) {
 		const platforms = Array.isArray(item?.platforms) ? item.platforms.filter(Boolean) : [];
 		if (!platforms.length) return 'Local + prod';
@@ -178,6 +185,10 @@ const NumelExtensions = (() => {
 		const search = _registrySearchValue();
 		const filter = _registryFilterValue();
 		const visibleEntries = entries.filter((item) => _matchesRegistryEntry(item, search, filter));
+		const activePills = [];
+		if (search) activePills.push(`<span class="nw-ext-registry-pill">Search: ${_esc(search)}</span>`);
+		if (filter && filter !== 'all') activePills.push(`<span class="nw-ext-registry-pill">Filter: ${_esc(filter)}</span>`);
+		if (_registryClearBtn) _registryClearBtn.disabled = !search && filter === 'all';
 		if (_registrySummary) {
 			_registrySummary.innerHTML = `
 				<strong>${_esc(String(visibleEntries.length))}</strong> shown
@@ -187,14 +198,21 @@ const NumelExtensions = (() => {
 				<span>· ${_esc(String(counts.featured ?? entries.filter(item => item.featured).length))} featured</span>
 				<span>· ${_esc(String(counts.shared ?? entries.filter(item => item.source === 'shared').length))} shared</span>
 				<span>· ${_esc(String(counts.setup_pending ?? entries.filter(item => item.setup_pending).length))} need setup</span>
-			`;
+			` + (activePills.length ? `<div class="nw-ext-registry-active">${activePills.join('')}</div>` : '');
 		}
 		if (!entries.length) {
 			_registryList.innerHTML = '<div class="nw-ext-empty">No extensions are currently available.</div>';
 			return;
 		}
 		if (!visibleEntries.length) {
-			_registryList.innerHTML = '<div class="nw-ext-empty">No registry entries match the current search or filter.</div>';
+			_registryList.innerHTML = `
+				<div class="nw-ext-empty">
+					No registry entries match the current search or filter.
+					<div class="nw-space-detail-actions" style="margin-top:10px">
+						<button id="extensionsRegistryInlineClear" class="nw-btn nw-btn-sm nw-btn-secondary" type="button">Clear Filters</button>
+					</div>
+				</div>`;
+			_registryList.querySelector('#extensionsRegistryInlineClear')?.addEventListener('click', _clearRegistryFilters);
 			return;
 		}
 		_registryList.innerHTML = '';
@@ -673,6 +691,7 @@ const NumelExtensions = (() => {
 		_registryList = document.getElementById('extensionsRegistryList');
 		_registrySearchInput = document.getElementById('extensionsRegistrySearch');
 		_registryFilterSelect = document.getElementById('extensionsRegistryFilter');
+		_registryClearBtn = document.getElementById('extensionsRegistryClear');
 		_toolkitList = document.getElementById('extensionsToolkitList');
 		_skillList = document.getElementById('extensionsSkillList');
 		_uploadBtn = document.getElementById('extensionsUploadToolkitBtn');
@@ -684,6 +703,7 @@ const NumelExtensions = (() => {
 		document.getElementById('extensionsRefreshRegistry')?.addEventListener('click', _loadRegistry);
 		_registrySearchInput?.addEventListener('input', () => _renderRegistry());
 		_registryFilterSelect?.addEventListener('change', () => _renderRegistry());
+		_registryClearBtn?.addEventListener('click', _clearRegistryFilters);
 		document.getElementById('extensionsRefreshToolkits')?.addEventListener('click', _loadToolkits);
 		document.getElementById('extensionsRefreshSkills')?.addEventListener('click', _loadSkills);
 		document.getElementById('extensionsAddSkillBtn')?.addEventListener('click', _showAddSkillDialog);
