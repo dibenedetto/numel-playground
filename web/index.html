@@ -57,6 +57,8 @@
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
 						<span id="authUserName">Account</span>
 					</h3>
+				</div>
+				<div class="nw-section-actions">
 					<div class="nw-user-actions">
 						<button id="userPanelBtn" class="nw-btn-icon" title="My Account">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
@@ -82,6 +84,8 @@
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
 						<span>Space</span>
 					</h3>
+				</div>
+				<div class="nw-section-actions">
 					<div class="nw-user-actions">
 						<button id="createSpaceBtn" class="nw-btn-icon" title="New space">＋</button>
 						<button id="openPublicSpaceBtn" class="nw-btn-icon" title="Open public repo by owner/slug">
@@ -122,9 +126,11 @@
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
 						<span>Credentials</span>
 					</h3>
-					<button id="addCredentialBtn" class="nw-btn-icon" title="Add credential">＋</button>
 				</div>
 				<div class="nw-section-lede">Store the API keys and tokens this workflow can use.</div>
+				<div class="nw-section-actions">
+					<button id="addCredentialBtn" class="nw-btn-icon" title="Add credential">＋</button>
+				</div>
 				<div id="credentialsAccessNote" class="nw-access-note" style="display:none;">
 					<span class="nw-access-badge">Admin Only</span>
 					<span id="credentialsAccessText" class="nw-access-text"></span>
@@ -151,6 +157,9 @@
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
 						<span>Channels</span>
 					</h3>
+				</div>
+				<div class="nw-section-lede">Send this space to Telegram, Discord, Slack, email, and other channels.</div>
+				<div class="nw-section-actions">
 					<div class="nw-user-actions">
 						<button id="assistantDeploymentPanelBtn" class="nw-btn-icon" title="Manage assistant deployments">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M8 8a4 4 0 0 1 8 0"/><circle cx="9" cy="14" r="1"/><circle cx="15" cy="14" r="1"/><path d="M9 18h6"/></svg>
@@ -160,7 +169,6 @@
 						</button>
 					</div>
 				</div>
-				<div class="nw-section-lede">Send this space to Telegram, Discord, Slack, email, and other channels.</div>
 				<div id="channelSummary" class="nw-channel-summary">No channels configured</div>
 			</section>
 
@@ -171,9 +179,6 @@
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
 						<span>Workflow</span>
 					</h3>
-					<button id="clearWorkflowHeaderBtn" class="nw-btn-icon" disabled title="Clear workflow">
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18.36 6.64A9 9 0 1 1 5.64 5.64"/><polyline points="1 4 5.64 5.64 4 10"/></svg>
-					</button>
 				</div>
 				<div class="nw-section-lede">Build the flow for this space, then save and run it.</div>
 				<div class="nw-field">
@@ -264,9 +269,12 @@
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
 						<span>Run</span>
 					</h3>
-					<span id="execStatusPill" class="nw-exec-status-pill idle" title="Not running"></span>
 				</div>
 				<div class="nw-section-lede">Run the current workflow and follow its progress here.</div>
+				<div class="nw-section-status-row">
+					<span class="nw-section-status-label">Live status</span>
+					<span id="execStatusPill" class="nw-exec-status-pill idle" title="Not running"></span>
+				</div>
 				<div id="execAlert" class="nw-inline-alert" hidden></div>
 				<div class="nw-btn-row">
 					<button id="startBtn" class="nw-btn nw-btn-success" disabled>▶ Run</button>
@@ -337,6 +345,8 @@
 						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
 						<span>Activity</span>
 					</h3>
+				</div>
+				<div class="nw-section-actions">
 					<button id="clearLogBtn" class="nw-btn-icon" title="Clear activity">🗑</button>
 				</div>
 				<div id="eventLog" class="nw-event-log"></div>

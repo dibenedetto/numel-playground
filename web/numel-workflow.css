@@ -536,11 +536,6 @@ body.nw-layout-workbench .nw-section-secondary {
 	transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.nw-section-header .nw-ws-badge,
-.nw-section-header .nw-btn-icon {
-	margin-left: auto;
-}
-
 .nw-panel .nw-section-header:hover {
 	background: transparent;
 }
@@ -683,6 +678,7 @@ body.nw-layout-workbench .nw-panel .nw-section.nw-section-collapsed:hover {
 .nw-section-title svg {
 	flex-shrink: 0;
 	stroke: currentColor;
+	display: none;
 }
 
 body.nw-layout-project-workbench .nw-section-title {
@@ -695,6 +691,33 @@ body.nw-layout-project-workbench .nw-section-title {
 	font-size: 12px;
 	line-height: 1.55;
 	color: var(--sg-text-secondary);
+}
+
+.nw-section-actions {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 8px;
+	margin: 0 0 12px;
+}
+
+.nw-section-actions .nw-user-actions {
+	gap: 4px;
+}
+
+.nw-section-status-row {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	margin: 0 0 12px;
+}
+
+.nw-section-status-label {
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--sg-text-tertiary);
 }
 
 /* ── Advanced sections: hidden by default, revealed via .nw-show-advanced ──
@@ -1690,19 +1713,6 @@ body.nw-layout-workbench .nw-space-pill.is-active {
 	margin-bottom: 2px;
 }
 
-/* User actions in section header */
-.nw-section-header .nw-user-actions {
-	display: flex;
-	align-items: center;
-	gap: 4px;
-	margin-left: auto;
-	padding-left: 10px;
-}
-
-#workbenchOverviewSection .nw-user-actions {
-	margin-right: 12px;
-}
-
 /* User info (expanded content) — kept visible but compacted */
 body.nw-layout-project-workbench .nw-user-info {
 	display: flex;
@@ -2269,16 +2279,13 @@ body.nw-layout-project-workbench .nw-status {
 	border-color: color-mix(in srgb, #f0ad4e 48%, transparent);
 }
 
-/* Run status dot in the section header — mirrors execStatus state.
-   margin-right offsets the dot so its center aligns with the centers
-   of the icon-buttons in the other sub-panel headers. */
+/* Run status dot in the Run section body — mirrors execStatus state. */
 .nw-exec-status-pill {
 	display: inline-block;
 	width: 10px;
 	height: 10px;
 	border-radius: 50%;
-	margin-left: auto;
-	margin-right: 10px;
+	margin: 0;
 	flex-shrink: 0;
 	background: var(--sg-accent-purple);
 	border: 1px solid var(--sg-accent-purple);
