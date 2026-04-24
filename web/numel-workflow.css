@@ -1150,6 +1150,44 @@ body.nw-layout-workbench .nw-space-pill.is-active {
 	margin-top: 8px;
 }
 
+.nw-repo-details-dialog {
+	width: min(1120px, calc(100vw - 48px));
+	max-width: 1120px;
+}
+
+.nw-repo-details-layout {
+	grid-template-columns: minmax(340px, 0.94fr) minmax(420px, 1.06fr);
+}
+
+.nw-repo-details-column {
+	min-width: 0;
+}
+
+.nw-repo-details-dialog .nw-assist-dialog-section {
+	min-width: 0;
+}
+
+.nw-repo-details-dialog .nw-space-detail-grid {
+	margin-top: 0;
+}
+
+.nw-repo-details-dialog .nw-space-detail-note {
+	margin-top: 12px;
+}
+
+.nw-repo-details-actions {
+	margin-top: 0;
+}
+
+.sg-input-dialog.nw-unsaved-workflow-dialog {
+	min-width: 360px !important;
+	max-width: 520px !important;
+}
+
+.nw-unsaved-workflow-actions {
+	justify-content: space-between;
+}
+
 .nw-space-detail-label {
 	font-size: 11px;
 	font-weight: 700;

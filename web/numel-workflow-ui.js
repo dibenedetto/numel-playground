@@ -1561,7 +1561,11 @@ function _updateWorkbenchOverview() {
 	if (canvasAskBtn) canvasAskBtn.disabled = !isReady;
 	if (canvasGalleryBtn) canvasGalleryBtn.disabled = !isReady;
 	if (canvasRunBtn) canvasRunBtn.disabled = !isReady || startDisabled;
-	if (canvasSaveBtn) canvasSaveBtn.disabled = !isReady || !_canEditCurrentSpace();
+	if (canvasSaveBtn) {
+		const canSave = !!isReady && _canEditCurrentSpace() && !!visualizer?.currentWorkflow && workflowDirty;
+		canvasSaveBtn.disabled = !canSave;
+		canvasSaveBtn.textContent = workflowDirty ? 'Save' : 'Saved';
+	}
 	if (canvasAskBtn) {
 		canvasAskBtn.title = isReady
 			? (isEmpty ? 'Ask Assistant to draft a first workflow' : 'Ask Assistant to help edit this workflow')
@@ -1580,9 +1584,11 @@ function _updateWorkbenchOverview() {
 	if (canvasSaveBtn) {
 		canvasSaveBtn.title = !isReady
 			? 'Connect first to save changes'
-			: _canEditCurrentSpace()
-				? 'Save the current workflow'
-				: 'Fork this space to save your own changes';
+			: !_canEditCurrentSpace()
+				? 'Fork this space to save your own changes'
+				: !workflowDirty
+					? 'The current workflow is already saved'
+					: 'Save the current workflow'
 	}
 	// Stage bar shows when workflow is loaded; hero shows when empty
 	const stageBar = document.querySelector('.nw-canvas-stagebar');
@@ -2862,7 +2868,10 @@ function setupEventListeners() {
 	$('canvasBrowseGalleryBtn')?.addEventListener('click', () => _runStarterAction('gallery'));
 	$('canvasSaveWorkflowBtn')?.addEventListener('click', async () => {
 		if ($('canvasSaveWorkflowBtn')?.disabled) return;
-		await syncWorkflow();
+		const response = await syncWorkflow();
+		if (response?.status === 'saved') {
+			await NumelAlert('Workflow Saved', `"${_escHtml(response?.name || _currentWorkflowLabel() || 'Current Workflow')}" has been saved to this space.`);
+		}
 	});
 	$('canvasStartRunBtn')?.addEventListener('click', () => {
 		if (!$('canvasStartRunBtn')?.disabled) $('startBtn')?.click();
@@ -3656,7 +3665,33 @@ window.getNumelWorkbenchContext = function() {
 async function _flushOrDiscardPendingWorkflowChanges(actionLabel = 'continue') {
 	if (!workflowDirty || !visualizer?.currentWorkflow) return true;
 	if (_canEditCurrentSpace()) {
-		await syncWorkflow();
+		const choice = await _showUnsavedWorkflowActionDialog(actionLabel);
+		if (choice === 'save') {
+			try {
+				await syncWorkflow();
+				return true;
+			} catch (error) {
+				addLog('warning', `⚠️ Could not save before ${actionLabel}: ${error.message}`);
+				const discardAfterFailure = await NumelConfirm(
+					'Unsaved Changes',
+					`Numel could not save the current workflow before ${_escHtml(actionLabel)}: ${_escHtml(error.message || 'Unknown error')}. Continue and discard the local changes instead?`,
+					'Discard Changes',
+					true,
+					'Stay Here',
+				);
+				if (!discardAfterFailure) return false;
+				workflowDirty = false;
+				_syncReuseControls();
+				_updateWorkbenchOverview();
+				addLog('info', `↩ Discarded the unsaved local workflow changes before ${actionLabel}`);
+				return true;
+			}
+		}
+		if (choice !== 'discard') return false;
+		workflowDirty = false;
+		_syncReuseControls();
+		_updateWorkbenchOverview();
+		addLog('info', `↩ Discarded the unsaved local workflow changes before ${actionLabel}`);
 		return true;
 	}
 	const discard = await NumelConfirm(
@@ -3666,7 +3701,12 @@ async function _flushOrDiscardPendingWorkflowChanges(actionLabel = 'continue') {
 		true,
 		'Keep Inspecting',
 	);
-	return !!discard;
+	if (!discard) return false;
+	workflowDirty = false;
+	_syncReuseControls();
+	_updateWorkbenchOverview();
+	addLog('info', `↩ Discarded the unsaved local workflow changes before ${actionLabel}`);
+	return true;
 }
 
 window.openLinkedWorkbench = async function(spaceId, workflowName = '') {
@@ -3774,6 +3814,48 @@ function _showPublicSpaceLookupDialog(initialNamespace = '', initialSlug = '') {
 	});
 }
 
+function _showUnsavedWorkflowActionDialog(actionLabel = 'continue') {
+	return new Promise((resolve) => {
+		const overlay = document.createElement('div');
+		overlay.className = 'sg-input-dialog-overlay';
+		overlay.innerHTML = `
+			<div class="sg-input-dialog nw-unsaved-workflow-dialog">
+				<div class="sg-input-dialog-header">
+					<span class="sg-input-dialog-title">Unsaved Workflow Changes</span>
+					<button class="sg-input-dialog-close">✕</button>
+				</div>
+				<div class="sg-input-dialog-body">
+					<p class="sg-confirm-dialog-message">This workflow has unsaved changes. Before Numel can ${_escHtml(actionLabel)}, choose what you want to do.</p>
+				</div>
+				<div class="sg-input-dialog-footer nw-unsaved-workflow-actions">
+					<button class="sg-input-dialog-btn sg-input-dialog-cancel" data-action="stay">Stay Here</button>
+					<button class="sg-input-dialog-btn sg-input-dialog-cancel" data-action="discard">Discard Changes</button>
+					<button class="sg-input-dialog-btn sg-input-dialog-confirm" data-action="save">Save Changes</button>
+				</div>
+			</div>
+		`;
+		document.body.appendChild(overlay);
+		const close = (value = null) => {
+			overlay.remove();
+			resolve(value);
+		};
+		overlay.querySelector('.sg-input-dialog-close')?.addEventListener('click', () => close(null));
+		overlay.querySelector('[data-action="stay"]')?.addEventListener('click', () => close(null));
+		overlay.querySelector('[data-action="discard"]')?.addEventListener('click', () => close('discard'));
+		overlay.querySelector('[data-action="save"]')?.addEventListener('click', () => close('save'));
+		overlay.addEventListener('click', (event) => {
+			if (event.target === overlay) close(null);
+		});
+		overlay.addEventListener('keydown', (event) => {
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				close(null);
+			}
+		});
+		queueMicrotask(() => overlay.querySelector('[data-action="save"]')?.focus());
+	});
+}
+
 function _showCurrentSpaceDetailsDialog(space = null, repoState = {}) {
 	return new Promise((resolve) => {
 		const overlay = document.createElement('div');
@@ -3788,66 +3870,106 @@ function _showCurrentSpaceDetailsDialog(space = null, repoState = {}) {
 		const activeAssetPath = String(repoState?.active_asset_path || _spaceActiveAssetPath(space)).trim() || 'workflow.json';
 		const activeRefRecord = (repoState?.refs || []).find((ref) => String(ref?.name || '').trim() === activeRef) || null;
 		const canRestoreHistory = editable && String(activeRefRecord?.kind || 'branch').trim().toLowerCase() === 'branch';
+		const visibilityValue = String(space?.visibility || 'private').trim().toLowerCase() || 'private';
+		const nextVisibility = visibilityValue === 'public' ? 'private' : 'public';
+		const visibilityActionLabel = nextVisibility === 'public' ? 'Make Public' : 'Make Private';
 		const refsHtml = _formatRepoRefList(repoState?.refs || [], activeRef, defaultRef, editable, { allowCompare: true });
 		const historyHtml = _formatRepoHistoryList(repoState?.commits || [], { allowCompare: true, allowRestore: canRestoreHistory });
 		const assetsHtml = _formatRepoAssetList(repoState?.assets || [], activeAssetPath, { editable });
-		overlay.className = 'sg-input-dialog-overlay';
+		overlay.className = 'nw-admin-dialog-overlay nw-assist-dialog-overlay nw-repo-details-overlay';
 		overlay.innerHTML = `
-			<div class="sg-input-dialog" style="min-width:360px;max-width:640px">
-				<div class="sg-input-dialog-header">
-					<span class="sg-input-dialog-title">Repo Details</span>
-					<button class="sg-input-dialog-close">✕</button>
+			<div class="nw-admin-dialog nw-assist-dialog nw-repo-details-dialog" role="dialog" aria-modal="true" aria-label="Repo Details">
+				<div class="nw-assist-dialog-header">
+					<div class="nw-assist-dialog-title-wrap">
+						<h3>Repo Details</h3>
+						<div class="nw-assist-dialog-subtitle">Inspect the repo identity, sharing, refs, recent commits, and repo assets behind the active workbench.</div>
+					</div>
+					<button class="nw-assist-dialog-close" type="button" aria-label="Close" data-role="close">&times;</button>
 				</div>
-				<div class="sg-input-dialog-body">
-					<p class="sg-confirm-dialog-message">This is the current repo identity behind the active workbench.</p>
-					<div class="nw-space-detail-grid">
-						<div class="nw-space-detail-label">Repo</div>
-						<div class="nw-space-detail-value">${_escHtml(locator || space?.id || 'Unknown')}</div>
-						<div class="nw-space-detail-label">Title</div>
-						<div class="nw-space-detail-value">${_escHtml(space?.title || space?.slug || space?.id || 'Untitled')}</div>
-						<div class="nw-space-detail-label">View</div>
-						<div class="nw-space-detail-value">${_escHtml(spaceView)}</div>
-						<div class="nw-space-detail-label">Visibility</div>
-						<div class="nw-space-detail-value">${_escHtml(visibility)}</div>
-						<div class="nw-space-detail-label">Editable</div>
-						<div class="nw-space-detail-value">${editable ? 'Yes' : 'No — fork it into your own repo first'}</div>
-						<div class="nw-space-detail-label">Active ref</div>
-						<div class="nw-space-detail-value">${_escHtml(activeRef)}</div>
-						<div class="nw-space-detail-label">Repo default</div>
-						<div class="nw-space-detail-value">${_escHtml(defaultRef)}</div>
-						<div class="nw-space-detail-label">Current asset</div>
-						<div class="nw-space-detail-value">${_escHtml(activeAssetPath)}</div>
-						${forkedFrom ? `<div class="nw-space-detail-label">Forked from</div><div class="nw-space-detail-value">${_escHtml(forkedFrom)}</div>` : ''}
-					</div>
-					<div class="nw-space-detail-note">${editable
-						? 'You own this repo. Saving, snapshots, template publishing, and workflow edits all write back to the active ref and workflow asset you select here.'
-						: 'You are viewing a readable repo. Your active ref and active workflow asset are personal to this workbench, so you can inspect another branch or workflow asset here without changing the repo default for everyone else.'}</div>
-					<div class="nw-repo-detail-section">
-						<div class="nw-repo-detail-title">Refs</div>
-						<div class="nw-repo-detail-copy">Switch the active ref for this workbench, or create/delete refs when you own the repo.</div>
-						<div class="nw-repo-ref-list">${refsHtml}</div>
-					</div>
-					<div class="nw-repo-detail-section">
-						<div class="nw-repo-detail-title">Recent commits on ${_escHtml(activeRef)}</div>
-						<div class="nw-repo-detail-copy">This is the repo-level history for the current ref, not just workflow snapshots.${editable && !canRestoreHistory ? ' Switch to a branch before restoring one of these commits into your own repo state.' : ''}</div>
-						<div class="nw-repo-history-list">${historyHtml}</div>
-					</div>
-					<div class="nw-repo-detail-section">
-						<div class="nw-repo-detail-title">Assets on ${_escHtml(activeRef)}</div>
-						<div class="nw-repo-detail-copy">Browse the files visible on this ref. Workflow assets can be opened directly into the current workbench, while other files can be previewed here.</div>
-						<div class="nw-repo-asset-list">${assetsHtml}</div>
-						${editable ? `<div class="nw-space-detail-actions"><button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="create-asset">New Text Asset</button></div>` : ''}
-					</div>
-					<div class="nw-space-detail-actions">
-						${locator ? '<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="copy-locator">Copy owner/slug</button>' : ''}
-						${namespace ? '<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="browse-namespace">Browse Namespace</button>' : ''}
-						${editable ? '<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="create-branch">Create branch</button>' : ''}
-						${editable ? '<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="create-tag">Create tag</button>' : ''}
-						${!editable ? '<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="fork-space">Fork Into Mine</button>' : ''}
+				<div class="nw-assist-dialog-body">
+					<div class="nw-assist-dialog-layout nw-repo-details-layout">
+						<div class="nw-assist-dialog-column nw-repo-details-column">
+							<section class="nw-assist-dialog-section">
+								<div class="nw-assist-dialog-section-head">
+									<h4>Repo Identity</h4>
+									<p>This is the repo and workbench state Numel is currently using.</p>
+								</div>
+								<div class="nw-space-detail-grid">
+									<div class="nw-space-detail-label">Repo</div>
+									<div class="nw-space-detail-value">${_escHtml(locator || space?.id || 'Unknown')}</div>
+									<div class="nw-space-detail-label">Title</div>
+									<div class="nw-space-detail-value">${_escHtml(space?.title || space?.slug || space?.id || 'Untitled')}</div>
+									<div class="nw-space-detail-label">View</div>
+									<div class="nw-space-detail-value">${_escHtml(spaceView)}</div>
+									<div class="nw-space-detail-label">Visibility</div>
+									<div class="nw-space-detail-value">${_escHtml(visibility)}</div>
+									<div class="nw-space-detail-label">Editable</div>
+									<div class="nw-space-detail-value">${editable ? 'Yes' : 'No — fork it into your own repo first'}</div>
+									<div class="nw-space-detail-label">Active ref</div>
+									<div class="nw-space-detail-value">${_escHtml(activeRef)}</div>
+									<div class="nw-space-detail-label">Repo default</div>
+									<div class="nw-space-detail-value">${_escHtml(defaultRef)}</div>
+									<div class="nw-space-detail-label">Current asset</div>
+									<div class="nw-space-detail-value">${_escHtml(activeAssetPath)}</div>
+									${forkedFrom ? `<div class="nw-space-detail-label">Forked from</div><div class="nw-space-detail-value">${_escHtml(forkedFrom)}</div>` : ''}
+								</div>
+								<div class="nw-space-detail-note">${editable
+									? 'You own this repo. Saving, snapshots, template publishing, and workflow edits write back to the active ref and asset shown here.'
+									: 'You are inspecting a readable repo. The active ref and asset are personal to this workbench, so you can explore without changing the repo default for everyone else.'}</div>
+							</section>
+							${editable ? `
+								<section class="nw-assist-dialog-section">
+									<div class="nw-assist-dialog-section-head">
+										<h4>Sharing</h4>
+										<p>Choose whether this repo is discoverable through the Public Hub and by owner/slug lookup.</p>
+									</div>
+									<div class="nw-space-detail-actions nw-repo-details-actions">
+										<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="toggle-visibility" data-visibility="${_escHtml(nextVisibility)}">${_escHtml(visibilityActionLabel)}</button>
+									</div>
+								</section>
+							` : ''}
+							<section class="nw-assist-dialog-section">
+								<div class="nw-assist-dialog-section-head">
+									<h4>Quick Actions</h4>
+									<p>Jump to the most common repo tasks without leaving this overview.</p>
+								</div>
+								<div class="nw-space-detail-actions nw-repo-details-actions">
+									${locator ? '<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="copy-locator">Copy owner/slug</button>' : ''}
+									${namespace ? '<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="browse-namespace">Browse Namespace</button>' : ''}
+									${editable ? '<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="create-branch">Create branch</button>' : ''}
+									${editable ? '<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="create-tag">Create tag</button>' : ''}
+									${!editable ? '<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="fork-space">Fork Into Mine</button>' : ''}
+								</div>
+							</section>
+						</div>
+						<div class="nw-assist-dialog-column nw-repo-details-column">
+							<section class="nw-assist-dialog-section">
+								<div class="nw-assist-dialog-section-head">
+									<h4>Refs</h4>
+									<p>Switch the active ref for this workbench, or create and delete refs when you own the repo.</p>
+								</div>
+								<div class="nw-repo-ref-list">${refsHtml}</div>
+							</section>
+							<section class="nw-assist-dialog-section">
+								<div class="nw-assist-dialog-section-head">
+									<h4>Recent commits on ${_escHtml(activeRef)}</h4>
+									<p>This is the repo-level history for the current ref, not just workflow snapshots.${editable && !canRestoreHistory ? ' Switch to a branch before restoring one of these commits into your own repo state.' : ''}</p>
+								</div>
+								<div class="nw-repo-history-list">${historyHtml}</div>
+							</section>
+							<section class="nw-assist-dialog-section">
+								<div class="nw-assist-dialog-section-head">
+									<h4>Assets on ${_escHtml(activeRef)}</h4>
+									<p>Browse the files visible on this ref. Workflow assets can be opened into the current workbench, while other files can be previewed here.</p>
+								</div>
+								<div class="nw-repo-asset-list">${assetsHtml}</div>
+								${editable ? `<div class="nw-space-detail-actions nw-repo-details-actions"><button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-action="create-asset">New Text Asset</button></div>` : ''}
+							</section>
+						</div>
 					</div>
 				</div>
-				<div class="sg-input-dialog-footer">
-					<button class="sg-input-dialog-btn sg-input-dialog-confirm">Close</button>
+				<div class="nw-admin-dialog-btns nw-assist-dialog-actions is-readonly">
+					<button class="nw-btn nw-btn-sm nw-btn-secondary" type="button" data-role="close">Close</button>
 				</div>
 			</div>
 		`;
@@ -3856,8 +3978,13 @@ function _showCurrentSpaceDetailsDialog(space = null, repoState = {}) {
 			overlay.remove();
 			resolve(value);
 		};
-		overlay.querySelector('.sg-input-dialog-close')?.addEventListener('click', () => close(null));
-		overlay.querySelector('.sg-input-dialog-confirm')?.addEventListener('click', () => close(null));
+		overlay.querySelectorAll('[data-role="close"]').forEach((button) => {
+			button.addEventListener('click', () => close(null));
+		});
+		overlay.querySelector('[data-action="toggle-visibility"]')?.addEventListener('click', (event) => close({
+			action: 'toggle-visibility',
+			visibility: event.currentTarget?.getAttribute('data-visibility') || '',
+		}));
 		overlay.querySelector('[data-action="copy-locator"]')?.addEventListener('click', () => close({ action: 'copy-locator', locator }));
 		overlay.querySelector('[data-action="browse-namespace"]')?.addEventListener('click', () => close({ action: 'browse-namespace', namespace }));
 		overlay.querySelector('[data-action="create-branch"]')?.addEventListener('click', () => close({ action: 'create-branch', fromRef: activeRef }));
@@ -3910,7 +4037,7 @@ function _showCurrentSpaceDetailsDialog(space = null, repoState = {}) {
 				close(null);
 			}
 		});
-		queueMicrotask(() => overlay.querySelector('.sg-input-dialog-confirm')?.focus());
+		queueMicrotask(() => overlay.querySelector('[data-role="close"]')?.focus());
 	});
 }
 
@@ -4472,6 +4599,8 @@ async function inspectCurrentSpace() {
 			commits: [],
 			assets: [],
 		};
+		const repoDetailsLock = schemaGraph?.api?.lock;
+		repoDetailsLock?.lock?.('Loading repo details', true, { lockMovement: false, lockOverlays: true });
 		try {
 			const [refsPayload, historyPayload, assetsPayload] = await Promise.all([
 				api?.repoRefs?.() || Promise.resolve({}),
@@ -4488,6 +4617,8 @@ async function inspectCurrentSpace() {
 			};
 		} catch (error) {
 			addLog('error', `❌ Failed to load repo details: ${error.message}`);
+		} finally {
+			repoDetailsLock?.unlock?.();
 		}
 
 		const action = await _showCurrentSpaceDetailsDialog(currentSpaceInfo, repoState);
@@ -4504,6 +4635,10 @@ async function inspectCurrentSpace() {
 		}
 		if (action.action === 'browse-namespace' && action.namespace) {
 			await openPublicHub({ mode: 'namespace', namespace: action.namespace });
+			continue;
+		}
+		if (action.action === 'toggle-visibility' && action.visibility) {
+			await _setCurrentSpaceVisibility(action.visibility);
 			continue;
 		}
 		if (action.action === 'preview-asset' && action.path) {
@@ -4569,6 +4704,33 @@ async function inspectCurrentSpace() {
 			return;
 		}
 		return;
+	}
+}
+
+async function _setCurrentSpaceVisibility(nextVisibility) {
+	if (!api || !currentSpaceInfo || !_canEditCurrentSpace()) return false;
+	const normalized = String(nextVisibility || '').trim().toLowerCase();
+	const currentVisibility = String(currentSpaceInfo?.visibility || 'private').trim().toLowerCase() || 'private';
+	if (!normalized || normalized === currentVisibility) return false;
+	const title = normalized === 'public' ? 'Make Repo Public' : 'Make Repo Private';
+	const message = normalized === 'public'
+		? 'This repo will become discoverable through the Public Hub and by owner/slug lookup.'
+		: 'This repo will stop appearing in the Public Hub and owner/slug discovery flows.';
+	const ok = await NumelConfirm(title, message, title, false, 'Cancel');
+	if (!ok) return false;
+	try {
+		const response = await api.updateSpace(currentSpaceId, { visibility: normalized });
+		currentSpaceInfo = response?.space || currentSpaceInfo;
+		currentSpaceId = currentSpaceInfo?.id || currentSpaceId;
+		_setSpaceScope(_spaceScopeFor(currentSpaceInfo));
+		await refreshSpaceList(false);
+		_updateWorkbenchOverview();
+		addLog('success', `🌐 Repo visibility set to "${normalized}"`);
+		return true;
+	} catch (error) {
+		addLog('error', `❌ Failed to update repo visibility: ${error.message}`);
+		await NumelAlert(title, error.message || 'Failed to update repo visibility.');
+		return false;
 	}
 }
 
@@ -4880,6 +5042,7 @@ async function syncWorkflow(workflow = null, _name = null, force = false, saveOp
 			schemaGraph.eventBus.emit('workflow:synced');
 			_syncReuseControls();
 			_updateStarterExperience(false);
+			_updateWorkbenchOverview();
 			addLog('success', `✅ Saved "${resolvedWorkflowName}"`);
 			return response;
 		} else {
@@ -4910,6 +5073,7 @@ async function saveWorkflowToBackend(workflow = null, _name = null, force = fals
 	workflowDirty = false;
 	_syncReuseControls();
 	_updateStarterExperience(false);
+	_updateWorkbenchOverview();
 	return response;
 }
 
@@ -5391,18 +5555,7 @@ window.loadAndSyncWorkflow = async function(workflow, name) {
 		_updateWorkbenchOverview();
 		void _refreshWorkflowAssetBrowser();
 		addLog('success', `✅ Loaded "${workflowName}"`);
-
-		try {
-			const saved = await saveWorkflowToBackend(preparedWorkflow, workflowName, true);
-			if (saved?.name) {
-				_setWorkflowName(saved.name);
-			}
-			workflowDirty = false;
-		} catch (saveError) {
-			workflowDirty = true;
-			_syncReuseControls();
-			addLog('warning', `⚠️ Loaded "${workflowName}" but could not auto-save it yet: ${saveError.message}`);
-		}
+		addLog('info', `💾 "${workflowName}" is loaded locally. Save when you are ready to write it to this space.`);
 
 		return true;
 	} finally {

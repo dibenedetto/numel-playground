@@ -112,6 +112,14 @@ class SpaceSelectRequest(BaseModel):
 	space_id : str
 
 
+class SpaceUpdateRequest(BaseModel):
+	space_id     : Optional[str] = None
+	title        : Optional[str] = None
+	slug         : Optional[str] = None
+	description  : Optional[str] = None
+	visibility   : Optional[str] = None
+
+
 class SpaceResolveRequest(BaseModel):
 	namespace : str
 	slug      : str
@@ -969,6 +977,40 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			raise HTTPException(status_code=404, detail=f"Space '{request.space_id}' not found")
 		await _set_current_space_id(req, user.id, request.space_id)
 		await _clear_cached_workflow(req)
+		decorated = await _decorate_space_records(
+			req,
+			[space],
+			viewer_user_id=user.id,
+			active_ref_overrides=_space_ref_overrides(user),
+			active_asset_overrides=_space_asset_overrides(user),
+		)
+		return {"space": decorated[0] if decorated else space}
+
+	@app.post("/spaces/update")
+	async def update_space(request: SpaceUpdateRequest, req: Request):
+		user = await _refresh_user(req)
+		target_space_id = str(request.space_id or await _current_space_id(req, user.id) or "").strip()
+		if not target_space_id:
+			raise HTTPException(status_code=400, detail="space_id is required")
+		updates = {}
+		if request.title is not None:
+			updates["title"] = request.title.strip()
+		if request.slug is not None:
+			updates["slug"] = _space_slug(request.slug)
+		if request.description is not None:
+			updates["description"] = request.description
+		if request.visibility is not None:
+			updates["visibility"] = str(request.visibility or "private").strip().lower() or "private"
+		if not updates:
+			raise HTTPException(status_code=400, detail="At least one field must be updated")
+		try:
+			data = await _platform(req).post_json(
+				f"/platform/spaces/{target_space_id}/update",
+				updates,
+			)
+		except PlatformRequestError as exc:
+			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
+		space = data.get("space") or {}
 		decorated = await _decorate_space_records(
 			req,
 			[space],

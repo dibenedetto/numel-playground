@@ -137,6 +137,9 @@ class NumelAPI {
 	createSpace(title, slug = null, description = '') {
 		return this.json('/spaces/create', { title, slug, description, visibility: 'private' });
 	}
+	updateSpace(spaceId, updates = {})  {
+		return this.json(`/platform/spaces/${encodeURIComponent(spaceId)}/update`, updates || {});
+	}
 	forkSpace(spaceId, title = null, slug = null) {
 		return this.json('/spaces/fork', { space_id: spaceId, title, slug });
 	}
