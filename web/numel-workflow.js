@@ -344,14 +344,20 @@ class WorkflowVisualizer {
 			return false;
 		}
 
-		this.currentWorkflow = JSON.parse(JSON.stringify(workflow));
-		this.currentWorkflow = _stripPreviewNodes(this.currentWorkflow);
+		const originalWorkflow = JSON.parse(JSON.stringify(workflow));
+		let normalizedWorkflow = _stripPreviewNodes(originalWorkflow);
 		if (this.schemaGraph._features?.implicitStartEnd) {
-			this.currentWorkflow = _stripBookendNodes(this.currentWorkflow);
+			const strippedWorkflow = _stripBookendNodes(normalizedWorkflow);
+			if (Array.isArray(strippedWorkflow?.nodes) && strippedWorkflow.nodes.length > 0) {
+				normalizedWorkflow = strippedWorkflow;
+			}
 		}
-		this.currentWorkflowName = name || workflow.options?.name || 'Untitled';
-
+		if (!Array.isArray(normalizedWorkflow?.nodes) || normalizedWorkflow.nodes.length === 0) {
+			normalizedWorkflow = originalWorkflow;
+		}
 		this.schemaGraph.api.graph.clear();
+		this.currentWorkflow = normalizedWorkflow;
+		this.currentWorkflowName = name || workflow.options?.name || 'Untitled';
 
 		if (this.schemaGraph.api.workflow) {
 			this.schemaGraph.api.workflow.import(this.currentWorkflow, WORKFLOW_SCHEMA_NAME);

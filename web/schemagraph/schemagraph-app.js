@@ -1428,6 +1428,13 @@ class SchemaGraphApp {
 			});
 			if (!resp.ok) { this.showError?.('Failed to fetch tutorial: ' + resp.status); return; }
 			const workflow = await resp.json();
+			const workflowName = workflow?.options?.name || jsonFilename.replace('.json', '');
+
+			if (typeof window.loadAndSyncWorkflow === 'function') {
+				this._closeDocsPanel();
+				await window.loadAndSyncWorkflow(workflow, workflowName);
+				return;
+			}
 
 			const schemas = this.graph.getRegisteredSchemas().filter(s => this.graph.isWorkflowSchema(s));
 			if (schemas.length === 0) { this.showError?.('No workflow schema registered'); return; }
@@ -1463,8 +1470,7 @@ class SchemaGraphApp {
 			// sending the raw tutorial JSON that may lack required fields.
 			if (typeof syncWorkflow === 'function') {
 				try {
-					const name = workflow?.options?.name || jsonFilename.replace('.json', '');
-					await syncWorkflow(null, name, true);
+					await syncWorkflow(null, workflowName, true);
 				} catch (syncErr) {
 					console.warn('Tutorial sync to backend failed (workflow is loaded on canvas):', syncErr);
 				}

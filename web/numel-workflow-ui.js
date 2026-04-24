@@ -18,6 +18,11 @@ let currentSpaceInfo  = null;
 let availableSpaces   = [];
 let availableSpaceGroups = { mine: [], shared: [], public: [] };
 let currentSpaceScope = 'mine';
+let _workflowSurfaceRevision = 0;
+let _workflowLoadSequence = 0;
+let _localWorkflowReloadMuteUntil = 0;
+let _initialSpaceBootstrapPromise = null;
+let _initialSpaceBootstrapDone = false;
 let _pendingExecEvents = [];   // buffer events arriving before currentExecutionId is set
 let workflowDirty      = true;
 let fileUploadManager  = null;
@@ -202,7 +207,20 @@ function _setSpaceScope(scope) {
 }
 
 function _canEditCurrentSpace() {
-	return !!currentSpaceInfo?.is_owned;
+	const resolvedSpace = currentSpaceInfo
+		|| (currentSpaceId ? availableSpaces.find((space) => space?.id === currentSpaceId) : null)
+		|| null;
+	if (resolvedSpace) return !!resolvedSpace.is_owned;
+	return !!currentSpaceId && currentSpaceScope === 'mine';
+}
+
+async function _awaitInitialSpaceBootstrap() {
+	if (_initialSpaceBootstrapDone || !_initialSpaceBootstrapPromise) return;
+	try {
+		await _initialSpaceBootstrapPromise;
+	} catch (_error) {
+		// refreshSpaceList() already reports bootstrap failures in the event log.
+	}
 }
 
 function _spaceRepoLocator(space = null) {
@@ -228,6 +246,18 @@ function _spaceDefaultRef(space = null) {
 function _spaceActiveAssetPath(space = null) {
 	if (!space || typeof space !== 'object') return 'workflow.json';
 	return String(space.active_asset_path || 'workflow.json').trim() || 'workflow.json';
+}
+
+function _markWorkflowSurfaceMutation({ muteReloadMs = 0 } = {}) {
+	_workflowSurfaceRevision += 1;
+	if (muteReloadMs > 0) {
+		_localWorkflowReloadMuteUntil = Math.max(_localWorkflowReloadMuteUntil, Date.now() + muteReloadMs);
+	}
+	return _workflowSurfaceRevision;
+}
+
+function _isWorkflowReloadMuted() {
+	return Date.now() < _localWorkflowReloadMuteUntil;
 }
 
 function _spaceSlugValue(space = null) {
@@ -3001,11 +3031,6 @@ async function connect() {
 		await client.ping();
 		addLog('success', '✅ Server reachable');
 
-		// Hook WebSocket events before opening the socket so we do not miss a
-		// very fast onopen during local first-load startup.
-		setupClientEvents();
-		client.connectWebSocket();
-
 		// Fetch and register schema
 		const schemaResponse = await client.getSchema();
 		if (!schemaResponse.schema) {
@@ -3091,10 +3116,21 @@ async function connect() {
 		_syncSpaceControls();
 
 		addLog('info', '🧭 Loading current space...');
-		void refreshSpaceList(true).finally(() => {
+		_initialSpaceBootstrapDone = false;
+		_initialSpaceBootstrapPromise = (async () => {
+			await refreshSpaceList(true);
 			// Refresh channel summary once the initial space bootstrap settles.
 			if (typeof NumelChannels !== 'undefined') NumelChannels.refreshSummary();
+		})().finally(() => {
+			_initialSpaceBootstrapDone = true;
 		});
+
+		// Wire and open the event channel only after the initial schema + space
+		// bootstrap has been kicked off. In browser sessions this avoids a
+		// startup stall where the page could get stuck right after /ping before
+		// even reaching /schema or the first space/workflow load.
+		setupClientEvents();
+		client.connectWebSocket();
 
 		addLog('success', `✅ Connected to ${serverUrl}`);
 	} catch (error) {
@@ -3149,6 +3185,8 @@ async function disconnect() {
 	availableSpaceGroups = { mine: [], shared: [], public: [] };
 	currentSpaceScope = 'mine';
 	currentWorkflowHasContent = false;
+	_initialSpaceBootstrapPromise = null;
+	_initialSpaceBootstrapDone = false;
 
 	$('spaceSelect').disabled = true;
 	$('spaceSelect').innerHTML = '<option value="">Loading spaces...</option>';
@@ -3292,8 +3330,11 @@ function setupClientEvents() {
 	});
 
 	client.on('workspace.changed', async (event) => {
-		const sourceSessionId = event?.data?.source_session_id || null;
+		const sourceSessionId = event?.data?.source_session_id || event?.source_session_id || null;
 		if (sourceSessionId && sourceSessionId === api?.sessionId) {
+			return;
+		}
+		if (!sourceSessionId && _isWorkflowReloadMuted()) {
 			return;
 		}
 
@@ -3537,10 +3578,25 @@ async function loadCurrentWorkflow() {
 
 	try {
 		const activeApi = api;
+		const loadSeq = ++_workflowLoadSequence;
+		const revisionAtStart = _workflowSurfaceRevision;
 		const response = await activeApi.getWorkflow();
 		if (!api || api !== activeApi) return;
+		if (loadSeq !== _workflowLoadSequence) return;
+		if (_workflowSurfaceRevision !== revisionAtStart) return;
 		const workflow = response?.workflow || null;
 		const name = response?.name || 'Untitled';
+		const serverHasContent = _hasWorkflowContent(workflow);
+		const localWorkflow = visualizer?.exportWorkflow?.() || visualizer?.currentWorkflow || null;
+		const localHasContent = _hasWorkflowContent(localWorkflow) || currentWorkflowHasContent;
+		if (!serverHasContent && workflowDirty && localHasContent) {
+			_syncReuseControls();
+			_updateStarterExperience(false);
+			_updateWorkbenchOverview();
+			void _refreshWorkflowAssetBrowser();
+			addLog('info', '🧭 Kept the newer local workflow while the repo was still empty on the server');
+			return;
+		}
 
 		// Close transient overlays before replacing the graph.
 		schemaGraph.closeAllPreviewTextOverlays?.();
@@ -3573,6 +3629,7 @@ async function loadCurrentWorkflow() {
 				: '🧭 Current space is ready for a workflow');
 		}
 
+		_markWorkflowSurfaceMutation();
 		workflowDirty = false;
 		enableStart(true);
 		updateClearButtonState();
@@ -4766,6 +4823,7 @@ async function syncWorkflow(workflow = null, _name = null, force = false, saveOp
 	if (!_canEditCurrentSpace()) {
 		throw new Error('Fork this space into your own workbench before saving changes.');
 	}
+	_markWorkflowSurfaceMutation({ muteReloadMs: 2500 });
 
 	schemaGraph.api.lock.lock('Syncing workflow', true, { lockMovement: true, lockOverlays: true });
 
@@ -5281,40 +5339,81 @@ async function publishCurrentWorkflowTemplate() {
 
 // Global helper for console /gen — load + sync a workflow JSON object
 window.loadAndSyncWorkflow = async function(workflow, name) {
-	if (!visualizer || !schemaGraph) return;
+	if (!visualizer || !schemaGraph) return false;
+	await _awaitInitialSpaceBootstrap();
 	_hideStarterFollowthrough();
-	let preparedWorkflow = workflow;
-	if (api?.validateWorkflow) {
-		const validation = await api.validateWorkflow(workflow, { apply_repairs: true });
-		preparedWorkflow = validation.workflow || workflow;
-		for (const repair of validation.repairs || []) {
-			addLog('info', `🛠 ${repair}`);
+	_markWorkflowSurfaceMutation({ muteReloadMs: 2500 });
+	schemaGraph.api.lock.lock('Loading workflow', true, { lockMovement: true, lockOverlays: true });
+	try {
+		let preparedWorkflow = workflow;
+		let workflowName = name || workflow?.options?.name || 'Generated Workflow';
+		try {
+			const imported = await _prepareImportedWorkflow(workflow, workflowName);
+			preparedWorkflow = imported?.workflow || workflow;
+			workflowName = imported?.name || workflowName;
+			_logImportedWorkflowDetails(imported);
+			if (api?.validateWorkflow) {
+				const validation = await api.validateWorkflow(preparedWorkflow, { apply_repairs: true });
+				preparedWorkflow = validation.workflow || preparedWorkflow;
+				for (const repair of validation.repairs || []) {
+					addLog('info', `🛠 ${repair}`);
+				}
+				for (const warning of validation.warnings || []) {
+					addLog('warning', `⚠️ ${warning}`);
+				}
+			}
+		} catch (validationError) {
+			if (!Array.isArray(preparedWorkflow?.nodes) || !Array.isArray(preparedWorkflow?.edges)) {
+				throw validationError;
+			}
+			addLog('warning', `⚠️ Loaded the raw workflow after validation failed: ${validationError.message}`);
 		}
-		for (const warning of validation.warnings || []) {
-			addLog('warning', `⚠️ ${warning}`);
+
+		workflowName = workflowName || preparedWorkflow?.options?.name || 'Generated Workflow';
+		schemaGraph.closeAllPreviewTextOverlays?.();
+		agentChatManager?.disconnectAll();
+		const loaded = visualizer.loadWorkflow(preparedWorkflow, workflowName);
+		if (!loaded) {
+			throw new Error('Failed to load workflow into graph');
 		}
-	}
-	schemaGraph.api.graph.clear();
-	schemaGraph.api.view.reset();
-	const n = name || preparedWorkflow?.options?.name || 'Generated Workflow';
-	const loaded = visualizer.loadWorkflow(preparedWorkflow, n);
-	if (loaded) {
+		_setWorkflowName(workflowName);
 		_latestReplayExecutionId = null;
 		_resetExecutionReplayView();
 		_resetExecutionEvalView();
 		_resetExecutionFailureView();
 		_resetExecutionComparisonView();
 		currentWorkflowHasContent = _hasWorkflowContent(preparedWorkflow);
-		await syncWorkflow(preparedWorkflow, n, true);
+		workflowDirty = true;
 		enableStart(true);
+		updateClearButtonState();
+		_syncReuseControls();
 		_updateStarterExperience(false);
-		addLog('success', `✅ Loaded "${visualizer.currentWorkflowName}"`);
+		_updateWorkbenchOverview();
+		void _refreshWorkflowAssetBrowser();
+		addLog('success', `✅ Loaded "${workflowName}"`);
+
+		try {
+			const saved = await saveWorkflowToBackend(preparedWorkflow, workflowName, true);
+			if (saved?.name) {
+				_setWorkflowName(saved.name);
+			}
+			workflowDirty = false;
+		} catch (saveError) {
+			workflowDirty = true;
+			_syncReuseControls();
+			addLog('warning', `⚠️ Loaded "${workflowName}" but could not auto-save it yet: ${saveError.message}`);
+		}
+
+		return true;
+	} finally {
+		schemaGraph.api.lock.unlock();
 	}
 };
 
 window.loadWorkflowFromServer = async function(workflow, name, { source = 'assistant' } = {}) {
 	if (!visualizer || !schemaGraph || !workflow) return false;
 	_hideStarterFollowthrough();
+	_markWorkflowSurfaceMutation();
 	const chatState = saveChatState();
 	schemaGraph.closeAllPreviewTextOverlays?.();
 	agentChatManager?.disconnectAll();
@@ -5429,24 +5528,24 @@ async function handleSingleImport(event) {
 	if (!file) return;
 
 	try {
-		schemaGraph.api.lock.lock('Importing content');
-
 		const text = await file.text();
 		const rawDocument = JSON.parse(text);
 		const imported = await _prepareImportedWorkflow(rawDocument, file.name.replace(/\.json$/i, ''));
 		const preparedWorkflow = imported.workflow || rawDocument;
 		_logImportedWorkflowDetails(imported);
 
-		// Clear current workflow
-		schemaGraph.api.graph.clear();
-		schemaGraph.api.view.reset();
-
 		// Validate
 		const name      = imported?.name || preparedWorkflow?.options?.name || file.name.replace(/\.json$/i, '');
-		const validated = visualizer.loadWorkflow(preparedWorkflow, name);
-		if (validated) {
-			await syncWorkflow(preparedWorkflow, name, true);
-			enableStart(true);
+		if (typeof window.loadAndSyncWorkflow === 'function') {
+			await window.loadAndSyncWorkflow(preparedWorkflow, name);
+		} else {
+			const validated = visualizer.loadWorkflow(preparedWorkflow, name);
+			if (validated) {
+				await syncWorkflow(preparedWorkflow, name, true);
+				enableStart(true);
+			}
+		}
+		if (visualizer?.currentWorkflow) {
 			const sourceSuffix = imported?.source_format && imported.source_format !== 'numel'
 				? ` from ${String(imported.source_format).toUpperCase()}`
 				: '';
@@ -5454,11 +5553,10 @@ async function handleSingleImport(event) {
 		}
 	} catch (error) {
 		addLog('error', `❌ Failed to import: ${error.message}`);
+		await NumelAlert('Import Workflow', error.message || 'Failed to import workflow file.');
+	} finally {
+		event.target.value = '';
 	}
-
-	schemaGraph.api.lock.unlock();
-
-	event.target.value = '';
 }
 
 function downloadWorkflow() {
@@ -5505,21 +5603,22 @@ async function pasteWorkflowFromClipboard() {
 		return;
 	}
 
-	schemaGraph.api.lock.lock('Pasting workflow');
-
 	try {
 		const imported = await _prepareImportedWorkflow(rawDocument, 'Pasted Workflow');
 		const workflow = imported.workflow || rawDocument;
 		_logImportedWorkflowDetails(imported);
 
-		schemaGraph.api.graph.clear();
-		schemaGraph.api.view.reset();
-
 		const name = imported?.name || workflow?.options?.name || 'Pasted Workflow';
-		const loaded = visualizer.loadWorkflow(workflow, name);
-		if (loaded) {
-			await syncWorkflow(workflow, name, true);
-			enableStart(true);
+		if (typeof window.loadAndSyncWorkflow === 'function') {
+			await window.loadAndSyncWorkflow(workflow, name);
+		} else {
+			const loaded = visualizer.loadWorkflow(workflow, name);
+			if (loaded) {
+				await syncWorkflow(workflow, name, true);
+				enableStart(true);
+			}
+		}
+		if (visualizer?.currentWorkflow) {
 			const sourceSuffix = imported?.source_format && imported.source_format !== 'numel'
 				? ` from ${String(imported.source_format).toUpperCase()}`
 				: '';
@@ -5528,8 +5627,6 @@ async function pasteWorkflowFromClipboard() {
 		updateClearButtonState();
 	} catch (err) {
 		addLog('error', `❌ Failed to paste workflow: ${err.message}`);
-	} finally {
-		schemaGraph.api.lock.unlock();
 	}
 }
 

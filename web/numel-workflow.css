@@ -1699,6 +1699,10 @@ body.nw-layout-workbench .nw-space-pill.is-active {
 	padding-left: 10px;
 }
 
+#workbenchOverviewSection .nw-user-actions {
+	margin-right: 12px;
+}
+
 /* User info (expanded content) — kept visible but compacted */
 body.nw-layout-project-workbench .nw-user-info {
 	display: flex;

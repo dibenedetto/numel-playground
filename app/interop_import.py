@@ -76,6 +76,19 @@ def import_workflow_document(
 ) -> Dict[str, Any]:
 	if not isinstance(document, dict):
 		raise InteropImportError("Imported content must be a JSON object.")
+	if _looks_assistant_deployment_example(document):
+		raise InteropImportError(
+			"This JSON is an assistant deployment example, not a workflow. Open it from Assistant Deployments or use the deployment API instead of importing it into the workflow canvas.",
+			detail={
+				"message": "Assistant deployment examples cannot be imported as workflow graphs.",
+				"errors": [
+					"Use Assistant Deployments to apply this example, or copy the linked workflow/workbench asset instead of importing the deployment JSON into the canvas."
+				],
+				"warnings": [],
+				"repairs": [],
+				"source_format": "assistant_deployment_example",
+			},
+		)
 
 	working, unwrap_warnings, fallback_name = _unwrap_workflow_document(document)
 	detected = _normalize_source_format(source_format) or detect_workflow_source(working)
@@ -134,6 +147,13 @@ def detect_workflow_source(document: Dict[str, Any]) -> Optional[str]:
 	if _looks_n8n_workflow(document):
 		return "n8n"
 	return None
+
+
+def _looks_assistant_deployment_example(document: Dict[str, Any]) -> bool:
+	doc_type = str(document.get("type") or "").strip().lower()
+	if doc_type == "assistant_deployment_example":
+		return True
+	return bool(document.get("routing_rules") is not None and document.get("proactive_tasks") is not None)
 
 
 def _unwrap_workflow_document(document: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str], Optional[str]]:

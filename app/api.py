@@ -724,7 +724,10 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		except json.JSONDecodeError as exc:
 			raise HTTPException(status_code=500, detail=f"Saved workflow asset '{path}' is invalid JSON: {exc}")
 
-	async def _cache_current_workflow(req: Request, workflow: Workflow) -> str:
+	def _workflow_cache_key(space_id: str, asset_path: str, ref: str) -> str:
+		return f"{space_id}::{ref or 'main'}::{asset_path or 'workflow.json'}"
+
+	async def _cache_current_workflow(req: Request, workflow: Workflow, *, cache_key: Optional[str] = None) -> str:
 		ws = _ws(req)
 		# Runtime-allocated agent ports may have leaked in from persisted JSON.
 		# Clear them so impl() re-allocates against the live uvicorn instance
@@ -737,13 +740,15 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			if getattr(workflow, "options", None) is not None and workflow.options.name
 			else "workflow"
 		)
-		await ws.manager.remove()
-		await ws.manager.add(workflow, name)
+		await ws.manager.replace_cached(workflow, name)
+		if cache_key is not None:
+			setattr(ws.manager, "_numel_cached_workflow_key", cache_key)
 		return name
 
 	async def _clear_cached_workflow(req: Request) -> None:
 		ws = _ws(req)
 		await ws.manager.remove()
+		setattr(ws.manager, "_numel_cached_workflow_key", None)
 
 	def _request_session_id(req: Request) -> Optional[str]:
 		value = str(req.headers.get("x-session-id", "") or "").strip()
@@ -1572,7 +1577,11 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		doc = validation["workflow"]
 		workflow = _workflow_model_from_doc(doc)
 		await _set_current_space_asset_path(req, user.id, str(space.get("id", "") or ""), path)
-		await _cache_current_workflow(req, workflow)
+		await _cache_current_workflow(
+			req,
+			workflow,
+			cache_key=_workflow_cache_key(str(space.get("id", "") or ""), path, active_ref),
+		)
 		_, updated_space = await _ensure_current_space(req)
 		return {
 			"space": updated_space,
@@ -1628,7 +1637,11 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		await _set_current_space_asset_path(req, user.id, str(space.get("id", "") or ""), asset_path)
 		doc = await _read_workflow_asset_doc(req, user.id, str(space.get("id", "") or ""), path=asset_path, ref=active_ref)
 		if doc is not None:
-			await _cache_current_workflow(req, _workflow_model_from_doc(doc))
+			await _cache_current_workflow(
+				req,
+				_workflow_model_from_doc(doc),
+				cache_key=_workflow_cache_key(str(space.get("id", "") or ""), asset_path, active_ref),
+			)
 		else:
 			await _clear_cached_workflow(req)
 		_, updated_space = await _ensure_current_space(req)
@@ -1649,10 +1662,13 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		asset_path = _space_active_asset_path(space)
 		doc = await _read_workflow_asset_doc(req, user.id, str(space.get("id", "") or ""), path=asset_path, ref=active_ref)
 		if doc is not None:
-			try:
-				await _cache_current_workflow(req, _workflow_model_from_doc(doc))
-			except Exception:
-				pass
+			cache_key = _workflow_cache_key(str(space.get("id", "") or ""), asset_path, active_ref)
+			cached_key = getattr(_ws(req).manager, "_numel_cached_workflow_key", None)
+			if cached_key != cache_key:
+				try:
+					await _cache_current_workflow(req, _workflow_model_from_doc(doc), cache_key=cache_key)
+				except Exception:
+					pass
 		return {
 			"space": space,
 			"ref": active_ref,
@@ -1734,7 +1750,11 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			)
 		except PlatformRequestError as exc:
 			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
-		await _cache_current_workflow(req, workflow)
+		await _cache_current_workflow(
+			req,
+			workflow,
+			cache_key=_workflow_cache_key(str(space.get("id", "") or ""), asset_path, active_ref),
+		)
 		await _emit_workflow_changed(name, source_session_id=_request_session_id(req))
 		return {
 			"space": space,
@@ -1862,7 +1882,11 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			)
 		except PlatformRequestError as exc:
 			raise HTTPException(status_code=exc.status_code, detail=exc.detail)
-		await _cache_current_workflow(req, workflow)
+		await _cache_current_workflow(
+			req,
+			workflow,
+			cache_key=_workflow_cache_key(str(space.get("id", "") or ""), asset_path, active_ref),
+		)
 		await _emit_workflow_changed(name, source_session_id=_request_session_id(req))
 		return {
 			"space": space,
@@ -2027,7 +2051,11 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 						"ref": active_ref,
 					},
 				)
-				await _cache_current_workflow(req, _workflow_model_from_doc(doc))
+				await _cache_current_workflow(
+					req,
+					_workflow_model_from_doc(doc),
+					cache_key=_workflow_cache_key(str(space.get("id", "") or ""), asset_path, active_ref),
+				)
 			except PlatformRequestError as exc:
 				raise HTTPException(status_code=exc.status_code, detail=exc.detail)
 		options = request.initial_data or WorkflowExecutionOptions()
@@ -2187,6 +2215,15 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			"show_backend_config": len(list_supported_backends()) > 1,
 		}
 		return result
+
+	@app.get("/schema-bootstrap")
+	async def export_schema_bootstrap():
+		nonlocal schema_code
+		return {
+			"schema": schema_code,
+			"supported_backends": list_supported_backends(),
+			"show_backend_config": len(list_supported_backends()) > 1,
+		}
 
 
 	# @app.post("/chat_open/{name}")

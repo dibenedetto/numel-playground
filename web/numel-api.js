@@ -52,7 +52,6 @@ class NumelAPI {
 		if (requestOpts && requestOpts.signal) {
 			opts.signal = requestOpts.signal;
 		}
-
 		const resp = await fetch(`${this.baseUrl}${endpoint}`, opts);
 		if (!resp.ok) {
 			let detail = resp.statusText;
@@ -120,7 +119,19 @@ class NumelAPI {
 	// ── Workflow API ─────────────────────────────────────────────
 
 	ping()                        { return this.json('/ping'); }
-	getSchema()                   { return this.json('/schema'); }
+	async getSchema() {
+		const requestUrl = `${this.baseUrl}/schema-bootstrap`;
+		const resp = await fetch(requestUrl, {
+			method: 'GET',
+			headers: this._authHeaders(false, requestUrl),
+		});
+		if (!resp.ok) {
+			let detail = resp.statusText;
+			try { const err = await resp.json(); detail = JSON.stringify(err.detail || err, null, 2); } catch {}
+			throw new Error(`/schema-bootstrap failed: ${detail}`);
+		}
+		return resp.json();
+	}
 	getCurrentSpace()             { return this.json('/spaces/current'); }
 	listSpaces()                  { return this.json('/spaces/list'); }
 	createSpace(title, slug = null, description = '') {

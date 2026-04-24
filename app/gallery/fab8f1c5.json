@@ -208,8 +208,8 @@
       {
         "source": 2,
         "target": 8,
-        "source_slot": "flow_in",
-        "target_slot": "flow_out",
+        "source_slot": "flow_out",
+        "target_slot": "flow_in",
         "loop": true
       },
       {

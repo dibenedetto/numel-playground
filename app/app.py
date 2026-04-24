@@ -263,7 +263,8 @@ async def run_server(
 	# Public routes that don't require authentication
 	_PUBLIC_ROUTES = frozenset({
 		"/auth/login", "/auth/register", "/auth/status",
-		"/", "/status", "/ping",
+		"/", "/status", "/ping", "/schema", "/schema-bootstrap",
+		"/docs", "/docs/file",
 		"/health/live", "/health/ready",
 	})
 
@@ -1439,9 +1440,10 @@ def main():
 	parser .add_argument("--port",   type=int,  default=DEFAULT_APP_PORT, help="Listening port for control server"     )
 	parser .add_argument("--seed",   type=int,  default=DEFAULT_APP_SEED, help="Seed for pseudorandom number generator")
 	parser .add_argument("--tunnel", action="store_true",                  help="Start a cloudflared/ngrok tunnel for public webhook access")
+	parser .add_argument("--open-browser", action="store_true",            help="Open the frontend in the default browser after startup")
 	args   = parser.parse_args()
 
-	asyncio.run(run_server(args))
+	asyncio.run(run_server(args, open_browser=bool(getattr(args, "open_browser", False))))
 
 
 if __name__ == "__main__":

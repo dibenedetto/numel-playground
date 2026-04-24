@@ -25,7 +25,7 @@
     },
     {
       "type": "event_listener_flow",
-      "sources": ["heartbeat"],
+      "sources": {},
       "mode": "any",
       "timeout_ms": 5000,
       "extra": { "name": "Event Listener" }
@@ -50,14 +50,14 @@
     }
   ],
   "edges": [
-    { "source": 0, "target": 1, "source_slot": "output", "target_slot": "flow_in" },
-    { "source": 0, "target": 2, "source_slot": "output", "target_slot": "flow_in" },
+    { "source": 0, "target": 1, "source_slot": "flow_out", "target_slot": "flow_in" },
+    { "source": 0, "target": 2, "source_slot": "flow_out", "target_slot": "flow_in" },
     { "source": 1, "target": 3, "source_slot": "registered_id", "target_slot": "sources.heartbeat" },
     { "source": 2, "target": 3, "source_slot": "flow_out", "target_slot": "flow_in" },
     { "source": 3, "target": 4, "source_slot": "event", "target_slot": "input" },
     { "source": 4, "target": 5, "source_slot": "output", "target_slot": "flow_in" },
     { "source": 5, "target": 6, "source_slot": "flow_out", "target_slot": "flow_in" },
-    { "source": 6, "target": 2, "source_slot": "output", "target_slot": "flow_in", "loop": true },
+    { "source": 6, "target": 2, "source_slot": "flow_out", "target_slot": "flow_in", "loop": true },
     { "source": 6, "target": 7, "source_slot": "flow_out", "target_slot": "flow_in" }
   ]
 }

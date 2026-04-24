@@ -127,6 +127,30 @@ class WorkflowManager:
 		return name
 
 
+	async def replace_cached(self, workflow: Workflow, name: Optional[str] = None) -> str:
+		"""Replace the cached current workflow without emitting manager lifecycle events.
+
+		This is used when the app is syncing the active repo asset into the in-memory
+		workspace cache. It should still tear down any existing agent apps, but it
+		should not broadcast remove/add events to live browser clients.
+		"""
+		wf = copy.deepcopy(workflow)
+		async with self._impl_lock:
+			if not name:
+				if wf.options and wf.options.name:
+					name = wf.options.name
+				else:
+					self._current_id += 1
+					name = f"workflow_{self._current_id}"
+			for key in list(self._workflows.keys()):
+				data = self._workflows[key]
+				await self._kill_workflow(data)
+				del self._workflows[key]
+			wf.link()
+			self._workflows[name] = self._make_workflow(wf)
+		return name
+
+
 	async def remove(self, name: Optional[str] = None) -> bool:
 		async with self._impl_lock:
 			removed = await self._remove_locked(name)

@@ -2,9 +2,19 @@ from __future__ import annotations
 
 from importlib import import_module
 from inspect import getmembers, ismethod
+from pathlib import Path
 from typing import Any, Dict, Optional
+import sys
 
 from utils import log_print
+
+
+_APP_DIR = Path(__file__).resolve().parent
+_PROJECT_ROOT = _APP_DIR.parent
+if str(_PROJECT_ROOT) not in sys.path:
+	sys.path.insert(0, str(_PROJECT_ROOT))
+if str(_APP_DIR) not in sys.path:
+	sys.path.insert(1, str(_APP_DIR))
 
 
 def toolkit_candidates(module_name: str) -> list[str]:

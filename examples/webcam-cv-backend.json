@@ -72,7 +72,7 @@
     { "source": 1, "target": 7, "source_slot": "registered_id",  "target_slot": "source_id" },
     { "source": 6, "target": 7, "source_slot": "flow_out",       "target_slot": "flow_in" },
     { "source": 7, "target": 8, "source_slot": "flow_out",       "target_slot": "flow_in" },
-    { "source": 2, "target": 8, "source_slot": "flow_in",        "target_slot": "flow_out", "loop": true },
+    { "source": 8, "target": 2, "source_slot": "flow_out",       "target_slot": "flow_in", "loop": true },
     { "source": 8, "target": 9, "source_slot": "flow_out",       "target_slot": "flow_in" }
   ]
 }

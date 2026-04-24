@@ -60,7 +60,7 @@
     },
     {
       "type": "event_listener_flow",
-      "sources": ["webcam_src"],
+      "sources": {},
       "mode": "any",
       "timeout_ms": 10000,
       "extra": { "name": "Webcam Listener" }
@@ -80,7 +80,7 @@
     },
     {
       "type": "event_listener_flow",
-      "sources": ["mic_src"],
+      "sources": {},
       "mode": "any",
       "timeout_ms": 10000,
       "extra": { "name": "Mic Listener" }
@@ -99,7 +99,7 @@
     },
     {
       "type": "event_listener_flow",
-      "sources": ["screen_src"],
+      "sources": {},
       "mode": "any",
       "timeout_ms": 10000,
       "extra": { "name": "Screen Listener" }

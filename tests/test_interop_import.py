@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -435,6 +436,36 @@ def _n8n_code_workflow() -> dict:
 
 
 class InteropImportTests(unittest.TestCase):
+	def test_imports_representative_shipped_workflow_assets(self) -> None:
+		paths = [
+			PROJECT_ROOT / "docs" / "tutorial-05-events.json",
+			PROJECT_ROOT / "docs" / "tutorial-06-agent.json",
+			PROJECT_ROOT / "docs" / "tutorial-07-preview-media.json",
+			PROJECT_ROOT / "docs" / "tutorial-08-generate.json",
+			PROJECT_ROOT / "docs" / "tutorial-09-file-tools.json",
+			PROJECT_ROOT / "app" / "gallery" / "planner_email_summary.json",
+			PROJECT_ROOT / "examples" / "channel-bridge.json",
+			PROJECT_ROOT / "examples" / "email-attachment-to-channel.json",
+			PROJECT_ROOT / "examples" / "email-auto-responder.json",
+			PROJECT_ROOT / "examples" / "webhook-to-channel-alert.json",
+		]
+		for path in paths:
+			with self.subTest(path=path.name):
+				document = json.loads(path.read_text(encoding="utf-8"))
+				imported = import_workflow_document(document, file_name=path.name)
+				self.assertEqual(imported["source_format"], "numel")
+				self.assertTrue(imported["workflow"].get("nodes"))
+
+	def test_rejects_assistant_deployment_example_with_clear_message(self) -> None:
+		document = {
+			"type": "assistant_deployment_example",
+			"name": "Support Front Door",
+			"routing_rules": [],
+			"proactive_tasks": [],
+		}
+		with self.assertRaisesRegex(ValueError, "assistant deployment example"):
+			import_workflow_document(document, file_name="assistant-deployment-front-door.json")
+
 	def test_detects_native_numel_workflow(self) -> None:
 		self.assertEqual(detect_workflow_source(_native_numel_workflow()), "numel")
 

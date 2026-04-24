@@ -209,7 +209,7 @@
       "source": 6,
       "target": 7,
       "source_slot": "event",
-      "target_slot": "input"
+      "target_slot": "flow_in"
     },
     {
       "source": 6,
@@ -262,8 +262,8 @@
     {
       "source": 10,
       "target": 11,
-      "source_slot": "sent",
-      "target_slot": "input"
+      "source_slot": "flow_out",
+      "target_slot": "flow_in"
     },
     {
       "source": 11,

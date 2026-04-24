@@ -82,31 +82,31 @@
     {
       "source": 0,
       "target": 4,
-      "source_slot": "get",
+      "source_slot": "config",
       "target_slot": "model"
     },
     {
       "source": 1,
       "target": 4,
-      "source_slot": "get",
+      "source_slot": "options",
       "target_slot": "options"
     },
     {
       "source": 2,
       "target": 6,
-      "source_slot": "get",
+      "source_slot": "config",
       "target_slot": "config"
     },
     {
       "source": 3,
       "target": 4,
-      "source_slot": "get",
+      "source_slot": "config",
       "target_slot": "tools.write_file"
     },
     {
       "source": 4,
       "target": 7,
-      "source_slot": "get",
+      "source_slot": "config",
       "target_slot": "config"
     },
     {

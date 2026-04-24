@@ -245,7 +245,7 @@
       "source": 6,
       "target": 7,
       "source_slot": "event",
-      "target_slot": "input"
+      "target_slot": "flow_in"
     },
     {
       "source": 6,
@@ -257,7 +257,7 @@
       "source": 7,
       "target": 8,
       "source_slot": "output",
-      "target_slot": "input"
+      "target_slot": "value"
     },
     {
       "source": 7,
@@ -334,8 +334,8 @@
     {
       "source": 13,
       "target": 14,
-      "source_slot": "sent",
-      "target_slot": "input"
+      "source_slot": "flow_out",
+      "target_slot": "flow_in"
     },
     {
       "source": 14,

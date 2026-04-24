@@ -29,10 +29,10 @@
         "type": "toolkit_config",
         "name": "email_toolkit",
         "args": {
-          "smtp_host": "smtp.gmail.com",
-          "smtp_port": 587,
+          "host": "smtp.gmail.com",
+          "port": 587,
           "username": "${EMAIL_USER}",
-          "password": "${EMAIL_PASS}"
+          "password": "${EMAIL_PASSWORD}"
         },
         "extra": {
           "pos": [

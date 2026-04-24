@@ -305,7 +305,7 @@
       "source": 8,
       "target": 10,
       "source_slot": "output",
-      "target_slot": "input"
+      "target_slot": "flow_in"
     },
     {
       "source": 10,
@@ -352,8 +352,8 @@
     {
       "source": 12,
       "target": 14,
-      "source_slot": "output",
-      "target_slot": "input"
+      "source_slot": "flow_out",
+      "target_slot": "flow_in"
     },
     {
       "source": 14,
