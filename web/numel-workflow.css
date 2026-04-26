@@ -4795,9 +4795,42 @@ body.nw-layout-project-workbench .nw-auth-title {
 	overflow: auto;
 }
 
-.nw-ext-dialog-wide {
-	width: min(760px, 92vw);
-	max-width: min(760px, 92vw);
+.nw-assist-dialog.nw-ext-dialog {
+	width: min(760px, calc(100vw - 48px));
+	max-width: 760px;
+	max-height: calc(100vh - 48px);
+	padding: 0;
+	border-radius: 20px;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
+}
+
+.nw-assist-dialog.nw-ext-dialog.nw-ext-dialog-wide {
+	width: min(1100px, calc(100vw - 48px));
+	max-width: 1100px;
+}
+
+.nw-ext-dialog-body {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	min-height: 0;
+}
+
+.nw-ext-dialog-body h4 {
+	margin: 2px 0 0;
+	font-size: 13px;
+	color: var(--sg-text-primary);
+}
+
+.nw-ext-dialog-body ul {
+	margin: 0;
+	padding-left: 18px;
+}
+
+.nw-ext-dialog-body li {
+	margin: 0 0 6px;
 }
 
 .nw-admin-header {

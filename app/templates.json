@@ -646,5 +646,230 @@
         "type": "AgentConfig"
       }
     ]
+  },
+  {
+    "id": "tpl_atp6thp76",
+    "name": "Test Templ",
+    "description": "",
+    "builtIn": false,
+    "createdAt": "2026-04-26T09:09:34.847Z",
+    "nodeCount": 3,
+    "edgeCount": 2,
+    "nodes": [
+      {
+        "id": "erv19n26u",
+        "type": "Workflow.TransformFlow",
+        "pos": [
+          0,
+          0
+        ],
+        "size": [
+          220,
+          160
+        ],
+        "properties": {},
+        "schemaName": "Workflow",
+        "modelName": "TransformFlow",
+        "isNative": false,
+        "isRootType": false,
+        "isWorkflowNode": true,
+        "nativeInputs": {
+          "0": {
+            "type": "dict",
+            "value": "{\"pos\":[2200,25],\"size\":[220,160],\"name\":\"Format Item\",\"color\":\"#5c6d8e\"}",
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "1": {
+            "type": "str",
+            "value": null,
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "2": {
+            "type": "str",
+            "value": "python",
+            "optional": false,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "3": {
+            "type": "str",
+            "value": "output = 'Item: ' + str(input).upper()",
+            "optional": false,
+            "options": null,
+            "optionsSource": null,
+            "editor": "code"
+          },
+          "4": {
+            "type": "dict",
+            "value": null,
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "5": {
+            "type": "str",
+            "value": null,
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          }
+        },
+        "multiInputSlots": {},
+        "multiOutputSlots": {},
+        "constantFields": {
+          "type": "transform_flow"
+        },
+        "workflowType": "transform_flow",
+        "workflowIndex": 6,
+        "color": "#5c6d8e"
+      },
+      {
+        "id": "mi9xewf4d",
+        "type": "Workflow.PreviewFlow",
+        "pos": [
+          300,
+          0
+        ],
+        "size": [
+          220,
+          146
+        ],
+        "properties": {},
+        "schemaName": "Workflow",
+        "modelName": "PreviewFlow",
+        "isNative": false,
+        "isRootType": false,
+        "isWorkflowNode": true,
+        "nativeInputs": {
+          "0": {
+            "type": "dict",
+            "value": null,
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "1": {
+            "type": "str",
+            "value": null,
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "2": {
+            "type": "literal",
+            "value": "auto",
+            "optional": false,
+            "options": [
+              "auto",
+              "text",
+              "json",
+              "image",
+              "audio",
+              "video",
+              "model3d"
+            ],
+            "optionsSource": null,
+            "editor": null
+          }
+        },
+        "multiInputSlots": {},
+        "multiOutputSlots": {},
+        "constantFields": {
+          "type": "preview_flow"
+        },
+        "workflowType": "preview_flow",
+        "workflowIndex": 11,
+        "color": "#5c6d8e"
+      },
+      {
+        "id": "ya0uzuyov",
+        "type": "Workflow.DelayFlow",
+        "pos": [
+          600,
+          0
+        ],
+        "size": [
+          220,
+          110
+        ],
+        "properties": {},
+        "schemaName": "Workflow",
+        "modelName": "DelayFlow",
+        "isNative": false,
+        "isRootType": false,
+        "isWorkflowNode": true,
+        "nativeInputs": {
+          "0": {
+            "type": "dict",
+            "value": "{\"pos\":[2800,25],\"size\":[220,110],\"name\":\"Delay 500ms\",\"color\":\"#5c6d8e\"}",
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "1": {
+            "type": "str",
+            "value": null,
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "2": {
+            "type": "int",
+            "value": 500,
+            "optional": false,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          },
+          "3": {
+            "type": "str",
+            "value": null,
+            "optional": true,
+            "options": null,
+            "optionsSource": null,
+            "editor": null
+          }
+        },
+        "multiInputSlots": {},
+        "multiOutputSlots": {},
+        "constantFields": {
+          "type": "delay_flow"
+        },
+        "workflowType": "delay_flow",
+        "workflowIndex": 7,
+        "color": "#5c6d8e"
+      }
+    ],
+    "links": [
+      {
+        "id": 14,
+        "origin_id": "erv19n26u",
+        "origin_slot": 1,
+        "target_id": "mi9xewf4d",
+        "target_slot": 1,
+        "type": "Any"
+      },
+      {
+        "id": 15,
+        "origin_id": "mi9xewf4d",
+        "origin_slot": 0,
+        "target_id": "ya0uzuyov",
+        "target_slot": 1,
+        "type": "Any"
+      }
+    ]
   }
 ]

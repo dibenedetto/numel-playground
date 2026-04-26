@@ -4568,10 +4568,17 @@ async function _saveCurrentCanvasAsRepoWorkflowAsset() {
 		if (normalizedPath === activeAssetPath) {
 			throw new Error('Choose a different workflow asset path, or use the normal Save button for the current asset.');
 		}
+		const workflowTitle = String(draft.title || _currentWorkflowLabel() || _repoAssetDisplayTitle(normalizedPath)).trim();
+		const workflowForAsset = JSON.parse(JSON.stringify(workflow));
+		if (!workflowForAsset.options || typeof workflowForAsset.options !== 'object') {
+			workflowForAsset.options = { type: 'workflow_options' };
+		}
+		workflowForAsset.options.type = 'workflow_options';
+		workflowForAsset.options.name = workflowTitle;
 		await api.writeRepoAsset({
 			path: normalizedPath,
-			title: draft.title || _currentWorkflowLabel() || _repoAssetDisplayTitle(normalizedPath),
-			text: JSON.stringify(workflow, null, '\t'),
+			title: workflowTitle,
+			text: JSON.stringify(workflowForAsset, null, '\t'),
 			message: draft.message || `Add workflow asset '${normalizedPath}'`,
 			kind: 'workflow',
 		});

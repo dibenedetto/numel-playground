@@ -638,19 +638,28 @@ const NumelExtensions = (() => {
 		const overlay = document.createElement('div');
 		const wideClass = options.wide ? ' nw-ext-dialog-wide' : '';
 		const saveText = options.saveText || 'Save';
-		overlay.className = 'nw-admin-dialog-overlay';
+		overlay.className = 'nw-admin-dialog-overlay nw-assist-dialog-overlay';
 		overlay.innerHTML = `
-			<div class="nw-admin-dialog${wideClass}">
-				<h3>${_esc(title)}</h3>
-				${bodyHtml}
-				<div class="nw-admin-dialog-btns">
+			<div class="nw-admin-dialog nw-assist-dialog nw-ext-dialog${wideClass}" role="dialog" aria-modal="true" aria-label="${_esc(title)}">
+				<div class="nw-assist-dialog-header">
+					<div class="nw-assist-dialog-title-wrap">
+						<h3>${_esc(title)}</h3>
+					</div>
+					<button class="nw-assist-dialog-close" type="button" aria-label="Close" data-role="cancel">&times;</button>
+				</div>
+				<div class="nw-assist-dialog-body nw-ext-dialog-body">
+					${bodyHtml}
+				</div>
+				<div class="nw-admin-dialog-btns nw-assist-dialog-actions">
 					<button class="nw-btn nw-btn-sm nw-btn-secondary" data-role="cancel">${onSave ? 'Cancel' : 'Close'}</button>
 					${onSave ? `<button class="nw-btn nw-btn-sm nw-btn-success" data-role="save">${_esc(saveText)}</button>` : ''}
 				</div>
 			</div>`;
 		document.body.appendChild(overlay);
 
-		overlay.querySelector('[data-role="cancel"]').onclick = () => overlay.remove();
+		overlay.querySelectorAll('[data-role="cancel"]').forEach((btn) => {
+			btn.onclick = () => overlay.remove();
+		});
 		const saveBtn = overlay.querySelector('[data-role="save"]');
 		if (saveBtn) {
 			saveBtn.onclick = async () => {
@@ -665,6 +674,10 @@ const NumelExtensions = (() => {
 		overlay.addEventListener('click', (e) => {
 			if (e.target === overlay) overlay.remove();
 		});
+		overlay.addEventListener('keydown', (e) => {
+			if (e.key === 'Escape') overlay.remove();
+		});
+		queueMicrotask(() => overlay.querySelector('[data-role="save"]')?.focus() || overlay.querySelector('[data-role="cancel"]')?.focus());
 	}
 
 	function _messageDialog(title, message) {

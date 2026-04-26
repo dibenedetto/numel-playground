@@ -1439,8 +1439,8 @@ def main():
 	parser = argparse.ArgumentParser(description="Numel Playground App")
 	parser .add_argument("--port",   type=int,  default=DEFAULT_APP_PORT, help="Listening port for control server"     )
 	parser .add_argument("--seed",   type=int,  default=DEFAULT_APP_SEED, help="Seed for pseudorandom number generator")
-	parser .add_argument("--tunnel", action="store_true",                  help="Start a cloudflared/ngrok tunnel for public webhook access")
-	parser .add_argument("--open-browser", action="store_true",            help="Open the frontend in the default browser after startup")
+	parser .add_argument("--tunnel", action="store_true",                 help="Start a cloudflared/ngrok tunnel for public webhook access")
+	parser .add_argument("--open-browser", action="store_false",          help="Open the frontend in the default browser after startup")
 	args   = parser.parse_args()
 
 	asyncio.run(run_server(args, open_browser=bool(getattr(args, "open_browser", False))))

@@ -1352,162 +1352,167 @@ class DelayFlow(FlowType):
 # =============================================================================
 
 @node_info(
-    title       = "HTTP Request",
-    description = "Make an HTTP request to an external URL",
-    icon        = "🌐",
-    section     = "Workflow",
-    layer       = 1,
-    visible     = True
+	title       = "HTTP Request",
+	description = "Make an HTTP request to an external URL",
+	icon        = "🌐",
+	section     = "Workflow",
+	layer       = 1,
+	visible     = True
 )
 class HttpRequestFlow(FlowType):
-    """Make an HTTP GET/POST/PUT/DELETE request. URL, method and body are wired inputs. Response body, status code, and headers are outputs."""
-    type        : Annotated[Literal["http_request_flow"], FieldRole.CONSTANT] = "http_request_flow"
-    url         : Annotated[Optional[str]               , FieldRole.INPUT   ] = Field(default=None,   description="Target URL for the request")
-    method      : Annotated[str                         , FieldRole.INPUT   ] = Field(default="GET",  description="HTTP method: GET, POST, PUT, DELETE, PATCH")
-    headers     : Annotated[Optional[Dict[str, Any]]    , FieldRole.INPUT   ] = Field(default=None,   description="Request headers as a dict, e.g. {Authorization: Bearer token}")
-    body        : Annotated[Optional[Any]               , FieldRole.INPUT   ] = Field(default=None,   description="Request body; dicts are sent as JSON; strings sent as-is")
-    timeout_s   : Annotated[int                         , FieldRole.INPUT   ] = Field(default=30,     description="Request timeout in seconds")
-    response    : Annotated[Any                         , FieldRole.OUTPUT  ] = Field(default=None,   description="Parsed JSON response body, or raw text if not JSON")
-    status_code : Annotated[Optional[int]               , FieldRole.OUTPUT  ] = Field(default=None,   description="HTTP response status code, e.g. 200, 404")
-    ok          : Annotated[bool                        , FieldRole.OUTPUT  ] = Field(default=False,  description="True if status code is 2xx")
+	"""Make an HTTP GET/POST/PUT/DELETE request. URL, method and body are wired inputs. Response body, status code, and headers are outputs."""
+	type        : Annotated[Literal["http_request_flow"], FieldRole.CONSTANT] = "http_request_flow"
+	url         : Annotated[Optional[str]               , FieldRole.INPUT   ] = Field(default=None,   description="Target URL for the request")
+	method      : Annotated[str                         , FieldRole.INPUT   ] = Field(default="GET",  description="HTTP method: GET, POST, PUT, DELETE, PATCH")
+	headers     : Annotated[Optional[Dict[str, Any]]    , FieldRole.INPUT   ] = Field(default=None,   description="Request headers as a dict, e.g. {Authorization: Bearer token}")
+	body        : Annotated[Optional[Any]               , FieldRole.INPUT   ] = Field(default=None,   description="Request body; dicts are sent as JSON; strings sent as-is")
+	timeout_s   : Annotated[int                         , FieldRole.INPUT   ] = Field(default=30,     description="Request timeout in seconds")
+	response    : Annotated[Any                         , FieldRole.OUTPUT  ] = Field(default=None,   description="Parsed JSON response body, or raw text if not JSON")
+	status_code : Annotated[Optional[int]               , FieldRole.OUTPUT  ] = Field(default=None,   description="HTTP response status code, e.g. 200, 404")
+	ok          : Annotated[bool                        , FieldRole.OUTPUT  ] = Field(default=False,  description="True if status code is 2xx")
 
 
 @node_info(
-    title       = "If / Else",
-    description = "Branch execution based on a condition",
-    icon        = "🔀",
-    section     = "Workflow",
-    layer       = 1,
-    visible     = True
+	title       = "If / Else",
+	description = "Branch execution based on a condition",
+	icon        = "🔀",
+	section     = "Workflow",
+	layer       = 1,
+	visible     = True
 )
 class IfElseFlow(FlowType):
-    """Evaluates a Python condition expression and routes data to 'true_out' or 'false_out'. The condition string has access to 'value' (the input) and 'variables'."""
-    type      : Annotated[Literal["if_else_flow"], FieldRole.CONSTANT] = "if_else_flow"
-    value     : Annotated[Optional[Any]           , FieldRole.INPUT   ] = Field(default=None,  description="The value to test; accessible as 'value' in the condition expression")
-    condition : Annotated[str                     , FieldRole.INPUT   ] = Field(default="bool(value)", description="Python expression returning True/False; has access to 'value' and 'variables'")
-    true_out  : Annotated[Optional[Any]           , FieldRole.OUTPUT  ] = Field(default=None,  description="Receives 'value' when condition is True")
-    false_out : Annotated[Optional[Any]           , FieldRole.OUTPUT  ] = Field(default=None,  description="Receives 'value' when condition is False")
+	"""Evaluates a Python condition expression and routes data to 'true_out' or 'false_out'. The condition string has access to 'value' (the input) and 'variables'."""
+	type      : Annotated[Literal["if_else_flow"], FieldRole.CONSTANT] = "if_else_flow"
+	value     : Annotated[Optional[Any]           , FieldRole.INPUT   ] = Field(default=None,  description="The value to test; accessible as 'value' in the condition expression")
+	condition : Annotated[str                     , FieldRole.INPUT   ] = Field(default="bool(value)", description="Python expression returning True/False; has access to 'value' and 'variables'")
+	true_out  : Annotated[Optional[Any]           , FieldRole.OUTPUT  ] = Field(default=None,  description="Receives 'value' when condition is True")
+	false_out : Annotated[Optional[Any]           , FieldRole.OUTPUT  ] = Field(default=None,  description="Receives 'value' when condition is False")
 
 
 @node_info(
-    title       = "Map Extract",
-    description = "Extract a field from a dict or list by key or index",
-    icon        = "🔍",
-    section     = "Workflow",
-    layer       = 1,
-    visible     = True
+	title       = "Map Extract",
+	description = "Extract a field from a dict or list by key or index",
+	icon        = "🔍",
+	section     = "Workflow",
+	layer       = 1,
+	visible     = True
 )
 class MapExtractFlow(FlowType):
-    """Extract a nested value from a dict/list using a dot-separated key path, e.g. 'user.name' or 'items.0'. Falls back to 'default' if key not found."""
-    type     : Annotated[Literal["map_extract_flow"], FieldRole.CONSTANT] = "map_extract_flow"
-    data     : Annotated[Optional[Any]              , FieldRole.INPUT   ] = Field(default=None, description="The dict or list to extract from")
-    key      : Annotated[str                        , FieldRole.INPUT   ] = Field(default="",   description="Dot-separated key path, e.g. 'user.address.city' or 'items.0.name'")
-    default  : Annotated[Optional[Any]              , FieldRole.INPUT   ] = Field(default=None, description="Value returned when the key path is not found")
-    output   : Annotated[Optional[Any]              , FieldRole.OUTPUT  ] = Field(default=None, description="Extracted value, or default if not found")
-    found    : Annotated[bool                       , FieldRole.OUTPUT  ] = Field(default=False, description="True if the key path was successfully resolved")
+	"""Extract a nested value from a dict/list using a dot-separated key path, e.g. 'user.name' or 'items.0'. Falls back to 'default' if key not found."""
+	type     : Annotated[Literal["map_extract_flow"], FieldRole.CONSTANT] = "map_extract_flow"
+	data     : Annotated[Optional[Any]              , FieldRole.INPUT   ] = Field(default=None, description="The dict or list to extract from")
+	key      : Annotated[str                        , FieldRole.INPUT   ] = Field(default="",   description="Dot-separated key path, e.g. 'user.address.city' or 'items.0.name'")
+	default  : Annotated[Optional[Any]              , FieldRole.INPUT   ] = Field(default=None, description="Value returned when the key path is not found")
+	output   : Annotated[Optional[Any]              , FieldRole.OUTPUT  ] = Field(default=None, description="Extracted value, or default if not found")
+	found    : Annotated[bool                       , FieldRole.OUTPUT  ] = Field(default=False, description="True if the key path was successfully resolved")
 
 
 @node_info(
-    title       = "Retry",
-    description = "Re-run the wired subflow on failure, up to max attempts",
-    icon        = "🔄",
-    section     = "Workflow",
-    layer       = 1,
-    visible     = True
+	title       = "Retry",
+	description = "Re-run the wired subflow on failure, up to max attempts",
+	icon        = "🔄",
+	section     = "Workflow",
+	layer       = 1,
+	visible     = True
 )
 class RetryFlow(FlowType):
-    """Wrap any value/script in retry logic. If 'input' is falsy or 'error' is set by an upstream node, re-evaluates the 'script' up to 'max_attempts' times with exponential back-off."""
-    type         : Annotated[Literal["retry_flow"], FieldRole.CONSTANT] = "retry_flow"
-    input        : Annotated[Optional[Any]         , FieldRole.INPUT   ] = Field(default=None, description="Data to pass through on success (skip retry if truthy)")
-    script       : Annotated[Optional[str]         , FieldRole.INPUT   ] = Field(default=None, description="Python expression to evaluate on each attempt; assign result to 'output'", json_schema_extra={"editor": "code"})
-    max_attempts : Annotated[int               , FieldRole.INPUT   ] = Field(default=3,    description="Maximum number of attempts before giving up")
-    delay_ms     : Annotated[int               , FieldRole.INPUT   ] = Field(default=500,  description="Initial delay between attempts in ms; doubles each retry (exponential back-off)")
-    output       : Annotated[Optional[Any]         , FieldRole.OUTPUT  ] = Field(default=None, description="Result after successful execution")
-    attempts     : Annotated[int                   , FieldRole.OUTPUT  ] = Field(default=0,    description="Number of attempts made")
-    succeeded    : Annotated[bool                  , FieldRole.OUTPUT  ] = Field(default=False, description="True if execution succeeded within max_attempts")
+	"""Wrap any value/script in retry logic. If 'input' is falsy or 'error' is set by an upstream node, re-evaluates the 'script' up to 'max_attempts' times with exponential back-off."""
+	type         : Annotated[Literal["retry_flow"], FieldRole.CONSTANT] = "retry_flow"
+	input        : Annotated[Optional[Any]         , FieldRole.INPUT   ] = Field(default=None, description="Data to pass through on success (skip retry if truthy)")
+	script       : Annotated[Optional[str]         , FieldRole.INPUT   ] = Field(default=None, description="Python expression to evaluate on each attempt; assign result to 'output'", json_schema_extra={"editor": "code"})
+	max_attempts : Annotated[int               , FieldRole.INPUT   ] = Field(default=3,    description="Maximum number of attempts before giving up")
+	delay_ms     : Annotated[int               , FieldRole.INPUT   ] = Field(default=500,  description="Initial delay between attempts in ms; doubles each retry (exponential back-off)")
+	output       : Annotated[Optional[Any]         , FieldRole.OUTPUT  ] = Field(default=None, description="Result after successful execution")
+	attempts     : Annotated[int                   , FieldRole.OUTPUT  ] = Field(default=0,    description="Number of attempts made")
+	succeeded    : Annotated[bool                  , FieldRole.OUTPUT  ] = Field(default=False, description="True if execution succeeded within max_attempts")
 
 
 @node_info(
-    title       = "Accumulate",
-    description = "Collect values across iterations into a list",
-    icon        = "📚",
-    section     = "Workflow",
-    layer       = 1,
-    visible     = True
+	title       = "Accumulate",
+	description = "Collect values across iterations into a list",
+	icon        = "📚",
+	section     = "Workflow",
+	layer       = 1,
+	visible     = True
 )
 class AccumulateFlow(FlowType):
-    """Accumulates each received value into a list. Useful inside loops to collect results across iterations. Wire 'reset' to clear the list. Emits 'items' (the whole list) and 'count' on each call."""
-    type   : Annotated[Literal["accumulate_flow"], FieldRole.CONSTANT] = "accumulate_flow"
-    value  : Annotated[Optional[Any]             , FieldRole.INPUT   ] = Field(default=None,  description="Value to append to the accumulator list on each execution")
-    reset  : Annotated[bool                      , FieldRole.INPUT   ] = Field(default=False, description="If True, clears the accumulator list before appending the current value")
-    items  : Annotated[Optional[List[Any]]        , FieldRole.OUTPUT  ] = Field(default=None, description="The current accumulator list, including the just-added value")
-    count  : Annotated[int                        , FieldRole.OUTPUT  ] = Field(default=0,    description="Current number of items in the accumulator")
+	"""Accumulates each received value into a list. Useful inside loops to collect results across iterations. Wire 'reset' to clear the list. Emits 'items' (the whole list) and 'count' on each call."""
+	type   : Annotated[Literal["accumulate_flow"], FieldRole.CONSTANT] = "accumulate_flow"
+	value  : Annotated[Optional[Any]             , FieldRole.INPUT   ] = Field(default=None,  description="Value to append to the accumulator list on each execution")
+	reset  : Annotated[bool                      , FieldRole.INPUT   ] = Field(default=False, description="If True, clears the accumulator list before appending the current value")
+	items  : Annotated[Optional[List[Any]]        , FieldRole.OUTPUT  ] = Field(default=None, description="The current accumulator list, including the just-added value")
+	count  : Annotated[int                        , FieldRole.OUTPUT  ] = Field(default=0,    description="Current number of items in the accumulator")
+
+
+DEFAULT_EVAL_NODE_LANG   : str = "python"
+DEFAULT_EVAL_NODE_SCRIPT : str = "# Set score (float) and optional feedback (str)\nscore = 0.0\nfeedback = ''"
 
 
 @node_info(
-    title       = "Eval",
-    description = "Score workflow output with a Python expression — for optimization loops",
-    icon        = "📊",
-    section     = "Workflow",
-    layer       = 2,
-    visible     = True
+	title       = "Eval",
+	description = "Score workflow output with a Python expression — for optimization loops",
+	icon        = "📊",
+	section     = "Workflow",
+	layer       = 2,
+	visible     = True
 )
 class EvalFlow(FlowType):
-    """Score a value with a Python script. The script receives `input` and must assign
-    a numeric `score` (float, higher = better). Optionally assign a string `feedback`.
-    Wire `input` from the node whose output you want to measure, then wire `score`
-    to an AccumulateFlow or PreviewFlow to track improvement across iterations."""
-    type     : Annotated[Literal["eval_flow"], FieldRole.CONSTANT] = "eval_flow"
-    input    : Annotated[Optional[Any]       , FieldRole.INPUT   ] = Field(default=None,            description="The value to evaluate; available as 'input' inside the script")
-    script   : Annotated[str                 , FieldRole.INPUT   ] = Field(
-        default="# Set score (float) and optional feedback (str)\nscore = 0.0\nfeedback = ''",
-        json_schema_extra={"editor": "code"},
-        description="Python code; must set 'score' (float). Optionally set 'feedback' (str). Has access to 'input' and 'variables'.")
-    score    : Annotated[float               , FieldRole.OUTPUT  ] = Field(default=0.0,             description="Numeric score produced by the script (higher = better)")
-    feedback : Annotated[str                 , FieldRole.OUTPUT  ] = Field(default="",              description="Optional textual feedback string set by the script")
+	"""Score a value with a Python script. The script receives `input` and must assign
+	a numeric `score` (float, higher = better). Optionally assign a string `feedback`.
+	Wire `input` from the node whose output you want to measure, then wire `score`
+	to an AccumulateFlow or PreviewFlow to track improvement across iterations."""
+	type     : Annotated[Literal["eval_flow"], FieldRole.CONSTANT] = "eval_flow"
+	input    : Annotated[Optional[Any]       , FieldRole.INPUT   ] = Field(default=None,            description="The value to evaluate; available as 'input' inside the script")
+	lang     : Annotated[str                 , FieldRole.INPUT   ] = Field(default=DEFAULT_EVAL_NODE_LANG,   description="Scripting language for the evaluation; currently only 'python' is supported")
+	script   : Annotated[str                 , FieldRole.INPUT   ] = Field(
+		default=DEFAULT_EVAL_NODE_SCRIPT,
+		json_schema_extra={"editor": "code"},
+		description="Python code; must set 'score' (float). Optionally set 'feedback' (str). Has access to 'input' and 'variables'.")
+	score    : Annotated[float               , FieldRole.OUTPUT  ] = Field(default=0.0,             description="Numeric score produced by the script (higher = better)")
+	feedback : Annotated[str                 , FieldRole.OUTPUT  ] = Field(default="",              description="Optional textual feedback string set by the script")
 
 
 @node_info(
-    title       = "Notify",
-    description = "Send an email or webhook notification",
-    icon        = "🔔",
-    section     = "Workflow",
-    layer       = 2,
-    visible     = True
+	title       = "Notify",
+	description = "Send an email or webhook notification",
+	icon        = "🔔",
+	section     = "Workflow",
+	layer       = 2,
+	visible     = True
 )
 class NotifyFlow(FlowType):
-    """Send a notification via webhook (HTTP POST) or email (SMTP). For webhook: set channel='webhook', url and body. For email: set channel='email', to, subject, body."""
-    type    : Annotated[Literal["notify_flow"], FieldRole.CONSTANT] = "notify_flow"
-    channel : Annotated[str                   , FieldRole.INPUT   ] = Field(default="webhook", description="Notification channel: 'webhook' (HTTP POST) or 'email' (SMTP)")
-    url     : Annotated[Optional[str]         , FieldRole.INPUT   ] = Field(default=None,      description="Webhook URL (for channel='webhook')")
-    to      : Annotated[Optional[str]         , FieldRole.INPUT   ] = Field(default=None,      description="Recipient email address (for channel='email')")
-    subject : Annotated[Optional[str]         , FieldRole.INPUT   ] = Field(default=None,      description="Email subject line (for channel='email')")
-    body    : Annotated[Optional[Any]         , FieldRole.INPUT   ] = Field(default=None,      description="Message body; dicts are JSON-serialised before sending")
-    headers : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT ] = Field(default=None,      description="Extra HTTP headers for webhook channel")
-    sent    : Annotated[bool                  , FieldRole.OUTPUT  ] = Field(default=False,     description="True if the notification was sent successfully")
-    error   : Annotated[Optional[str]         , FieldRole.OUTPUT  ] = Field(default=None,      description="Error message if the notification failed; None on success")
+	"""Send a notification via webhook (HTTP POST) or email (SMTP). For webhook: set channel='webhook', url and body. For email: set channel='email', to, subject, body."""
+	type    : Annotated[Literal["notify_flow"], FieldRole.CONSTANT] = "notify_flow"
+	channel : Annotated[str                   , FieldRole.INPUT   ] = Field(default="webhook", description="Notification channel: 'webhook' (HTTP POST) or 'email' (SMTP)")
+	url     : Annotated[Optional[str]         , FieldRole.INPUT   ] = Field(default=None,      description="Webhook URL (for channel='webhook')")
+	to      : Annotated[Optional[str]         , FieldRole.INPUT   ] = Field(default=None,      description="Recipient email address (for channel='email')")
+	subject : Annotated[Optional[str]         , FieldRole.INPUT   ] = Field(default=None,      description="Email subject line (for channel='email')")
+	body    : Annotated[Optional[Any]         , FieldRole.INPUT   ] = Field(default=None,      description="Message body; dicts are JSON-serialised before sending")
+	headers : Annotated[Optional[Dict[str, Any]], FieldRole.INPUT ] = Field(default=None,      description="Extra HTTP headers for webhook channel")
+	sent    : Annotated[bool                  , FieldRole.OUTPUT  ] = Field(default=False,     description="True if the notification was sent successfully")
+	error   : Annotated[Optional[str]         , FieldRole.OUTPUT  ] = Field(default=None,      description="Error message if the notification failed; None on success")
 
 
 @node_info(
-    title       = "Channel Send",
-    description = "Send a message to a user on a connected channel (Telegram, Discord, Slack, etc.)",
-    icon        = "💬",
-    section     = "Workflow",
-    layer       = 2,
-    visible     = True
+	title       = "Channel Send",
+	description = "Send a message to a user on a connected channel (Telegram, Discord, Slack, etc.)",
+	icon        = "💬",
+	section     = "Workflow",
+	layer       = 2,
+	visible     = True
 )
 class ChannelSendFlow(FlowType):
-    """Send a message to a specific user/chat on any running channel adapter.
-    Wire channel_id and recipient_id from upstream nodes or set them as defaults.
-    The message input accepts strings or dicts (dicts are JSON-serialised).
-    Attachments is an optional list of dicts with url, mime_type, filename keys."""
-    type         : Annotated[Literal["channel_send_flow"], FieldRole.CONSTANT] = "channel_send_flow"
-    channel_id   : Annotated[str                         , FieldRole.INPUT   ] = Field(default="",    description="Channel adapter ID (from /channels/list)")
-    recipient_id : Annotated[str                         , FieldRole.INPUT   ] = Field(default="",    description="Platform-specific user or chat ID")
-    message      : Annotated[Optional[Any]               , FieldRole.INPUT   ] = Field(default=None,  description="Message content; dicts are JSON-serialised")
-    attachments  : Annotated[Optional[Any]               , FieldRole.INPUT   ] = Field(default=None,  description="List of attachments [{url, mime_type, filename}]")
-    sent         : Annotated[bool                        , FieldRole.OUTPUT  ] = Field(default=False, description="True if the message was sent successfully")
-    error        : Annotated[Optional[str]               , FieldRole.OUTPUT  ] = Field(default=None,  description="Error message on failure; None on success")
+	"""Send a message to a specific user/chat on any running channel adapter.
+	Wire channel_id and recipient_id from upstream nodes or set them as defaults.
+	The message input accepts strings or dicts (dicts are JSON-serialised).
+	Attachments is an optional list of dicts with url, mime_type, filename keys."""
+	type         : Annotated[Literal["channel_send_flow"], FieldRole.CONSTANT] = "channel_send_flow"
+	channel_id   : Annotated[str                         , FieldRole.INPUT   ] = Field(default="",    description="Channel adapter ID (from /channels/list)")
+	recipient_id : Annotated[str                         , FieldRole.INPUT   ] = Field(default="",    description="Platform-specific user or chat ID")
+	message      : Annotated[Optional[Any]               , FieldRole.INPUT   ] = Field(default=None,  description="Message content; dicts are JSON-serialised")
+	attachments  : Annotated[Optional[Any]               , FieldRole.INPUT   ] = Field(default=None,  description="List of attachments [{url, mime_type, filename}]")
+	sent         : Annotated[bool                        , FieldRole.OUTPUT  ] = Field(default=False, description="True if the message was sent successfully")
+	error        : Annotated[Optional[str]               , FieldRole.OUTPUT  ] = Field(default=None,  description="Error message on failure; None on success")
 
 
 # =============================================================================
