@@ -1061,23 +1061,24 @@
 							<select id="automationDeploymentSelect" class="nw-select"></select>
 						</label>
 						<label class="nw-automation-field">
-							<span>Trigger</span>
-							<select id="automationTriggerKind" class="nw-select">
-								<option value="timer">Timer</option>
-								<option value="webhook">Webhook</option>
-								<option value="fswatch">File watcher</option>
-								<option value="channel">Channel message</option>
-								<option value="browser">Browser event</option>
-							</select>
-						</label>
-						<label class="nw-automation-field">
-							<span>Every seconds</span>
-							<input id="automationIntervalSec" class="nw-input" type="number" min="30" step="30" value="900">
-						</label>
-						<label class="nw-automation-field">
 							<span>Name</span>
 							<input id="automationTaskName" class="nw-input" type="text" autocomplete="off" placeholder="Daily summary">
 						</label>
+						<label class="nw-automation-field">
+							<span>Event listener mode</span>
+							<select id="automationTriggerMode" class="nw-select">
+								<option value="any">Any source runs the task</option>
+								<option value="all">Wait for all sources</option>
+								<option value="race">First source wins</option>
+							</select>
+						</label>
+					</div>
+					<div class="nw-automation-trigger-section">
+						<div class="nw-automation-trigger-section-head">
+							<span>Event sources</span>
+							<button id="automationAddTriggerBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button">Add Source</button>
+						</div>
+						<div id="automationTriggerList" class="nw-automation-trigger-list"></div>
 					</div>
 					<textarea id="automationPrompt" class="nw-input nw-automation-prompt" rows="4" placeholder="Describe what this task should do when it runs."></textarea>
 					<div class="nw-automation-create-row">

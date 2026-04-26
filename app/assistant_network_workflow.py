@@ -109,11 +109,11 @@ def _build_proactive_source_node(
 	pos: Tuple[int, int],
 ) -> Dict[str, Any]:
 	task_id = str(task.get("id") or task.get("task_id") or _generated_id("proactive"))
-	task_name = str(task.get("name") or "Proactive Trigger")
+	task_name = str(task.get("name") or "Proactive Source")
 	trigger_kind = str(source_spec.get("kind") or task.get("trigger_kind") or "timer").strip().lower() or "timer"
 	trigger = dict(source_spec.get("trigger") or {})
 	source_id = str(source_spec.get("source_id") or _proactive_source_id(deployment_id, task_id))
-	label = task_name if source_index == 0 else f"{task_name} Trigger {source_index + 1}"
+	label = task_name if source_index == 0 else f"{task_name} Source {source_index + 1}"
 
 	if trigger_kind == "timer":
 		return _node_payload(

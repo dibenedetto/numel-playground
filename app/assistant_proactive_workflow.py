@@ -29,7 +29,7 @@ def _build_trigger_node(
 			"interval_ms": max(30, int(task_interval_sec or 0)) * 1000,
 			"max_triggers": -1,
 			"immediate": bool(trigger_config.get("immediate", False)),
-			"extra": {"pos": pos, "name": label or "Timer Trigger"},
+			"extra": {"pos": pos, "name": label or "Timer Source"},
 		}
 	if trigger_kind == "fswatch":
 		return {
@@ -40,7 +40,7 @@ def _build_trigger_node(
 			"patterns": trigger_config.get("patterns") or "*",
 			"events": trigger_config.get("events") or "created,modified,deleted,moved",
 			"debounce_ms": max(0, int(trigger_config.get("debounce_ms") or 100)),
-			"extra": {"pos": pos, "name": label or "File Trigger"},
+			"extra": {"pos": pos, "name": label or "File Source"},
 		}
 	if trigger_kind == "webhook":
 		return {
@@ -49,7 +49,7 @@ def _build_trigger_node(
 			"endpoint": str(trigger_config.get("endpoint") or f"/hook/{source_id}"),
 			"methods": trigger_config.get("methods") or "POST",
 			"secret": trigger_config.get("secret"),
-			"extra": {"pos": pos, "name": label or "Webhook Trigger"},
+			"extra": {"pos": pos, "name": label or "Webhook Source"},
 		}
 	if trigger_kind == "channel":
 		return {
@@ -58,7 +58,7 @@ def _build_trigger_node(
 			"channel_id": str(trigger_config.get("channel_id") or ""),
 			"channel_types": trigger_config.get("channel_types") or "",
 			"sender_filter": trigger_config.get("sender_filter"),
-			"extra": {"pos": pos, "name": label or "Channel Trigger"},
+			"extra": {"pos": pos, "name": label or "Channel Source"},
 		}
 	if trigger_kind == "browser":
 		return {
@@ -69,7 +69,7 @@ def _build_trigger_node(
 			"interval_ms": max(100, int(trigger_config.get("interval_ms") or 1000)),
 			"resolution": trigger_config.get("resolution"),
 			"audio_format": trigger_config.get("audio_format"),
-			"extra": {"pos": pos, "name": label or "Browser Trigger"},
+			"extra": {"pos": pos, "name": label or "Browser Source"},
 		}
 	raise ValueError(f"Unsupported proactive trigger kind: {trigger_kind}")
 
@@ -200,7 +200,7 @@ def build_assistant_proactive_workflow(
 		{
 			"type": "event_listener_flow",
 			"mode": normalized_trigger_mode,
-			"extra": {"pos": [740, 20 + max(0, len(trigger_indexes) - 1) * 60], "name": "Wait for Trigger"},
+			"extra": {"pos": [740, 20 + max(0, len(trigger_indexes) - 1) * 60], "name": "Event Listener"},
 		}
 	)
 

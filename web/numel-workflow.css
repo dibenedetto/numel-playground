@@ -732,7 +732,6 @@ body.nw-layout-project-workbench .nw-section-title {
 	max-height: 2000px;
 }
 body:not(.nw-show-advanced) #credentialsSection,
-body:not(.nw-show-advanced) #channelsSection,
 body:not(.nw-show-advanced) #eventLogSection,
 body:not(.nw-show-advanced) #experimentalSection {
 	max-height: 0 !important;
@@ -755,7 +754,6 @@ body:not(.nw-show-advanced) #experimentalSection {
 		visibility 0s linear 0.3s;
 }
 body.nw-show-advanced #credentialsSection,
-body.nw-show-advanced #channelsSection,
 body.nw-show-advanced #eventLogSection,
 body.nw-show-advanced #experimentalSection {
 	transition:
@@ -5042,6 +5040,67 @@ body.nw-layout-project-workbench .nw-auth-title {
 	flex-direction: column;
 	gap: 4px;
 	min-width: 0;
+	font-size: 11px;
+	color: var(--sg-text-secondary);
+}
+
+.nw-automation-trigger-section {
+	border: 1px solid var(--nw-border-soft);
+	border-radius: var(--nw-radius-control);
+	background: color-mix(in srgb, var(--sg-bg-primary) 56%, transparent);
+	padding: 9px;
+	margin: 0 0 8px;
+}
+
+.nw-automation-trigger-section-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin-bottom: 8px;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--sg-text-primary);
+}
+
+.nw-automation-trigger-list {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.nw-automation-trigger-card {
+	border: 1px solid color-mix(in srgb, var(--nw-border-soft) 84%, var(--sg-accent-blue, #4a9eff) 16%);
+	border-radius: var(--nw-radius-control);
+	background: var(--sg-bg-secondary);
+	padding: 8px;
+}
+
+.nw-automation-trigger-head {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 8px;
+	align-items: end;
+	margin-bottom: 8px;
+}
+
+.nw-automation-trigger-fields {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px;
+	margin-bottom: 8px;
+}
+
+.nw-automation-trigger-panel[hidden] {
+	display: none !important;
+}
+
+.nw-automation-trigger-panel {
+	display: block;
+}
+
+.nw-automation-check {
+	margin: 2px 0 0;
 	font-size: 11px;
 	color: var(--sg-text-secondary);
 }
