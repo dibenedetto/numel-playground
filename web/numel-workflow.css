@@ -5009,6 +5009,103 @@ body.nw-layout-project-workbench .nw-auth-title {
 	font-size: 10px;
 	padding: 2px 8px;
 }
+
+.nw-automation-panel {
+	width: min(520px, 100vw);
+}
+
+.nw-automation-composer {
+	border: 1px solid var(--nw-border-soft);
+	border-radius: var(--nw-radius-control);
+	background: var(--sg-bg-secondary);
+	padding: 12px;
+	margin-bottom: 12px;
+}
+
+.nw-automation-composer-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin-bottom: 10px;
+}
+
+.nw-automation-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px;
+	margin-bottom: 8px;
+}
+
+.nw-automation-field {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	min-width: 0;
+	font-size: 11px;
+	color: var(--sg-text-secondary);
+}
+
+.nw-automation-prompt {
+	width: 100%;
+	min-height: 88px;
+	resize: vertical;
+	box-sizing: border-box;
+}
+
+.nw-automation-create-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 8px;
+}
+
+.nw-automation-status {
+	font-size: 11px;
+	color: var(--sg-text-secondary);
+}
+
+.nw-automation-status[data-kind="ok"] {
+	color: var(--sg-accent-green, #5cb85c);
+}
+
+.nw-automation-status[data-kind="error"] {
+	color: var(--sg-accent-red, #d9534f);
+}
+
+.nw-automation-tabs {
+	display: flex;
+	gap: 6px;
+	margin: 0 0 10px;
+}
+
+.nw-automation-tab {
+	border: 1px solid var(--nw-border-soft);
+	background: var(--sg-bg-secondary);
+	color: var(--sg-text-secondary);
+	border-radius: var(--nw-radius-control);
+	padding: 5px 10px;
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.nw-automation-tab.active {
+	border-color: color-mix(in srgb, var(--sg-accent-blue, #4a9eff) 45%, var(--nw-border-soft));
+	background: color-mix(in srgb, var(--sg-bg-secondary) 85%, var(--sg-accent-blue, #4a9eff) 15%);
+	color: var(--sg-text-primary);
+}
+
+.nw-automation-card.is-alert {
+	border-color: color-mix(in srgb, var(--sg-accent-yellow, #f0ad4e) 42%, var(--nw-border-soft));
+	background: color-mix(in srgb, var(--sg-bg-secondary) 88%, var(--sg-accent-yellow, #f0ad4e) 12%);
+}
+
+@media (max-width: 560px) {
+	.nw-automation-grid {
+		grid-template-columns: 1fr;
+	}
+}
+
 .nw-admin-stats {
 	display: flex;
 	flex-direction: column;

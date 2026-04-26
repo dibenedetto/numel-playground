@@ -85,6 +85,7 @@ const NumelChannels = (() => {
 
 	function _updateSummary(channels) {
 		if (!_summaryEl) return;
+		if (typeof window.NumelAutomations !== 'undefined') return;
 		if (!channels.length) {
 			_summaryEl.innerHTML = 'No channels configured';
 			return;
@@ -317,6 +318,9 @@ const NumelChannels = (() => {
 			const data = await _post('/channels/list');
 			const channels = Array.isArray(data) ? data : (data.channels || []);
 			_updateSummary(channels);
+			if (typeof window.NumelAutomations !== 'undefined') {
+				window.NumelAutomations.refresh?.();
+			}
 		} catch {
 			// Server not ready yet — ignore
 		}

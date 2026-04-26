@@ -150,26 +150,29 @@
 				</div>
 			</section>
 
-			<!-- Channels sub-panel -->
+			<!-- Automations sub-panel -->
 			<section id="channelsSection" class="nw-section nw-section-compact nw-section-secondary nw-section-collapsed">
 				<div class="nw-section-header">
 					<h3 class="nw-section-title">
-						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-						<span>Channels</span>
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h6"/><path d="M14 6h6"/><path d="M10 6a2 2 0 1 0 4 0 2 2 0 0 0-4 0"/><path d="M4 18h6"/><path d="M14 18h6"/><path d="M10 18a2 2 0 1 0 4 0 2 2 0 0 0-4 0"/><path d="M12 8v8"/></svg>
+						<span>Automations</span>
 					</h3>
 				</div>
-				<div class="nw-section-lede">Send this space to Telegram, Discord, Slack, email, and other channels.</div>
+				<div class="nw-section-lede">Create proactive tasks and operate live assistants from one place.</div>
 				<div class="nw-section-actions">
 					<div class="nw-user-actions">
-						<button id="assistantDeploymentPanelBtn" class="nw-btn-icon" title="Manage assistant deployments">
+						<button id="automationPanelBtn" class="nw-btn-icon" title="Open automations">
+							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M21 3v6h-6"/><path d="M21 3l-7 7"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
+						</button>
+						<button id="assistantDeploymentPanelBtn" class="nw-btn-icon nw-hidden-control" title="Manage assistant deployments" style="display:none">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect x="4" y="8" width="16" height="12" rx="2"/><path d="M8 8a4 4 0 0 1 8 0"/><circle cx="9" cy="14" r="1"/><circle cx="15" cy="14" r="1"/><path d="M9 18h6"/></svg>
 						</button>
-						<button id="channelPanelBtn" class="nw-btn-icon" title="Manage channels">
+						<button id="channelPanelBtn" class="nw-btn-icon nw-hidden-control" title="Manage channels" style="display:none">
 							<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
 						</button>
 					</div>
 				</div>
-				<div id="channelSummary" class="nw-channel-summary">No channels configured</div>
+				<div id="channelSummary" class="nw-channel-summary">No automations configured</div>
 			</section>
 
 			<!-- Workflow Section -->
@@ -1033,6 +1036,64 @@
 			</div>
 		</div>
 
+		<!-- Automations Panel -->
+		<div id="automationPanel" class="nw-admin-panel nw-automation-panel">
+			<div class="nw-admin-header">
+				<span class="nw-admin-title">Automations</span>
+				<button id="automationCloseBtn" class="nw-console-close">&times;</button>
+			</div>
+			<div class="nw-admin-body">
+				<div class="nw-admin-toolbar">
+					<button id="automationRefreshBtn" class="nw-btn nw-btn-sm">Refresh</button>
+					<button id="automationNetworkGraphBtn" class="nw-btn nw-btn-sm nw-btn-secondary">Network Graph</button>
+					<button id="automationAdvancedDeploymentsBtn" class="nw-btn nw-btn-sm nw-btn-secondary">Assistant Deployments</button>
+					<button id="automationAdvancedChannelsBtn" class="nw-btn nw-btn-sm nw-btn-secondary">Channels</button>
+				</div>
+				<div id="automationSummary" class="nw-assist-ops-summary"></div>
+				<div class="nw-automation-composer">
+					<div class="nw-automation-composer-head">
+						<div class="nw-admin-card-title">Create Proactive Task</div>
+						<button id="automationAddAssistantBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button">Add Assistant</button>
+					</div>
+					<div class="nw-automation-grid">
+						<label class="nw-automation-field">
+							<span>Assistant</span>
+							<select id="automationDeploymentSelect" class="nw-select"></select>
+						</label>
+						<label class="nw-automation-field">
+							<span>Trigger</span>
+							<select id="automationTriggerKind" class="nw-select">
+								<option value="timer">Timer</option>
+								<option value="webhook">Webhook</option>
+								<option value="fswatch">File watcher</option>
+								<option value="channel">Channel message</option>
+								<option value="browser">Browser event</option>
+							</select>
+						</label>
+						<label class="nw-automation-field">
+							<span>Every seconds</span>
+							<input id="automationIntervalSec" class="nw-input" type="number" min="30" step="30" value="900">
+						</label>
+						<label class="nw-automation-field">
+							<span>Name</span>
+							<input id="automationTaskName" class="nw-input" type="text" autocomplete="off" placeholder="Daily summary">
+						</label>
+					</div>
+					<textarea id="automationPrompt" class="nw-input nw-automation-prompt" rows="4" placeholder="Describe what this task should do when it runs."></textarea>
+					<div class="nw-automation-create-row">
+						<button id="automationCreateTaskBtn" class="nw-btn nw-btn-sm nw-btn-success" type="button">Create Task</button>
+						<div id="automationCreateStatus" class="nw-automation-status"></div>
+					</div>
+				</div>
+				<div class="nw-automation-tabs">
+					<button class="nw-automation-tab active" data-auto-tab="tasks">Tasks</button>
+					<button class="nw-automation-tab" data-auto-tab="assistants">Assistants</button>
+					<button class="nw-automation-tab" data-auto-tab="attention">Attention</button>
+				</div>
+				<div id="automationList" class="nw-admin-list"></div>
+			</div>
+		</div>
+
 		<div id="assistantDeploymentPanel" class="nw-admin-panel">
 			<div class="nw-admin-header">
 				<span class="nw-admin-title">Assistant Deployments</span>
@@ -1177,6 +1238,7 @@
 		<script src="numel-admin.js"></script>
 		<script src="numel-assistant-deployments.js"></script>
 		<script src="numel-channels.js"></script>
+		<script src="numel-automations.js"></script>
 		<script src="numel-extensions.js"></script>
 		<script src="numel-workflow.js"></script>
 		<script src="numel-workflow-ui.js"></script>

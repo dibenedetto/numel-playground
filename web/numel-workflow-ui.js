@@ -1699,6 +1699,10 @@ window.closeNumelSidePanels = function(except = []) {
 		try { if (typeof NumelChannels !== 'undefined') NumelChannels.close(); } catch {}
 		_closeSidePanelDom('channelPanel');
 	}
+	if (!keep.has('automations')) {
+		try { if (typeof NumelAutomations !== 'undefined') NumelAutomations.close(); } catch {}
+		_closeSidePanelDom('automationPanel');
+	}
 	if (!keep.has('assistantDeployments')) {
 		try { if (typeof NumelAssistantDeployments !== 'undefined') NumelAssistantDeployments.close(); } catch {}
 		_closeSidePanelDom('assistantDeploymentPanel');
@@ -2350,7 +2354,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		workbenchOverviewSection: 'Space',
 		workflowSection:          'Workflow',
 		executionSection:         'Run',
-		channelsSection:          'Channels',
+		channelsSection:          'Automations',
 		credentialsSection:       'Credentials',
 		eventLogSection:          'Activity',
 		experimentalSection:      'Experimental',
@@ -3128,8 +3132,9 @@ async function connect() {
 		_initialSpaceBootstrapDone = false;
 		_initialSpaceBootstrapPromise = (async () => {
 			await refreshSpaceList(true);
-			// Refresh channel summary once the initial space bootstrap settles.
-			if (typeof NumelChannels !== 'undefined') NumelChannels.refreshSummary();
+			// Refresh the automation summary once the initial space bootstrap settles.
+			if (typeof NumelAutomations !== 'undefined') NumelAutomations.refresh();
+			else if (typeof NumelChannels !== 'undefined') NumelChannels.refreshSummary();
 		})().finally(() => {
 			_initialSpaceBootstrapDone = true;
 		});

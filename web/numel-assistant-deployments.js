@@ -1488,6 +1488,9 @@ async function _post(path, body = {}) {
 			const items = Array.isArray(data?.deployments) ? data.deployments : [];
 			_lastItems = items;
 			_renderList(items);
+			if (typeof window.NumelAutomations !== 'undefined') {
+				window.NumelAutomations.refresh?.();
+			}
 		} catch (err) {
 			_listEl.innerHTML = `<div style="color:var(--sg-accent-red);font-size:12px;">Error: ${_esc(err.message)}</div>`;
 		}
@@ -2382,7 +2385,16 @@ ${_esc(deploymentHint)}</div></div>
 		init();
 	}
 
-	return { open, close, toggle, isOpen, refresh };
+	return {
+		open,
+		close,
+		toggle,
+		isOpen,
+		refresh,
+		openAddDeployment: _showAddDialog,
+		openNetworkGraph: _showNetworkGraphDialog,
+		openNetworkInspect: _showNetworkInspectDialog,
+	};
 })();
 
 window.NumelAssistantDeployments = NumelAssistantDeployments;
