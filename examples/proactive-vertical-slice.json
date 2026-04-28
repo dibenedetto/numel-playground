@@ -1,0 +1,192 @@
+{
+  "type": "workflow",
+  "options": {
+    "name": "proactive_vertical_slice",
+    "description": "Phase 2 vertical slice: end-to-end demo of all four agent layers over the Substrate. A timer drives a synthetic inbox; Sensory structures each observation; Substrate (Middleware → World Model → Ledger) records it. Conscious then reads the World Model and may emit an intent; the intent is enriched by Goal Hierarchy + Capability Registry, gated by the Governor, executed by Motor (if allowed) or parked by Social (if consent required). Vitals sweeps the Ledger. Demonstrates the back-edge from Conscious to the Substrate and the Motor/Social split on Governor verdicts."
+  },
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": {"pos": [0, 0], "name": "Start"}
+    },
+    {
+      "type": "timer_source_flow",
+      "interval_ms": 8000,
+      "max_triggers": 5,
+      "immediate": true,
+      "extra": {"pos": [220, 0], "name": "Tick (8s × 5)"}
+    },
+    {
+      "type": "loop_start_flow",
+      "condition": true,
+      "max_iter": 100000,
+      "extra": {"pos": [460, 0], "name": "Vertical Loop"}
+    },
+    {
+      "type": "event_listener_flow",
+      "mode": "any",
+      "extra": {"pos": [700, 0], "name": "Wait for Tick"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Synthetic source — five fixture emails on a counter so the Conscious\n# layer downstream sees a mix of routine + high-stake content.\nimport time\nctr = int(variables.get(\"sensor_counter\", 0)) + 1\nvariables[\"sensor_counter\"] = ctr\n\nfixtures = [\n    {\"from\": \"alice@example.com\", \"subject\": \"Routine status update\",\n     \"body\":  \"All systems nominal.\"},\n    {\"from\": \"bob@example.com\",   \"subject\": \"Card on file\",\n     \"body\":  \"Please update card 4111111111111111 before Tuesday.\"},\n    {\"from\": \"eve@example.com\",   \"subject\": \"URGENT — wire transfer request\",\n     \"body\":  \"Send $5,000 to acct 9876-1122. ssn 555-12-3456.\"},\n    {\"from\": \"ops@example.com\",   \"subject\": \"Calendar reminder\",\n     \"body\":  \"Meeting Thursday 3pm with the design team.\"},\n    {\"from\": \"news@example.com\",  \"subject\": \"Weekly digest\",\n     \"body\":  \"Five stories worth your time this week.\"},\n]\nfx = fixtures[(ctr - 1) % len(fixtures)]\noutput = {\"source\": \"sensor:synthetic_inbox\", \"observed_at\": time.time(), \"payload\": fx}\n",
+      "extra": {"pos": [940, 0], "name": "Sensor: Synthetic Inbox"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Sensory agent stage (stub). In production this is `agent_flow` +\n# `model_config`. Sensory observations are read-only with respect to\n# the world; Governor will pass them through.\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\nmsg = env.get(\"payload\", {}) or {}\nbody = str(msg.get(\"body\", \"\"))\nenv[\"observation\"] = {\n    \"observation_type\": \"email\",\n    \"sender\":           msg.get(\"from\"),\n    \"subject\":          msg.get(\"subject\"),\n    \"body_length\":      len(body),\n    \"summary\":          (body[:80] + \"…\") if len(body) > 80 else body,\n}\nenv[\"scopes\"]     = [\"read-only\"]\nenv[\"confidence\"] = 0.95\nenv[\"payload\"]    = msg\noutput = env\n",
+      "extra": {"pos": [1180, 0], "name": "Sensory: Structure"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.1 — Veracity Gate (stub).\nimport time, uuid\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\nenv[\"correlation_id\"] = env.get(\"correlation_id\") or f\"corr_{uuid.uuid4().hex[:12]}\"\nenv[\"confidence\"] = float(env.get(\"confidence\", 0.9))\nenv.setdefault(\"provenance\", []).append({\n    \"stage\":  \"veracity\",\n    \"source\": env.get(\"source\", \"sensor\"),\n    \"ts\":     time.time(),\n})\nenv.setdefault(\"scopes\", env.get(\"scopes\", [\"read-only\"]))\noutput = env\n",
+      "extra": {"pos": [1420, 0], "name": "Middleware: Veracity"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.1 — Privacy / Redaction Gate (stub).\nimport re\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\n\ndef _redact(text):\n    if not isinstance(text, str):\n        return text\n    text = re.sub(r\"\\b[\\w.+-]+@[\\w-]+\\.[\\w.-]+\\b\", \"[email]\", text)\n    text = re.sub(r\"\\b\\d{3}-\\d{2}-\\d{4}\\b\",          \"[ssn]\",   text)\n    text = re.sub(r\"\\b\\d{13,19}\\b\",                  \"[card]\",  text)\n    return text\n\ndef _walk(v):\n    if isinstance(v, str):  return _redact(v)\n    if isinstance(v, list): return [_walk(x) for x in v]\n    if isinstance(v, dict): return {k: _walk(x) for k, x in v.items()}\n    return v\n\nfor key in (\"payload\", \"raw\", \"body\", \"message\", \"observation\"):\n    if key in env:\n        env[key] = _walk(env[key])\nenv.setdefault(\"provenance\", []).append({\"stage\": \"privacy\", \"redacted\": True})\noutput = env\n",
+      "extra": {"pos": [1660, 0], "name": "Middleware: Privacy"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.1 — Adversarial-Input Filter (stub).\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\npayload = None\nfor key in (\"payload\", \"raw\", \"body\", \"message\"):\n    if key in env:\n        payload = env.pop(key)\n        break\nenv[\"untrusted_content\"] = payload\nenv.setdefault(\"provenance\", []).append({\"stage\": \"adversarial\", \"wrapped\": True})\noutput = env\n",
+      "extra": {"pos": [1900, 0], "name": "Middleware: Adversarial"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.2 — Sensory observation written under the email namespace.\nimport time\nenv   = dict(input) if isinstance(input, dict) else {\"raw\": input}\nwm    = variables.setdefault(\"world_model\", {})\nbase  = \"core.observations.email\"\nindex = wm.setdefault(base + \".__index__\", [])\nrev   = len(index) + 1\npath  = f\"{base}.{rev}\"\nwm[path] = {\n    \"observation\":       env.get(\"observation\"),\n    \"untrusted_content\": env.get(\"untrusted_content\"),\n    \"confidence\":        env.get(\"confidence\"),\n    \"source\":            env.get(\"source\"),\n    \"revision\":          rev,\n    \"ts\":                time.time(),\n}\nindex.append(path)\nenv[\"world_model_write\"] = {\"path\": path, \"revision\": rev}\noutput = env\n",
+      "extra": {"pos": [2140, 0], "name": "World Model: Observe"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §6.1 — Ledger entry for the observation.\nimport time\nenv    = dict(input) if isinstance(input, dict) else {\"raw\": input}\nledger = variables.setdefault(\"ledger\", [])\nentry = {\n    \"id\":                f\"led_{len(ledger) + 1}\",\n    \"ts\":                time.time(),\n    \"correlation_id\":    env.get(\"correlation_id\"),\n    \"trigger\":           {\"topic\": \"core.sensory.observation\"},\n    \"observation\":       env.get(\"observation\"),\n    \"provenance\":        env.get(\"provenance\", []),\n    \"world_model_write\": env.get(\"world_model_write\"),\n    \"expected_outcome\":  \"observation_recorded\",\n    \"actual_outcome\":    \"recorded\",\n}\nledger.append(entry)\noutput = env\n",
+      "extra": {"pos": [2380, 0], "name": "Ledger: Observation"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Conscious agent — Anticipatory (stub). Reads the most recent\n# observation from the World Model and decides whether to propose an\n# intent. Maps subject keywords to capabilities; in production this is\n# an `agent_flow` driven by a model that consults Goal Hierarchy +\n# Vitals + recent Ledger to pick the right action.\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\nobs = env.get(\"observation\") or {}\nsubject = (obs.get(\"subject\") or \"\").lower()\n\nintent = None\nif (\"wire\" in subject) or (\"urgent\" in subject) or (\"transfer\" in subject):\n    intent = {\n        \"capability\": \"core.transfer_funds\",\n        \"rationale\": \"Subject indicates a high-stake monetary action; escalate for explicit consent.\",\n        \"args\":      {\"amount\": None, \"recipient\": None},\n    }\nelif (\"calendar\" in subject) or (\"meeting\" in subject) or (\"reminder\" in subject):\n    intent = {\n        \"capability\": \"core.notify\",\n        \"rationale\": \"Calendar event detected; nudge the user.\",\n        \"args\":      {\"message\": f\"Heads up: {obs.get('subject')}\"},\n    }\n\nif intent:\n    env[\"intent\"] = intent\n    env.setdefault(\"provenance\", []).append({\"stage\": \"conscious_anticipate\",\n                                              \"emitted_intent\": intent[\"capability\"]})\nelse:\n    env.setdefault(\"provenance\", []).append({\"stage\": \"conscious_anticipate\",\n                                              \"emitted_intent\": None})\noutput = env\n",
+      "extra": {"pos": [2620, 0], "name": "Conscious: Anticipate"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.3 — Goal Hierarchy lookup.\nimport time\nenv   = dict(input) if isinstance(input, dict) else {\"raw\": input}\ngoals = variables.setdefault(\"goals\", {})\nif \"core.demo.standing\" not in goals:\n    goals[\"core.demo.standing\"] = {\n        \"id\":         \"core.demo.standing\",\n        \"tier\":       \"Standing Goal\",\n        \"title\":      \"Stay aware of inbound signals and route them safely\",\n        \"lifecycle\":  \"active\",\n        \"created_at\": time.time(),\n    }\nactive = [g[\"id\"] for g in goals.values() if g.get(\"lifecycle\") == \"active\"]\nenv[\"relevant_goals\"] = active\nenv.setdefault(\"provenance\", []).append({\"stage\": \"goal_hierarchy\", \"matched\": len(active)})\noutput = env\n",
+      "extra": {"pos": [2860, 0], "name": "Goal Hierarchy: Lookup"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.4 — Capability Registry lookup.\nenv  = dict(input) if isinstance(input, dict) else {\"raw\": input}\ncaps = variables.setdefault(\"capabilities\", {})\nif not caps:\n    caps[\"core.notify\"] = {\n        \"name\":          \"core.notify\",\n        \"purpose\":       \"Surface a UI notification to the user\",\n        \"scopes\":        [\"read-only\"],\n        \"latency_tier\":  \"interactive\",\n        \"cost_estimate\": 0.0,\n    }\n    caps[\"core.send_email\"] = {\n        \"name\":          \"core.send_email\",\n        \"purpose\":       \"Send an outbound email\",\n        \"scopes\":        [\"write\", \"external-network\", \"affects-third-party\"],\n        \"latency_tier\":  \"responsive\",\n        \"cost_estimate\": 0.001,\n    }\n    caps[\"core.transfer_funds\"] = {\n        \"name\":          \"core.transfer_funds\",\n        \"purpose\":       \"Initiate a money transfer\",\n        \"scopes\":        [\"spends-money\", \"write\", \"affects-third-party\"],\n        \"latency_tier\":  \"responsive\",\n        \"cost_estimate\": 0.5,\n    }\n\nintent   = env.get(\"intent\") or {}\ncap_name = intent.get(\"capability\")\nif cap_name and cap_name in caps:\n    cap = caps[cap_name]\n    env[\"resolved_capability\"] = {\n        \"name\":         cap_name,\n        \"scopes\":       cap[\"scopes\"],\n        \"latency_tier\": cap[\"latency_tier\"],\n    }\n    env[\"scopes\"] = sorted(set(list(env.get(\"scopes\", [])) + list(cap[\"scopes\"])))\n    env.setdefault(\"provenance\", []).append({\"stage\": \"capability_registry\", \"resolved\": cap_name})\nelse:\n    env.setdefault(\"provenance\", []).append({\"stage\": \"capability_registry\", \"resolved\": None})\noutput = env\n",
+      "extra": {"pos": [3100, 0], "name": "Capability Registry: Lookup"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.5 — Governor decision over the merged envelope.\n# Note: Phase 2 stub reuses one Governor pass for the observation +\n# intent. Phase 3 hardening will gate the observation and the intent\n# independently for defense-in-depth.\nenv    = dict(input) if isinstance(input, dict) else {\"raw\": input}\nscopes = list(env.get(\"scopes\", [\"read-only\"]))\nconf   = float(env.get(\"confidence\", 1.0))\n\nHIGH_STAKE = {\"spends-money\", \"impersonates-user\", \"affects-third-party\"}\nWRITE      = {\"write\"}\n\nif any(s in HIGH_STAKE for s in scopes):\n    decision, reason = \"consent_required\", \"high-stake scope present\"\nelif any(s in WRITE for s in scopes) and conf < 0.85:\n    decision, reason = \"consent_required\", \"write at low confidence\"\nelse:\n    decision, reason = \"allow\", \"low-class action\"\n\nenv[\"governor_verdict\"] = {\n    \"decision\":   decision,\n    \"reason\":     reason,\n    \"scopes\":     scopes,\n    \"confidence\": conf,\n}\noutput = env\n",
+      "extra": {"pos": [3340, 0], "name": "Governor: Decide"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Motor — Operative slice (stub). Executes the resolved capability if\n# the Governor allowed it. Defers to Social on consent_required. No-op\n# when there's no intent (pure observation pass-through).\nimport time\nenv     = dict(input) if isinstance(input, dict) else {\"raw\": input}\nintent  = env.get(\"intent\")\nverdict = (env.get(\"governor_verdict\") or {}).get(\"decision\")\n\nif intent and verdict == \"allow\":\n    actions = variables.setdefault(\"actions\", [])\n    rev     = len(actions) + 1\n    action  = {\n        \"id\":           f\"act_{rev}\",\n        \"capability\":   intent.get(\"capability\"),\n        \"args\":         intent.get(\"args\"),\n        \"executed_at\":  time.time(),\n        \"result\":       \"stub_success\",\n    }\n    actions.append(action)\n    env[\"motor_action\"] = action\n    env[\"motor_status\"] = \"executed\"\nelif intent and verdict == \"consent_required\":\n    env[\"motor_status\"] = \"deferred_to_social\"\nelse:\n    env[\"motor_status\"] = \"no_action\"\nenv.setdefault(\"provenance\", []).append({\"stage\": \"motor\", \"status\": env[\"motor_status\"]})\noutput = env\n",
+      "extra": {"pos": [3580, 0], "name": "Motor: Execute"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Social — Clarification slice (stub). When the Governor demands\n# consent, record a pending request. In Phase 3 this stage will surface\n# the prompt in the assistant console (AssistantApprovalRuntimeConfig)\n# and route the user's verdict back into the Governor.\nimport time\nenv     = dict(input) if isinstance(input, dict) else {\"raw\": input}\nintent  = env.get(\"intent\")\nverdict = (env.get(\"governor_verdict\") or {}).get(\"decision\")\n\nif intent and verdict == \"consent_required\":\n    pending = variables.setdefault(\"pending_consents\", [])\n    rev     = len(pending) + 1\n    consent = {\n        \"id\":              f\"consent_{rev}\",\n        \"capability\":      intent.get(\"capability\"),\n        \"rationale\":       intent.get(\"rationale\"),\n        \"correlation_id\":  env.get(\"correlation_id\"),\n        \"requested_at\":    time.time(),\n        \"status\":          \"awaiting_user\",\n    }\n    pending.append(consent)\n    env[\"social_consent_request\"] = consent\n    env.setdefault(\"provenance\", []).append({\"stage\": \"social\", \"recorded\": consent[\"id\"]})\nelse:\n    env.setdefault(\"provenance\", []).append({\"stage\": \"social\", \"recorded\": None})\noutput = env\n",
+      "extra": {"pos": [3820, 0], "name": "Social: Pending Consent"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §6.1 — Ledger entry for the action attempt. Only appends\n# when this tick produced a Conscious-driven intent; pure observations\n# are already recorded by the prior Ledger: Observation node.\nimport time\nenv    = dict(input) if isinstance(input, dict) else {\"raw\": input}\nledger = variables.setdefault(\"ledger\", [])\n\nif env.get(\"intent\"):\n    entry = {\n        \"id\":                     f\"led_{len(ledger) + 1}\",\n        \"ts\":                     time.time(),\n        \"correlation_id\":         env.get(\"correlation_id\"),\n        \"trigger\":                {\"topic\": \"core.motor.action_attempt\"},\n        \"intent\":                 env.get(\"intent\"),\n        \"resolved_capability\":    env.get(\"resolved_capability\"),\n        \"relevant_goals\":         env.get(\"relevant_goals\", []),\n        \"governor_verdict\":       env.get(\"governor_verdict\"),\n        \"motor_action\":           env.get(\"motor_action\"),\n        \"motor_status\":           env.get(\"motor_status\"),\n        \"social_consent_request\": env.get(\"social_consent_request\"),\n        \"provenance\":             env.get(\"provenance\", []),\n        \"expected_outcome\":       \"vertical_slice_complete\",\n        \"actual_outcome\":         env.get(\"motor_status\") or \"recorded\",\n    }\n    ledger.append(entry)\noutput = env\n",
+      "extra": {"pos": [4060, 0], "name": "Ledger: Action"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.6 — Vitals sweep over the full Ledger.\n# Bucket entries by trigger topic so observations (no Governor verdict)\n# don't pollute decision counts. Only entries that went through the\n# Governor contribute to governor_decisions.\nimport time\nvitals = variables.setdefault(\"vitals\", {\n    \"updated_at\":             0.0,\n    \"ledger_count\":           0,\n    \"observation_count\":      0,\n    \"action_attempt_count\":   0,\n    \"governor_decisions\":     {},\n    \"motor_status_counts\":    {},\n    \"avg_pipeline_latency_s\": 0.0,\n})\nledger = variables.get(\"ledger\", [])\n\nobservation_count    = 0\naction_attempt_count = 0\ndecisions    = {}\nmotor_states = {}\nlatencies    = []\nfor entry in ledger:\n    topic = (entry.get(\"trigger\") or {}).get(\"topic\", \"\")\n    if topic == \"core.sensory.observation\":\n        observation_count += 1\n    elif topic == \"core.motor.action_attempt\":\n        action_attempt_count += 1\n        d = (entry.get(\"governor_verdict\") or {}).get(\"decision\", \"unknown\")\n        decisions[d] = decisions.get(d, 0) + 1\n        m = entry.get(\"motor_status\")\n        if m:\n            motor_states[m] = motor_states.get(m, 0) + 1\n    prov     = entry.get(\"provenance\") or []\n    ts_first = next((p.get(\"ts\") for p in prov if \"ts\" in p), None)\n    if ts_first and entry.get(\"ts\"):\n        latencies.append(entry[\"ts\"] - ts_first)\n\nvitals.update({\n    \"updated_at\":             time.time(),\n    \"ledger_count\":           len(ledger),\n    \"observation_count\":      observation_count,\n    \"action_attempt_count\":   action_attempt_count,\n    \"governor_decisions\":     decisions,\n    \"motor_status_counts\":    motor_states,\n    \"avg_pipeline_latency_s\": (sum(latencies) / len(latencies)) if latencies else 0.0,\n})\noutput = {\n    \"vitals\":                vitals,\n    \"latest_observation\":    (input or {}).get(\"observation\"),\n    \"latest_intent\":         (input or {}).get(\"intent\"),\n    \"latest_motor_status\":   (input or {}).get(\"motor_status\"),\n    \"latest_consent_id\":     ((input or {}).get(\"social_consent_request\") or {}).get(\"id\"),\n}\n",
+      "extra": {"pos": [4300, 0], "name": "Vitals: Sweep"}
+    },
+    {
+      "type": "preview_flow",
+      "hint": "json",
+      "extra": {"pos": [4540, 0], "name": "Show Snapshot"}
+    },
+    {
+      "type": "loop_end_flow",
+      "extra": {"pos": [4780, 0], "name": "Loop End"}
+    },
+    {
+      "type": "end_flow",
+      "extra": {"pos": [5020, 0], "name": "End"}
+    }
+  ],
+  "edges": [
+    { "source":  0, "target":  1, "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source":  1, "target":  2, "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source":  1, "target":  3, "source_slot": "registered_id", "target_slot": "sources.tick" },
+    { "source":  2, "target":  3, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  3, "target":  4, "source_slot": "event",         "target_slot": "input"   },
+    { "source":  3, "target":  4, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  4, "target":  5, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  4, "target":  5, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  5, "target":  6, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  5, "target":  6, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  6, "target":  7, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  6, "target":  7, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  7, "target":  8, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  7, "target":  8, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  8, "target":  9, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  8, "target":  9, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  9, "target": 10, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  9, "target": 10, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source": 10, "target": 11, "source_slot": "output",        "target_slot": "input"   },
+    { "source": 10, "target": 11, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source": 11, "target": 12, "source_slot": "output",        "target_slot": "input"   },
+    { "source": 11, "target": 12, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source": 12, "target": 13, "source_slot": "output",        "target_slot": "input"   },
+    { "source": 12, "target": 13, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source": 13, "target": 14, "source_slot": "output",        "target_slot": "input"   },
+    { "source": 13, "target": 14, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source": 14, "target": 15, "source_slot": "output",        "target_slot": "input"   },
+    { "source": 14, "target": 15, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source": 15, "target": 16, "source_slot": "output",        "target_slot": "input"   },
+    { "source": 15, "target": 16, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source": 16, "target": 17, "source_slot": "output",        "target_slot": "input"   },
+    { "source": 16, "target": 17, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source": 17, "target": 18, "source_slot": "output",        "target_slot": "input"   },
+    { "source": 17, "target": 18, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source": 18, "target": 19, "source_slot": "output",        "target_slot": "flow_in" },
+
+    { "source": 19, "target": 20, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source": 20, "target":  2, "source_slot": "flow_out",      "target_slot": "flow_in", "loop": true },
+    { "source": 20, "target": 21, "source_slot": "flow_out",      "target_slot": "flow_in" }
+  ]
+}
