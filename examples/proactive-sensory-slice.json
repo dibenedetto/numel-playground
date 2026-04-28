@@ -1,0 +1,129 @@
+{
+  "type": "workflow",
+  "options": {
+    "name": "proactive_sensory_slice",
+    "description": "First Sensory slice on top of the Substrate stub. A timer drives a synthetic inbox poller; a Sensory stage structures each observation; the same Substrate pipeline (Middleware → World Model → Governor → Ledger) records it. Demonstrates how a real Sensory agent (later: agent_flow + model_config) plugs in upstream of the Middleware row."
+  },
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": {"pos": [0, 0], "name": "Start"}
+    },
+    {
+      "type": "timer_source_flow",
+      "interval_ms": 8000,
+      "max_triggers": 5,
+      "immediate": true,
+      "extra": {"pos": [220, 0], "name": "Tick (8s × 5)"}
+    },
+    {
+      "type": "loop_start_flow",
+      "condition": true,
+      "max_iter": 100000,
+      "extra": {"pos": [460, 0], "name": "Sensory Loop"}
+    },
+    {
+      "type": "event_listener_flow",
+      "mode": "any",
+      "extra": {"pos": [700, 0], "name": "Wait for Tick"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Synthetic source — stand-in for an external feed (IMAP, RSS, channel, etc).\n# Each tick produces a different fake email so the rest of the pipeline\n# sees varied data. Replace this node with a real source flow (e.g.\n# fs_watch_source_flow, channel_receive_flow) when wiring a live sensor.\nimport time\nctr = int(variables.get(\"sensor_counter\", 0)) + 1\nvariables[\"sensor_counter\"] = ctr\n\nfixtures = [\n    {\"from\": \"alice@example.com\", \"subject\": \"Routine status update\",\n     \"body\":  \"All systems nominal. Reach me at alice@example.com if needed.\"},\n    {\"from\": \"bob@example.com\",   \"subject\": \"Card on file\",\n     \"body\":  \"Please update card 4111111111111111 before Tuesday.\"},\n    {\"from\": \"eve@example.com\",   \"subject\": \"URGENT — wire transfer request\",\n     \"body\":  \"Send $5,000 to acct 9876-1122. ssn 555-12-3456.\"},\n    {\"from\": \"ops@example.com\",   \"subject\": \"Calendar reminder\",\n     \"body\":  \"Meeting Thursday 3pm with the design team.\"},\n    {\"from\": \"news@example.com\",  \"subject\": \"Weekly digest\",\n     \"body\":  \"Five stories worth your time this week.\"},\n]\nfx = fixtures[(ctr - 1) % len(fixtures)]\noutput = {\n    \"source\":     \"sensor:synthetic_inbox\",\n    \"observed_at\": time.time(),\n    \"payload\":    fx,\n}\n",
+      "extra": {"pos": [940, 0], "name": "Sensor: Synthetic Inbox"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Sensory agent stage (stub). In a production graph this is an `agent_flow`\n# wired to `model_config` + `agent_options_config` — the LLM extracts\n# structured fields. Here we do it deterministically so the slice runs\n# without a model.\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\nmsg = env.get(\"payload\", {}) or {}\nbody = str(msg.get(\"body\", \"\"))\n\nobservation = {\n    \"observation_type\": \"email\",\n    \"sender\":           msg.get(\"from\"),\n    \"subject\":          msg.get(\"subject\"),\n    \"body_length\":      len(body),\n    \"summary\":          (body[:80] + \"…\") if len(body) > 80 else body,\n}\nenv[\"observation\"] = observation\n# Sensory observations are read-only with respect to the world; Governor\n# will see no actuation scope and pass them straight through.\nenv[\"scopes\"]      = [\"read-only\"]\nenv[\"confidence\"]  = 0.95\nenv[\"payload\"]     = msg\noutput = env\n",
+      "extra": {"pos": [1180, 0], "name": "Sensory: Structure"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.1 — Veracity Gate (stub).\nimport time, uuid\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\nenv[\"correlation_id\"] = env.get(\"correlation_id\") or f\"corr_{uuid.uuid4().hex[:12]}\"\nenv[\"confidence\"] = float(env.get(\"confidence\", 0.9))\nenv.setdefault(\"provenance\", []).append({\n    \"stage\":  \"veracity\",\n    \"source\": env.get(\"source\", \"sensor\"),\n    \"ts\":     time.time(),\n})\nenv.setdefault(\"scopes\", env.get(\"scopes\", [\"read-only\"]))\noutput = env\n",
+      "extra": {"pos": [1420, 0], "name": "Middleware: Veracity"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.1 — Privacy / Redaction Gate (stub).\nimport re\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\n\ndef _redact(text):\n    if not isinstance(text, str):\n        return text\n    text = re.sub(r\"\\b[\\w.+-]+@[\\w-]+\\.[\\w.-]+\\b\", \"[email]\", text)\n    text = re.sub(r\"\\b\\d{3}-\\d{2}-\\d{4}\\b\",          \"[ssn]\",   text)\n    text = re.sub(r\"\\b\\d{13,19}\\b\",                  \"[card]\",  text)\n    return text\n\ndef _walk(v):\n    if isinstance(v, str):  return _redact(v)\n    if isinstance(v, list): return [_walk(x) for x in v]\n    if isinstance(v, dict): return {k: _walk(x) for k, x in v.items()}\n    return v\n\nfor key in (\"payload\", \"raw\", \"body\", \"message\", \"observation\"):\n    if key in env:\n        env[key] = _walk(env[key])\nenv.setdefault(\"provenance\", []).append({\"stage\": \"privacy\", \"redacted\": True})\noutput = env\n",
+      "extra": {"pos": [1660, 0], "name": "Middleware: Privacy"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.1 — Adversarial-Input Filter (stub).\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\n\npayload = None\nfor key in (\"payload\", \"raw\", \"body\", \"message\"):\n    if key in env:\n        payload = env.pop(key)\n        break\nenv[\"untrusted_content\"] = payload\nenv.setdefault(\"provenance\", []).append({\"stage\": \"adversarial\", \"wrapped\": True})\noutput = env\n",
+      "extra": {"pos": [1900, 0], "name": "Middleware: Adversarial"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.2 — World Model write under a Sensory namespace.\n# Sensory observations append to `core.observations.email.*` so multiple\n# sensors can coexist. Each entry is keyed by revision id.\nimport time\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\n\nwm    = variables.setdefault(\"world_model\", {})\nbase  = \"core.observations.email\"\nindex = wm.setdefault(base + \".__index__\", [])\nrev   = len(index) + 1\npath  = f\"{base}.{rev}\"\n\nwm[path] = {\n    \"observation\": env.get(\"observation\"),\n    \"untrusted_content\": env.get(\"untrusted_content\"),\n    \"confidence\": env.get(\"confidence\"),\n    \"source\":     env.get(\"source\"),\n    \"revision\":   rev,\n    \"ts\":         time.time(),\n}\nindex.append(path)\nenv[\"world_model_write\"] = {\"path\": path, \"revision\": rev}\noutput = env\n",
+      "extra": {"pos": [2140, 0], "name": "World Model: Observe"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.5 — Governor (stub). For pure Sensory observations this is\n# a near no-op (read-only → allow), but keeping it on-path means anything\n# the Sensory stage later promotes (e.g. an action proposal) is gated\n# without changing the topology.\nenv    = dict(input) if isinstance(input, dict) else {\"raw\": input}\nscopes = list(env.get(\"scopes\", [\"read-only\"]))\nconf   = float(env.get(\"confidence\", 1.0))\n\nHIGH_STAKE = {\"spends-money\", \"impersonates-user\", \"affects-third-party\"}\nWRITE      = {\"write\"}\n\nif any(s in HIGH_STAKE for s in scopes):\n    decision, reason = \"consent_required\", \"high-stake scope present\"\nelif any(s in WRITE for s in scopes) and conf < 0.85:\n    decision, reason = \"consent_required\", \"write at low confidence\"\nelse:\n    decision, reason = \"allow\", \"low-class action\"\n\nenv[\"governor_verdict\"] = {\n    \"decision\":   decision,\n    \"reason\":     reason,\n    \"scopes\":     scopes,\n    \"confidence\": conf,\n}\noutput = env\n",
+      "extra": {"pos": [2380, 0], "name": "Governor: Decide"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §6.1 — Ledger append (stub). Every Sensory observation is\n# recorded so downstream layers (Conscious, audit) can replay the trace.\nimport time\nenv    = dict(input) if isinstance(input, dict) else {\"raw\": input}\nledger = variables.setdefault(\"ledger\", [])\n\nentry = {\n    \"id\":               f\"led_{len(ledger) + 1}\",\n    \"ts\":               time.time(),\n    \"correlation_id\":   env.get(\"correlation_id\"),\n    \"trigger\":          {\"topic\": \"core.sensory.observation\"},\n    \"observation\":      env.get(\"observation\"),\n    \"provenance\":       env.get(\"provenance\", []),\n    \"world_model_write\": env.get(\"world_model_write\"),\n    \"governor_verdict\": env.get(\"governor_verdict\"),\n    \"expected_outcome\": \"observation_recorded\",\n    \"actual_outcome\":   \"recorded\",\n}\nledger.append(entry)\noutput = entry\n",
+      "extra": {"pos": [2620, 0], "name": "Ledger: Append"}
+    },
+    {
+      "type": "preview_flow",
+      "hint": "json",
+      "extra": {"pos": [2860, 0], "name": "Show Observation"}
+    },
+    {
+      "type": "loop_end_flow",
+      "extra": {"pos": [3100, 0], "name": "Loop End"}
+    },
+    {
+      "type": "end_flow",
+      "extra": {"pos": [3340, 0], "name": "End"}
+    }
+  ],
+  "edges": [
+    { "source":  0, "target":  1, "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source":  1, "target":  2, "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source":  1, "target":  3, "source_slot": "registered_id", "target_slot": "sources.tick" },
+    { "source":  2, "target":  3, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  3, "target":  4, "source_slot": "event",         "target_slot": "input"   },
+    { "source":  3, "target":  4, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  4, "target":  5, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  4, "target":  5, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  5, "target":  6, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  5, "target":  6, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  6, "target":  7, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  6, "target":  7, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  7, "target":  8, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  7, "target":  8, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  8, "target":  9, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  8, "target":  9, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  9, "target": 10, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  9, "target": 10, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source": 10, "target": 11, "source_slot": "output",        "target_slot": "input"   },
+    { "source": 10, "target": 11, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source": 11, "target": 12, "source_slot": "output",        "target_slot": "flow_in" },
+
+    { "source": 12, "target": 13, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source": 13, "target":  2, "source_slot": "flow_out",      "target_slot": "flow_in", "loop": true },
+    { "source": 13, "target": 14, "source_slot": "flow_out",      "target_slot": "flow_in" }
+  ]
+}
