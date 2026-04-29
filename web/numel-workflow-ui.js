@@ -3105,6 +3105,13 @@ async function connect() {
 		galleryManager = new GalleryManager(serverUrl, api, window.loadAndSyncWorkflow);
 		$('galleryToggleBtn').style.display = '';
 
+		// Initialize Proactive Vitals panel (Phase 3 M3.3)
+		try {
+			window._proactiveVitalsPanel = new ProactiveVitalsPanel(api);
+		} catch (err) {
+			console.warn('[ProactiveVitals] init failed:', err);
+		}
+
 		// Initialize published apps manager
 		appsManager = new AppsManager(serverUrl, api, () => ({
 			name: visualizer?.currentWorkflowName || '',

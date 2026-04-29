@@ -355,6 +355,28 @@
 				<div id="eventLog" class="nw-event-log"></div>
 			</section>
 
+			<!-- Proactive Vitals Section (Phase 3 M3.3 — reads app/storage/proactive/ledger.jsonl) -->
+			<section id="proactiveVitalsSection" class="nw-section nw-section-secondary nw-section-collapsed">
+				<div class="nw-section-header">
+					<h3 class="nw-section-title">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+						<span>Proactive Vitals</span>
+					</h3>
+					<span id="proactiveVitalsLastUpdate" class="nw-vitals-last-update" title="Last refresh"></span>
+				</div>
+				<div class="nw-section-lede">Live health surface for the Proactive substrate (reads ledger.jsonl).</div>
+				<div class="nw-section-actions">
+					<label class="nw-vitals-toggle" title="Auto-refresh every 5 seconds">
+						<input type="checkbox" id="proactiveVitalsAuto" checked>
+						<span>Auto-refresh</span>
+					</label>
+					<button id="proactiveVitalsRefreshBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button" title="Refresh now">Refresh</button>
+				</div>
+				<div id="proactiveVitalsStats" class="nw-vitals-stats"></div>
+				<div class="nw-vitals-subhead">Recent ledger entries</div>
+				<div id="proactiveVitalsLedger" class="nw-vitals-ledger"></div>
+			</section>
+
 			<!-- Experimental Section (hidden by default, revealed via Show more) -->
 			<section id="experimentalSection" class="nw-section nw-section-compact nw-section-secondary nw-section-collapsed">
 				<div class="nw-section-header">
@@ -1234,6 +1256,7 @@
 		<script src="numel-gallery.js"></script>
 
 		<script src="numel-api.js"></script>
+		<script src="numel-proactive-vitals.js"></script>
 		<script src="numel-file-upload.js"></script>
 		<script src="numel-user-panel.js"></script>
 		<script src="numel-admin.js"></script>

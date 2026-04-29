@@ -2984,6 +2984,87 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		return {"options": options}
 
 
+	# === Proactive Substrate API (Phase 3 M3.3 — Vitals UI) ===
+
+	@app.post("/proactive/vitals")
+	async def proactive_vitals(body: Optional[Dict[str, Any]] = None):
+		"""Compute Vitals from the persistent Ledger written by the proactive
+		substrate workflows. Returns counts bucketed by trigger topic so
+		observations and action attempts are tracked separately.
+		"""
+		from proactive.persistence import read_jsonl, state_dir
+		ledger = read_jsonl("ledger")
+
+		decisions       : Dict[str, int] = {}
+		motor_states    : Dict[str, int] = {}
+		trigger_topics  : Dict[str, int] = {}
+		injection_hits  = 0
+		consent_pending = 0
+		latencies       : list             = []
+
+		for entry in ledger:
+			topic = (entry.get("trigger") or {}).get("topic", "unknown")
+			trigger_topics[topic] = trigger_topics.get(topic, 0) + 1
+
+			verdict = entry.get("governor_verdict")
+			if verdict:
+				d = verdict.get("decision", "unknown")
+				decisions[d] = decisions.get(d, 0) + 1
+
+			motor = entry.get("motor_status")
+			if motor:
+				motor_states[motor] = motor_states.get(motor, 0) + 1
+
+			# Pull injection hits out of the provenance trail
+			for prov in (entry.get("provenance") or []):
+				if prov.get("stage") == "adversarial" and prov.get("injection_hits"):
+					injection_hits += len(prov["injection_hits"])
+
+			if (entry.get("social_consent_request") or {}).get("status") == "awaiting_user":
+				consent_pending += 1
+
+			ts_first = next((p.get("ts") for p in (entry.get("provenance") or []) if "ts" in p), None)
+			if ts_first and entry.get("ts"):
+				latencies.append(entry["ts"] - ts_first)
+
+		import time as _t
+		return {
+			"updated_at":             _t.time(),
+			"state_dir":              str(state_dir()),
+			"ledger_count":           len(ledger),
+			"trigger_topics":         trigger_topics,
+			"governor_decisions":     decisions,
+			"motor_status_counts":    motor_states,
+			"injection_hits_total":   injection_hits,
+			"consent_pending":        consent_pending,
+			"avg_pipeline_latency_s": (sum(latencies) / len(latencies)) if latencies else 0.0,
+		}
+
+
+	@app.post("/proactive/ledger")
+	async def proactive_ledger(body: Optional[Dict[str, Any]] = None):
+		"""Tail of the persistent Ledger. Body: {limit?: int, since_id?: str}.
+		Returns most recent entries first."""
+		from proactive.persistence import read_jsonl
+		body = body or {}
+		try:
+			limit = int(body.get("limit", 25))
+		except (TypeError, ValueError):
+			limit = 25
+		limit = max(1, min(500, limit))
+
+		entries = read_jsonl("ledger")
+		since_id = str(body.get("since_id") or "").strip()
+		if since_id:
+			# Drop everything up to and including since_id
+			cut = next((i for i, e in enumerate(entries) if e.get("id") == since_id), -1)
+			if cut >= 0:
+				entries = entries[cut + 1:]
+
+		entries = list(reversed(entries))[:limit]
+		return {"entries": entries, "count": len(entries)}
+
+
 	# === Sub-Graph Templates API ===
 
 	_templates_path = str(Path(__file__).parent / "templates.json")

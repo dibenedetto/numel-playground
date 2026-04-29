@@ -201,6 +201,11 @@ class NumelAPI {
 	generationPrompt(body = {})   { return this.json('/generation-prompt', body); }
 	options(providerKey, body = {}) { return this.json(`/options/${encodeURIComponent(providerKey)}`, body); }
 
+	// ── Proactive Substrate (Phase 3 M3.3) ───────────────────────
+
+	proactiveVitals()               { return this.json('/proactive/vitals'); }
+	proactiveLedger(opts = {})      { return this.json('/proactive/ledger', opts); }
+
 	// ── Console API ──────────────────────────────────────────────
 
 	consoleStart(opts = {})       { return this.json('/console/start', opts); }

@@ -2390,6 +2390,106 @@ body.nw-layout-project-workbench .nw-mono-text {
 }
 
 /* ========================================================================
+   PROACTIVE VITALS PANEL  (Phase 3 M3.3)
+   ======================================================================== */
+
+.nw-vitals-last-update {
+	font-size: 10px;
+	color: var(--sg-text-tertiary);
+	font-variant-numeric: tabular-nums;
+	margin-left: auto;
+}
+
+.nw-vitals-toggle {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	font-size: 11px;
+	color: var(--sg-text-secondary);
+	cursor: pointer;
+}
+
+.nw-vitals-stats {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 6px;
+	margin: 8px 0;
+}
+
+.nw-vitals-cell {
+	background: var(--sg-bg-quaternary);
+	border: 1px solid var(--nw-border-soft);
+	border-radius: var(--nw-radius-control);
+	padding: 6px 8px;
+	min-width: 0;
+}
+.nw-vitals-cell-value {
+	font-size: 14px;
+	font-weight: 600;
+	color: var(--sg-text-primary);
+	font-variant-numeric: tabular-nums;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.nw-vitals-cell-label {
+	font-size: 10px;
+	color: var(--sg-text-tertiary);
+	margin-top: 2px;
+}
+
+.nw-vitals-cell-good  { border-color: rgba( 80,180, 90,0.40); }
+.nw-vitals-cell-good  .nw-vitals-cell-value { color: #79c389; }
+.nw-vitals-cell-warn  { border-color: rgba(214,143, 45,0.45); }
+.nw-vitals-cell-warn  .nw-vitals-cell-value { color: #f3c982; }
+.nw-vitals-cell-bad   { border-color: rgba(217, 83, 79,0.50); }
+.nw-vitals-cell-bad   .nw-vitals-cell-value { color: #e58a86; }
+
+.nw-vitals-subhead {
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.4px;
+	text-transform: uppercase;
+	color: var(--sg-text-tertiary);
+	margin: 8px 0 4px;
+}
+
+.nw-vitals-ledger {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	max-height: 180px;
+	overflow-y: auto;
+	font-size: 11px;
+	font-family: 'Courier New', monospace;
+}
+.nw-vitals-ledger-row {
+	display: grid;
+	grid-template-columns: 56px 90px 1fr;
+	gap: 6px;
+	align-items: baseline;
+	padding: 3px 6px;
+	background: var(--sg-bg-quaternary);
+	border-radius: 4px;
+}
+.nw-vitals-ledger-id      { color: var(--sg-text-tertiary); }
+.nw-vitals-ledger-verdict { font-weight: 600; }
+.nw-vitals-ledger-topic   { color: var(--sg-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nw-vitals-verdict-good { color: #79c389; }
+.nw-vitals-verdict-warn { color: #f3c982; }
+.nw-vitals-verdict-bad  { color: #e58a86; }
+
+.nw-vitals-empty,
+.nw-vitals-error {
+	padding: 8px;
+	font-size: 11px;
+	color: var(--sg-text-tertiary);
+	background: var(--sg-bg-quaternary);
+	border-radius: var(--nw-radius-control);
+}
+.nw-vitals-error { color: #e58a86; }
+
+/* ========================================================================
    EVENT LOG
    ======================================================================== */
 
