@@ -1,0 +1,137 @@
+{
+  "type": "workflow",
+  "options": {
+    "name": "proactive_substrate_persistent",
+    "description": "Phase 3 (M3.1) — Persistent variant of the substrate stub. Identical topology to proactive-substrate-stub.json, but every stateful component (Goals, Capabilities, World Model, Ledger, Vitals) reads from and writes to durable JSON/JSONL files via proactive.persistence. State survives across workflow runs. Default state directory: app/storage/proactive/ (override with NUMEL_PROACTIVE_DIR)."
+  },
+  "nodes": [
+    {
+      "type": "start_flow",
+      "extra": {"pos": [0, 0], "name": "Start"}
+    },
+    {
+      "type": "webhook_source_flow",
+      "endpoint": "/substrate/in",
+      "methods": "POST",
+      "extra": {"pos": [220, 0], "name": "Inbound Signal"}
+    },
+    {
+      "type": "loop_start_flow",
+      "condition": true,
+      "max_iter": 100000,
+      "extra": {"pos": [460, 0], "name": "Event Loop"}
+    },
+    {
+      "type": "event_listener_flow",
+      "mode": "any",
+      "extra": {"pos": [700, 0], "name": "Wait for Signal"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.1 — Veracity Gate (stub).\nimport time, uuid\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\nenv[\"correlation_id\"] = env.get(\"correlation_id\") or f\"corr_{uuid.uuid4().hex[:12]}\"\nenv[\"confidence\"] = float(env.get(\"confidence\", 0.9))\nenv.setdefault(\"provenance\", []).append({\n    \"stage\":  \"veracity\",\n    \"source\": env.get(\"source\", \"webhook\"),\n    \"ts\":     time.time(),\n})\nenv.setdefault(\"scopes\", env.get(\"scopes\", [\"read-only\"]))\noutput = env\n",
+      "extra": {"pos": [940, 0], "name": "Middleware: Veracity"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.1 — Privacy / Redaction Gate (stub).\nimport re\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\n\ndef _redact(text):\n    if not isinstance(text, str):\n        return text\n    text = re.sub(r\"\\b[\\w.+-]+@[\\w-]+\\.[\\w.-]+\\b\", \"[email]\", text)\n    text = re.sub(r\"\\b\\d{3}-\\d{2}-\\d{4}\\b\",          \"[ssn]\",   text)\n    text = re.sub(r\"\\b\\d{13,19}\\b\",                  \"[card]\",  text)\n    return text\n\ndef _walk(v):\n    if isinstance(v, str):  return _redact(v)\n    if isinstance(v, list): return [_walk(x) for x in v]\n    if isinstance(v, dict): return {k: _walk(x) for k, x in v.items()}\n    return v\n\nfor key in (\"payload\", \"raw\", \"body\", \"message\"):\n    if key in env:\n        env[key] = _walk(env[key])\nenv.setdefault(\"provenance\", []).append({\"stage\": \"privacy\", \"redacted\": True})\noutput = env\n",
+      "extra": {"pos": [1180, 0], "name": "Middleware: Privacy"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.1 — Adversarial-Input Filter (stub).\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\npayload = None\nfor key in (\"payload\", \"raw\", \"body\", \"message\"):\n    if key in env:\n        payload = env.pop(key)\n        break\nenv[\"untrusted_content\"] = payload\nenv.setdefault(\"provenance\", []).append({\"stage\": \"adversarial\", \"wrapped\": True})\noutput = env\n",
+      "extra": {"pos": [1420, 0], "name": "Middleware: Adversarial"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.3 — Goal Hierarchy (persistent).\n# Loads goals.json on first access; lazy-seeds a default Standing Goal\n# if the file is empty; writes back on any mutation.\nimport time\ntry:\n    from proactive.persistence import read_json, write_json\nexcept ImportError:\n    import sys, os\n    sys.path.insert(0, os.path.join(os.getcwd(), 'app'))\n    from proactive.persistence import read_json, write_json\n\nenv   = dict(input) if isinstance(input, dict) else {\"raw\": input}\ngoals = variables.get(\"goals\")\nif goals is None:\n    goals = read_json(\"goals\", default={})\n    variables[\"goals\"] = goals\n\nmutated = False\nif \"core.demo.standing\" not in goals:\n    goals[\"core.demo.standing\"] = {\n        \"id\":         \"core.demo.standing\",\n        \"tier\":       \"Standing Goal\",\n        \"title\":      \"Stay aware of inbound signals and route them safely\",\n        \"lifecycle\":  \"active\",\n        \"created_at\": time.time(),\n    }\n    mutated = True\n\nif mutated:\n    write_json(\"goals\", goals)\n\nactive = [g[\"id\"] for g in goals.values() if g.get(\"lifecycle\") == \"active\"]\nenv[\"relevant_goals\"] = active\nenv.setdefault(\"provenance\", []).append({\"stage\": \"goal_hierarchy\", \"matched\": len(active)})\noutput = env\n",
+      "extra": {"pos": [1660, 0], "name": "Goal Hierarchy: Lookup"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.4 — Capability Registry (persistent).\n# Loads capabilities.json on first access; lazy-seeds the built-in\n# catalog if empty; writes back on any mutation. If the envelope\n# carries intent.capability, fold the registered scopes into env[\"scopes\"].\ntry:\n    from proactive.persistence import read_json, write_json\nexcept ImportError:\n    import sys, os\n    sys.path.insert(0, os.path.join(os.getcwd(), 'app'))\n    from proactive.persistence import read_json, write_json\n\nenv  = dict(input) if isinstance(input, dict) else {\"raw\": input}\ncaps = variables.get(\"capabilities\")\nif caps is None:\n    caps = read_json(\"capabilities\", default={})\n    variables[\"capabilities\"] = caps\n\nmutated = False\nif not caps:\n    caps[\"core.notify\"] = {\n        \"name\":          \"core.notify\",\n        \"purpose\":       \"Surface a UI notification to the user\",\n        \"scopes\":        [\"read-only\"],\n        \"latency_tier\":  \"interactive\",\n        \"cost_estimate\": 0.0,\n    }\n    caps[\"core.send_email\"] = {\n        \"name\":          \"core.send_email\",\n        \"purpose\":       \"Send an outbound email\",\n        \"scopes\":        [\"write\", \"external-network\", \"affects-third-party\"],\n        \"latency_tier\":  \"responsive\",\n        \"cost_estimate\": 0.001,\n    }\n    caps[\"core.transfer_funds\"] = {\n        \"name\":          \"core.transfer_funds\",\n        \"purpose\":       \"Initiate a money transfer\",\n        \"scopes\":        [\"spends-money\", \"write\", \"affects-third-party\"],\n        \"latency_tier\":  \"responsive\",\n        \"cost_estimate\": 0.5,\n    }\n    mutated = True\n\nif mutated:\n    write_json(\"capabilities\", caps)\n\nintent   = env.get(\"intent\") or {}\ncap_name = intent.get(\"capability\")\nif cap_name and cap_name in caps:\n    cap = caps[cap_name]\n    env[\"resolved_capability\"] = {\n        \"name\":         cap_name,\n        \"scopes\":       cap[\"scopes\"],\n        \"latency_tier\": cap[\"latency_tier\"],\n    }\n    env[\"scopes\"] = sorted(set(list(env.get(\"scopes\", [])) + list(cap[\"scopes\"])))\n    env.setdefault(\"provenance\", []).append({\"stage\": \"capability_registry\", \"resolved\": cap_name})\nelse:\n    env.setdefault(\"provenance\", []).append({\"stage\": \"capability_registry\", \"resolved\": None})\noutput = env\n",
+      "extra": {"pos": [1900, 0], "name": "Capability Registry: Lookup"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.2 — World Model write (persistent).\n# Loads world_model.json on first access; bumps the revision; writes back.\nimport time\ntry:\n    from proactive.persistence import read_json, write_json\nexcept ImportError:\n    import sys, os\n    sys.path.insert(0, os.path.join(os.getcwd(), 'app'))\n    from proactive.persistence import read_json, write_json\n\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\nwm  = variables.get(\"world_model\")\nif wm is None:\n    wm = read_json(\"world_model\", default={})\n    variables[\"world_model\"] = wm\n\npath = \"core.inbox.last_envelope\"\nprev = wm.get(path) or {}\nrev  = int(prev.get(\"revision\", 0)) + 1\nwm[path] = {\n    \"value\":      env.get(\"untrusted_content\"),\n    \"confidence\": env.get(\"confidence\"),\n    \"source\":     \"core.middleware\",\n    \"revision\":   rev,\n    \"ts\":         time.time(),\n}\nwrite_json(\"world_model\", wm)\nenv[\"world_model_write\"] = {\"path\": path, \"revision\": rev}\noutput = env\n",
+      "extra": {"pos": [2140, 0], "name": "World Model: Write"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.5 — Governor (stub).\nenv    = dict(input) if isinstance(input, dict) else {\"raw\": input}\nscopes = list(env.get(\"scopes\", [\"read-only\"]))\nconf   = float(env.get(\"confidence\", 1.0))\n\nHIGH_STAKE = {\"spends-money\", \"impersonates-user\", \"affects-third-party\"}\nWRITE      = {\"write\"}\n\nif any(s in HIGH_STAKE for s in scopes):\n    decision, reason = \"consent_required\", \"high-stake scope present\"\nelif any(s in WRITE for s in scopes) and conf < 0.85:\n    decision, reason = \"consent_required\", \"write at low confidence\"\nelse:\n    decision, reason = \"allow\", \"low-class action\"\n\nenv[\"governor_verdict\"] = {\n    \"decision\":   decision,\n    \"reason\":     reason,\n    \"scopes\":     scopes,\n    \"confidence\": conf,\n}\noutput = env\n",
+      "extra": {"pos": [2380, 0], "name": "Governor: Decide"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §6.1 — Ledger append (persistent).\n# Append-only JSONL file. Caches the current count in variables to\n# avoid re-reading the whole file every tick.\nimport time\ntry:\n    from proactive.persistence import append_jsonl, read_jsonl\nexcept ImportError:\n    import sys, os\n    sys.path.insert(0, os.path.join(os.getcwd(), 'app'))\n    from proactive.persistence import append_jsonl, read_jsonl\n\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\n\ncount = variables.get(\"ledger_count\")\nif count is None:\n    count = len(read_jsonl(\"ledger\"))\nvariables[\"ledger_count\"] = count = count + 1\n\nentry = {\n    \"id\":                  f\"led_{count}\",\n    \"ts\":                  time.time(),\n    \"correlation_id\":      env.get(\"correlation_id\"),\n    \"trigger\":             {\"topic\": \"core.middleware.input_received\"},\n    \"provenance\":          env.get(\"provenance\", []),\n    \"relevant_goals\":      env.get(\"relevant_goals\", []),\n    \"resolved_capability\": env.get(\"resolved_capability\"),\n    \"world_model_write\":   env.get(\"world_model_write\"),\n    \"governor_verdict\":    env.get(\"governor_verdict\"),\n    \"expected_outcome\":    \"substrate_pass_through\",\n    \"actual_outcome\":      \"recorded\",\n}\nappend_jsonl(\"ledger\", entry)\noutput = entry\n",
+      "extra": {"pos": [2620, 0], "name": "Ledger: Append"}
+    },
+    {
+      "type": "transform_flow",
+      "lang": "python",
+      "script": "# Substrate §3.6 — Vitals (persistent).\n# Reads the durable Ledger JSONL on every sweep so metrics survive\n# across workflow runs. Real impl should incrementally update rather\n# than re-scanning each time.\nimport time\ntry:\n    from proactive.persistence import read_jsonl\nexcept ImportError:\n    import sys, os\n    sys.path.insert(0, os.path.join(os.getcwd(), 'app'))\n    from proactive.persistence import read_jsonl\n\nledger = read_jsonl(\"ledger\")\n\ndecisions = {}\nlatencies = []\nfor entry in ledger:\n    d = (entry.get(\"governor_verdict\") or {}).get(\"decision\", \"unknown\")\n    decisions[d] = decisions.get(d, 0) + 1\n    prov     = entry.get(\"provenance\") or []\n    ts_first = next((p.get(\"ts\") for p in prov if \"ts\" in p), None)\n    if ts_first and entry.get(\"ts\"):\n        latencies.append(entry[\"ts\"] - ts_first)\n\nvitals = {\n    \"updated_at\":             time.time(),\n    \"ledger_count\":           len(ledger),\n    \"governor_decisions\":     decisions,\n    \"avg_pipeline_latency_s\": (sum(latencies) / len(latencies)) if latencies else 0.0,\n}\nvariables[\"vitals\"] = vitals\noutput = {\"ledger_entry\": input, \"vitals\": vitals}\n",
+      "extra": {"pos": [2860, 0], "name": "Vitals: Sweep"}
+    },
+    {
+      "type": "preview_flow",
+      "hint": "json",
+      "extra": {"pos": [3100, 0], "name": "Show Snapshot"}
+    },
+    {
+      "type": "loop_end_flow",
+      "extra": {"pos": [3340, 0], "name": "Loop End"}
+    },
+    {
+      "type": "end_flow",
+      "extra": {"pos": [3580, 0], "name": "End"}
+    }
+  ],
+  "edges": [
+    { "source":  0, "target":  1, "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source":  1, "target":  2, "source_slot": "flow_out",      "target_slot": "flow_in" },
+    { "source":  1, "target":  3, "source_slot": "registered_id", "target_slot": "sources.signal" },
+    { "source":  2, "target":  3, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  3, "target":  4, "source_slot": "event",         "target_slot": "input"   },
+    { "source":  3, "target":  4, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  4, "target":  5, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  4, "target":  5, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  5, "target":  6, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  5, "target":  6, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  6, "target":  7, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  6, "target":  7, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  7, "target":  8, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  7, "target":  8, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  8, "target":  9, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  8, "target":  9, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source":  9, "target": 10, "source_slot": "output",        "target_slot": "input"   },
+    { "source":  9, "target": 10, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source": 10, "target": 11, "source_slot": "output",        "target_slot": "input"   },
+    { "source": 10, "target": 11, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source": 11, "target": 12, "source_slot": "output",        "target_slot": "input"   },
+    { "source": 11, "target": 12, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source": 12, "target": 13, "source_slot": "output",        "target_slot": "flow_in" },
+
+    { "source": 13, "target": 14, "source_slot": "flow_out",      "target_slot": "flow_in" },
+
+    { "source": 14, "target":  2, "source_slot": "flow_out",      "target_slot": "flow_in", "loop": true },
+    { "source": 14, "target": 15, "source_slot": "flow_out",      "target_slot": "flow_in" }
+  ]
+}
