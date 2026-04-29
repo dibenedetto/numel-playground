@@ -375,6 +375,18 @@
 				<div id="proactiveVitalsStats" class="nw-vitals-stats"></div>
 				<div class="nw-vitals-subhead">Recent ledger entries</div>
 				<div id="proactiveVitalsLedger" class="nw-vitals-ledger"></div>
+
+				<!-- M3.4 Quarantine + Snapshots controls -->
+				<div class="nw-vitals-subhead">Quarantine</div>
+				<div id="proactiveVitalsQuarantine" class="nw-vitals-quarantine"></div>
+				<div class="nw-vitals-subhead">
+					<span>Snapshots</span>
+					<span class="nw-vitals-snapshot-actions">
+						<input type="text" id="proactiveVitalsSnapshotLabel" class="nw-vitals-snapshot-label" maxlength="60" placeholder="label (optional)">
+						<button id="proactiveVitalsSnapshotBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button" title="Take a snapshot of the current substrate state">Snapshot</button>
+					</span>
+				</div>
+				<div id="proactiveVitalsSnapshots" class="nw-vitals-snapshots"></div>
 			</section>
 
 			<!-- Experimental Section (hidden by default, revealed via Show more) -->

@@ -95,3 +95,32 @@ The focus is the **Proactive Agent Ecology** work, but the document also lists c
 - `web/numel-workflow-ui.js` — instantiates `new ProactiveVitalsPanel(api)` during `connect()`, after `GalleryManager`. Failure is non-fatal (`console.warn` + skip).
 - Smoke test against a populated ledger (5 signals through the persistent workflow): vitals endpoint returned `{ledger_count:5, governor_decisions:{allow:3, consent_required:1, deny:1}, injection_hits_total:1}`; ledger endpoint returned the most-recent-first entries with verdict + confidence visible. JS and Python syntax validated.
 
+### Proactive System — Phase 3 (M3.4 substrate hardening: Quarantine + Snapshots)
+
+- `app/proactive/quarantine.py` — **created.** Two co-located concerns (both operator-facing recovery mechanisms):
+  - **Quarantine** — per-key (capability) failure tracker with rolling window (default `threshold=3`, `window_s=600`). API: `is_quarantined(key)`, `record_failure(key, reason, threshold, window_s)`, `record_success(key)` (clears failure history but does NOT auto-release), `release(key, reason)`, `list_keys()`. State persisted to `quarantine.json`.
+  - **Snapshots** — filesystem snapshots of the entire substrate state directory (excluding `snapshots/` itself). API: `take_snapshot(label)`, `list_snapshots()` (newest first), `restore_snapshot(id)`, `delete_snapshot(id)`. Each snapshot is a directory under `app/storage/proactive/snapshots/<snap_id>/` with copies of every top-level state file plus a `manifest.json` describing the contents.
+- `examples/proactive-substrate-persistent.json` — **Governor transform updated** to consult quarantine and record failures/successes. New rule order: (a) `intent + quarantined(cap) → deny`, (b) `intent + injection_hits → deny`, (c) high-stake → consent, (d) write+lowconf → consent, (e) intent+verylowconf → consent, else allow. After deny on an intent: `record_failure(cap)`. After allow on an intent: `record_success(cap)`. Verdict shape extended with `capability` field.
+- `app/api.py` — **six new POST endpoints**:
+  - `POST /proactive/quarantine` → list keys
+  - `POST /proactive/quarantine/release` (body `{key, reason?}`) → release a quarantined key
+  - `POST /proactive/snapshots` → list manifests (newest first)
+  - `POST /proactive/snapshot/take` (body `{label?}`) → take a new snapshot
+  - `POST /proactive/snapshot/restore` (body `{snapshot_id}`) → restore live state from a snapshot
+  - `POST /proactive/snapshot/delete` (body `{snapshot_id}`) → delete a snapshot dir
+- `web/numel-api.js` — added `proactiveQuarantine()`, `proactiveQuarantineRelease(key, reason)`, `proactiveSnapshots()`, `proactiveSnapshotTake(label)`, `proactiveSnapshotRestore(id)`, `proactiveSnapshotDelete(id)`.
+- `web/index.html` + `web/numel-proactive-vitals.js` + `web/numel-workflow.css` — extended the Vitals panel with two subsections:
+  - **Quarantine** — one row per quarantined key (key + reason + Release button).
+  - **Snapshots** — header has a label input + "Snapshot" button; list shows id + created-at + label + file count, each row with Restore / Delete actions. Restore + delete are gated by a `confirm()` prompt.
+- End-to-end smoke test: 4 successive prompt-injected `core.notify` intents → attempts 1–2 deny + accumulating failures, attempt 3 trips quarantine, attempt 4 verdict reason changes from "adversarial input" to "capability 'core.notify' is quarantined". Snapshot taken, captures the bad state. Manual release → next clean intent allowed. Snapshot restore reinstates the quarantined state (`is_quarantined("core.notify") == True` again). Snapshot list/delete operations confirmed.
+
+### Phase 3 status
+
+All four hardening milestones complete:
+| Milestone | Commit | Surface |
+|---|---|---|
+| M3.1 Persistence            | `db507a9` | `app/proactive/persistence.py` + `proactive-substrate-persistent.json` |
+| M3.2 Real Middleware        | `1cb8419` | `app/proactive/middleware.py` (Veracity / Privacy / Adversarial heuristics) |
+| M3.3 Vitals UI surface      | `12f03bc` | `app/api.py` `/proactive/vitals|/ledger` + sidebar panel |
+| M3.4 Quarantine + Rollback  | this commit | `app/proactive/quarantine.py` + 6 endpoints + Vitals subsections |
+

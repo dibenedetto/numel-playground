@@ -201,10 +201,16 @@ class NumelAPI {
 	generationPrompt(body = {})   { return this.json('/generation-prompt', body); }
 	options(providerKey, body = {}) { return this.json(`/options/${encodeURIComponent(providerKey)}`, body); }
 
-	// ── Proactive Substrate (Phase 3 M3.3) ───────────────────────
+	// ── Proactive Substrate (Phase 3 M3.3 + M3.4) ────────────────
 
 	proactiveVitals()               { return this.json('/proactive/vitals'); }
 	proactiveLedger(opts = {})      { return this.json('/proactive/ledger', opts); }
+	proactiveQuarantine()           { return this.json('/proactive/quarantine'); }
+	proactiveQuarantineRelease(key, reason = 'manual') { return this.json('/proactive/quarantine/release', { key, reason }); }
+	proactiveSnapshots()            { return this.json('/proactive/snapshots'); }
+	proactiveSnapshotTake(label = '') { return this.json('/proactive/snapshot/take', { label }); }
+	proactiveSnapshotRestore(id)    { return this.json('/proactive/snapshot/restore', { snapshot_id: id }); }
+	proactiveSnapshotDelete(id)     { return this.json('/proactive/snapshot/delete', { snapshot_id: id }); }
 
 	// ── Console API ──────────────────────────────────────────────
 

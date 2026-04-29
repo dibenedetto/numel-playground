@@ -19,6 +19,10 @@ class ProactiveVitalsPanel {
 		this._auto    = document.getElementById('proactiveVitalsAuto');
 		this._refresh = document.getElementById('proactiveVitalsRefreshBtn');
 		this._lastUpd = document.getElementById('proactiveVitalsLastUpdate');
+		this._quarantineEl = document.getElementById('proactiveVitalsQuarantine');
+		this._snapshotsEl  = document.getElementById('proactiveVitalsSnapshots');
+		this._snapshotBtn  = document.getElementById('proactiveVitalsSnapshotBtn');
+		this._snapshotLbl  = document.getElementById('proactiveVitalsSnapshotLabel');
 		this._timer   = null;
 		this._lastError = null;
 
@@ -37,6 +41,7 @@ class ProactiveVitalsPanel {
 			try { localStorage.setItem(PROACTIVE_VITALS_AUTO_KEY, this._auto.checked ? '1' : '0'); } catch {}
 			this._reschedule();
 		});
+		this._snapshotBtn?.addEventListener('click', () => this._takeSnapshot());
 
 		// React to section collapse/expand to pause polling when hidden.
 		const observer = new MutationObserver(() => this._reschedule());
@@ -66,13 +71,17 @@ class ProactiveVitalsPanel {
 	async refresh() {
 		if (!this._stats) return;
 		try {
-			const [vitals, ledger] = await Promise.all([
+			const [vitals, ledger, quarantine, snapshots] = await Promise.all([
 				this.api.proactiveVitals(),
 				this.api.proactiveLedger({ limit: 8 }),
+				this.api.proactiveQuarantine(),
+				this.api.proactiveSnapshots(),
 			]);
 			this._lastError = null;
 			this._renderStats(vitals);
 			this._renderLedger(ledger?.entries || []);
+			this._renderQuarantine(quarantine?.keys || {});
+			this._renderSnapshots(snapshots?.snapshots || []);
 			if (this._lastUpd) {
 				const t = new Date();
 				this._lastUpd.textContent = t.toLocaleTimeString();
@@ -136,6 +145,105 @@ class ProactiveVitalsPanel {
 					<span class="nw-vitals-ledger-topic">${this._escape(topic)}${obs}${intent}${motor}${conf}</span>
 				</div>`;
 		}).join('');
+	}
+
+	_renderQuarantine(keys) {
+		if (!this._quarantineEl) return;
+		const entries = Object.entries(keys || {});
+		const quarantined = entries.filter(([_, v]) => v && v.quarantined);
+		if (!quarantined.length) {
+			this._quarantineEl.innerHTML = '<div class="nw-vitals-empty">No keys quarantined.</div>';
+			return;
+		}
+		this._quarantineEl.innerHTML = quarantined.map(([key, v]) => {
+			const reason = this._escape(v.quarantined_reason || '—');
+			const since  = v.quarantined_at ? new Date(v.quarantined_at * 1000).toLocaleString() : '';
+			return `
+				<div class="nw-vitals-quarantine-row">
+					<span class="nw-vitals-quarantine-key" title="${this._escape(since)}">${this._escape(key)}</span>
+					<span class="nw-vitals-quarantine-reason">${reason}</span>
+					<button class="nw-btn nw-btn-sm nw-btn-secondary" data-release="${this._escape(key)}">Release</button>
+				</div>`;
+		}).join('');
+		this._quarantineEl.querySelectorAll('button[data-release]').forEach((btn) => {
+			btn.addEventListener('click', () => this._releaseKey(btn.getAttribute('data-release')));
+		});
+	}
+
+	async _releaseKey(key) {
+		if (!key) return;
+		try {
+			await this.api.proactiveQuarantineRelease(key, 'released from Vitals panel');
+			await this.refresh();
+		} catch (err) {
+			this._renderError(err);
+		}
+	}
+
+	_renderSnapshots(snapshots) {
+		if (!this._snapshotsEl) return;
+		if (!snapshots.length) {
+			this._snapshotsEl.innerHTML = '<div class="nw-vitals-empty">No snapshots taken yet.</div>';
+			return;
+		}
+		this._snapshotsEl.innerHTML = snapshots.map((s) => {
+			const created = s.created_at ? new Date(s.created_at * 1000).toLocaleString() : '';
+			const label   = s.label ? ` · ${this._escape(s.label)}` : '';
+			const files   = (s.files || []).length;
+			return `
+				<div class="nw-vitals-snapshot-row">
+					<span class="nw-vitals-snapshot-id">${this._escape(s.id || '')}</span>
+					<span class="nw-vitals-snapshot-meta">${this._escape(created)}${label} · ${files} file${files === 1 ? '' : 's'}</span>
+					<span class="nw-vitals-snapshot-actions">
+						<button class="nw-btn nw-btn-sm nw-btn-secondary" data-restore="${this._escape(s.id)}">Restore</button>
+						<button class="nw-btn nw-btn-sm nw-btn-secondary" data-delete="${this._escape(s.id)}">Delete</button>
+					</span>
+				</div>`;
+		}).join('');
+		this._snapshotsEl.querySelectorAll('button[data-restore]').forEach((btn) => {
+			btn.addEventListener('click', () => this._restoreSnapshot(btn.getAttribute('data-restore')));
+		});
+		this._snapshotsEl.querySelectorAll('button[data-delete]').forEach((btn) => {
+			btn.addEventListener('click', () => this._deleteSnapshot(btn.getAttribute('data-delete')));
+		});
+	}
+
+	async _takeSnapshot() {
+		const label = (this._snapshotLbl?.value || '').trim();
+		try {
+			this._snapshotBtn.disabled = true;
+			await this.api.proactiveSnapshotTake(label);
+			if (this._snapshotLbl) this._snapshotLbl.value = '';
+			await this.refresh();
+		} catch (err) {
+			this._renderError(err);
+		} finally {
+			if (this._snapshotBtn) this._snapshotBtn.disabled = false;
+		}
+	}
+
+	async _restoreSnapshot(id) {
+		if (!id) return;
+		const ok = window.confirm(`Restore snapshot "${id}"? Current state files will be overwritten.`);
+		if (!ok) return;
+		try {
+			await this.api.proactiveSnapshotRestore(id);
+			await this.refresh();
+		} catch (err) {
+			this._renderError(err);
+		}
+	}
+
+	async _deleteSnapshot(id) {
+		if (!id) return;
+		const ok = window.confirm(`Delete snapshot "${id}"? This cannot be undone.`);
+		if (!ok) return;
+		try {
+			await this.api.proactiveSnapshotDelete(id);
+			await this.refresh();
+		} catch (err) {
+			this._renderError(err);
+		}
 	}
 
 	_renderError(err) {

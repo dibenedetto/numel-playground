@@ -2489,6 +2489,73 @@ body.nw-layout-project-workbench .nw-mono-text {
 }
 .nw-vitals-error { color: #e58a86; }
 
+/* M3.4 Quarantine + Snapshot controls */
+
+.nw-vitals-subhead {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 6px;
+}
+.nw-vitals-snapshot-actions {
+	display: inline-flex;
+	gap: 4px;
+	align-items: center;
+}
+.nw-vitals-snapshot-label {
+	background: var(--sg-bg-primary);
+	border: 1px solid var(--nw-border-soft);
+	border-radius: var(--nw-radius-control);
+	color: var(--sg-text-primary);
+	padding: 2px 6px;
+	font-size: 11px;
+	width: 110px;
+}
+
+.nw-vitals-quarantine,
+.nw-vitals-snapshots {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-size: 11px;
+	max-height: 160px;
+	overflow-y: auto;
+}
+.nw-vitals-quarantine-row,
+.nw-vitals-snapshot-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.3fr) auto;
+	gap: 6px;
+	align-items: center;
+	padding: 4px 6px;
+	background: var(--sg-bg-quaternary);
+	border-radius: 4px;
+}
+.nw-vitals-quarantine-row {
+	border-left: 2px solid rgba(217, 83, 79, 0.55);
+}
+.nw-vitals-quarantine-key {
+	font-family: 'Courier New', monospace;
+	color: #e58a86;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.nw-vitals-quarantine-reason,
+.nw-vitals-snapshot-meta {
+	color: var(--sg-text-secondary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.nw-vitals-snapshot-id {
+	font-family: 'Courier New', monospace;
+	color: var(--sg-text-tertiary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 /* ========================================================================
    EVENT LOG
    ======================================================================== */

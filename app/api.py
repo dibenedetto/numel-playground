@@ -3065,6 +3065,66 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		return {"entries": entries, "count": len(entries)}
 
 
+	# === Proactive Quarantine + Snapshots (Phase 3 M3.4) ===
+
+	@app.post("/proactive/quarantine")
+	async def proactive_quarantine_list(body: Optional[Dict[str, Any]] = None):
+		from proactive.quarantine import list_keys
+		return {"keys": list_keys()}
+
+
+	@app.post("/proactive/quarantine/release")
+	async def proactive_quarantine_release(body: Optional[Dict[str, Any]] = None):
+		from proactive.quarantine import release
+		body = body or {}
+		key    = str(body.get("key") or "").strip()
+		reason = str(body.get("reason") or "manual")
+		if not key:
+			raise HTTPException(status_code=400, detail="missing 'key'")
+		released = release(key, reason=reason)
+		return {"key": key, "released": released}
+
+
+	@app.post("/proactive/snapshots")
+	async def proactive_snapshots_list(body: Optional[Dict[str, Any]] = None):
+		from proactive.quarantine import list_snapshots
+		return {"snapshots": list_snapshots()}
+
+
+	@app.post("/proactive/snapshot/take")
+	async def proactive_snapshot_take(body: Optional[Dict[str, Any]] = None):
+		from proactive.quarantine import take_snapshot
+		body  = body or {}
+		label = str(body.get("label") or "").strip()
+		manifest = take_snapshot(label=label)
+		return {"snapshot": manifest}
+
+
+	@app.post("/proactive/snapshot/restore")
+	async def proactive_snapshot_restore(body: Optional[Dict[str, Any]] = None):
+		from proactive.quarantine import restore_snapshot
+		body = body or {}
+		snapshot_id = str(body.get("snapshot_id") or "").strip()
+		if not snapshot_id:
+			raise HTTPException(status_code=400, detail="missing 'snapshot_id'")
+		try:
+			result = restore_snapshot(snapshot_id)
+		except FileNotFoundError as exc:
+			raise HTTPException(status_code=404, detail=str(exc))
+		return result
+
+
+	@app.post("/proactive/snapshot/delete")
+	async def proactive_snapshot_delete(body: Optional[Dict[str, Any]] = None):
+		from proactive.quarantine import delete_snapshot
+		body = body or {}
+		snapshot_id = str(body.get("snapshot_id") or "").strip()
+		if not snapshot_id:
+			raise HTTPException(status_code=400, detail="missing 'snapshot_id'")
+		deleted = delete_snapshot(snapshot_id)
+		return {"snapshot_id": snapshot_id, "deleted": deleted}
+
+
 	# === Sub-Graph Templates API ===
 
 	_templates_path = str(Path(__file__).parent / "templates.json")
