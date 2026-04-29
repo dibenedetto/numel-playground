@@ -2,7 +2,7 @@
   "type": "workflow",
   "options": {
     "name": "proactive_substrate_persistent",
-    "description": "Phase 3 (M3.1) — Persistent variant of the substrate stub. Identical topology to proactive-substrate-stub.json, but every stateful component (Goals, Capabilities, World Model, Ledger, Vitals) reads from and writes to durable JSON/JSONL files via proactive.persistence. State survives across workflow runs. Default state directory: app/storage/proactive/ (override with NUMEL_PROACTIVE_DIR)."
+    "description": "Phase 3 (M3.1 + M3.2) — Hardened substrate. Persistence (M3.1): every stateful component (Goals, Capabilities, World Model, Ledger, Vitals) reads from and writes to durable JSON/JSONL files via proactive.persistence. State directory defaults to app/storage/proactive/ (override with NUMEL_PROACTIVE_DIR). Middleware (M3.2): the three gates (Veracity, Privacy, Adversarial) call into proactive.middleware — heuristic confidence scoring with source trust + suspicion patterns, policy-driven PII/secret redaction, and prompt-injection detection over a typed untrusted_content envelope."
   },
   "nodes": [
     {
@@ -29,19 +29,19 @@
     {
       "type": "transform_flow",
       "lang": "python",
-      "script": "# Substrate §3.1 — Veracity Gate (stub).\nimport time, uuid\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\nenv[\"correlation_id\"] = env.get(\"correlation_id\") or f\"corr_{uuid.uuid4().hex[:12]}\"\nenv[\"confidence\"] = float(env.get(\"confidence\", 0.9))\nenv.setdefault(\"provenance\", []).append({\n    \"stage\":  \"veracity\",\n    \"source\": env.get(\"source\", \"webhook\"),\n    \"ts\":     time.time(),\n})\nenv.setdefault(\"scopes\", env.get(\"scopes\", [\"read-only\"]))\noutput = env\n",
+      "script": "# Substrate §3.1 — Veracity Gate (M3.2 — backed by proactive.middleware).\ntry:\n    from proactive.middleware import veracity_gate\nexcept ImportError:\n    import sys, os\n    sys.path.insert(0, os.path.join(os.getcwd(), 'app'))\n    from proactive.middleware import veracity_gate\n\nenv    = dict(input) if isinstance(input, dict) else {\"raw\": input}\noutput = veracity_gate(env)\n",
       "extra": {"pos": [940, 0], "name": "Middleware: Veracity"}
     },
     {
       "type": "transform_flow",
       "lang": "python",
-      "script": "# Substrate §3.1 — Privacy / Redaction Gate (stub).\nimport re\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\n\ndef _redact(text):\n    if not isinstance(text, str):\n        return text\n    text = re.sub(r\"\\b[\\w.+-]+@[\\w-]+\\.[\\w.-]+\\b\", \"[email]\", text)\n    text = re.sub(r\"\\b\\d{3}-\\d{2}-\\d{4}\\b\",          \"[ssn]\",   text)\n    text = re.sub(r\"\\b\\d{13,19}\\b\",                  \"[card]\",  text)\n    return text\n\ndef _walk(v):\n    if isinstance(v, str):  return _redact(v)\n    if isinstance(v, list): return [_walk(x) for x in v]\n    if isinstance(v, dict): return {k: _walk(x) for k, x in v.items()}\n    return v\n\nfor key in (\"payload\", \"raw\", \"body\", \"message\"):\n    if key in env:\n        env[key] = _walk(env[key])\nenv.setdefault(\"provenance\", []).append({\"stage\": \"privacy\", \"redacted\": True})\noutput = env\n",
+      "script": "# Substrate §3.1 — Privacy / Redaction Gate (M3.2 — backed by proactive.middleware).\ntry:\n    from proactive.middleware import privacy_gate\nexcept ImportError:\n    import sys, os\n    sys.path.insert(0, os.path.join(os.getcwd(), 'app'))\n    from proactive.middleware import privacy_gate\n\nenv    = dict(input) if isinstance(input, dict) else {\"raw\": input}\noutput = privacy_gate(env)\n",
       "extra": {"pos": [1180, 0], "name": "Middleware: Privacy"}
     },
     {
       "type": "transform_flow",
       "lang": "python",
-      "script": "# Substrate §3.1 — Adversarial-Input Filter (stub).\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\npayload = None\nfor key in (\"payload\", \"raw\", \"body\", \"message\"):\n    if key in env:\n        payload = env.pop(key)\n        break\nenv[\"untrusted_content\"] = payload\nenv.setdefault(\"provenance\", []).append({\"stage\": \"adversarial\", \"wrapped\": True})\noutput = env\n",
+      "script": "# Substrate §3.1 — Adversarial-Input Filter (M3.2 — backed by proactive.middleware).\ntry:\n    from proactive.middleware import adversarial_gate\nexcept ImportError:\n    import sys, os\n    sys.path.insert(0, os.path.join(os.getcwd(), 'app'))\n    from proactive.middleware import adversarial_gate\n\nenv    = dict(input) if isinstance(input, dict) else {\"raw\": input}\noutput = adversarial_gate(env)\n",
       "extra": {"pos": [1420, 0], "name": "Middleware: Adversarial"}
     },
     {
@@ -65,7 +65,7 @@
     {
       "type": "transform_flow",
       "lang": "python",
-      "script": "# Substrate §3.5 — Governor (stub).\nenv    = dict(input) if isinstance(input, dict) else {\"raw\": input}\nscopes = list(env.get(\"scopes\", [\"read-only\"]))\nconf   = float(env.get(\"confidence\", 1.0))\n\nHIGH_STAKE = {\"spends-money\", \"impersonates-user\", \"affects-third-party\"}\nWRITE      = {\"write\"}\n\nif any(s in HIGH_STAKE for s in scopes):\n    decision, reason = \"consent_required\", \"high-stake scope present\"\nelif any(s in WRITE for s in scopes) and conf < 0.85:\n    decision, reason = \"consent_required\", \"write at low confidence\"\nelse:\n    decision, reason = \"allow\", \"low-class action\"\n\nenv[\"governor_verdict\"] = {\n    \"decision\":   decision,\n    \"reason\":     reason,\n    \"scopes\":     scopes,\n    \"confidence\": conf,\n}\noutput = env\n",
+      "script": "# Substrate §3.5 — Governor (M3.2 coordination — reads adversarial flags).\n# Adds two rules over the Phase-1 stub:\n#   (a) intent + injection_hits → deny  (untrusted-source actuation refused)\n#   (b) intent + very-low confidence → consent_required\nenv    = dict(input) if isinstance(input, dict) else {\"raw\": input}\nscopes = list(env.get(\"scopes\", [\"read-only\"]))\nconf   = float(env.get(\"confidence\", 1.0))\n\nHIGH_STAKE = {\"spends-money\", \"impersonates-user\", \"affects-third-party\"}\nWRITE      = {\"write\"}\n\nintent         = env.get(\"intent\")\ninjection_hits = ((env.get(\"untrusted_content\") or {}).get(\"injection_hits\") or [])\n\nif intent and injection_hits:\n    decision, reason = \"deny\", \"adversarial input on actuation — refused\"\nelif any(s in HIGH_STAKE for s in scopes):\n    decision, reason = \"consent_required\", \"high-stake scope present\"\nelif any(s in WRITE for s in scopes) and conf < 0.85:\n    decision, reason = \"consent_required\", \"write at low confidence\"\nelif intent and conf < 0.40:\n    decision, reason = \"consent_required\", \"intent at very low confidence\"\nelse:\n    decision, reason = \"allow\", \"low-class action\"\n\nenv[\"governor_verdict\"] = {\n    \"decision\":   decision,\n    \"reason\":     reason,\n    \"scopes\":     scopes,\n    \"confidence\": conf,\n}\noutput = env\n",
       "extra": {"pos": [2380, 0], "name": "Governor: Decide"}
     },
     {

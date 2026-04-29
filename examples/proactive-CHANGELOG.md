@@ -73,3 +73,13 @@ The focus is the **Proactive Agent Ecology** work, but the document also lists c
 - Phase 1/2 in-memory workflows (`proactive-substrate-stub.json`, `proactive-sensory-slice.json`, `proactive-vertical-slice.json`) **kept unchanged** so the lighter-weight demos still run without a writable state dir.
 - Remaining Phase 3 milestones (M3.2 real Middleware, M3.3 Vitals UI surface, M3.4 Quarantine + branch-restore) are **not yet implemented**; this commit covers M3.1 only.
 
+### Proactive System — Phase 3 (M3.2 substrate hardening: real Middleware)
+
+- `app/proactive/middleware.py` — **created.** Replaces the placeholder middleware logic with real heuristics.
+  - **Veracity Gate** — per-source trust priors (`user`/`internal`: 0.95, `sensor`: 0.85, `webhook`: 0.70, `channel`: 0.60, `email`: 0.50) plus a regex-based suspicion scanner (act-now, wire-transfer, click-here, verify-account, one-time-pin, IRS/tax-debt, urgent…request). Each match deducts 0.10 (capped at 0.40) from confidence.
+  - **Privacy / Redaction Gate** — policy-driven multi-pattern redactor: email, SSN, credit card, phone, IBAN, JWT, common API key formats (`sk_…`, `pk_…`, `ghp_…`, `github_pat_…`). Reports per-kind counts in provenance.
+  - **Adversarial-Input Filter** — typed envelope: `{value, is_trusted=False, injection_hits}`. Scans for ignore-previous-instructions, you-are-now-X, system-prompt-style markers, OpenAI/Llama chat tokens (`<|im_start|>`, `<|system|>`, `[[INST]]`, etc.). Confidence drops 0.30 on any hit.
+- `examples/proactive-substrate-persistent.json` — **updated.** Three middleware transforms shrunk from 20+ inline lines to thin shims (`from proactive.middleware import veracity_gate; output = veracity_gate(env)`). Description reflects M3.1 + M3.2.
+- **Governor coordination** (still inline in the workflow): added two rules over the Phase-1 stub — `intent + injection_hits → deny` (untrusted-source actuation refused, per §6 operational table) and `intent + confidence < 0.40 → consent_required`. Promoting Governor itself to a module is M3.5.
+- End-to-end smoke test (7 signals): clean observations → `allow`; PII → redacted, still `allow`; social-engineering email + `send_email` intent → `consent_required` (high-stake scope); prompt-injected `notify` intent → **`deny`** (adversarial actuation refused); clean `notify` → `allow`; clean `transfer_funds` → `consent_required`. Verdict matrix matches the spec table verbatim.
+
