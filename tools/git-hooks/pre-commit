@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Numel pre-commit hook — runs tools/lint_transforms.py over any
+# examples/*.json files in the staged change set.
+#
+# Install once per clone:
+#   git config core.hooksPath tools/git-hooks
+#
+# Bypass for an emergency commit:
+#   git commit --no-verify
+set -e
+
+# Collect staged workflow JSONs (added / copied / modified). Renames
+# resolve to the new path; deletes are excluded.
+staged="$(git diff --cached --name-only --diff-filter=ACMR \
+          | grep -E '^examples/.+\.json$' || true)"
+if [ -z "$staged" ]; then
+    exit 0
+fi
+
+# Pick a Python — venv first, then system. The hook is read-only with
+# respect to the working tree; it only inspects committed-file content.
+PY=""
+if   [ -x ".venv/Scripts/python.exe" ]; then PY=".venv/Scripts/python.exe"
+elif [ -x ".venv/bin/python"          ]; then PY=".venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then PY="python3"
+elif command -v python  >/dev/null 2>&1; then PY="python"
+else
+    echo "pre-commit: no Python interpreter found; skipping transform-flow lint." >&2
+    exit 0
+fi
+
+echo "$staged" | xargs "$PY" tools/lint_transforms.py
+status=$?
+if [ "$status" -ne 0 ]; then
+    echo
+    echo "Commit blocked: transform_flow scripts contain split-namespace exec hazards."
+    echo "See docs/transform-flow-scripts.md for the rules and recommended fixes."
+    echo "To bypass once: git commit --no-verify"
+fi
+exit "$status"

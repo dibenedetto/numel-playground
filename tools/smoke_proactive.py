@@ -32,10 +32,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
+import socket
+import subprocess
 import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -195,14 +202,169 @@ def _smoke_persistent(verbose: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Integration mode — spawn the actual app and exercise HTTP endpoints
+# ---------------------------------------------------------------------------
+
+def _pick_ephemeral_port() -> int:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
+
+
+def _post_json(url: str, body: Optional[Dict[str, Any]] = None, timeout: float = 10.0) -> Dict[str, Any]:
+    data = json.dumps(body or {}).encode()
+    req  = urllib.request.Request(
+        url, data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read())
+
+
+def _smoke_integration(verbose: bool) -> None:
+    """Spawn `app/app.py` on an ephemeral port with NUMEL_PROACTIVE_DIR
+    pointing at a temp directory, pre-seed `ledger.jsonl` with known
+    fixtures, and exercise the proactive HTTP endpoints. Tears the
+    subprocess down deterministically.
+    """
+    port    = _pick_ephemeral_port()
+    tmp_dir = Path(tempfile.mkdtemp(prefix="numel_smoke_"))
+
+    # Pre-seed the ledger so vitals/ledger endpoints have something to read.
+    fixtures = [
+        {"id": "led_1", "ts": 1.0, "trigger": {"topic": "core.middleware.input_received"},
+         "provenance": [{"stage": "veracity", "ts": 1.0}],
+         "governor_verdict": {"decision": "allow", "reason": "low-class action",
+                              "scopes": ["read-only"], "confidence": 0.85, "capability": None}},
+        {"id": "led_2", "ts": 2.0, "trigger": {"topic": "core.middleware.input_received"},
+         "provenance": [{"stage": "veracity", "ts": 2.0}],
+         "governor_verdict": {"decision": "consent_required", "reason": "high-stake scope present",
+                              "scopes": ["spends-money"], "confidence": 0.95, "capability": "core.transfer_funds"}},
+        {"id": "led_3", "ts": 3.0, "trigger": {"topic": "core.middleware.input_received"},
+         "provenance": [{"stage": "veracity", "ts": 3.0},
+                        {"stage": "adversarial", "wrapped": True, "injection_hits": ["pat1"]}],
+         "governor_verdict": {"decision": "deny", "reason": "adversarial input on actuation",
+                              "scopes": ["read-only"], "confidence": 0.30, "capability": "core.notify"}},
+    ]
+    (tmp_dir / "ledger.jsonl").write_text(
+        "\n".join(json.dumps(e) for e in fixtures) + "\n", encoding="utf-8",
+    )
+
+    env = {**os.environ, "NUMEL_PROACTIVE_DIR": str(tmp_dir)}
+
+    cmd = [sys.executable, str(_APP_DIR / "app.py"),
+           "--port", str(port), "--open-browser"]
+    proc = subprocess.Popen(
+        cmd, env=env, cwd=str(_REPO_ROOT),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+
+    try:
+        url      = f"http://127.0.0.1:{port}"
+        deadline = time.time() + 60.0
+        ready    = False
+        while time.time() < deadline:
+            if proc.poll() is not None:
+                stderr = (proc.stderr.read() or b"").decode("utf-8", errors="replace")
+                raise AssertionError(
+                    f"app.py exited prematurely (code={proc.returncode}). "
+                    f"stderr tail:\n{stderr[-1500:]}"
+                )
+            try:
+                _post_json(f"{url}/ping", timeout=2.0)
+                ready = True
+                break
+            except (urllib.error.URLError, ConnectionRefusedError, OSError):
+                time.sleep(0.5)
+        if not ready:
+            raise AssertionError("app.py didn't respond to /ping within 60s")
+
+        # /proactive/vitals — aggregates from the seeded ledger.
+        v = _post_json(f"{url}/proactive/vitals")
+        assert v["ledger_count"] == 3, \
+            f"vitals.ledger_count = {v['ledger_count']} (expected 3)"
+        assert v["governor_decisions"] == {"allow": 1, "consent_required": 1, "deny": 1}, \
+            f"vitals.governor_decisions = {v['governor_decisions']}"
+        assert v["injection_hits_total"] == 1, \
+            f"vitals.injection_hits_total = {v['injection_hits_total']} (expected 1)"
+
+        # /proactive/ledger — most-recent first.
+        led = _post_json(f"{url}/proactive/ledger", {"limit": 2})
+        assert led["count"] == 2 and led["entries"][0]["id"] == "led_3", \
+            f"ledger top entry id = {led['entries'][0].get('id')!r} (expected 'led_3')"
+
+        # since_id pagination — exclude up to and including the cutoff.
+        led_after = _post_json(f"{url}/proactive/ledger", {"since_id": "led_2", "limit": 5})
+        assert {e["id"] for e in led_after["entries"]} == {"led_3"}, \
+            f"ledger since_id=led_2 returned {[e['id'] for e in led_after['entries']]}"
+
+        # Snapshot round-trip — take, list, restore, delete.
+        snap = _post_json(f"{url}/proactive/snapshot/take", {"label": "smoke-integration"})["snapshot"]
+        assert "ledger.jsonl" in snap.get("files", []), \
+            f"snapshot.files missing ledger.jsonl: {snap.get('files')}"
+
+        listed = _post_json(f"{url}/proactive/snapshots")["snapshots"]
+        assert any(s["id"] == snap["id"] for s in listed), \
+            f"snapshot {snap['id']!r} not in /proactive/snapshots"
+
+        # Mutate live state — append led_4 directly to disk.
+        with (tmp_dir / "ledger.jsonl").open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"id": "led_4", "ts": 4.0,
+                                "trigger": {"topic": "smoke.synthetic"},
+                                "provenance": []}) + "\n")
+        v2 = _post_json(f"{url}/proactive/vitals")
+        assert v2["ledger_count"] == 4
+
+        # Restore — should drop led_4.
+        _post_json(f"{url}/proactive/snapshot/restore", {"snapshot_id": snap["id"]})
+        v3 = _post_json(f"{url}/proactive/vitals")
+        assert v3["ledger_count"] == 3, \
+            f"after restore: ledger_count = {v3['ledger_count']} (expected 3)"
+
+        d = _post_json(f"{url}/proactive/snapshot/delete", {"snapshot_id": snap["id"]})
+        assert d["deleted"] is True, f"snapshot delete returned deleted={d['deleted']!r}"
+
+        # Quarantine: empty initially, release on a non-quarantined key returns False.
+        q = _post_json(f"{url}/proactive/quarantine")
+        assert "keys" in q, "quarantine response missing 'keys'"
+        rel = _post_json(f"{url}/proactive/quarantine/release",
+                         {"key": "core.notify", "reason": "smoke"})
+        assert rel.get("released") is False, \
+            f"release of un-quarantined key returned released={rel.get('released')!r}"
+
+        if verbose:
+            print(f"  app on        {url}")
+            print(f"  state dir     {tmp_dir}")
+            print(f"  vitals seeded ledger_count={v['ledger_count']}  "
+                  f"decisions={v['governor_decisions']}  injection={v['injection_hits_total']}")
+            print(f"  snapshot      {snap['id']}  files={len(snap['files'])}")
+            print(f"  restore       OK (ledger back to {v3['ledger_count']})")
+    finally:
+        proc.terminate()
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
-_TESTS = [
+_INPROC_TESTS = [
     ("Phase 1 · substrate stub",   _smoke_substrate_stub),
     ("Phase 1 · sensory slice",    _smoke_sensory_slice),
     ("Phase 2 · vertical slice",   _smoke_vertical_slice),
     ("Phase 3 · persistent stack", _smoke_persistent),
+]
+
+_INTEGRATION_TESTS = [
+    ("Phase 3 · HTTP endpoints (subprocess)", _smoke_integration),
 ]
 
 
@@ -210,10 +372,24 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--verbose", "-v", action="store_true",
                         help="print per-step details")
+    parser.add_argument("--integration", action="store_true",
+                        help="also spawn app/app.py in a subprocess and "
+                             "exercise /proactive/* HTTP endpoints "
+                             "(slower; takes ~30s)")
+    parser.add_argument("--integration-only", action="store_true",
+                        help="run ONLY the integration check; skip the "
+                             "in-process Phase 1-3 smoke")
     args = parser.parse_args()
 
+    if args.integration_only:
+        tests = list(_INTEGRATION_TESTS)
+    elif args.integration:
+        tests = list(_INPROC_TESTS) + list(_INTEGRATION_TESTS)
+    else:
+        tests = list(_INPROC_TESTS)
+
     fails: List[Tuple[str, str]] = []
-    for label, fn in _TESTS:
+    for label, fn in tests:
         try:
             fn(args.verbose)
             print(f"  OK  {label}")
@@ -226,9 +402,9 @@ def main() -> int:
 
     print()
     if fails:
-        print(f"{len(fails)} of {len(_TESTS)} smoke check(s) failed.")
+        print(f"{len(fails)} of {len(tests)} smoke check(s) failed.")
         return 1
-    print(f"All {len(_TESTS)} smoke checks passed.")
+    print(f"All {len(tests)} smoke checks passed.")
     return 0
 
 
