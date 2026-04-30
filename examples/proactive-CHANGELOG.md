@@ -122,5 +122,14 @@ All four hardening milestones complete:
 | M3.1 Persistence            | `db507a9` | `app/proactive/persistence.py` + `proactive-substrate-persistent.json` |
 | M3.2 Real Middleware        | `1cb8419` | `app/proactive/middleware.py` (Veracity / Privacy / Adversarial heuristics) |
 | M3.3 Vitals UI surface      | `12f03bc` | `app/api.py` `/proactive/vitals|/ledger` + sidebar panel |
-| M3.4 Quarantine + Rollback  | this commit | `app/proactive/quarantine.py` + 6 endpoints + Vitals subsections |
+| M3.4 Quarantine + Rollback  | `d649b66` | `app/proactive/quarantine.py` + 6 endpoints + Vitals subsections |
+
+### Bug fixes (Phase 1/2/3 workflows — split-namespace `exec` compatibility)
+
+- **Root cause.** `app/nodes.py:295` runs every `transform_flow` script via `exec(script, None, local_vars)` — Python's two-namespace mode where script-local names (`def`'d functions, top-level constants) live in `local_vars` but inside-function lookups go through the **module globals** (= `nodes.py`'s) instead. Any function-to-function reference, recursive function, or generator-expression body that references a top-level name from the script fails with `NameError`.
+- **Visible symptom** (reported during integration testing): running `proactive-substrate-stub.json` in the actual engine — `Node 7 failed: name '_walk' is not defined` (the recursive `_walk` inside the inline Privacy gate).
+- **Fix in three Phase 1/2 workflows** (`proactive-substrate-stub.json`, `proactive-sensory-slice.json`, `proactive-vertical-slice.json`): rewrote the inline Privacy transform with **all logic at top level** — pre-compiled regexes (`EMAIL`, `SSN`, `CARD`) referenced from a top-level `while`-loop walking an explicit stack of `(parent, key)` targets. No nested function defs.
+- **Fix in all four Governor transforms** (above three plus `proactive-substrate-persistent.json`): the existing `any(s in HIGH_STAKE for s in scopes)` and `any(s in WRITE for s in scopes)` patterns were generator expressions whose body looked up `HIGH_STAKE` / `WRITE` against the engine's module globals (= not visible). Replaced with an explicit `for s in scopes:` loop that sets `has_high` / `has_write` booleans.
+- **Verification.** All four workflows now run end-to-end under the engine's `exec(script, None, locals)` mode. Verdict matrix re-confirmed: `allow / allow / consent_required / deny / consent_required` for the 5-signal smoke, identical to the M3.2 commit's reference output.
+- **Smoke-test scripts in the testing procedure** that used `exec(n.script, local)` (single-namespace) had been masking these bugs. Note for the user: re-run with `exec(n.script, None, ns)` to match engine semantics. The Phase 3 persistent workflow's middleware logic was already in `app/proactive/middleware.py` (a real Python module), so it was unaffected — the bug only existed in workflows whose middleware was inline in transform scripts.
 
