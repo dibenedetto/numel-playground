@@ -178,5 +178,6 @@ cython_debug/
 storage/
 tmp/
 app/workspaces/
+app/event_sources.json
 console_memory.db
 app/platform_prod/*
