@@ -174,3 +174,25 @@ These two utilities close the loop: any future workflow merged into `examples/` 
 
 This commit closes M4.1 — Phase-1 Alignment is in place, both as a Python API for downstream code (M4.2 Optimization will produce candidate changes that pass through this gate) and as a thin HTTP surface for the UI / external tools. M4.2 (Optimization sandbox) and M4.3 (Promotion gate) still pending.
 
+### Proactive System — Phase 4 (M4.2: Optimization sandbox — Phase-2 of Evolution)
+
+- `app/proactive/optimization.py` — **created.** Offline, sandboxed side of Evolution per §11. Three concerns:
+  - **Sandbox** (`with sandbox(seed_files=...) as tmp:`) — context manager that flips `NUMEL_PROACTIVE_DIR` to a fresh temp directory for the duration of the block, restoring the previous value (or unsetting it) on exit. Anything written by `proactive.persistence.*` inside the block lives in the sandbox; the temp dir is removed on exit. `seed_files` is a `{filename: data}` map: `*.json` is JSON-encoded, `*.jsonl` accepts an iterable of records (one per line), other suffixes are written via `str()`. Verified: live ledger row count is unchanged before vs. after a sandbox block that wrote 2 seeded entries.
+  - **Self-Reflective Debugging** strategies — each scans live state and emits zero-or-more candidate dicts (`{kind, target, payload, rationale, evidence, by, ts}`):
+    - `tighten_governor` — vetoes-by-deny: capabilities whose Governor verdicts are ≥50% `deny` over ≥4 samples → propose a `constitution_rule_add` (`{kind: "never", target: <cap>}`). Skips capabilities already constitution-banned.
+    - `prune_quarantine` — currently-quarantined capabilities with ≥5 recorded failures → propose the same `constitution_rule_add` to promote a soft block to a hard ban. Skips already-banned.
+    - `relax_constitution` — constitution-banned capabilities with ≥3 thumbs-up signals → propose a `constitution_rule_remove`.
+  - **Synthetic Self-Play / Simulation** — `simulate_candidate(candidate, ledger=None, signals=None)` dispatches on `candidate.kind`:
+    - `constitution_rule_add` → replays the historical Ledger and reports how many entries would have been recoloured to `deny` (capability matches AND old verdict ≠ `deny`) plus up to 5 examples.
+    - `constitution_rule_remove` → reports how many past `deny`s on that capability could relax + thumbs-up total backing the proposal.
+    - Unknown kinds return `{kind: "unsupported", reason: ...}` instead of raising.
+  - `propose_from_state()` runs all three strategies and returns the merged candidate list, each stamped with a consistent `ts`. Tunables (`_DENY_RATE_THRESHOLD=0.50`, `_DENY_MIN_SAMPLES=4`, `_QUARANTINE_FAILURE_FLOOR=5`, `_THUMBS_UP_TO_RELAX=3`) live as module constants — real implementation would learn these.
+- `app/api.py` — **two new POST endpoints**:
+  - `POST /proactive/optimization/propose` → `{candidates, count}` from running every built-in strategy against current live state.
+  - `POST /proactive/optimization/simulate` (body `{candidate}` or candidate-as-body) → diff report; never applies the change. 400 on missing candidate.
+- `web/numel-api.js` — added `proactiveOptimizationPropose()` and `proactiveOptimizationSimulate(candidate)` helpers.
+- `web/index.html` + `web/numel-proactive-vitals.js` + `web/numel-workflow.css` — new **Proposed candidates** subsection in the Vitals panel, between snapshots and quarantine. Header has a `Propose` button that calls the propose endpoint and renders the result list. Each row shows the strategy that produced it (`tighten_governor` etc.), the kind (`add`/`remove`), the target capability, the rationale, and a `Simulate` button that POSTs to the simulate endpoint and reports a one-line summary inline (`Δ N entries  (unchanged: M)` for adds; `N past deny(ies) on … could relax  (thumbs-up: K)` for removes). Add candidates get a green left-border accent, remove candidates a violet one. The list survives panel auto-refresh (cached in `_candidates` until the next Propose click).
+- `tools/smoke_proactive.py` — added an in-process **Phase 4 · optimization sandbox** check (sandbox isolation, all three strategies fire under appropriate seeds, simulator reports correct deltas, unsupported-kind path returns structured error) and extended the integration check with M4.2 endpoint coverage (propose returns a list; simulate of a `constitution_rule_add` candidate returns the expected shape). Full run is now **7 / 7** (6 in-process + 1 integration subprocess).
+
+This commit closes M4.2 — Optimization can now propose and simulate candidate changes against the persistent state, in a properly isolated sandbox. The candidates flow into M4.1's `run_alignment()` as-is; M4.3 (Promotion gate) will wire them together and add the "apply if approved" path.
+

@@ -223,6 +223,11 @@ class NumelAPI {
 	proactiveAlignmentValidators()           { return this.json('/proactive/alignment/validators'); }
 	proactiveAlignmentCheck(candidate)       { return this.json('/proactive/alignment/check', { candidate }); }
 
+	// ── Phase 4 (M4.2) Optimization ──────────────────────────────
+
+	proactiveOptimizationPropose()           { return this.json('/proactive/optimization/propose'); }
+	proactiveOptimizationSimulate(candidate) { return this.json('/proactive/optimization/simulate', { candidate }); }
+
 	// ── Console API ──────────────────────────────────────────────
 
 	consoleStart(opts = {})       { return this.json('/console/start', opts); }

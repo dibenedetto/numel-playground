@@ -2586,6 +2586,65 @@ body.nw-layout-project-workbench .nw-mono-text {
 	white-space: nowrap;
 }
 
+/* M4.2 Optimization candidates */
+
+.nw-vitals-candidates {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-size: 11px;
+	max-height: 220px;
+	overflow-y: auto;
+}
+.nw-vitals-cand-row {
+	background: var(--sg-bg-quaternary);
+	border-radius: 4px;
+	border-left: 2px solid transparent;
+	padding: 4px 6px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+.nw-vitals-cand-add    { border-left-color: rgba(80, 180, 90, 0.55); }
+.nw-vitals-cand-remove { border-left-color: rgba(160, 130, 230, 0.55); }
+.nw-vitals-cand-head {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+.nw-vitals-cand-by {
+	color: var(--sg-text-tertiary);
+	font-family: 'Courier New', monospace;
+	font-size: 10px;
+}
+.nw-vitals-cand-kind {
+	color: var(--sg-text-secondary);
+	font-weight: 600;
+	min-width: 60px;
+}
+.nw-vitals-cand-target {
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: 'Courier New', monospace;
+	color: var(--sg-text-primary);
+}
+.nw-vitals-cand-rationale {
+	color: var(--sg-text-secondary);
+	font-size: 10px;
+	line-height: 1.35;
+}
+.nw-vitals-cand-sim {
+	color: var(--sg-text-tertiary);
+	font-size: 10px;
+	font-style: italic;
+	min-height: 0;
+}
+.nw-vitals-cand-sim:empty {
+	display: none;
+}
+
 /* ========================================================================
    EVENT LOG
    ======================================================================== */

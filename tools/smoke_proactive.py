@@ -291,6 +291,113 @@ def _smoke_alignment(verbose: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Phase 4 (M4.2) — Optimization sandbox
+# ---------------------------------------------------------------------------
+
+def _smoke_optimization(verbose: bool) -> None:
+    """In-process check of the Optimization module: sandbox isolation,
+    three strategies, ledger-replay simulation."""
+    from proactive.persistence import (
+        clear_state, state_dir, append_jsonl, read_jsonl,
+    )
+    from proactive import quarantine as q
+    from proactive import evolution as ev
+    from proactive import optimization as opt
+
+    snap_dir = state_dir() / "snapshots"
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+    # Sandbox isolation: live state must be unchanged by sandbox writes.
+    live_pre = len(read_jsonl("ledger"))
+    with opt.sandbox(seed_files={"ledger.jsonl": [{"id": "sb_1"}, {"id": "sb_2"}]}) as tmp:
+        sb_ledger = read_jsonl("ledger")
+        assert [e["id"] for e in sb_ledger] == ["sb_1", "sb_2"], \
+            f"sandbox didn't see seeded ledger: {sb_ledger}"
+        sb_path = tmp
+    assert not sb_path.exists(), f"sandbox dir was not removed: {sb_path}"
+    assert len(read_jsonl("ledger")) == live_pre, \
+        "live ledger was mutated by sandbox"
+
+    # Seed live state for strategy assertions.
+    # 4 deny entries on core.bad_actor → triggers tighten_governor.
+    for i in range(4):
+        append_jsonl("ledger", {
+            "id":  f"led_bad_{i+1}", "ts": float(i),
+            "trigger": {"topic": "core.middleware.input_received"},
+            "provenance": [{"stage": "veracity", "ts": float(i)}],
+            "governor_verdict": {"decision": "deny", "reason": "adversarial",
+                                  "scopes": ["read-only"], "confidence": 0.3,
+                                  "capability": "core.bad_actor"},
+        })
+    # core.flaky quarantined with many failures → triggers prune_quarantine.
+    for _ in range(6):
+        q.record_failure("core.flaky", reason="deny")
+    # core.legacy banned + thumbs-up → triggers relax_constitution.
+    ev.update_constitution({"rules": [{"kind": "never", "target": "core.legacy"}]})
+    for _ in range(4):
+        ev.record_feedback("led_legacy", "thumbs", "up", {"capability": "core.legacy"})
+
+    candidates = opt.propose_from_state()
+    by_strategy = {c["by"] for c in candidates}
+    assert "tighten_governor"   in by_strategy, f"missing tighten_governor in {by_strategy}"
+    assert "prune_quarantine"   in by_strategy, f"missing prune_quarantine in {by_strategy}"
+    assert "relax_constitution" in by_strategy, f"missing relax_constitution in {by_strategy}"
+
+    # Simulate add for core.bad_actor — live ledger has 4 deny entries
+    # already, so a 'never' rule produces 0 changed (already at deny).
+    add_cand = next(c for c in candidates if c["by"] == "tighten_governor")
+    sim_add  = opt.simulate_candidate(add_cand)
+    assert sim_add["kind"] == "constitution_rule_add_simulation"
+    assert sim_add["diff"]["changed"] == 0, \
+        f"add(core.bad_actor): expected 0 changed, got {sim_add['diff']['changed']}"
+
+    # Simulate add for a NEW capability: seed a few allow entries on
+    # core.notify, then propose a manual candidate against it. Since
+    # those entries are currently allow, the rule would flip them.
+    for i in range(3):
+        append_jsonl("ledger", {
+            "id":  f"led_notify_{i+1}", "ts": 100.0 + i,
+            "trigger": {"topic": "core.middleware.input_received"},
+            "provenance": [{"stage": "veracity", "ts": 100.0 + i}],
+            "governor_verdict": {"decision": "allow", "reason": "low-class",
+                                  "scopes": ["read-only"], "confidence": 0.95,
+                                  "capability": "core.notify"},
+        })
+    manual_cand = {
+        "kind":    "constitution_rule_add",
+        "target":  "core.notify",
+        "payload": {"rule": {"kind": "never", "target": "core.notify"}},
+    }
+    sim_manual = opt.simulate_candidate(manual_cand)
+    assert sim_manual["diff"]["changed"] == 3, \
+        f"add(core.notify): expected 3 changed, got {sim_manual['diff']['changed']}"
+    assert all(ex["new"] == "deny" for ex in sim_manual["diff"]["examples"])
+
+    # Simulate remove for core.legacy.
+    rel_cand = next(c for c in candidates if c["by"] == "relax_constitution")
+    sim_rel  = opt.simulate_candidate(rel_cand)
+    assert sim_rel["kind"] == "constitution_rule_remove_simulation"
+    assert sim_rel["diff"]["thumbs_up_total"] == 4, \
+        f"remove(core.legacy): thumbs_up_total {sim_rel['diff']['thumbs_up_total']} != 4"
+
+    # Unsupported candidate kind returns a structured error rather than raising.
+    sim_x = opt.simulate_candidate({"kind": "future_thing", "payload": {}})
+    assert sim_x["kind"] == "unsupported"
+
+    if verbose:
+        print(f"  candidates proposed:   {len(candidates)}")
+        for c in candidates:
+            print(f"    [{c['by']:25s}] {c['kind']:28s} -> {c['target']}")
+        print(f"  add(core.notify) diff: {sim_manual['diff']['changed']} changed")
+
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Integration mode — spawn the actual app and exercise HTTP endpoints
 # ---------------------------------------------------------------------------
 
@@ -456,6 +563,28 @@ def _smoke_integration(verbose: bool) -> None:
         assert "constitution_check" in veto_by, \
             f"alignment(banned) veto-by missing constitution_check: {veto_by}"
 
+        # M4.2 — Optimization endpoints. The seeded ledger is too small
+        # to fire most strategies on its own (only 3 entries), but the
+        # propose endpoint should always return a list and simulate
+        # should accept any kind=constitution_rule_add candidate.
+        prop = _post_json(f"{url}/proactive/optimization/propose")
+        assert "candidates" in prop and isinstance(prop["candidates"], list), \
+            f"propose response shape: {prop}"
+
+        # The constitution rule we just added bans core.transfer_funds.
+        # Simulating an add for core.notify (one ledger entry, decision=deny)
+        # should report 0 changed — that one entry is already deny.
+        sim = _post_json(f"{url}/proactive/optimization/simulate",
+                         {"candidate": {
+                             "kind":    "constitution_rule_add",
+                             "target":  "core.notify",
+                             "payload": {"rule": {"kind": "never", "target": "core.notify"}},
+                         }})
+        assert sim.get("kind") == "constitution_rule_add_simulation"
+        diff = sim.get("diff") or {}
+        assert "changed" in diff and "unchanged" in diff, \
+            f"simulate diff missing keys: {diff}"
+
         if verbose:
             print(f"  app on        {url}")
             print(f"  state dir     {tmp_dir}")
@@ -478,11 +607,12 @@ def _smoke_integration(verbose: bool) -> None:
 # ---------------------------------------------------------------------------
 
 _INPROC_TESTS = [
-    ("Phase 1 · substrate stub",   _smoke_substrate_stub),
-    ("Phase 1 · sensory slice",    _smoke_sensory_slice),
-    ("Phase 2 · vertical slice",   _smoke_vertical_slice),
-    ("Phase 3 · persistent stack", _smoke_persistent),
-    ("Phase 4 · alignment layer",  _smoke_alignment),
+    ("Phase 1 · substrate stub",      _smoke_substrate_stub),
+    ("Phase 1 · sensory slice",       _smoke_sensory_slice),
+    ("Phase 2 · vertical slice",      _smoke_vertical_slice),
+    ("Phase 3 · persistent stack",    _smoke_persistent),
+    ("Phase 4 · alignment layer",     _smoke_alignment),
+    ("Phase 4 · optimization sandbox", _smoke_optimization),
 ]
 
 _INTEGRATION_TESTS = [

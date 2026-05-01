@@ -23,6 +23,9 @@ class ProactiveVitalsPanel {
 		this._snapshotsEl  = document.getElementById('proactiveVitalsSnapshots');
 		this._snapshotBtn  = document.getElementById('proactiveVitalsSnapshotBtn');
 		this._snapshotLbl  = document.getElementById('proactiveVitalsSnapshotLabel');
+		this._candidatesEl = document.getElementById('proactiveVitalsCandidates');
+		this._proposeBtn   = document.getElementById('proactiveVitalsProposeBtn');
+		this._candidates   = [];
 		this._timer   = null;
 		this._lastError = null;
 
@@ -42,6 +45,7 @@ class ProactiveVitalsPanel {
 			this._reschedule();
 		});
 		this._snapshotBtn?.addEventListener('click', () => this._takeSnapshot());
+		this._proposeBtn?.addEventListener('click', () => this._propose());
 
 		// React to section collapse/expand to pause polling when hidden.
 		const observer = new MutationObserver(() => this._reschedule());
@@ -82,6 +86,7 @@ class ProactiveVitalsPanel {
 			this._renderLedger(ledger?.entries || []);
 			this._renderQuarantine(quarantine?.keys || {});
 			this._renderSnapshots(snapshots?.snapshots || []);
+			this._renderCandidates(this._candidates);
 			if (this._lastUpd) {
 				const t = new Date();
 				this._lastUpd.textContent = t.toLocaleTimeString();
@@ -90,6 +95,75 @@ class ProactiveVitalsPanel {
 			this._lastError = err;
 			this._renderError(err);
 		}
+	}
+
+	async _propose() {
+		if (!this._proposeBtn) return;
+		this._proposeBtn.disabled = true;
+		const original = this._proposeBtn.textContent;
+		this._proposeBtn.textContent = 'Proposing…';
+		try {
+			const resp = await this.api.proactiveOptimizationPropose();
+			this._candidates = resp?.candidates || [];
+			this._renderCandidates(this._candidates);
+		} catch (err) {
+			this._renderError(err);
+		} finally {
+			this._proposeBtn.disabled = false;
+			this._proposeBtn.textContent = original;
+		}
+	}
+
+	async _simulateCandidate(idx) {
+		const cand = this._candidates[idx];
+		if (!cand || !this._candidatesEl) return;
+		const row = this._candidatesEl.querySelector(`[data-cand-idx="${idx}"]`);
+		const sim = row?.querySelector('.nw-vitals-cand-sim');
+		if (sim) sim.textContent = 'Simulating…';
+		try {
+			const resp = await this.api.proactiveOptimizationSimulate(cand);
+			const diff = resp?.diff || {};
+			let summary;
+			if ('changed' in diff) {
+				summary = `Δ ${diff.changed} entries  (unchanged: ${diff.unchanged ?? 0})`;
+			} else if ('relaxable_denies' in diff) {
+				summary = `${diff.relaxable_denies} past deny(ies) on ${diff.rule_target} could relax  (thumbs-up: ${diff.thumbs_up_total ?? 0})`;
+			} else {
+				summary = JSON.stringify(diff);
+			}
+			if (sim) sim.textContent = summary;
+		} catch (err) {
+			if (sim) sim.textContent = `Simulate failed: ${err?.message || err}`;
+		}
+	}
+
+	_renderCandidates(candidates) {
+		if (!this._candidatesEl) return;
+		if (!candidates || !candidates.length) {
+			this._candidatesEl.innerHTML = '<div class="nw-vitals-empty">No candidates. Click Propose to scan live state.</div>';
+			return;
+		}
+		this._candidatesEl.innerHTML = candidates.map((c, i) => {
+			const kind = c.kind === 'constitution_rule_add'    ? 'add' :
+			             c.kind === 'constitution_rule_remove' ? 'remove' :
+			             this._escape(c.kind || '?');
+			const cls = c.kind === 'constitution_rule_add'    ? 'nw-vitals-cand-add'    :
+			            c.kind === 'constitution_rule_remove' ? 'nw-vitals-cand-remove' : '';
+			return `
+				<div class="nw-vitals-cand-row ${cls}" data-cand-idx="${i}">
+					<div class="nw-vitals-cand-head">
+						<span class="nw-vitals-cand-by">${this._escape(c.by || '')}</span>
+						<span class="nw-vitals-cand-kind">${this._escape(kind)}</span>
+						<span class="nw-vitals-cand-target">${this._escape(c.target || '')}</span>
+						<button class="nw-btn nw-btn-sm nw-btn-secondary" data-sim-idx="${i}" title="Replay the historical Ledger against this candidate">Simulate</button>
+					</div>
+					<div class="nw-vitals-cand-rationale">${this._escape(c.rationale || '')}</div>
+					<div class="nw-vitals-cand-sim"></div>
+				</div>`;
+		}).join('');
+		this._candidatesEl.querySelectorAll('button[data-sim-idx]').forEach((btn) => {
+			btn.addEventListener('click', () => this._simulateCandidate(parseInt(btn.getAttribute('data-sim-idx'), 10)));
+		});
 	}
 
 	_renderStats(v) {

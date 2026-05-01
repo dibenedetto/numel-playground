@@ -3203,6 +3203,30 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		return run_alignment(candidate or {})
 
 
+	# === Proactive Optimization (Phase 4 M4.2) ===
+
+	@app.post("/proactive/optimization/propose")
+	async def proactive_optimization_propose(body: Optional[Dict[str, Any]] = None):
+		"""Run every built-in Self-Reflective strategy against current
+		live state and return the resulting candidates."""
+		from proactive.optimization import propose_from_state
+		candidates = propose_from_state()
+		return {"candidates": candidates, "count": len(candidates)}
+
+
+	@app.post("/proactive/optimization/simulate")
+	async def proactive_optimization_simulate(body: Optional[Dict[str, Any]] = None):
+		"""Replay the historical Ledger against `candidate`. Body shape:
+		{candidate: {kind, target, payload, ...}}. Returns a diff report;
+		never applies the change."""
+		from proactive.optimization import simulate_candidate
+		body = body or {}
+		candidate = body.get("candidate") if isinstance(body.get("candidate"), dict) else body
+		if not candidate:
+			raise HTTPException(status_code=400, detail="missing 'candidate'")
+		return simulate_candidate(candidate)
+
+
 	# === Sub-Graph Templates API ===
 
 	_templates_path = str(Path(__file__).parent / "templates.json")
