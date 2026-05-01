@@ -3125,6 +3125,84 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		return {"snapshot_id": snapshot_id, "deleted": deleted}
 
 
+	# === Proactive Evolution / Alignment (Phase 4 M4.1) ===
+
+	@app.post("/proactive/feedback")
+	async def proactive_feedback(body: Optional[Dict[str, Any]] = None):
+		"""Record an Alignment signal. Body:
+		   {target_id: str, kind: str, value: any, context?: dict}
+		   kind in {"thumbs", "edit", "preference"}.
+		"""
+		from proactive.evolution import record_feedback, VALID_KINDS
+		body = body or {}
+		target_id = str(body.get("target_id") or "").strip()
+		kind      = str(body.get("kind") or "").strip()
+		if not target_id:
+			raise HTTPException(status_code=400, detail="missing 'target_id'")
+		if kind not in VALID_KINDS:
+			raise HTTPException(status_code=400,
+								 detail=f"kind must be one of {sorted(VALID_KINDS)}")
+		entry = record_feedback(
+			target_id = target_id,
+			kind      = kind,
+			value     = body.get("value"),
+			context   = body.get("context") or {},
+		)
+		return {"entry": entry}
+
+
+	@app.post("/proactive/feedback/list")
+	async def proactive_feedback_list(body: Optional[Dict[str, Any]] = None):
+		from proactive.evolution import list_feedback
+		body  = body or {}
+		try:
+			limit = int(body.get("limit", 50))
+		except (TypeError, ValueError):
+			limit = 50
+		since = body.get("since")
+		if since is not None:
+			try:
+				since = float(since)
+			except (TypeError, ValueError):
+				since = None
+		kind = body.get("kind") or None
+		entries = list_feedback(since=since, kind=kind, limit=limit)
+		return {"entries": entries, "count": len(entries)}
+
+
+	@app.post("/proactive/constitution")
+	async def proactive_constitution(body: Optional[Dict[str, Any]] = None):
+		from proactive.evolution import read_constitution
+		return read_constitution()
+
+
+	@app.post("/proactive/constitution/update")
+	async def proactive_constitution_update(body: Optional[Dict[str, Any]] = None):
+		from proactive.evolution import update_constitution
+		body = body or {}
+		patch = body.get("patch") if isinstance(body.get("patch"), dict) else body
+		try:
+			return update_constitution(patch or {})
+		except ValueError as exc:
+			raise HTTPException(status_code=400, detail=str(exc))
+
+
+	@app.post("/proactive/alignment/validators")
+	async def proactive_alignment_validators(body: Optional[Dict[str, Any]] = None):
+		from proactive.evolution import list_validators
+		return {"validators": list_validators()}
+
+
+	@app.post("/proactive/alignment/check")
+	async def proactive_alignment_check(body: Optional[Dict[str, Any]] = None):
+		"""Run every registered Alignment validator over the candidate.
+		Returns aggregate decision + per-validator verdict trail."""
+		from proactive.evolution import run_alignment
+		body = body or {}
+		candidate = body.get("candidate") if isinstance(body.get("candidate"), dict) else body
+		return run_alignment(candidate or {})
+
+
 	# === Sub-Graph Templates API ===
 
 	_templates_path = str(Path(__file__).parent / "templates.json")

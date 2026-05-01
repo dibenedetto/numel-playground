@@ -152,3 +152,25 @@ These two utilities close the loop: any future workflow merged into `examples/` 
   - `POST /proactive/quarantine` + `/quarantine/release` — empty list initially; release of an un-quarantined key returns `released=False`.
   Cleanup is in `finally`: `terminate()` then `wait(timeout=10)`, with `kill()` fallback and tempdir removal regardless of outcome. Verified: full run (5/5 checks) under engine-style exec + a real subprocess takes ~10s on a warm Python venv and 30–40s cold.
 
+### Proactive System — Phase 4 (M4.1: Alignment layer — Phase-1 of Evolution)
+
+- `app/proactive/evolution.py` — **created.** Always-on Alignment surface per §11. Three pillars + a pluggable validator chain:
+  - **Explicit Feedback** — `record_feedback(target_id, kind, value, context)` appends to `alignment_signals.jsonl`. Three valid kinds: `"thumbs"` (up/down on a Ledger entry), `"edit"` (the user modified a proposed intent before accepting), `"preference"` (an explicit setting). `list_feedback(since=None, kind=None, limit=100)` returns most-recent-first.
+  - **Preference Vectoring** — User Constitution at `user_constitution.json` with shape `{version, created_at, updated_at, rules: [...], preferences: {...}}`. `read_constitution()` lazy-creates with defaults. `update_constitution(patch)` shallow-merges (preferences merge by key, rules append idempotently by id, other top-level keys replace), bumps `version`, stamps `updated_at`.
+  - **Validator chain** — `Verdict` dataclass `{decision: "pass"|"veto", reason, by}`. `register_validator(name, fn)` / `unregister_validator(name)` / `list_validators()`. `run_alignment(candidate)` runs every registered validator over the candidate dict, returns aggregate `{decision, verdicts, ts, candidate}`. Aggregate is `pass` only if every validator passed; any veto produces a veto with the full per-validator trail. Validator exceptions are caught and converted to `veto` so a buggy plugin can't silently approve.
+  - **Two built-ins** auto-registered on import:
+    - `recent_thumbs_down` — vetoes if a candidate's capability has accumulated ≥ 3 recent `thumbs/down` signals.
+    - `constitution_check` — vetoes if the candidate's capability matches a `{kind: "never", target: <cap>}` rule in the User Constitution.
+- `app/api.py` — **six new POST endpoints** under `/proactive/*`:
+  - `POST /proactive/feedback` (body `{target_id, kind, value, context?}`) → records a signal; 400 on missing target or unknown kind.
+  - `POST /proactive/feedback/list` (body `{kind?, since?, limit?}`) → newest-first.
+  - `POST /proactive/constitution` → returns the current constitution (lazy-creates).
+  - `POST /proactive/constitution/update` (body `{patch}` or the patch as the body itself) → applies the merge and returns the new state.
+  - `POST /proactive/alignment/validators` → `{validators: [name…]}`.
+  - `POST /proactive/alignment/check` (body `{candidate}` or candidate-as-body) → runs the validator chain.
+- `web/numel-api.js` — added `proactiveFeedback(target, kind, value, context)`, `proactiveFeedbackList(opts)`, `proactiveConstitution()`, `proactiveConstitutionUpdate(patch)`, `proactiveAlignmentValidators()`, `proactiveAlignmentCheck(candidate)` helpers.
+- `web/numel-proactive-vitals.js` + `web/numel-workflow.css` — each Ledger row in the Vitals panel grows a thumbs-up / thumbs-down button pair. Clicking a thumb POSTs a `thumbs` feedback signal scoped to that entry's id and capability (read from `intent.capability` or `resolved_capability.name` or `governor_verdict.capability`), flashes the active state for ~800ms, then refreshes. CSS-only (no images) — uses Unicode glyphs with subtle hover/active states.
+- `tools/smoke_proactive.py` — added an in-process **Phase 4 · alignment layer** check (asserts feedback round-trip, constitution version bump, both built-in vetoes fire correctly, custom validator plug-in works) and extended the integration check with M4.1 endpoint coverage (feedback record + list, constitution update + version bump, validators list, alignment-check pass and veto paths). Full run is now 6/6 (5 in-process + 1 integration subprocess).
+
+This commit closes M4.1 — Phase-1 Alignment is in place, both as a Python API for downstream code (M4.2 Optimization will produce candidate changes that pass through this gate) and as a thin HTTP surface for the UI / external tools. M4.2 (Optimization sandbox) and M4.3 (Promotion gate) still pending.
+

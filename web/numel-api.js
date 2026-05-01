@@ -212,6 +212,17 @@ class NumelAPI {
 	proactiveSnapshotRestore(id)    { return this.json('/proactive/snapshot/restore', { snapshot_id: id }); }
 	proactiveSnapshotDelete(id)     { return this.json('/proactive/snapshot/delete', { snapshot_id: id }); }
 
+	// ── Phase 4 (M4.1) Alignment ─────────────────────────────────
+
+	proactiveFeedback(target_id, kind, value, context = {}) {
+		return this.json('/proactive/feedback', { target_id, kind, value, context });
+	}
+	proactiveFeedbackList(opts = {})         { return this.json('/proactive/feedback/list', opts); }
+	proactiveConstitution()                  { return this.json('/proactive/constitution'); }
+	proactiveConstitutionUpdate(patch)       { return this.json('/proactive/constitution/update', { patch }); }
+	proactiveAlignmentValidators()           { return this.json('/proactive/alignment/validators'); }
+	proactiveAlignmentCheck(candidate)       { return this.json('/proactive/alignment/check', { candidate }); }
+
 	// ── Console API ──────────────────────────────────────────────
 
 	consoleStart(opts = {})       { return this.json('/console/start', opts); }

@@ -202,6 +202,95 @@ def _smoke_persistent(verbose: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Phase 4 (M4.1) — Alignment layer
+# ---------------------------------------------------------------------------
+
+def _smoke_alignment(verbose: bool) -> None:
+    """In-process check of the Alignment module: feedback recording,
+    constitution patching, validator chain, and built-in vetoes."""
+    from proactive.persistence import clear_state, state_dir
+    from proactive import evolution as ev
+
+    snap_dir = state_dir() / "snapshots"
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+    # Feedback round-trip
+    ev.record_feedback("led_42", "thumbs", "down", {"capability": "core.transfer_funds"})
+    ev.record_feedback("led_43", "thumbs", "up",   {"capability": "core.notify"})
+    ev.record_feedback("led_44", "edit",   {"old": "send", "new": "draft"},
+                       {"capability": "core.send_email"})
+
+    sigs = ev.list_feedback()
+    assert len(sigs) == 3, f"alignment: expected 3 feedback signals, got {len(sigs)}"
+    thumbs = ev.list_feedback(kind="thumbs")
+    assert len(thumbs) == 2, f"alignment: expected 2 thumbs, got {len(thumbs)}"
+
+    # Constitution: lazy-create + patch
+    c0 = ev.read_constitution()
+    assert c0["version"] == 1
+    c1 = ev.update_constitution({
+        "preferences": {"max_money_no_consent": 50},
+        "rules":       [{"kind": "never", "target": "core.transfer_funds"}],
+    })
+    assert c1["version"] == 2, f"alignment: constitution version {c1['version']} != 2"
+    assert c1["preferences"]["max_money_no_consent"] == 50
+    assert any(r["target"] == "core.transfer_funds" for r in c1["rules"])
+
+    # Built-in validators registered.
+    vals = ev.list_validators()
+    assert {"recent_thumbs_down", "constitution_check"}.issubset(set(vals)), \
+        f"alignment: built-ins missing from {vals}"
+
+    # Low-risk candidate → pass.
+    r = ev.run_alignment({"kind": "modular_upgrade", "payload": {"capability": "core.notify"}})
+    assert r["decision"] == "pass", f"alignment(low-risk): expected pass, got {r['decision']}"
+
+    # Constitution-banned candidate → veto by constitution_check.
+    r = ev.run_alignment({"kind": "modular_upgrade",
+                          "payload": {"capability": "core.transfer_funds"}})
+    assert r["decision"] == "veto"
+    veto_by = [v["by"] for v in r["verdicts"] if v["decision"] == "veto"]
+    assert "constitution_check" in veto_by, \
+        f"alignment(banned): expected constitution_check veto, got {veto_by}"
+
+    # Thumbs-down accumulation triggers the recent_thumbs_down validator.
+    for _ in range(3):
+        ev.record_feedback("led_x", "thumbs", "down", {"capability": "core.send_email"})
+    r = ev.run_alignment({"kind": "modular_upgrade",
+                          "payload": {"capability": "core.send_email"}})
+    assert r["decision"] == "veto"
+    veto_by = [v["by"] for v in r["verdicts"] if v["decision"] == "veto"]
+    assert "recent_thumbs_down" in veto_by, \
+        f"alignment(downvoted): expected recent_thumbs_down veto, got {veto_by}"
+
+    # Custom validator plug-in.
+    def _scope_check(candidate):
+        cap = (candidate.get("payload") or {}).get("capability") or ""
+        if cap.startswith("core."):
+            return ev.Verdict("pass", "ok", "scope_internal_only")
+        return ev.Verdict("veto", f"non-core: {cap!r}", "scope_internal_only")
+
+    ev.register_validator("scope_internal_only", _scope_check)
+    try:
+        r = ev.run_alignment({"kind": "x", "payload": {"capability": "third_party.do_thing"}})
+        assert r["decision"] == "veto"
+        assert "scope_internal_only" in [v["by"] for v in r["verdicts"] if v["decision"] == "veto"]
+    finally:
+        ev.unregister_validator("scope_internal_only")
+
+    if verbose:
+        print(f"  feedback signals: {len(sigs)}  thumbs: {len(thumbs)}")
+        print(f"  constitution v0/v1: {c0['version']}/{c1['version']}")
+        print(f"  validators: {ev.list_validators()}")
+
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Integration mode — spawn the actual app and exercise HTTP endpoints
 # ---------------------------------------------------------------------------
 
@@ -335,6 +424,38 @@ def _smoke_integration(verbose: bool) -> None:
         assert rel.get("released") is False, \
             f"release of un-quarantined key returned released={rel.get('released')!r}"
 
+        # M4.1 — Alignment endpoints.
+        fb = _post_json(f"{url}/proactive/feedback",
+                        {"target_id": "led_3", "kind": "thumbs", "value": "down",
+                         "context": {"capability": "core.notify"}})
+        assert fb["entry"]["kind"] == "thumbs"
+        listed_fb = _post_json(f"{url}/proactive/feedback/list", {"limit": 5})
+        assert listed_fb["count"] >= 1 and listed_fb["entries"][0]["target_id"] == "led_3"
+
+        cons0 = _post_json(f"{url}/proactive/constitution")
+        v0 = cons0.get("version", 0)
+        cons1 = _post_json(f"{url}/proactive/constitution/update",
+                           {"patch": {"rules": [{"kind": "never", "target": "core.transfer_funds"}]}})
+        assert cons1["version"] > v0, f"constitution version did not bump ({v0} -> {cons1['version']})"
+
+        vals = _post_json(f"{url}/proactive/alignment/validators")["validators"]
+        assert {"recent_thumbs_down", "constitution_check"}.issubset(set(vals)), \
+            f"alignment validators missing: {vals}"
+
+        chk_pass = _post_json(f"{url}/proactive/alignment/check",
+                              {"candidate": {"kind": "x", "payload": {"capability": "core.notify"}}})
+        # core.notify has only 1 thumbs-down (we just sent it); needs >=3 to veto.
+        assert chk_pass["decision"] == "pass", \
+            f"alignment(notify) expected pass, got {chk_pass['decision']}"
+
+        chk_veto = _post_json(f"{url}/proactive/alignment/check",
+                              {"candidate": {"kind": "x", "payload": {"capability": "core.transfer_funds"}}})
+        assert chk_veto["decision"] == "veto", \
+            f"alignment(banned) expected veto, got {chk_veto['decision']}"
+        veto_by = [v["by"] for v in chk_veto["verdicts"] if v["decision"] == "veto"]
+        assert "constitution_check" in veto_by, \
+            f"alignment(banned) veto-by missing constitution_check: {veto_by}"
+
         if verbose:
             print(f"  app on        {url}")
             print(f"  state dir     {tmp_dir}")
@@ -361,6 +482,7 @@ _INPROC_TESTS = [
     ("Phase 1 · sensory slice",    _smoke_sensory_slice),
     ("Phase 2 · vertical slice",   _smoke_vertical_slice),
     ("Phase 3 · persistent stack", _smoke_persistent),
+    ("Phase 4 · alignment layer",  _smoke_alignment),
 ]
 
 _INTEGRATION_TESTS = [

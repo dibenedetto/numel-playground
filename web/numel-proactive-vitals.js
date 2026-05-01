@@ -135,16 +135,46 @@ class ProactiveVitalsPanel {
 			const topic = e.trigger?.topic || '—';
 			const motor = e.motor_status ? ` · motor: ${this._escape(e.motor_status)}` : '';
 			const obs   = e.observation ? ` · ${this._escape(e.observation.subject || e.observation.observation_type || '')}` : '';
-			const capName = e.intent?.capability || e.resolved_capability?.name;
+			const capName = e.intent?.capability || e.resolved_capability?.name || e.governor_verdict?.capability;
 			const intent  = capName ? ` · intent: ${this._escape(capName)}` : '';
 			const conf = e.governor_verdict?.confidence != null ? ` · conf=${e.governor_verdict.confidence.toFixed(2)}` : '';
+			const id = this._escape(e.id || '');
+			const cap = this._escape(capName || '');
 			return `
-				<div class="nw-vitals-ledger-row">
-					<span class="nw-vitals-ledger-id">${this._escape(e.id || '')}</span>
+				<div class="nw-vitals-ledger-row" data-entry="${id}" data-cap="${cap}">
+					<span class="nw-vitals-ledger-id">${id}</span>
 					<span class="nw-vitals-ledger-verdict ${kind ? 'nw-vitals-verdict-' + kind : ''}">${this._escape(verdict)}</span>
 					<span class="nw-vitals-ledger-topic">${this._escape(topic)}${obs}${intent}${motor}${conf}</span>
+					<span class="nw-vitals-ledger-thumbs">
+						<button class="nw-vitals-thumb" data-thumb="up"   data-target="${id}" data-cap="${cap}" title="Mark this entry as helpful">&#x1F44D;</button>
+						<button class="nw-vitals-thumb" data-thumb="down" data-target="${id}" data-cap="${cap}" title="Mark this entry as wrong">&#x1F44E;</button>
+					</span>
 				</div>`;
 		}).join('');
+		this._ledger.querySelectorAll('button[data-thumb]').forEach((btn) => {
+			btn.addEventListener('click', () => this._sendThumb(btn));
+		});
+	}
+
+	async _sendThumb(btn) {
+		const target = btn.getAttribute('data-target');
+		const cap    = btn.getAttribute('data-cap') || null;
+		const value  = btn.getAttribute('data-thumb');
+		if (!target || !value) return;
+		btn.disabled = true;
+		try {
+			await this.api.proactiveFeedback(target, 'thumbs', value, cap ? { capability: cap } : {});
+			btn.classList.add('is-active');
+			// Remove the active state after 1.5s; refresh in case validators
+			// downstream (e.g., recent_thumbs_down) react to the new signal.
+			setTimeout(() => {
+				btn.classList.remove('is-active');
+				this.refresh().catch(() => {});
+			}, 800);
+		} catch (err) {
+			console.warn('[ProactiveVitals] thumbs send failed:', err);
+			btn.disabled = false;
+		}
 	}
 
 	_renderQuarantine(keys) {

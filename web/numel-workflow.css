@@ -2465,7 +2465,7 @@ body.nw-layout-project-workbench .nw-mono-text {
 }
 .nw-vitals-ledger-row {
 	display: grid;
-	grid-template-columns: 56px 90px 1fr;
+	grid-template-columns: 56px 90px 1fr auto;
 	gap: 6px;
 	align-items: baseline;
 	padding: 3px 6px;
@@ -2478,6 +2478,36 @@ body.nw-layout-project-workbench .nw-mono-text {
 .nw-vitals-verdict-good { color: #79c389; }
 .nw-vitals-verdict-warn { color: #f3c982; }
 .nw-vitals-verdict-bad  { color: #e58a86; }
+
+.nw-vitals-ledger-thumbs {
+	display: inline-flex;
+	gap: 2px;
+}
+.nw-vitals-thumb {
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 3px;
+	color: var(--sg-text-tertiary);
+	cursor: pointer;
+	font-size: 11px;
+	line-height: 1;
+	padding: 2px 4px;
+	opacity: 0.55;
+	transition: opacity 120ms ease, background 120ms ease, border-color 120ms ease;
+}
+.nw-vitals-thumb:hover {
+	opacity: 1;
+	border-color: var(--nw-border-soft, var(--sg-border-color));
+}
+.nw-vitals-thumb.is-active {
+	opacity: 1;
+	background: rgba(80, 180, 90, 0.18);
+	border-color: rgba(80, 180, 90, 0.45);
+}
+.nw-vitals-thumb[data-thumb="down"].is-active {
+	background: rgba(217, 83, 79, 0.18);
+	border-color: rgba(217, 83, 79, 0.45);
+}
 
 .nw-vitals-empty,
 .nw-vitals-error {
