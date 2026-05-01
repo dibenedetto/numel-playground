@@ -196,3 +196,25 @@ This commit closes M4.1 — Phase-1 Alignment is in place, both as a Python API 
 
 This commit closes M4.2 — Optimization can now propose and simulate candidate changes against the persistent state, in a properly isolated sandbox. The candidates flow into M4.1's `run_alignment()` as-is; M4.3 (Promotion gate) will wire them together and add the "apply if approved" path.
 
+### Proactive System — Phase 4 (M4.3: Promotion gate — closes the Evolution loop)
+
+- `app/proactive/promotion.py` — **created.** Single entry point: `promote(candidate, *, simulate=True)`. Walks the full chain — optional simulation (M4.2) → alignment validators (M4.1) → kind-specific applier — and writes a `core.evolution.promotion` Ledger entry capturing the Why-chain regardless of outcome. Possible `decision` values: `applied` / `noop` / `refused_by_validator` / `skipped_unknown_kind` / `apply_failed`. Pluggable applier registry — `register_applier(kind, fn)` / `list_appliers()` — with two built-ins:
+  - `constitution_rule_add` — checks for an existing rule with matching `(kind, target)`; returns `noop` if present (idempotent), otherwise calls `evolution.update_constitution`.
+  - `constitution_rule_remove` — calls `evolution.remove_rule(rule_id, match)`; returns `noop` if the rule isn't present, otherwise reports the removed rules and the new constitution version.
+- `app/proactive/evolution.py` — **added `remove_rule(rule_id=None, match=None)`** — removes by id or by `kind+target` match (or both). Bumps the constitution version and writes the new state only when a rule was actually removed. Idempotent on absent rules.
+- `app/proactive/evolution.py` — **fixed validator semantics** so governance candidates aren't self-referentially vetoed. `constitution_check` skips candidates whose `kind.startswith("constitution_rule_")` (those manage rules; checking them against the rules they manage produces a self-loop). `recent_thumbs_down` skips `constitution_rule_add` (banning a downvoted capability *aligns* with the signal) but still vetoes `constitution_rule_remove` (un-banning a downvoted capability would override the user signal). Both validators continue to apply normally to actuation candidates.
+- `app/api.py` — **one new POST endpoint**: `POST /proactive/promotion/promote` (body `{candidate, simulate?: bool}`) — runs the full chain and returns `{id, ts, decision, candidate, simulation, alignment, applied, ledger}`. 400 on missing candidate.
+- `web/numel-api.js` — added `proactivePromote(candidate, simulate=true)` helper.
+- `web/numel-proactive-vitals.js` + `web/numel-workflow.css` — each candidate row in the Vitals panel grows a **Promote** button alongside Simulate. Click prompts a `confirm()` dialog, calls the endpoint, renders an inline result line: `<decision>  (alignment: <align>, apply: <status>) ← <vetoes>`. The result line is colour-coded per outcome (`applied`: green / bold, `noop`: secondary, `refused_by_validator`: red, `skipped_unknown_kind`: amber, `apply_failed`: red). On `applied` or `noop`, the panel re-runs `Propose` after a short delay (the constitution may have changed → some candidates may no longer apply).
+- `tools/smoke_proactive.py` — added a **Phase 4 · promotion gate** in-process check exercising all five decision paths (applied / noop / refused_by_validator / skipped_unknown_kind / applied-remove + thumbs-down veto on a remove) and asserting the per-promotion Ledger entry shape. Extended the integration check with three promote-endpoint calls (apply / re-apply → noop / actuation hits banned cap → veto with `constitution_check` in `veto_by`). Full run is now **8 / 8** (7 in-process + 1 integration subprocess).
+
+This commit closes **Phase 4 — Evolution**. Candidates produced by Self-Reflective Debugging in M4.2 flow through the M4.1 validator chain to the M4.3 applier, with every step recorded in the Ledger. The Operational Philosophy table's "Evolutionary updates → Ledger + Why-chain + Alignment-pass" row now has a real implementation behind it.
+
+### Phase 4 status
+
+| Milestone | Commit | Surface |
+|---|---|---|
+| M4.1 Alignment            | `f835469` | `app/proactive/evolution.py` (signals + constitution + validator chain), 6 endpoints, Vitals thumbs UI |
+| M4.2 Optimization sandbox | `6e9b3d8` | `app/proactive/optimization.py` (sandbox + 3 strategies + simulator), 2 endpoints, Vitals candidate list |
+| M4.3 Promotion gate       | this commit | `app/proactive/promotion.py` (chained simulate→align→apply), 1 endpoint, Vitals Promote button |
+

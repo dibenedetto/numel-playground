@@ -228,6 +228,12 @@ class NumelAPI {
 	proactiveOptimizationPropose()           { return this.json('/proactive/optimization/propose'); }
 	proactiveOptimizationSimulate(candidate) { return this.json('/proactive/optimization/simulate', { candidate }); }
 
+	// ── Phase 4 (M4.3) Promotion gate ────────────────────────────
+
+	proactivePromote(candidate, simulate = true) {
+		return this.json('/proactive/promotion/promote', { candidate, simulate });
+	}
+
 	// ── Console API ──────────────────────────────────────────────
 
 	consoleStart(opts = {})       { return this.json('/console/start', opts); }

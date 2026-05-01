@@ -3227,6 +3227,26 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		return simulate_candidate(candidate)
 
 
+	# === Proactive Promotion gate (Phase 4 M4.3) ===
+
+	@app.post("/proactive/promotion/promote")
+	async def proactive_promote(body: Optional[Dict[str, Any]] = None):
+		"""Run the Promotion chain: simulate (optional) -> alignment chain
+		-> apply (if every validator passed). Records a Ledger entry
+		regardless of outcome. Body: {candidate: {...}, simulate?: bool}.
+		"""
+		from proactive.promotion import promote
+		body = body or {}
+		candidate = body.get("candidate") if isinstance(body.get("candidate"), dict) else body
+		if not candidate:
+			raise HTTPException(status_code=400, detail="missing 'candidate'")
+		simulate = bool(body.get("simulate", True))
+		try:
+			return promote(candidate, simulate=simulate)
+		except ValueError as exc:
+			raise HTTPException(status_code=400, detail=str(exc))
+
+
 	# === Sub-Graph Templates API ===
 
 	_templates_path = str(Path(__file__).parent / "templates.json")

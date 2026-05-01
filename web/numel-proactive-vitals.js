@@ -156,14 +156,61 @@ class ProactiveVitalsPanel {
 						<span class="nw-vitals-cand-kind">${this._escape(kind)}</span>
 						<span class="nw-vitals-cand-target">${this._escape(c.target || '')}</span>
 						<button class="nw-btn nw-btn-sm nw-btn-secondary" data-sim-idx="${i}" title="Replay the historical Ledger against this candidate">Simulate</button>
+						<button class="nw-btn nw-btn-sm nw-btn-secondary" data-promote-idx="${i}" title="Run the Promotion gate: simulate, run every Alignment validator, and apply if all pass. A Ledger entry is recorded.">Promote</button>
 					</div>
 					<div class="nw-vitals-cand-rationale">${this._escape(c.rationale || '')}</div>
 					<div class="nw-vitals-cand-sim"></div>
+					<div class="nw-vitals-cand-promo"></div>
 				</div>`;
 		}).join('');
 		this._candidatesEl.querySelectorAll('button[data-sim-idx]').forEach((btn) => {
 			btn.addEventListener('click', () => this._simulateCandidate(parseInt(btn.getAttribute('data-sim-idx'), 10)));
 		});
+		this._candidatesEl.querySelectorAll('button[data-promote-idx]').forEach((btn) => {
+			btn.addEventListener('click', () => this._promoteCandidate(parseInt(btn.getAttribute('data-promote-idx'), 10)));
+		});
+	}
+
+	async _promoteCandidate(idx) {
+		const cand = this._candidates[idx];
+		if (!cand || !this._candidatesEl) return;
+		const ok = window.confirm(
+			`Promote this candidate?\n\n` +
+			`  ${cand.kind}: ${cand.target}\n\n` +
+			`Promotion will simulate, run every Alignment validator, and apply the change if all pass. A Ledger entry is recorded either way.`,
+		);
+		if (!ok) return;
+
+		const row  = this._candidatesEl.querySelector(`[data-cand-idx="${idx}"]`);
+		const slot = row?.querySelector('.nw-vitals-cand-promo');
+		if (slot) slot.textContent = 'Promoting…';
+		try {
+			const resp = await this.api.proactivePromote(cand);
+			const decision = resp?.decision || '?';
+			const align    = (resp?.alignment?.decision) || '?';
+			const applied  = (resp?.applied?.status) || '';
+			let summary = `${decision}  (alignment: ${align}`;
+			if (applied) summary += `, apply: ${applied}`;
+			summary += ')';
+			if (decision === 'refused_by_validator') {
+				const vetoes = (resp?.alignment?.verdicts || [])
+					.filter((v) => v.decision === 'veto')
+					.map((v) => `${v.by}: ${v.reason}`)
+					.join('; ');
+				if (vetoes) summary += `  ← ${vetoes}`;
+			}
+			if (slot) {
+				slot.textContent = summary;
+				slot.dataset.outcome = decision;
+			}
+			// On apply / noop / remove the constitution may have changed —
+			// reload candidates and refresh stats.
+			if (decision === 'applied' || decision === 'noop') {
+				setTimeout(() => this._propose().catch(() => {}), 600);
+			}
+		} catch (err) {
+			if (slot) slot.textContent = `Promote failed: ${err?.message || err}`;
+		}
 	}
 
 	_renderStats(v) {

@@ -398,6 +398,122 @@ def _smoke_optimization(verbose: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Phase 4 (M4.3) — Promotion gate
+# ---------------------------------------------------------------------------
+
+def _smoke_promotion(verbose: bool) -> None:
+    """In-process check of the Promotion gate: applied / noop / veto /
+    unknown-kind / applied-remove paths, plus a Ledger entry per
+    promotion attempt."""
+    from proactive.persistence import clear_state, state_dir, read_jsonl
+    from proactive import evolution as ev
+    from proactive import promotion as pr
+
+    snap_dir = state_dir() / "snapshots"
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+    # Built-in appliers registered.
+    appliers = pr.list_appliers()
+    assert {"constitution_rule_add", "constitution_rule_remove"}.issubset(set(appliers)), \
+        f"appliers missing: {appliers}"
+
+    cand_add = {
+        "kind":      "constitution_rule_add",
+        "target":    "core.future_thing",
+        "payload":   {"rule": {"kind": "never", "target": "core.future_thing"}},
+        "rationale": "demo: ban",
+        "by":        "demo",
+    }
+
+    # 1. PASS path.
+    r1 = pr.promote(cand_add)
+    assert r1["decision"] == "applied", f"PASS: {r1['decision']}"
+    assert r1["applied"]["status"] == "applied"
+
+    # 2. NOOP (re-promote same candidate).
+    r2 = pr.promote(cand_add)
+    assert r2["decision"] == "noop", f"NOOP: {r2['decision']}"
+
+    # 3. VETO: an actuation candidate hitting the banned capability.
+    cand_actuation = {
+        "kind":      "modular_upgrade",
+        "target":    "core.future_thing",
+        "payload":   {"capability": "core.future_thing"},
+        "rationale": "demo: invoke a banned cap",
+    }
+    r3 = pr.promote(cand_actuation)
+    assert r3["decision"] == "refused_by_validator", f"VETO: {r3['decision']}"
+    assert r3["alignment"]["decision"] == "veto"
+    veto_by = [v["by"] for v in r3["alignment"]["verdicts"] if v["decision"] == "veto"]
+    assert "constitution_check" in veto_by
+
+    # 4. UNKNOWN-KIND (alignment passes but no applier).
+    cand_unknown = {
+        "kind":      "modular_upgrade",
+        "target":    "core.something_new",
+        "payload":   {"capability": "core.something_new"},
+        "rationale": "demo: unknown",
+    }
+    r4 = pr.promote(cand_unknown)
+    assert r4["decision"] == "skipped_unknown_kind", f"UNKNOWN: {r4['decision']}"
+
+    # 5. APPLIED REMOVE — undoes the rule from #1.
+    cand_rem = {
+        "kind":      "constitution_rule_remove",
+        "target":    "core.future_thing",
+        "payload":   {"rule": {"kind": "never", "target": "core.future_thing"}},
+        "rationale": "demo: undo",
+    }
+    r5 = pr.promote(cand_rem)
+    assert r5["decision"] == "applied", f"REMOVE: {r5['decision']}"
+    removed_targets = [r.get("target") for r in r5["applied"]["removed"]]
+    assert "core.future_thing" in removed_targets
+
+    # 6. After-remove: constitution_check no longer vetoes; still
+    #    skipped_unknown_kind for the actuation candidate.
+    r6 = pr.promote(cand_actuation)
+    assert r6["decision"] == "skipped_unknown_kind"
+
+    # 7. THUMBS-DOWN VETO on a remove candidate (un-banning a downvoted cap).
+    ev.update_constitution({"rules": [{"kind": "never", "target": "core.legacy"}]})
+    for _ in range(4):
+        ev.record_feedback("led_x", "thumbs", "down", {"capability": "core.legacy"})
+    cand_unsafe_remove = {
+        "kind":      "constitution_rule_remove",
+        "target":    "core.legacy",
+        "payload":   {"rule": {"kind": "never", "target": "core.legacy"}},
+        "rationale": "demo: try to unban a downvoted cap",
+    }
+    r7 = pr.promote(cand_unsafe_remove)
+    assert r7["decision"] == "refused_by_validator"
+    assert "recent_thumbs_down" in [
+        v["by"] for v in r7["alignment"]["verdicts"] if v["decision"] == "veto"
+    ]
+
+    # Ledger captures every promotion as a structured entry.
+    promos = [
+        e for e in read_jsonl("ledger")
+        if (e.get("trigger") or {}).get("topic") == "core.evolution.promotion"
+    ]
+    assert len(promos) == 7, f"expected 7 promotion ledger entries, got {len(promos)}"
+    decisions = [p["decision"] for p in promos]
+    assert set(decisions) == {
+        "applied", "noop", "refused_by_validator", "skipped_unknown_kind",
+    }, f"unexpected decision set: {set(decisions)}"
+
+    if verbose:
+        print(f"  appliers:           {appliers}")
+        for p in promos:
+            print(f"    {p['id']:6s}  {p['decision']:25s} {p['candidate'].get('kind','')[:28]:28s} -> {p['candidate'].get('target')}")
+
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Integration mode — spawn the actual app and exercise HTTP endpoints
 # ---------------------------------------------------------------------------
 
@@ -585,6 +701,47 @@ def _smoke_integration(verbose: bool) -> None:
         assert "changed" in diff and "unchanged" in diff, \
             f"simulate diff missing keys: {diff}"
 
+        # M4.3 — Promotion gate.
+        # Promote a fresh add for core.notify (no rule yet) → applied.
+        promo_add = _post_json(f"{url}/proactive/promotion/promote", {
+            "candidate": {
+                "kind":      "constitution_rule_add",
+                "target":    "core.notify",
+                "payload":   {"rule": {"kind": "never", "target": "core.notify"}},
+                "rationale": "integration smoke: ban notify",
+            },
+        })
+        assert promo_add["decision"] == "applied", \
+            f"promotion(add core.notify) decision={promo_add['decision']}"
+        assert (promo_add.get("applied") or {}).get("status") == "applied"
+
+        # Re-promote → noop.
+        promo_again = _post_json(f"{url}/proactive/promotion/promote", {
+            "candidate": {
+                "kind":      "constitution_rule_add",
+                "target":    "core.notify",
+                "payload":   {"rule": {"kind": "never", "target": "core.notify"}},
+                "rationale": "integration smoke: re-ban notify",
+            },
+        })
+        assert promo_again["decision"] == "noop", \
+            f"promotion(re-add) decision={promo_again['decision']}"
+
+        # Promote an actuation candidate hitting a banned cap → veto.
+        promo_veto = _post_json(f"{url}/proactive/promotion/promote", {
+            "candidate": {
+                "kind":      "modular_upgrade",
+                "target":    "core.notify",
+                "payload":   {"capability": "core.notify"},
+                "rationale": "integration smoke: hit banned cap",
+            },
+        })
+        assert promo_veto["decision"] == "refused_by_validator"
+        veto_by = [v["by"] for v in promo_veto["alignment"]["verdicts"]
+                   if v["decision"] == "veto"]
+        assert "constitution_check" in veto_by, \
+            f"promotion(veto) veto-by missing constitution_check: {veto_by}"
+
         if verbose:
             print(f"  app on        {url}")
             print(f"  state dir     {tmp_dir}")
@@ -613,6 +770,7 @@ _INPROC_TESTS = [
     ("Phase 3 · persistent stack",    _smoke_persistent),
     ("Phase 4 · alignment layer",     _smoke_alignment),
     ("Phase 4 · optimization sandbox", _smoke_optimization),
+    ("Phase 4 · promotion gate",      _smoke_promotion),
 ]
 
 _INTEGRATION_TESTS = [

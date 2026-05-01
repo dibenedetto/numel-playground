@@ -125,6 +125,52 @@ def read_constitution() -> Dict[str, Any]:
     return cur
 
 
+def remove_rule(
+    rule_id: Optional[str]            = None,
+    match:   Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Remove rules from the constitution by id or by kind+target match.
+
+    `rule_id` removes exactly the rule with that id.
+    `match` removes every rule whose `kind` and `target` both equal those
+    in `match`. Either or both may be supplied; both filters are OR'd.
+
+    Returns `{removed: [rule, ...], version, updated}`. Never raises if a
+    rule isn't present — callers can treat absence as a no-op.
+    """
+    cur = read_constitution()
+    rules = list(cur.get("rules") or [])
+    keep:    List[Dict[str, Any]] = []
+    removed: List[Dict[str, Any]] = []
+
+    def _hits(rule: Dict[str, Any]) -> bool:
+        if rule_id and rule.get("id") == rule_id:
+            return True
+        if match and isinstance(match, dict):
+            if rule.get("kind")   == match.get("kind") \
+               and rule.get("target") == match.get("target"):
+                return True
+        return False
+
+    for rule in rules:
+        if isinstance(rule, dict) and _hits(rule):
+            removed.append(rule)
+        else:
+            keep.append(rule)
+
+    if removed:
+        cur["rules"]      = keep
+        cur["version"]    = int(cur.get("version", 1)) + 1
+        cur["updated_at"] = time.time()
+        write_json(_CONSTITUTION_FILE, cur)
+
+    return {
+        "removed": removed,
+        "version": cur.get("version"),
+        "updated": bool(removed),
+    }
+
+
 def update_constitution(patch: Dict[str, Any]) -> Dict[str, Any]:
     """Apply a shallow patch to the constitution.
 
@@ -253,7 +299,17 @@ def _candidate_capability(candidate: Dict[str, Any]) -> Optional[str]:
 
 
 def _validator_recent_thumbs_down(candidate: Dict[str, Any]) -> Verdict:
-    """Veto if the candidate's capability has accumulated recent thumbs-down."""
+    """Veto if the candidate's capability has accumulated recent thumbs-down.
+
+    Skipped for `constitution_rule_add` candidates — banning a capability
+    *aligns* with thumbs-down signal rather than contradicting it.
+    Still applied to `constitution_rule_remove` (un-banning a downvoted
+    capability would override the user signal) and to actuation kinds.
+    """
+    if str(candidate.get("kind") or "") == "constitution_rule_add":
+        return Verdict("pass",
+                       "constitution_rule_add aligns with thumbs-down — not subject",
+                       "recent_thumbs_down")
     cap = _candidate_capability(candidate)
     if not cap:
         return Verdict("pass", "no capability to check", "recent_thumbs_down")
@@ -271,11 +327,22 @@ def _validator_recent_thumbs_down(candidate: Dict[str, Any]) -> Verdict:
 
 
 def _validator_constitution_check(candidate: Dict[str, Any]) -> Verdict:
-    """Veto if the candidate violates a 'never' rule in the User Constitution.
+    """Veto if the candidate would invoke a capability banned by a
+    User Constitution rule.
 
-    Rule schema we honor here:
+    Skipped for governance kinds (`constitution_rule_add` /
+    `constitution_rule_remove`) — those candidates change the rules
+    themselves rather than invoking any capability, so checking them
+    against the rules they're managing produces a self-loop.
+
+    Rule schema honored here:
         {id, kind: 'never', target: <capability name>, ...}
     """
+    kind = str(candidate.get("kind") or "")
+    if kind.startswith("constitution_rule_"):
+        return Verdict("pass",
+                       "governance action — manages rules rather than invoking a capability",
+                       "constitution_check")
     cap = _candidate_capability(candidate)
     constitution = read_constitution()
     for rule in constitution.get("rules") or []:

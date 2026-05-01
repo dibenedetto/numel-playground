@@ -2635,15 +2635,22 @@ body.nw-layout-project-workbench .nw-mono-text {
 	font-size: 10px;
 	line-height: 1.35;
 }
-.nw-vitals-cand-sim {
+.nw-vitals-cand-sim,
+.nw-vitals-cand-promo {
 	color: var(--sg-text-tertiary);
 	font-size: 10px;
 	font-style: italic;
 	min-height: 0;
 }
-.nw-vitals-cand-sim:empty {
+.nw-vitals-cand-sim:empty,
+.nw-vitals-cand-promo:empty {
 	display: none;
 }
+.nw-vitals-cand-promo[data-outcome="applied"] { color: #79c389; font-style: normal; font-weight: 600; }
+.nw-vitals-cand-promo[data-outcome="noop"]    { color: var(--sg-text-secondary); font-style: normal; }
+.nw-vitals-cand-promo[data-outcome="refused_by_validator"] { color: #e58a86; font-style: normal; }
+.nw-vitals-cand-promo[data-outcome="skipped_unknown_kind"] { color: #f3c982; font-style: normal; }
+.nw-vitals-cand-promo[data-outcome="apply_failed"]         { color: #e58a86; font-style: normal; }
 
 /* ========================================================================
    EVENT LOG
