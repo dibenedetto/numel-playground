@@ -234,6 +234,19 @@ class NumelAPI {
 		return this.json('/proactive/promotion/promote', { candidate, simulate });
 	}
 
+	// ── Phase 5 (M5.1) MCP — external integrations ───────────────
+
+	proactiveMcpTools()                            { return this.json('/proactive/mcp/tools'); }
+	proactiveMcpCall(name, args = {})              { return this.json('/proactive/mcp/call', { name, arguments: args }); }
+	proactiveMcpRegisterRemote(server, tool, scopes = null) {
+		const body = { server, tool };
+		if (scopes) body.scopes = scopes;
+		return this.json('/proactive/mcp/register_remote', body);
+	}
+	proactiveMcpRemoteTools()                      { return this.json('/proactive/mcp/remote_tools'); }
+	proactiveMcpDropRemote(name)                   { return this.json('/proactive/mcp/drop_remote', { name }); }
+	proactiveMcpCalls(limit = 25)                  { return this.json('/proactive/mcp/calls', { limit }); }
+
 	// ── Console API ──────────────────────────────────────────────
 
 	consoleStart(opts = {})       { return this.json('/console/start', opts); }

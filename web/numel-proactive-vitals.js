@@ -26,6 +26,8 @@ class ProactiveVitalsPanel {
 		this._candidatesEl = document.getElementById('proactiveVitalsCandidates');
 		this._proposeBtn   = document.getElementById('proactiveVitalsProposeBtn');
 		this._candidates   = [];
+		this._mcpEl        = document.getElementById('proactiveVitalsMcp');
+		this._mcpRefreshBtn = document.getElementById('proactiveVitalsMcpRefreshBtn');
 		this._timer   = null;
 		this._lastError = null;
 
@@ -46,6 +48,7 @@ class ProactiveVitalsPanel {
 		});
 		this._snapshotBtn?.addEventListener('click', () => this._takeSnapshot());
 		this._proposeBtn?.addEventListener('click', () => this._propose());
+		this._mcpRefreshBtn?.addEventListener('click', () => this._refreshMcp());
 
 		// React to section collapse/expand to pause polling when hidden.
 		const observer = new MutationObserver(() => this._reschedule());
@@ -75,11 +78,14 @@ class ProactiveVitalsPanel {
 	async refresh() {
 		if (!this._stats) return;
 		try {
-			const [vitals, ledger, quarantine, snapshots] = await Promise.all([
+			const [vitals, ledger, quarantine, snapshots, mcpTools, mcpRemote, mcpCalls] = await Promise.all([
 				this.api.proactiveVitals(),
 				this.api.proactiveLedger({ limit: 8 }),
 				this.api.proactiveQuarantine(),
 				this.api.proactiveSnapshots(),
+				this.api.proactiveMcpTools(),
+				this.api.proactiveMcpRemoteTools(),
+				this.api.proactiveMcpCalls(5),
 			]);
 			this._lastError = null;
 			this._renderStats(vitals);
@@ -87,6 +93,7 @@ class ProactiveVitalsPanel {
 			this._renderQuarantine(quarantine?.keys || {});
 			this._renderSnapshots(snapshots?.snapshots || []);
 			this._renderCandidates(this._candidates);
+			this._renderMcp(mcpTools?.tools || [], mcpRemote?.remote_tools || [], mcpCalls?.entries || []);
 			if (this._lastUpd) {
 				const t = new Date();
 				this._lastUpd.textContent = t.toLocaleTimeString();
@@ -95,6 +102,51 @@ class ProactiveVitalsPanel {
 			this._lastError = err;
 			this._renderError(err);
 		}
+	}
+
+	async _refreshMcp() {
+		// Manual force-refresh of the MCP panel (button under the subhead).
+		if (this._mcpRefreshBtn) this._mcpRefreshBtn.disabled = true;
+		try {
+			await this.refresh();
+		} finally {
+			if (this._mcpRefreshBtn) this._mcpRefreshBtn.disabled = false;
+		}
+	}
+
+	_renderMcp(tools, remote, calls) {
+		if (!this._mcpEl) return;
+		if (!tools.length && !remote.length && !calls.length) {
+			this._mcpEl.innerHTML = '<div class="nw-vitals-empty">No MCP activity yet.</div>';
+			return;
+		}
+		const localTools = tools.filter((t) => !t?.annotations?.remote);
+		const remoteTools = tools.filter((t) => t?.annotations?.remote);
+		const callRows = calls.slice(0, 5).map((c) => {
+			const ok       = c?.response?.ok;
+			const status   = ok ? 'ok' : (c?.response?.error || 'error');
+			const cls      = ok ? 'good' : (status === 'alignment_veto' || status === 'unknown_capability' ? 'bad' : 'warn');
+			return `
+				<div class="nw-vitals-mcp-call">
+					<span class="nw-vitals-mcp-call-tool">${this._escape(c.tool || '')}</span>
+					<span class="nw-vitals-mcp-call-status nw-vitals-verdict-${cls}">${this._escape(status)}</span>
+				</div>`;
+		}).join('');
+		this._mcpEl.innerHTML = `
+			<div class="nw-vitals-mcp-row">
+				<span class="nw-vitals-mcp-label">Local tools</span>
+				<span class="nw-vitals-mcp-count">${localTools.length}</span>
+				<span class="nw-vitals-mcp-detail">${localTools.map((t) => this._escape(t.name)).join(', ') || '—'}</span>
+			</div>
+			<div class="nw-vitals-mcp-row">
+				<span class="nw-vitals-mcp-label">Remote tools</span>
+				<span class="nw-vitals-mcp-count">${remote.length}</span>
+				<span class="nw-vitals-mcp-detail">${remote.map((r) => `${this._escape(r.name)} <i>← ${this._escape(r.server)}</i>`).join(', ') || '—'}</span>
+			</div>
+			<div class="nw-vitals-mcp-row nw-vitals-mcp-calls">
+				<span class="nw-vitals-mcp-label">Recent calls</span>
+				<span class="nw-vitals-mcp-detail">${callRows || '<em>none</em>'}</span>
+			</div>`;
 	}
 
 	async _propose() {

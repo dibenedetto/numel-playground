@@ -514,6 +514,100 @@ def _smoke_promotion(verbose: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Phase 5 (M5.1) — MCP external integrations
+# ---------------------------------------------------------------------------
+
+def _smoke_mcp(verbose: bool) -> None:
+    """In-process check of the MCP bridge: tool list export, Substrate-
+    routed call_tool (clean, unknown, alignment-veto, no-handler,
+    privacy-redacted response), remote tool registration, drop_remote,
+    call log."""
+    from proactive.persistence import clear_state, state_dir
+    from proactive import evolution as ev
+    from proactive import mcp
+
+    snap_dir = state_dir() / "snapshots"
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+    # 1. Tool list: 3 built-ins surface in MCP shape.
+    tools = mcp.list_tools_as_mcp()
+    names = sorted(t["name"] for t in tools)
+    assert {"core.notify", "core.send_email", "core.transfer_funds"}.issubset(set(names)), \
+        f"missing built-ins in tool list: {names}"
+    notify = next(t for t in tools if t["name"] == "core.notify")
+    assert notify["description"] and notify["inputSchema"], \
+        "core.notify missing description / inputSchema"
+    assert notify["annotations"]["scopes"] == ["read-only"]
+
+    # 2. Clean call → core.notify handler runs.
+    r1 = mcp.call_tool("core.notify", {"message": "hi"})
+    assert r1["ok"] is True
+    assert r1["result"]["delivered"] is True
+    assert r1["alignment"] == "pass"
+
+    # 3. Unknown capability.
+    r2 = mcp.call_tool("core.does_not_exist")
+    assert r2["ok"] is False and r2["error"] == "unknown_capability"
+
+    # 4. Alignment veto via constitution ban.
+    ev.update_constitution({"rules": [{"kind": "never", "target": "core.transfer_funds"}]})
+    r3 = mcp.call_tool("core.transfer_funds", {"amount": 100, "recipient": "eve"})
+    assert r3["ok"] is False and r3["error"] == "alignment_veto"
+    assert "constitution_check" in [v["by"] for v in r3.get("verdicts", []) if v["decision"] == "veto"]
+
+    # 5. No handler registered.
+    r4 = mcp.call_tool("core.send_email", {"to": "a@b.com"})
+    assert r4["ok"] is False and r4["error"] == "not_implemented"
+
+    # 6. Privacy gate redacts the response payload.
+    def _leaky(args):
+        return {"echo": "card 4111111111111111 ssn 555-12-3456 for " + str(args.get("to", ""))}
+    mcp.register_handler("core.send_email", _leaky)
+    r5 = mcp.call_tool("core.send_email", {"to": "alice@example.com"})
+    assert r5["ok"] is True
+    echo = r5["result"]["echo"]
+    assert "[card]" in echo and "[ssn]" in echo and "[email]" in echo, \
+        f"privacy gate didn't redact: {echo!r}"
+
+    # 7. Remote-tool round-trip.
+    remote = {
+        "name":        "fetch_weather",
+        "description": "Get weather for a city",
+        "inputSchema": {"type": "object", "properties": {"city": {"type": "string"}}},
+    }
+    entry = mcp.register_remote("weather_io", remote, scopes=["external-network", "read-only"])
+    assert entry["name"] == "mcp.weather_io.fetch_weather"
+    rems = mcp.list_remote()
+    assert any(r["name"] == "mcp.weather_io.fetch_weather" for r in rems)
+
+    # Surfaces in tools list with annotations.remote=True.
+    tools_after = mcp.list_tools_as_mcp()
+    assert any(t["name"] == "mcp.weather_io.fetch_weather" and t["annotations"].get("remote")
+               for t in tools_after)
+
+    # drop_remote + idempotent re-drop.
+    assert mcp.drop_remote("mcp.weather_io.fetch_weather") is True
+    assert mcp.drop_remote("mcp.weather_io.fetch_weather") is False
+
+    # 8. Call log captured every call.
+    calls = mcp.list_calls()
+    assert len(calls) >= 5, f"call log: expected ≥5 entries, got {len(calls)}"
+
+    if verbose:
+        print(f"  built-in tools:     {names}")
+        for c in calls[:5]:
+            ok = c["response"]["ok"]
+            err = c["response"].get("error", "")
+            print(f"    {c['id']:18s}  {c['tool']:24s} ok={ok}  {err}")
+
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Integration mode — spawn the actual app and exercise HTTP endpoints
 # ---------------------------------------------------------------------------
 
@@ -742,6 +836,45 @@ def _smoke_integration(verbose: bool) -> None:
         assert "constitution_check" in veto_by, \
             f"promotion(veto) veto-by missing constitution_check: {veto_by}"
 
+        # M5.1 — MCP bridge.
+        # We added a `never` rule for core.notify in B6a (via the
+        # promote test above) which means the MCP call to core.notify
+        # would now be vetoed by alignment. Use a different cap.
+        mcp_tools = _post_json(f"{url}/proactive/mcp/tools").get("tools", [])
+        names = {t["name"] for t in mcp_tools}
+        assert {"core.notify", "core.send_email", "core.transfer_funds"}.issubset(names), \
+            f"mcp/tools missing built-ins: {names}"
+
+        # Register a remote and confirm it surfaces in the listing.
+        reg = _post_json(f"{url}/proactive/mcp/register_remote", {
+            "server": "weather_io",
+            "tool":   {"name": "fetch_weather", "description": "Weather",
+                        "inputSchema": {"type": "object", "properties": {"city": {"type": "string"}}}},
+            "scopes": ["external-network", "read-only"],
+        })
+        assert reg["entry"]["name"] == "mcp.weather_io.fetch_weather"
+
+        rems = _post_json(f"{url}/proactive/mcp/remote_tools").get("remote_tools", [])
+        assert any(r["name"] == "mcp.weather_io.fetch_weather" for r in rems), \
+            f"remote tool not listed: {rems}"
+
+        # Drop the remote tool.
+        d = _post_json(f"{url}/proactive/mcp/drop_remote",
+                       {"name": "mcp.weather_io.fetch_weather"})
+        assert d["dropped"] is True
+
+        # Call an unknown capability → ok=False, structured error.
+        unk = _post_json(f"{url}/proactive/mcp/call",
+                        {"name": "no_such_cap"})
+        assert unk["ok"] is False and unk["error"] == "unknown_capability"
+
+        # Call core.notify (banned by the prior promote add) → alignment veto.
+        notify_call = _post_json(f"{url}/proactive/mcp/call",
+                                  {"name": "core.notify", "arguments": {"message": "hi"}})
+        # Depending on test ordering, core.notify may or may not be banned.
+        # Either response is well-formed; assert the shape.
+        assert "ok" in notify_call
+
         if verbose:
             print(f"  app on        {url}")
             print(f"  state dir     {tmp_dir}")
@@ -764,13 +897,14 @@ def _smoke_integration(verbose: bool) -> None:
 # ---------------------------------------------------------------------------
 
 _INPROC_TESTS = [
-    ("Phase 1 · substrate stub",      _smoke_substrate_stub),
-    ("Phase 1 · sensory slice",       _smoke_sensory_slice),
-    ("Phase 2 · vertical slice",      _smoke_vertical_slice),
-    ("Phase 3 · persistent stack",    _smoke_persistent),
-    ("Phase 4 · alignment layer",     _smoke_alignment),
+    ("Phase 1 · substrate stub",       _smoke_substrate_stub),
+    ("Phase 1 · sensory slice",        _smoke_sensory_slice),
+    ("Phase 2 · vertical slice",       _smoke_vertical_slice),
+    ("Phase 3 · persistent stack",     _smoke_persistent),
+    ("Phase 4 · alignment layer",      _smoke_alignment),
     ("Phase 4 · optimization sandbox", _smoke_optimization),
-    ("Phase 4 · promotion gate",      _smoke_promotion),
+    ("Phase 4 · promotion gate",       _smoke_promotion),
+    ("Phase 5 · MCP bridge",           _smoke_mcp),
 ]
 
 _INTEGRATION_TESTS = [

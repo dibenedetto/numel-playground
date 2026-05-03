@@ -216,5 +216,33 @@ This commit closes **Phase 4 — Evolution**. Candidates produced by Self-Reflec
 |---|---|---|
 | M4.1 Alignment            | `f835469` | `app/proactive/evolution.py` (signals + constitution + validator chain), 6 endpoints, Vitals thumbs UI |
 | M4.2 Optimization sandbox | `6e9b3d8` | `app/proactive/optimization.py` (sandbox + 3 strategies + simulator), 2 endpoints, Vitals candidate list |
-| M4.3 Promotion gate       | this commit | `app/proactive/promotion.py` (chained simulate→align→apply), 1 endpoint, Vitals Promote button |
+| M4.3 Promotion gate       | `ab8a16a` | `app/proactive/promotion.py` (chained simulate→align→apply), 1 endpoint, Vitals Promote button |
+
+### Proactive System — Phase 5 (M5.1: MCP bridge — external integrations)
+
+- `app/proactive/mcp.py` — **created.** Bidirectional bridge between Numel's Capability Registry and the Model Context Protocol tool shape. Numel acts as both server (exposing built-in capabilities) and client (registering peers' tools as namespaced capabilities).
+  - **Server side:**
+    - `list_tools_as_mcp()` returns the local Capability Registry in MCP `{name, description, inputSchema, annotations}` shape. Annotations carry our scopes / latency_tier / cost_estimate / remote flags so MCP consumers can see the safety classification.
+    - `register_handler(name, fn)` wires a Python callable to a capability; `core.notify` ships with a built-in handler that returns `{delivered: True, message}` (real implementations would surface a UI toast).
+    - `call_tool(name, arguments)` runs the **full Substrate gate** in order: Adversarial filter on incoming `arguments` → Alignment chain (`evolution.run_alignment`) → handler dispatch → Privacy gate on the handler's response. Any veto short-circuits with the per-validator trail; missing handler returns a structured `not_implemented` instead of raising. Five terminal states: `ok=True` (with redacted result), `unknown_capability`, `alignment_veto`, `not_implemented`, `handler_error`.
+    - Every call writes a full request/response/verdict trace to `mcp_calls.jsonl` so operators can audit what flowed through. `list_calls(limit=50)` returns the most-recent traces.
+  - **Client side:**
+    - `register_remote(server, tool_descriptor, *, scopes=None)` adds a peer's MCP tool to the local Capability Registry under `mcp.<server>.<tool.name>`, defaulting to `["external-network"]` scopes. The original descriptor + annotations are preserved on the entry under `remote_descriptor`.
+    - `list_remote()` mirrors the imported tools from the index file.
+    - `drop_remote(name)` removes from both the registry and the index. Idempotent.
+  - Lazy-seeds the same three built-in capabilities (`core.notify` / `core.send_email` / `core.transfer_funds`) the persistent workflow seeds, plus an `input_schema` JSON Schema field on each so MCP consumers get a typed tool descriptor.
+- `app/api.py` — **six new POST endpoints**: `/proactive/mcp/tools`, `/proactive/mcp/call`, `/proactive/mcp/register_remote`, `/proactive/mcp/remote_tools`, `/proactive/mcp/drop_remote`, `/proactive/mcp/calls`. All follow the existing project-wide POST convention.
+- `web/numel-api.js` — added `proactiveMcpTools`, `proactiveMcpCall`, `proactiveMcpRegisterRemote`, `proactiveMcpRemoteTools`, `proactiveMcpDropRemote`, `proactiveMcpCalls` helpers.
+- `web/index.html` + `web/numel-proactive-vitals.js` + `web/numel-workflow.css` — new **External integrations (MCP)** subsection in the Vitals panel, between Snapshots and Quarantine. Three-row summary: local tools (count + comma-sep names), remote tools (count + `name ← server`), and the 5 most recent MCP-call traces with status colour-coded by ok/error class. Auto-refreshes alongside the rest of the panel; **Refresh** button forces an immediate fetch.
+- `tools/smoke_proactive.py` — added an in-process **Phase 5 · MCP bridge** check verifying all five `call_tool` decision paths (clean / unknown / alignment veto / not_implemented / privacy-redacted response with `[card]/[ssn]/[email]` substitutions in the handler output), the remote-tool round-trip (register → list → drop → re-drop returns False), and the call log captures every attempt. Extended the integration check with three MCP HTTP calls (tools list, register-remote, drop-remote, unknown-cap call). Full run is now **9 / 9** (8 in-process + 1 integration subprocess).
+
+This commit closes M5.1 — Numel can now be discovered as an MCP server (with safety classification surfaced via annotations) and can extend its Capability Registry with imported peer tools (under a clean namespace, gated by the same Substrate). M5.2 (A2A federation) and M5.3 (generic transports for OpenAI/Claude API) still pending.
+
+### Phase 5 status
+
+| Milestone | Commit | Surface |
+|---|---|---|
+| M5.1 MCP bridge   | this commit | `app/proactive/mcp.py` (server + client side), 6 endpoints, Vitals MCP subsection |
+| M5.2 A2A federation | _pending_ | Trust tiers, inbound through Adversarial filter, outbound through Privacy gate |
+| M5.3 Generic transports | _pending_ | OpenAI-compatible / Claude API bridges |
 

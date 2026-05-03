@@ -3247,6 +3247,78 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 			raise HTTPException(status_code=400, detail=str(exc))
 
 
+	# === Proactive External Integrations (Phase 5 M5.1 — MCP) ===
+
+	@app.post("/proactive/mcp/tools")
+	async def proactive_mcp_tools(body: Optional[Dict[str, Any]] = None):
+		"""Return the local Capability Registry in MCP tool-descriptor
+		shape so an MCP client can fetch what Numel exposes."""
+		from proactive.mcp import list_tools_as_mcp
+		return {"tools": list_tools_as_mcp()}
+
+
+	@app.post("/proactive/mcp/call")
+	async def proactive_mcp_call(body: Optional[Dict[str, Any]] = None):
+		"""Invoke a registered capability through the Substrate gates
+		(Adversarial filter on args -> Alignment chain -> handler ->
+		Privacy gate on response). Body: {name, arguments?: {...}}."""
+		from proactive.mcp import call_tool
+		body = body or {}
+		name = str(body.get("name") or "").strip()
+		if not name:
+			raise HTTPException(status_code=400, detail="missing 'name'")
+		args = body.get("arguments") if isinstance(body.get("arguments"), dict) else {}
+		return call_tool(name, args)
+
+
+	@app.post("/proactive/mcp/register_remote")
+	async def proactive_mcp_register_remote(body: Optional[Dict[str, Any]] = None):
+		"""Register a peer's MCP tool descriptor as a local capability,
+		namespaced as `mcp.<server>.<tool.name>`. Body: {server, tool,
+		scopes?: [str]}."""
+		from proactive.mcp import register_remote
+		body = body or {}
+		server = str(body.get("server") or "").strip()
+		tool   = body.get("tool")
+		scopes = body.get("scopes")
+		if not server or not isinstance(tool, dict):
+			raise HTTPException(status_code=400, detail="missing 'server' or 'tool'")
+		try:
+			entry = register_remote(server, tool, scopes=scopes if isinstance(scopes, list) else None)
+		except ValueError as exc:
+			raise HTTPException(status_code=400, detail=str(exc))
+		return {"entry": entry}
+
+
+	@app.post("/proactive/mcp/remote_tools")
+	async def proactive_mcp_remote_tools(body: Optional[Dict[str, Any]] = None):
+		from proactive.mcp import list_remote
+		return {"remote_tools": list_remote()}
+
+
+	@app.post("/proactive/mcp/drop_remote")
+	async def proactive_mcp_drop_remote(body: Optional[Dict[str, Any]] = None):
+		from proactive.mcp import drop_remote
+		body = body or {}
+		name = str(body.get("name") or "").strip()
+		if not name:
+			raise HTTPException(status_code=400, detail="missing 'name'")
+		return {"name": name, "dropped": drop_remote(name)}
+
+
+	@app.post("/proactive/mcp/calls")
+	async def proactive_mcp_calls(body: Optional[Dict[str, Any]] = None):
+		"""Return the most-recent MCP-call traces (newest first)."""
+		from proactive.mcp import list_calls
+		body  = body or {}
+		try:
+			limit = int(body.get("limit", 25))
+		except (TypeError, ValueError):
+			limit = 25
+		entries = list_calls(limit=limit)
+		return {"entries": entries, "count": len(entries)}
+
+
 	# === Sub-Graph Templates API ===
 
 	_templates_path = str(Path(__file__).parent / "templates.json")

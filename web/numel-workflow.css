@@ -2652,6 +2652,40 @@ body.nw-layout-project-workbench .nw-mono-text {
 .nw-vitals-cand-promo[data-outcome="skipped_unknown_kind"] { color: #f3c982; font-style: normal; }
 .nw-vitals-cand-promo[data-outcome="apply_failed"]         { color: #e58a86; font-style: normal; }
 
+/* M5.1 MCP — external integrations */
+
+.nw-vitals-mcp {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-size: 11px;
+}
+.nw-vitals-mcp-row {
+	display: grid;
+	grid-template-columns: 100px 32px 1fr;
+	gap: 6px;
+	align-items: baseline;
+	padding: 3px 6px;
+	background: var(--sg-bg-quaternary);
+	border-radius: 4px;
+}
+.nw-vitals-mcp-label  { color: var(--sg-text-tertiary); font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; }
+.nw-vitals-mcp-count  { color: var(--sg-text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+.nw-vitals-mcp-detail { color: var(--sg-text-secondary); overflow: hidden; text-overflow: ellipsis; }
+.nw-vitals-mcp-detail i { color: var(--sg-text-tertiary); font-style: normal; }
+.nw-vitals-mcp-calls .nw-vitals-mcp-detail {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+.nw-vitals-mcp-call {
+	display: flex;
+	gap: 6px;
+	align-items: baseline;
+}
+.nw-vitals-mcp-call-tool   { font-family: 'Courier New', monospace; color: var(--sg-text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nw-vitals-mcp-call-status { font-weight: 600; font-size: 10px; }
+
 /* ========================================================================
    EVENT LOG
    ======================================================================== */
