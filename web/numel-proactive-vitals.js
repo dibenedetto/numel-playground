@@ -28,6 +28,8 @@ class ProactiveVitalsPanel {
 		this._candidates   = [];
 		this._mcpEl        = document.getElementById('proactiveVitalsMcp');
 		this._mcpRefreshBtn = document.getElementById('proactiveVitalsMcpRefreshBtn');
+		this._a2aEl        = document.getElementById('proactiveVitalsA2a');
+		this._a2aRefreshBtn = document.getElementById('proactiveVitalsA2aRefreshBtn');
 		this._timer   = null;
 		this._lastError = null;
 
@@ -49,6 +51,7 @@ class ProactiveVitalsPanel {
 		this._snapshotBtn?.addEventListener('click', () => this._takeSnapshot());
 		this._proposeBtn?.addEventListener('click', () => this._propose());
 		this._mcpRefreshBtn?.addEventListener('click', () => this._refreshMcp());
+		this._a2aRefreshBtn?.addEventListener('click', () => this._refreshA2a());
 
 		// React to section collapse/expand to pause polling when hidden.
 		const observer = new MutationObserver(() => this._reschedule());
@@ -78,7 +81,9 @@ class ProactiveVitalsPanel {
 	async refresh() {
 		if (!this._stats) return;
 		try {
-			const [vitals, ledger, quarantine, snapshots, mcpTools, mcpRemote, mcpCalls] = await Promise.all([
+			const [vitals, ledger, quarantine, snapshots,
+			       mcpTools, mcpRemote, mcpCalls,
+			       a2aPeers, a2aInbox, a2aOutbox, a2aShared] = await Promise.all([
 				this.api.proactiveVitals(),
 				this.api.proactiveLedger({ limit: 8 }),
 				this.api.proactiveQuarantine(),
@@ -86,6 +91,10 @@ class ProactiveVitalsPanel {
 				this.api.proactiveMcpTools(),
 				this.api.proactiveMcpRemoteTools(),
 				this.api.proactiveMcpCalls(5),
+				this.api.proactiveA2aPeers(),
+				this.api.proactiveA2aInbox(5),
+				this.api.proactiveA2aOutbox(5),
+				this.api.proactiveA2aShared(5),
 			]);
 			this._lastError = null;
 			this._renderStats(vitals);
@@ -94,6 +103,7 @@ class ProactiveVitalsPanel {
 			this._renderSnapshots(snapshots?.snapshots || []);
 			this._renderCandidates(this._candidates);
 			this._renderMcp(mcpTools?.tools || [], mcpRemote?.remote_tools || [], mcpCalls?.entries || []);
+			this._renderA2a(a2aPeers?.peers || [], a2aInbox?.entries || [], a2aOutbox?.entries || [], a2aShared?.entries || []);
 			if (this._lastUpd) {
 				const t = new Date();
 				this._lastUpd.textContent = t.toLocaleTimeString();
@@ -112,6 +122,62 @@ class ProactiveVitalsPanel {
 		} finally {
 			if (this._mcpRefreshBtn) this._mcpRefreshBtn.disabled = false;
 		}
+	}
+
+	async _refreshA2a() {
+		if (this._a2aRefreshBtn) this._a2aRefreshBtn.disabled = true;
+		try {
+			await this.refresh();
+		} finally {
+			if (this._a2aRefreshBtn) this._a2aRefreshBtn.disabled = false;
+		}
+	}
+
+	_renderA2a(peers, inbox, outbox, shared) {
+		if (!this._a2aEl) return;
+		if (!peers.length && !inbox.length && !outbox.length && !shared.length) {
+			this._a2aEl.innerHTML = '<div class="nw-vitals-empty">No federated activity yet.</div>';
+			return;
+		}
+		const peerRows = peers.map((p) => `<span class="nw-vitals-a2a-peer nw-vitals-a2a-tier-${this._escape(p.tier || '')}">${this._escape(p.peer_id)}<sup>${this._escape(p.tier || '')}</sup></span>`).join(' ');
+		const inboxRows = inbox.slice(0, 3).map((m) => {
+			const cls = m.accepted ? 'good' : (m.reason === 'adversarial' ? 'bad' : 'warn');
+			return `
+				<div class="nw-vitals-mcp-call">
+					<span class="nw-vitals-mcp-call-tool">${this._escape(m.peer_id || '')} · ${this._escape(m.kind || '')}</span>
+					<span class="nw-vitals-mcp-call-status nw-vitals-verdict-${cls}">${this._escape(m.reason || '')}</span>
+				</div>`;
+		}).join('');
+		const sharedRows = shared.slice(0, 3).map((s) => {
+			const ns = (s.namespaces || []).join(', ');
+			const ref = s.refused?.length ? ` · refused: ${s.refused.length}` : '';
+			return `
+				<div class="nw-vitals-mcp-call">
+					<span class="nw-vitals-mcp-call-tool">${this._escape(s.peer_id || '')} <i>(${this._escape(s.tier || '')})</i></span>
+					<span class="nw-vitals-mcp-call-status">${this._escape(ns)}${this._escape(ref)}</span>
+				</div>`;
+		}).join('');
+		this._a2aEl.innerHTML = `
+			<div class="nw-vitals-mcp-row">
+				<span class="nw-vitals-mcp-label">Peers</span>
+				<span class="nw-vitals-mcp-count">${peers.length}</span>
+				<span class="nw-vitals-mcp-detail">${peerRows || '—'}</span>
+			</div>
+			<div class="nw-vitals-mcp-row">
+				<span class="nw-vitals-mcp-label">Inbox</span>
+				<span class="nw-vitals-mcp-count">${inbox.length}</span>
+				<span class="nw-vitals-mcp-detail">${inboxRows || '<em>—</em>'}</span>
+			</div>
+			<div class="nw-vitals-mcp-row">
+				<span class="nw-vitals-mcp-label">Outbox</span>
+				<span class="nw-vitals-mcp-count">${outbox.length}</span>
+				<span class="nw-vitals-mcp-detail">${outbox.slice(0,3).map(m => `<code>${this._escape(m.peer_id || '')} · ${this._escape(m.kind || '')}</code>`).join(' / ') || '<em>—</em>'}</span>
+			</div>
+			<div class="nw-vitals-mcp-row">
+				<span class="nw-vitals-mcp-label">Shared</span>
+				<span class="nw-vitals-mcp-count">${shared.length}</span>
+				<span class="nw-vitals-mcp-detail">${sharedRows || '<em>—</em>'}</span>
+			</div>`;
 	}
 
 	_renderMcp(tools, remote, calls) {

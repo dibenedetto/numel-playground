@@ -247,6 +247,23 @@ class NumelAPI {
 	proactiveMcpDropRemote(name)                   { return this.json('/proactive/mcp/drop_remote', { name }); }
 	proactiveMcpCalls(limit = 25)                  { return this.json('/proactive/mcp/calls', { limit }); }
 
+	// ── Phase 5 (M5.2) A2A federation ────────────────────────────
+
+	proactiveA2aPeers()                                { return this.json('/proactive/a2a/peers'); }
+	proactiveA2aRegisterPeer(peer_id, tier, name=null, contact=null) {
+		const body = { peer_id, tier };
+		if (name)    body.name    = name;
+		if (contact) body.contact = contact;
+		return this.json('/proactive/a2a/peers/register', body);
+	}
+	proactiveA2aDropPeer(peer_id)                      { return this.json('/proactive/a2a/peers/drop', { peer_id }); }
+	proactiveA2aReceive(peer_id, message, kind='message') { return this.json('/proactive/a2a/receive', { peer_id, message, kind }); }
+	proactiveA2aSend(peer_id, message, kind='message')    { return this.json('/proactive/a2a/send',    { peer_id, message, kind }); }
+	proactiveA2aShareState(peer_id, namespaces)        { return this.json('/proactive/a2a/share_state', { peer_id, namespaces }); }
+	proactiveA2aInbox(limit=25)                        { return this.json('/proactive/a2a/inbox',  { limit }); }
+	proactiveA2aOutbox(limit=25)                       { return this.json('/proactive/a2a/outbox', { limit }); }
+	proactiveA2aShared(limit=25)                       { return this.json('/proactive/a2a/shared', { limit }); }
+
 	// ── Console API ──────────────────────────────────────────────
 
 	consoleStart(opts = {})       { return this.json('/console/start', opts); }

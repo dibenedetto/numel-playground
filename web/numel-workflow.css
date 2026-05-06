@@ -2686,6 +2686,33 @@ body.nw-layout-project-workbench .nw-mono-text {
 .nw-vitals-mcp-call-tool   { font-family: 'Courier New', monospace; color: var(--sg-text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nw-vitals-mcp-call-status { font-weight: 600; font-size: 10px; }
 
+/* M5.2 A2A — federation peers + inbox/outbox */
+
+.nw-vitals-a2a {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-size: 11px;
+}
+.nw-vitals-a2a-peer {
+	display: inline-block;
+	padding: 1px 6px;
+	margin-right: 4px;
+	border-radius: 3px;
+	background: var(--sg-bg-tertiary);
+	color: var(--sg-text-primary);
+	font-family: 'Courier New', monospace;
+}
+.nw-vitals-a2a-peer sup {
+	font-size: 9px;
+	color: var(--sg-text-tertiary);
+	margin-left: 4px;
+	font-family: inherit;
+}
+.nw-vitals-a2a-tier-peer       { border-left: 2px solid rgba(140,180, 220, 0.5); }
+.nw-vitals-a2a-tier-partner    { border-left: 2px solid rgba(243,201,130, 0.5); }
+.nw-vitals-a2a-tier-federated  { border-left: 2px solid rgba(160,130,230, 0.5); }
+
 /* ========================================================================
    EVENT LOG
    ======================================================================== */

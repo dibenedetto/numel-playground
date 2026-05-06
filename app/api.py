@@ -3319,6 +3319,114 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		return {"entries": entries, "count": len(entries)}
 
 
+	# === Proactive A2A Federation (Phase 5 M5.2) ===
+
+	@app.post("/proactive/a2a/peers")
+	async def proactive_a2a_peers(body: Optional[Dict[str, Any]] = None):
+		from proactive.a2a import list_peers
+		return {"peers": list_peers()}
+
+
+	@app.post("/proactive/a2a/peers/register")
+	async def proactive_a2a_peers_register(body: Optional[Dict[str, Any]] = None):
+		"""Register or update a peer. Body: {peer_id, tier, name?, contact?}.
+		tier in {peer, partner, federated}."""
+		from proactive.a2a import register_peer
+		body = body or {}
+		peer_id = str(body.get("peer_id") or "").strip()
+		tier    = str(body.get("tier")    or "").strip()
+		if not peer_id:
+			raise HTTPException(status_code=400, detail="missing 'peer_id'")
+		try:
+			entry = register_peer(
+				peer_id,
+				tier=tier,
+				name=body.get("name"),
+				contact=body.get("contact"),
+			)
+		except ValueError as exc:
+			raise HTTPException(status_code=400, detail=str(exc))
+		return {"entry": entry}
+
+
+	@app.post("/proactive/a2a/peers/drop")
+	async def proactive_a2a_peers_drop(body: Optional[Dict[str, Any]] = None):
+		from proactive.a2a import drop_peer
+		body = body or {}
+		peer_id = str(body.get("peer_id") or "").strip()
+		if not peer_id:
+			raise HTTPException(status_code=400, detail="missing 'peer_id'")
+		return {"peer_id": peer_id, "dropped": drop_peer(peer_id)}
+
+
+	@app.post("/proactive/a2a/receive")
+	async def proactive_a2a_receive(body: Optional[Dict[str, Any]] = None):
+		"""Inbound message from a peer. Body: {peer_id, message, kind?}.
+		Adversarial filter applied; quarantined on injection_hits."""
+		from proactive.a2a import receive
+		body = body or {}
+		peer_id = str(body.get("peer_id") or "").strip()
+		if not peer_id:
+			raise HTTPException(status_code=400, detail="missing 'peer_id'")
+		kind = str(body.get("kind") or "message")
+		return receive(peer_id, body.get("message"), kind=kind)
+
+
+	@app.post("/proactive/a2a/send")
+	async def proactive_a2a_send(body: Optional[Dict[str, Any]] = None):
+		"""Outbound message to a peer. Body: {peer_id, message, kind?}."""
+		from proactive.a2a import send
+		body = body or {}
+		peer_id = str(body.get("peer_id") or "").strip()
+		if not peer_id:
+			raise HTTPException(status_code=400, detail="missing 'peer_id'")
+		kind = str(body.get("kind") or "message")
+		return send(peer_id, body.get("message"), kind=kind)
+
+
+	@app.post("/proactive/a2a/share_state")
+	async def proactive_a2a_share_state(body: Optional[Dict[str, Any]] = None):
+		"""Share World Model excerpts with a peer. Body: {peer_id,
+		namespaces: [str]}. Tier-gated; redacted via Privacy gate."""
+		from proactive.a2a import share_state
+		body = body or {}
+		peer_id    = str(body.get("peer_id") or "").strip()
+		namespaces = body.get("namespaces") if isinstance(body.get("namespaces"), list) else []
+		if not peer_id:
+			raise HTTPException(status_code=400, detail="missing 'peer_id'")
+		return share_state(peer_id, namespaces)
+
+
+	@app.post("/proactive/a2a/inbox")
+	async def proactive_a2a_inbox(body: Optional[Dict[str, Any]] = None):
+		from proactive.a2a import list_inbox
+		body  = body or {}
+		try:    limit = int(body.get("limit", 25))
+		except (TypeError, ValueError): limit = 25
+		entries = list_inbox(limit=limit)
+		return {"entries": entries, "count": len(entries)}
+
+
+	@app.post("/proactive/a2a/outbox")
+	async def proactive_a2a_outbox(body: Optional[Dict[str, Any]] = None):
+		from proactive.a2a import list_outbox
+		body  = body or {}
+		try:    limit = int(body.get("limit", 25))
+		except (TypeError, ValueError): limit = 25
+		entries = list_outbox(limit=limit)
+		return {"entries": entries, "count": len(entries)}
+
+
+	@app.post("/proactive/a2a/shared")
+	async def proactive_a2a_shared(body: Optional[Dict[str, Any]] = None):
+		from proactive.a2a import list_shared
+		body  = body or {}
+		try:    limit = int(body.get("limit", 25))
+		except (TypeError, ValueError): limit = 25
+		entries = list_shared(limit=limit)
+		return {"entries": entries, "count": len(entries)}
+
+
 	# === Sub-Graph Templates API ===
 
 	_templates_path = str(Path(__file__).parent / "templates.json")

@@ -242,7 +242,24 @@ This commit closes M5.1 — Numel can now be discovered as an MCP server (with s
 
 | Milestone | Commit | Surface |
 |---|---|---|
-| M5.1 MCP bridge   | this commit | `app/proactive/mcp.py` (server + client side), 6 endpoints, Vitals MCP subsection |
-| M5.2 A2A federation | _pending_ | Trust tiers, inbound through Adversarial filter, outbound through Privacy gate |
+| M5.1 MCP bridge       | `cc2d9fd`   | `app/proactive/mcp.py` (server + client side), 6 endpoints, Vitals MCP subsection |
+| M5.2 A2A federation   | this commit | `app/proactive/a2a.py` (peer registry + trust tiers + share_state), 9 endpoints, Vitals A2A subsection |
 | M5.3 Generic transports | _pending_ | OpenAI-compatible / Claude API bridges |
+
+### Proactive System — Phase 5 (M5.2: A2A federation)
+
+- `app/proactive/a2a.py` — **created.** Federation layer with explicit trust tiers per the conceptual blueprint's Part V Federation:
+  - `peer` — reads shared World-Model excerpts only (anything under `core.public.*` plus the bare `core.public` path).
+  - `partner` — reads + writes shared excerpts under `core.*`.
+  - `federated` — reads any namespace; limited delegation under explicit scopes.
+- **Peer registry** — `register_peer(peer_id, *, tier, name, contact)` validates the tier, persists to `a2a_peers.json`, and timestamps `created_at` / `updated_at`. `list_peers()`, `get_peer()`, `drop_peer()` complete the lifecycle.
+- **Inbound messaging** — `receive(peer_id, message, *, kind)` runs the payload through `middleware.adversarial_gate`. If injection markers are detected, the message is recorded with `accepted=False, reason="adversarial"`, mirroring the §6 operational table's "Untrusted-source actuation → Refused" row. Unknown peers also short-circuit with `reason="unknown_peer"`. Every receive — accepted or refused — appends to `a2a_inbox.jsonl` so the operator can audit what was filtered.
+- **Outbound messaging** — `send(peer_id, message, *, kind)` is a stub for the actual transport (HTTP / SSE / etc. as a future plug-in); it logs to `a2a_outbox.jsonl` and returns `ok=True`. Unknown peer returns `ok=False, reason="unknown_peer"` without logging.
+- **State sharing** — `share_state(peer_id, namespaces)` reads requested World Model namespaces, gates by trust tier (refused namespaces returned in a separate list rather than silently dropped), runs each excerpt through `middleware.privacy_gate`, and logs the redacted excerpts to `a2a_shared.jsonl`. Verified: a partner asking for `core.observations` gets the data with `card 4111…` and `alice@example.com` substituted to `[card]` and `[email]` before leaving the system.
+- `app/api.py` — **nine new POST endpoints** under `/proactive/a2a/*`: `peers` (list), `peers/register`, `peers/drop`, `receive`, `send`, `share_state`, `inbox`, `outbox`, `shared`.
+- `web/numel-api.js` — added nine `proactiveA2a*` helpers.
+- `web/index.html` + `web/numel-proactive-vitals.js` + `web/numel-workflow.css` — new **Federation (A2A)** subsection in the Vitals panel, after MCP. Shows: registered peers (count + colour-coded badges per tier with `peer` / `partner` / `federated` superscripts), inbox (3 most recent with status colour-coded), outbox (3 most recent), shared excerpts (3 most recent, with namespaces + refused count). Auto-refreshes alongside the rest of the panel; manual **Refresh** button.
+- `tools/smoke_proactive.py` — added an in-process **Phase 5 · A2A federation** check covering: peer registration across all three tiers + invalid-tier rejection; inbound clean / adversarial (verifies injection_hits non-empty) / unknown_peer; outbound known + unknown_peer; trust-tier-gated share_state with the Privacy gate redacting `card`/`email` in shared observations; idempotent peer drop; logs accumulated correctly. Extended the integration check with five new HTTP calls (peers/register × 2, peers list, receive clean, receive adversarial, peers/drop). Full run: **10/10** (9 in-process + 1 integration subprocess).
+
+This commit closes M5.2. Numel can now register external systems as peers across three trust tiers, accept inbound messages through the Adversarial filter, send outbound messages, and share World Model excerpts through the Privacy gate — exactly matching Part V of the conceptual blueprint. M5.3 (generic transports for OpenAI/Claude API as Capability Registry tools) still pending.
 
