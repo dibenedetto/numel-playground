@@ -30,6 +30,8 @@ class ProactiveVitalsPanel {
 		this._mcpRefreshBtn = document.getElementById('proactiveVitalsMcpRefreshBtn');
 		this._a2aEl        = document.getElementById('proactiveVitalsA2a');
 		this._a2aRefreshBtn = document.getElementById('proactiveVitalsA2aRefreshBtn');
+		this._transportsEl = document.getElementById('proactiveVitalsTransports');
+		this._transportsRefreshBtn = document.getElementById('proactiveVitalsTransportsRefreshBtn');
 		this._timer   = null;
 		this._lastError = null;
 
@@ -52,6 +54,7 @@ class ProactiveVitalsPanel {
 		this._proposeBtn?.addEventListener('click', () => this._propose());
 		this._mcpRefreshBtn?.addEventListener('click', () => this._refreshMcp());
 		this._a2aRefreshBtn?.addEventListener('click', () => this._refreshA2a());
+		this._transportsRefreshBtn?.addEventListener('click', () => this._refreshTransports());
 
 		// React to section collapse/expand to pause polling when hidden.
 		const observer = new MutationObserver(() => this._reschedule());
@@ -83,7 +86,8 @@ class ProactiveVitalsPanel {
 		try {
 			const [vitals, ledger, quarantine, snapshots,
 			       mcpTools, mcpRemote, mcpCalls,
-			       a2aPeers, a2aInbox, a2aOutbox, a2aShared] = await Promise.all([
+			       a2aPeers, a2aInbox, a2aOutbox, a2aShared,
+			       transports, transportCalls] = await Promise.all([
 				this.api.proactiveVitals(),
 				this.api.proactiveLedger({ limit: 8 }),
 				this.api.proactiveQuarantine(),
@@ -95,6 +99,8 @@ class ProactiveVitalsPanel {
 				this.api.proactiveA2aInbox(5),
 				this.api.proactiveA2aOutbox(5),
 				this.api.proactiveA2aShared(5),
+				this.api.proactiveTransports(),
+				this.api.proactiveTransportsCalls(5),
 			]);
 			this._lastError = null;
 			this._renderStats(vitals);
@@ -104,6 +110,7 @@ class ProactiveVitalsPanel {
 			this._renderCandidates(this._candidates);
 			this._renderMcp(mcpTools?.tools || [], mcpRemote?.remote_tools || [], mcpCalls?.entries || []);
 			this._renderA2a(a2aPeers?.peers || [], a2aInbox?.entries || [], a2aOutbox?.entries || [], a2aShared?.entries || []);
+			this._renderTransports(transports?.transports || [], transportCalls?.entries || []);
 			if (this._lastUpd) {
 				const t = new Date();
 				this._lastUpd.textContent = t.toLocaleTimeString();
@@ -131,6 +138,44 @@ class ProactiveVitalsPanel {
 		} finally {
 			if (this._a2aRefreshBtn) this._a2aRefreshBtn.disabled = false;
 		}
+	}
+
+	async _refreshTransports() {
+		if (this._transportsRefreshBtn) this._transportsRefreshBtn.disabled = true;
+		try {
+			await this.refresh();
+		} finally {
+			if (this._transportsRefreshBtn) this._transportsRefreshBtn.disabled = false;
+		}
+	}
+
+	_renderTransports(transports, calls) {
+		if (!this._transportsEl) return;
+		if (!transports.length && !calls.length) {
+			this._transportsEl.innerHTML = '<div class="nw-vitals-empty">No LLM transports registered.</div>';
+			return;
+		}
+		const tList = transports.map((t) => `<code>${this._escape(t.alias)}</code><sup>${this._escape(t.kind || '')}</sup>`).join(' · ');
+		const callRows = calls.slice(0, 4).map((c) => {
+			const ok  = c?.response?.ok;
+			const err = c?.response?.error || (c?.dry_run ? 'dry-run' : 'ok');
+			const cls = ok ? 'good' : (err === 'alignment_veto' ? 'bad' : 'warn');
+			return `
+				<div class="nw-vitals-mcp-call">
+					<span class="nw-vitals-mcp-call-tool">${this._escape(c.alias || '')}</span>
+					<span class="nw-vitals-mcp-call-status nw-vitals-verdict-${cls}">${this._escape(err)}</span>
+				</div>`;
+		}).join('');
+		this._transportsEl.innerHTML = `
+			<div class="nw-vitals-mcp-row">
+				<span class="nw-vitals-mcp-label">Bridges</span>
+				<span class="nw-vitals-mcp-count">${transports.length}</span>
+				<span class="nw-vitals-mcp-detail">${tList || '—'}</span>
+			</div>
+			<div class="nw-vitals-mcp-row nw-vitals-mcp-calls">
+				<span class="nw-vitals-mcp-label">Recent calls</span>
+				<span class="nw-vitals-mcp-detail">${callRows || '<em>none</em>'}</span>
+			</div>`;
 	}
 
 	_renderA2a(peers, inbox, outbox, shared) {

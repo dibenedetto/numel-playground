@@ -693,6 +693,113 @@ def _smoke_a2a(verbose: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Phase 5 (M5.3) — generic LLM transports
+# ---------------------------------------------------------------------------
+
+def _smoke_transports(verbose: bool) -> None:
+    """In-process check of the LLM transport bridges using dry-run mode
+    (no real HTTP traffic). Verifies registration / dispatch / alignment
+    veto / privacy redaction in the synthetic echo / drop."""
+    from proactive.persistence import clear_state, state_dir, read_json
+    from proactive import evolution as ev
+    from proactive import transports as tr
+
+    snap_dir = state_dir() / "snapshots"
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+    # Register two bridges across both kinds.
+    cfg1 = tr.register_transport(
+        "ollama_llama3", kind="openai",
+        base_url="http://localhost:11434/v1", model="llama3",
+        scopes=["external-network"], extra={"temperature": 0.7},
+    )
+    cfg2 = tr.register_transport(
+        "claude_haiku", kind="anthropic",
+        base_url="https://api.anthropic.com",
+        model="claude-haiku-4-5-20251001",
+        api_key_env="ANTHROPIC_API_KEY",
+        extra={"max_tokens": 512},
+    )
+    assert cfg1["alias"] == "ollama_llama3"
+    assert cfg2["kind"]  == "anthropic"
+
+    # Validation guards.
+    try:
+        tr.register_transport("bad", kind="cohere", base_url="x", model="y")
+        assert False, "invalid kind should raise"
+    except ValueError:
+        pass
+    try:
+        tr.register_transport("with spaces", kind="openai", base_url="x", model="y")
+        assert False, "alias with spaces should raise"
+    except ValueError:
+        pass
+
+    # Capabilities now include both bridges under transport.<kind>.<alias>.
+    caps = read_json("capabilities", default={})
+    bridge_caps = sorted(n for n in caps if n.startswith("transport."))
+    assert bridge_caps == [
+        "transport.anthropic.claude_haiku",
+        "transport.openai.ollama_llama3",
+    ], f"bridge caps mismatch: {bridge_caps}"
+
+    # call_transport (dry run) — clean prompt.
+    r1 = tr.call_transport("ollama_llama3", "What is 2+2?", dry_run=True)
+    assert r1["ok"] is True
+    assert "dry-run from ollama_llama3" in r1["result"]["text"]
+    assert r1["result"]["transport"]["kind"] == "openai"
+
+    # Unknown alias.
+    r2 = tr.call_transport("does_not_exist", "hi", dry_run=True)
+    assert r2["ok"] is False and r2["error"] == "unknown_transport"
+
+    # Alignment veto: ban the cap, then call should refuse.
+    ev.update_constitution({"rules": [{"kind": "never",
+                                        "target": "transport.openai.ollama_llama3"}]})
+    r3 = tr.call_transport("ollama_llama3", "try again", dry_run=True)
+    assert r3["ok"] is False and r3["error"] == "alignment_veto"
+
+    # Undo the ban for the privacy-redaction test.
+    ev.remove_rule(match={"kind": "never",
+                           "target": "transport.openai.ollama_llama3"})
+
+    # Privacy gate: leaky prompt → response (the dry-run echo) should
+    # come back with [card] / [ssn] / [email] redacted.
+    r4 = tr.call_transport("ollama_llama3",
+                            "Card 4111111111111111 ssn 555-12-3456 alice@example.com",
+                            dry_run=True)
+    assert r4["ok"] is True
+    text = r4["result"]["text"]
+    assert "[card]" in text and "[ssn]" in text and "[email]" in text, \
+        f"privacy gate didn't redact dry-run echo: {text!r}"
+
+    # Call log captured every call.
+    calls = tr.list_calls()
+    assert len(calls) >= 4, f"transport call log: expected >=4, got {len(calls)}"
+
+    # Drop bridge + idempotent re-drop.
+    assert tr.drop_transport("ollama_llama3") is True
+    assert tr.drop_transport("ollama_llama3") is False
+
+    # Capability registry should reflect the drop.
+    caps_after = read_json("capabilities", default={})
+    remaining_bridges = sorted(n for n in caps_after if n.startswith("transport."))
+    assert remaining_bridges == ["transport.anthropic.claude_haiku"], \
+        f"bridge cap not dropped: {remaining_bridges}"
+
+    if verbose:
+        print(f"  bridges registered: {[t['alias'] + '/' + t['kind'] for t in tr.list_transports()]}")
+        print(f"  call log rows:      {len(calls)}")
+        print(f"  privacy redaction:  {text!r}")
+
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Integration mode — spawn the actual app and exercise HTTP endpoints
 # ---------------------------------------------------------------------------
 
@@ -988,6 +1095,34 @@ def _smoke_integration(verbose: bool) -> None:
         d = _post_json(f"{url}/proactive/a2a/peers/drop", {"peer_id": "alice.dev"})
         assert d["dropped"] is True
 
+        # M5.3 — Generic LLM transports (dry-run, no real network).
+        treg = _post_json(f"{url}/proactive/transports/register", {
+            "alias":    "smoke_bridge",
+            "kind":     "openai",
+            "base_url": "http://localhost:11434/v1",
+            "model":    "llama3",
+            "scopes":   ["external-network"],
+        })
+        assert treg["transport"]["alias"] == "smoke_bridge"
+
+        tlist = _post_json(f"{url}/proactive/transports").get("transports", [])
+        assert any(t["alias"] == "smoke_bridge" for t in tlist), \
+            f"smoke_bridge missing from transports list: {tlist}"
+
+        # Dry-run call → should succeed and echo the prompt back.
+        tcall = _post_json(f"{url}/proactive/transports/call", {
+            "alias":   "smoke_bridge",
+            "prompt":  "what is 2+2?",
+            "dry_run": True,
+        })
+        assert tcall.get("ok") is True
+        assert "dry-run from smoke_bridge" in (tcall.get("result", {}).get("text") or ""), \
+            f"dry-run echo missing: {tcall}"
+
+        # Drop bridge.
+        td = _post_json(f"{url}/proactive/transports/drop", {"alias": "smoke_bridge"})
+        assert td["dropped"] is True
+
         if verbose:
             print(f"  app on        {url}")
             print(f"  state dir     {tmp_dir}")
@@ -1019,6 +1154,7 @@ _INPROC_TESTS = [
     ("Phase 4 · promotion gate",       _smoke_promotion),
     ("Phase 5 · MCP bridge",           _smoke_mcp),
     ("Phase 5 · A2A federation",       _smoke_a2a),
+    ("Phase 5 · LLM transports",       _smoke_transports),
 ]
 
 _INTEGRATION_TESTS = [

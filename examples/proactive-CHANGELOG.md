@@ -244,7 +244,25 @@ This commit closes M5.1 — Numel can now be discovered as an MCP server (with s
 |---|---|---|
 | M5.1 MCP bridge       | `cc2d9fd`   | `app/proactive/mcp.py` (server + client side), 6 endpoints, Vitals MCP subsection |
 | M5.2 A2A federation   | this commit | `app/proactive/a2a.py` (peer registry + trust tiers + share_state), 9 endpoints, Vitals A2A subsection |
-| M5.3 Generic transports | _pending_ | OpenAI-compatible / Claude API bridges |
+| M5.3 Generic transports | this commit | `app/proactive/transports.py` (OpenAI-compat + Anthropic bridges, dry-run mode), 5 endpoints, Vitals LLM-transports subsection |
+
+### Proactive System — Phase 5 (M5.3: Generic LLM transports — closes Phase 5)
+
+- `app/proactive/transports.py` — **created.** Bridges that let the Substrate present external LLM endpoints as first-class Capability Registry entries. Every call goes through the same gates as native capabilities — Adversarial filter on the prompt, Alignment chain over the candidate, Privacy gate on the response — so an LLM bridge gets the same safety classification and audit trail as `core.notify` or `core.send_email`.
+- Two transport flavours ship built-in:
+  - `openai` — OpenAI-compatible Chat Completions (`POST {base_url}/chat/completions`, Bearer auth). Works with OpenAI proper, Azure OpenAI, vLLM, llama.cpp's `openai_compatible` server, Together, Groq, Ollama in OpenAI-compat mode, etc.
+  - `anthropic` — Anthropic Messages API (`POST {base_url}/v1/messages`, `x-api-key` auth). Works with the official Claude API and any compatible re-host.
+- **Capabilities registered as `transport.<kind>.<alias>`** (e.g. `transport.openai.ollama_llama3`, `transport.anthropic.claude_haiku`) — visible in the Capability Registry the same way native caps are. `register_transport(alias, *, kind, base_url, model, api_key_env=None, scopes=None, extra=None)`. API keys are resolved from the named environment variable at call time — never persisted to disk.
+- `call_transport(alias, prompt, *, dry_run=False)` routes through `mcp.call_tool` so the Adversarial → Alignment → Privacy chain runs uniformly. **`dry_run=True`** short-circuits the HTTP call and returns a synthetic echo response (used by smoke tests and by the UI's "Test" button so operators can verify a bridge is wired correctly without spending tokens).
+- Default scopes are `["external-network", "spends-money"]` — high-stake on both axes, so the Governor routes any actuation through `consent_required` unless the operator explicitly downgrades scopes (e.g. for a self-hosted Ollama bridge: pass `scopes=["external-network"]`).
+- HTTP itself is implemented with `urllib.request` so the module has no extra dependencies and is trivially mockable.
+- Every call attempt — including unknown-alias and HTTP errors — is logged to `transport_calls.jsonl` for audit (mirrors how A2A logs unknown_peer attempts).
+- `app/api.py` — **five new POST endpoints**: `/proactive/transports`, `/proactive/transports/register`, `/proactive/transports/drop`, `/proactive/transports/call` (with `dry_run` param), `/proactive/transports/calls`.
+- `web/numel-api.js` — added five `proactiveTransports*` helpers.
+- `web/index.html` + `web/numel-proactive-vitals.js` — new **LLM transports** subsection in the Vitals panel after A2A. Two-row summary: registered bridges (count + colour-coded `alias<sup>kind</sup>` chips), 4 most recent call traces (alias + status colour-coded). Auto-refreshes alongside the rest of the panel; manual **Refresh** button.
+- `tools/smoke_proactive.py` — added in-process **Phase 5 · LLM transports** check using `dry_run=True` (no real network): registration across both kinds + validation guards (bad kind, alias with spaces); capability registry entry created under `transport.<kind>.<alias>`; clean dry-run call returns the synthetic echo; unknown-alias path; alignment veto when the cap is constitution-banned; **privacy gate redacts `[card]/[ssn]/[email]` in the dry-run echo of a leaky prompt**; call log captures every attempt; idempotent drop. Extended the integration check with three transport HTTP calls (register, list, dry-run call, drop). Full run: **11 / 11** (10 in-process + 1 integration subprocess).
+
+This commit closes **Phase 5 — External integrations**. Numel can now (a) advertise its capabilities via MCP and consume peers' tools (M5.1), (b) federate with other systems through three trust tiers with adversarial-gated inbound and privacy-gated outbound (M5.2), and (c) bridge external LLMs (OpenAI-compatible + Claude) as first-class capabilities subject to the same Substrate gates (M5.3).
 
 ### Proactive System — Phase 5 (M5.2: A2A federation)
 

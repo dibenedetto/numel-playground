@@ -264,6 +264,16 @@ class NumelAPI {
 	proactiveA2aOutbox(limit=25)                       { return this.json('/proactive/a2a/outbox', { limit }); }
 	proactiveA2aShared(limit=25)                       { return this.json('/proactive/a2a/shared', { limit }); }
 
+	// ── Phase 5 (M5.3) Generic transports ────────────────────────
+
+	proactiveTransports()                              { return this.json('/proactive/transports'); }
+	proactiveTransportsRegister(opts)                  { return this.json('/proactive/transports/register', opts); }
+	proactiveTransportsDrop(alias)                     { return this.json('/proactive/transports/drop', { alias }); }
+	proactiveTransportsCall(alias, prompt, dry_run = false) {
+		return this.json('/proactive/transports/call', { alias, prompt, dry_run });
+	}
+	proactiveTransportsCalls(limit = 25)               { return this.json('/proactive/transports/calls', { limit }); }
+
 	// ── Console API ──────────────────────────────────────────────
 
 	consoleStart(opts = {})       { return this.json('/console/start', opts); }

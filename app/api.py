@@ -3427,6 +3427,72 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		return {"entries": entries, "count": len(entries)}
 
 
+	# === Proactive Generic Transports (Phase 5 M5.3) ===
+
+	@app.post("/proactive/transports")
+	async def proactive_transports_list(body: Optional[Dict[str, Any]] = None):
+		from proactive.transports import list_transports
+		return {"transports": list_transports()}
+
+
+	@app.post("/proactive/transports/register")
+	async def proactive_transports_register(body: Optional[Dict[str, Any]] = None):
+		"""Body: {alias, kind, base_url, model, api_key_env?, scopes?, extra?}."""
+		from proactive.transports import register_transport
+		body = body or {}
+		alias = str(body.get("alias") or "").strip()
+		kind  = str(body.get("kind")  or "").strip()
+		base_url = str(body.get("base_url") or "").strip()
+		model    = str(body.get("model")    or "").strip()
+		try:
+			cfg = register_transport(
+				alias,
+				kind        = kind,
+				base_url    = base_url,
+				model       = model,
+				api_key_env = body.get("api_key_env"),
+				scopes      = body.get("scopes") if isinstance(body.get("scopes"), list) else None,
+				extra       = body.get("extra")  if isinstance(body.get("extra"),  dict) else None,
+			)
+		except ValueError as exc:
+			raise HTTPException(status_code=400, detail=str(exc))
+		return {"transport": cfg}
+
+
+	@app.post("/proactive/transports/drop")
+	async def proactive_transports_drop(body: Optional[Dict[str, Any]] = None):
+		from proactive.transports import drop_transport
+		body  = body or {}
+		alias = str(body.get("alias") or "").strip()
+		if not alias:
+			raise HTTPException(status_code=400, detail="missing 'alias'")
+		return {"alias": alias, "dropped": drop_transport(alias)}
+
+
+	@app.post("/proactive/transports/call")
+	async def proactive_transports_call(body: Optional[Dict[str, Any]] = None):
+		"""Invoke a registered transport. Body: {alias, prompt, dry_run?}.
+		dry_run defaults to False; pass True to skip the HTTP call."""
+		from proactive.transports import call_transport
+		body  = body or {}
+		alias = str(body.get("alias") or "").strip()
+		prompt = body.get("prompt")
+		if not alias:
+			raise HTTPException(status_code=400, detail="missing 'alias'")
+		dry_run = bool(body.get("dry_run", False))
+		return call_transport(alias, prompt or "", dry_run=dry_run)
+
+
+	@app.post("/proactive/transports/calls")
+	async def proactive_transports_calls(body: Optional[Dict[str, Any]] = None):
+		from proactive.transports import list_calls
+		body  = body or {}
+		try:    limit = int(body.get("limit", 25))
+		except (TypeError, ValueError): limit = 25
+		entries = list_calls(limit=limit)
+		return {"entries": entries, "count": len(entries)}
+
+
 	# === Sub-Graph Templates API ===
 
 	_templates_path = str(Path(__file__).parent / "templates.json")
