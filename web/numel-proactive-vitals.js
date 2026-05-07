@@ -26,6 +26,12 @@ class ProactiveVitalsPanel {
 		this._candidatesEl = document.getElementById('proactiveVitalsCandidates');
 		this._proposeBtn   = document.getElementById('proactiveVitalsProposeBtn');
 		this._candidates   = [];
+		this._whyModal     = document.getElementById('proactiveWhyChainModal');
+		this._whyTitle     = document.getElementById('proactiveWhyChainTitle');
+		this._whySummary   = document.getElementById('proactiveWhyChainSummary');
+		this._whyBody      = document.getElementById('proactiveWhyChainBody');
+		this._whyClose     = document.getElementById('proactiveWhyChainClose');
+		this._lastLedger   = [];     // cached so the modal can resolve a clicked id
 		this._mcpEl        = document.getElementById('proactiveVitalsMcp');
 		this._mcpRefreshBtn = document.getElementById('proactiveVitalsMcpRefreshBtn');
 		this._a2aEl        = document.getElementById('proactiveVitalsA2a');
@@ -52,6 +58,15 @@ class ProactiveVitalsPanel {
 		});
 		this._snapshotBtn?.addEventListener('click', () => this._takeSnapshot());
 		this._proposeBtn?.addEventListener('click', () => this._propose());
+		// Why-chain modal close handlers (button + backdrop + Escape).
+		this._whyClose?.addEventListener('click', () => this._closeWhyChain());
+		this._whyModal?.querySelector('.nw-vitals-modal-backdrop')
+			?.addEventListener('click', () => this._closeWhyChain());
+		document.addEventListener('keydown', (e) => {
+			if (e.key === 'Escape' && this._whyModal && !this._whyModal.hidden) {
+				this._closeWhyChain();
+			}
+		});
 		this._mcpRefreshBtn?.addEventListener('click', () => this._refreshMcp());
 		this._a2aRefreshBtn?.addEventListener('click', () => this._refreshA2a());
 		this._transportsRefreshBtn?.addEventListener('click', () => this._refreshTransports());
@@ -436,8 +451,44 @@ class ProactiveVitalsPanel {
 				</div>`;
 		}).join('');
 		this._ledger.querySelectorAll('button[data-thumb]').forEach((btn) => {
-			btn.addEventListener('click', () => this._sendThumb(btn));
+			btn.addEventListener('click', (e) => {
+				e.stopPropagation();   // don't open the modal on a thumb click
+				this._sendThumb(btn);
+			});
 		});
+		// Cache for the Why-chain modal lookups + attach row click handler.
+		this._lastLedger = entries;
+		this._ledger.querySelectorAll('.nw-vitals-ledger-row').forEach((row) => {
+			row.addEventListener('click', () => {
+				const id = row.getAttribute('data-entry');
+				if (id) this._openWhyChain(id);
+			});
+		});
+	}
+
+	_openWhyChain(entryId) {
+		if (!this._whyModal || !this._whyBody) return;
+		const entry = (this._lastLedger || []).find((e) => e.id === entryId);
+		if (!entry) return;
+		const verdict = entry.governor_verdict?.decision || '';
+		const topic   = entry.trigger?.topic || '';
+		const ts      = entry.ts ? new Date(entry.ts * 1000).toLocaleString() : '';
+		if (this._whyTitle)   this._whyTitle.textContent = `${entryId} · ${topic}`;
+		if (this._whySummary) {
+			const summaryParts = [];
+			if (verdict) summaryParts.push(`<strong>verdict:</strong> ${this._escape(verdict)}`);
+			if (entry.governor_verdict?.reason) summaryParts.push(`<em>${this._escape(entry.governor_verdict.reason)}</em>`);
+			if (entry.governor_verdict?.confidence != null) summaryParts.push(`conf=${entry.governor_verdict.confidence.toFixed(2)}`);
+			if (entry.motor_status) summaryParts.push(`motor=${this._escape(entry.motor_status)}`);
+			if (ts) summaryParts.push(`<span class="nw-vitals-modal-ts">${this._escape(ts)}</span>`);
+			this._whySummary.innerHTML = summaryParts.join(' · ');
+		}
+		this._whyBody.textContent = JSON.stringify(entry, null, 2);
+		this._whyModal.hidden = false;
+	}
+
+	_closeWhyChain() {
+		if (this._whyModal) this._whyModal.hidden = true;
 	}
 
 	async _sendThumb(btn) {

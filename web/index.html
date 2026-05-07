@@ -373,8 +373,21 @@
 					<button id="proactiveVitalsRefreshBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button" title="Refresh now">Refresh</button>
 				</div>
 				<div id="proactiveVitalsStats" class="nw-vitals-stats"></div>
-				<div class="nw-vitals-subhead">Recent ledger entries</div>
+				<div class="nw-vitals-subhead">Recent ledger entries <span class="nw-vitals-hint">(click a row for the full Why-chain)</span></div>
 				<div id="proactiveVitalsLedger" class="nw-vitals-ledger"></div>
+
+				<!-- M2 (Vitals polish) — Why-chain detail modal, hidden until a row is clicked -->
+				<div id="proactiveWhyChainModal" class="nw-vitals-modal" hidden>
+					<div class="nw-vitals-modal-backdrop"></div>
+					<div class="nw-vitals-modal-panel" role="dialog" aria-labelledby="proactiveWhyChainTitle">
+						<div class="nw-vitals-modal-head">
+							<span id="proactiveWhyChainTitle" class="nw-vitals-modal-title">Ledger entry</span>
+							<button id="proactiveWhyChainClose" class="nw-btn-icon" type="button" title="Close">&times;</button>
+						</div>
+						<div class="nw-vitals-modal-summary" id="proactiveWhyChainSummary"></div>
+						<pre id="proactiveWhyChainBody" class="nw-vitals-modal-body"></pre>
+					</div>
+				</div>
 
 				<!-- M4.2 Optimization candidates -->
 				<div class="nw-vitals-subhead">

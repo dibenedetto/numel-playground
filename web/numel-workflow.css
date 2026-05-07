@@ -2713,6 +2713,86 @@ body.nw-layout-project-workbench .nw-mono-text {
 .nw-vitals-a2a-tier-partner    { border-left: 2px solid rgba(243,201,130, 0.5); }
 .nw-vitals-a2a-tier-federated  { border-left: 2px solid rgba(160,130,230, 0.5); }
 
+/* Why-chain detail modal (Vitals polish) */
+
+.nw-vitals-hint {
+	color: var(--sg-text-tertiary);
+	font-size: 9px;
+	font-weight: 400;
+	letter-spacing: 0;
+	text-transform: none;
+	margin-left: 4px;
+}
+.nw-vitals-ledger-row {
+	cursor: pointer;
+	transition: background 120ms ease;
+}
+.nw-vitals-ledger-row:hover {
+	background: color-mix(in srgb, var(--sg-bg-quaternary) 70%, white 8%);
+}
+.nw-vitals-modal {
+	position: fixed;
+	inset: 0;
+	z-index: 9000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+.nw-vitals-modal[hidden] { display: none; }
+.nw-vitals-modal-backdrop {
+	position: absolute;
+	inset: 0;
+	background: rgba(0, 0, 0, 0.45);
+}
+.nw-vitals-modal-panel {
+	position: relative;
+	background: var(--sg-bg-primary);
+	border: 1px solid var(--nw-border-soft, var(--sg-border-color));
+	border-radius: var(--nw-radius-surface, 12px);
+	width: min(720px, 90vw);
+	max-height: 80vh;
+	display: flex;
+	flex-direction: column;
+	box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+	overflow: hidden;
+}
+.nw-vitals-modal-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 10px 14px;
+	border-bottom: 1px solid var(--nw-border-soft);
+}
+.nw-vitals-modal-title {
+	font-family: 'Courier New', monospace;
+	font-size: 13px;
+	color: var(--sg-text-primary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.nw-vitals-modal-summary {
+	padding: 8px 14px;
+	font-size: 11px;
+	color: var(--sg-text-secondary);
+	border-bottom: 1px solid var(--nw-border-soft);
+}
+.nw-vitals-modal-summary strong { color: var(--sg-text-primary); }
+.nw-vitals-modal-summary .nw-vitals-modal-ts { color: var(--sg-text-tertiary); }
+.nw-vitals-modal-body {
+	flex: 1;
+	min-height: 0;
+	overflow: auto;
+	padding: 12px 14px;
+	margin: 0;
+	font-family: 'Courier New', monospace;
+	font-size: 11px;
+	color: var(--sg-text-primary);
+	background: var(--sg-bg-quaternary);
+	white-space: pre;
+}
+
 /* ========================================================================
    EVENT LOG
    ======================================================================== */
