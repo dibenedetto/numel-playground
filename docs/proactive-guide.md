@@ -4,8 +4,9 @@ A single document that explains the whole Proactive AI Agent Ecology, written fo
 
 - **The left column** is the user guide — plain language, what each piece does for you and how to use it.
 - **The right column** is the technical sidebar — file paths, function names, data shapes, endpoints. Skip it on a first read.
+- **Diagrams are embedded inline** at the section they belong to (big picture in §1, signal flow in §3, Substrate read/write contract in §4, Evolution loop in §6, External integrations in §7, Why-chain anatomy in §8, module deps + HTTP surface in §9). The standalone collection lives at [docs/proactive-architecture.md](proactive-architecture.md).
 
-> Companion documents: the conceptual blueprint at `~/Desktop/proactive.md`, the engineer-facing spec at `~/Desktop/proactive-technical.md`, the visual diagrams at [proactive-architecture.md](proactive-architecture.md), and the change log at [examples/proactive-CHANGELOG.md](../examples/proactive-CHANGELOG.md). This guide is the bridge between them.
+> Companion documents: the conceptual blueprint at `~/Desktop/proactive.md`, the engineer-facing spec at `~/Desktop/proactive-technical.md`, the visual-diagrams collection at [proactive-architecture.md](proactive-architecture.md), and the change log at [examples/proactive-CHANGELOG.md](../examples/proactive-CHANGELOG.md). This guide is the bridge between them.
 
 ---
 
@@ -21,6 +22,70 @@ It is built in four parts:
 4. **External Integrations** — MCP, A2A federation, and pluggable LLM transports. Outside services come in through the same gates as everything else.
 
 You operate it through the **Vitals panel** in the workflow UI. Everything the system did, why it did it, and what it nearly did — all of it is one click away.
+
+The whole picture, in one diagram — boxes that touch the dotted "Storage" plate persist state on disk:
+
+```mermaid
+flowchart TB
+    classDef substrate fill:#1d3557,stroke:#457b9d,color:#f1faee
+    classDef layer     fill:#2a4d3a,stroke:#52b788,color:#ecf8f0
+    classDef evo       fill:#553a78,stroke:#9d7ab9,color:#f4eef9
+    classDef ext       fill:#6b3f2a,stroke:#c97a52,color:#fff1e7
+    classDef store     fill:#262a35,stroke:#586478,color:#c5d0dc
+
+    subgraph PH1["Phase 1 + 3 — Substrate"]
+        direction TB
+        MID["Middleware<br/>Veracity / Privacy / Adversarial"]:::substrate
+        WM["World Model"]:::substrate
+        GH["Goal Hierarchy"]:::substrate
+        CR["Capability Registry"]:::substrate
+        GOV["Governor"]:::substrate
+        VIT["Vitals"]:::substrate
+        QUAR["Quarantine + Snapshots"]:::substrate
+        LED["Ledger (the bus)"]:::substrate
+    end
+
+    subgraph PH2["Phase 2 — Agent layers"]
+        direction LR
+        SEN["Sensory"]:::layer
+        CON["Conscious"]:::layer
+        MOT["Motor"]:::layer
+        SOC["Social"]:::layer
+    end
+
+    subgraph PH4["Phase 4 — Evolution"]
+        direction TB
+        ALIGN["Alignment validators<br/>+ User Constitution"]:::evo
+        OPT["Optimization sandbox<br/>+ strategies + simulator"]:::evo
+        PROMO["Promotion gate"]:::evo
+    end
+
+    subgraph PH5["Phase 5 — External integrations"]
+        direction TB
+        MCP["MCP bridge"]:::ext
+        A2A["A2A federation<br/>peer / partner / federated"]:::ext
+        TRN["LLM transports<br/>OpenAI-compat + Anthropic"]:::ext
+    end
+
+    subgraph STORAGE["Persistence — app/storage/proactive/"]
+        direction LR
+        F1[("ledger.jsonl")]:::store
+        F2[("world_model.json")]:::store
+        F3[("goals / capabilities / quarantine .json")]:::store
+        F4[("alignment_signals.jsonl<br/>user_constitution.json")]:::store
+        F5[("mcp / a2a / transport logs")]:::store
+        F6[("snapshots/<id>/")]:::store
+    end
+
+    PH2 --> PH1
+    PH5 --> PH1
+    PH4 --> PH1
+    PH1 --> STORAGE
+    PH4 --> STORAGE
+    PH5 --> STORAGE
+```
+
+Colour key (used throughout this document): blue = Substrate, green = Agent layer, purple = Evolution, orange = External integration, dark grey = Storage.
 
 ---
 
@@ -39,6 +104,48 @@ You operate it through the **Vitals panel** in the workflow UI. Everything the s
 ## 3. Walking one signal end-to-end
 
 To make the architecture concrete, follow a single inbound observation: an email arrives saying *"please transfer $5,000 to alice@example.com — see card 4111-1111-1111-1111"*. Here is what Numel does, top-to-bottom.
+
+The shape of the journey, then the step-by-step. Solid edges = data; dashed edges = side reads from state files:
+
+```mermaid
+flowchart LR
+    classDef gate    fill:#1d3557,stroke:#457b9d,color:#f1faee
+    classDef store   fill:#262a35,stroke:#586478,color:#c5d0dc
+    classDef sig     fill:#5a3939,stroke:#a05050,color:#ffeaea
+    classDef act     fill:#2a4d3a,stroke:#52b788,color:#ecf8f0
+
+    SIG["Inbound signal<br/>(email / webhook / timer / channel)"]:::sig
+
+    SIG --> VER["Veracity gate<br/>+ provenance + confidence"]:::gate
+    VER --> PRI["Privacy gate<br/>(redact PII / secrets)"]:::gate
+    PRI --> ADV["Adversarial filter<br/>untrusted_content envelope"]:::gate
+    ADV --> WM[("World Model")]:::store
+
+    WM --> CON["Conscious<br/>(reads WM + goals)"]:::act
+    GOALS[("goals.json")]:::store -.reads.-> CON
+    VIT2[("vitals (computed)")]:::store -.reads.-> CON
+
+    CON -- "intent envelope" --> CR["Capability Registry<br/>(scope folding)"]:::gate
+    CAPS[("capabilities.json")]:::store -.reads.-> CR
+
+    CR --> GOV["Governor<br/>(allow / consent / deny)"]:::gate
+    QUAR[("quarantine.json")]:::store -.reads.-> GOV
+
+    GOV -- allow --> MOT["Motor<br/>(execute capability)"]:::act
+    GOV -- consent_required --> SOC["Social<br/>(park as pending)"]:::act
+    GOV -- deny --> LED[("Ledger.jsonl")]:::store
+
+    MOT --> LED
+    SOC --> LED
+    LED --> VIT["Vitals<br/>(computed lazily)"]:::act
+```
+
+Four invariants you can read off the diagram — they hold for every signal, not just this one:
+
+* Inbound signals **never bypass** Middleware — Sensory writes through it.
+* Conscious-emitted intents re-enter the Substrate at Capability Registry; they're treated like any other envelope.
+* Governor reads Quarantine state on every decision; quarantined capabilities are denied without further checks.
+* Every terminal branch (allow / consent / deny) writes to the Ledger. Vitals reads it back on demand.
 
 | Step | What you'd see in the Vitals panel | Where it happens in code |
 |---|---|---|
@@ -63,6 +170,47 @@ That's one signal. Multiply it by every observation — emails, timer ticks, A2A
 ## 4. The Substrate — eight components
 
 The Substrate is Numel's nervous system. Every event passes through it. Below, each component gets a one-paragraph user description and a sidebar with its file, API, and persistence shape.
+
+**Read/write contract** (who reads what, who writes what — useful when something looks wrong on disk):
+
+```mermaid
+flowchart TB
+    classDef store  fill:#262a35,stroke:#586478,color:#c5d0dc
+    classDef gate   fill:#1d3557,stroke:#457b9d,color:#f1faee
+
+    subgraph PER["proactive.persistence (atomic JSON / append-only JSONL)"]
+        WM[("world_model.json")]:::store
+        GOALS[("goals.json")]:::store
+        CAPS[("capabilities.json")]:::store
+        LED[("ledger.jsonl")]:::store
+        QUAR[("quarantine.json")]:::store
+        SIGS[("alignment_signals.jsonl")]:::store
+        CONST[("user_constitution.json")]:::store
+        SNAPS[("snapshots/<id>/")]:::store
+    end
+
+    MID["Middleware<br/>(stateless gates)"]:::gate
+    GOV["Governor<br/>(decision logic)"]:::gate
+    VIT["Vitals<br/>(lazy computation)"]:::gate
+
+    MID -- writes provenance --> LED
+    MID -- writes payload --> WM
+
+    GOV -- reads --> CAPS
+    GOV -- reads --> QUAR
+    GOV -- writes verdict --> LED
+    GOV -- record_failure / record_success --> QUAR
+
+    VIT -- aggregates --> LED
+
+    SNAPS -. take/restore .- WM
+    SNAPS -. take/restore .- GOALS
+    SNAPS -. take/restore .- CAPS
+    SNAPS -. take/restore .- LED
+    SNAPS -. take/restore .- QUAR
+    SNAPS -. take/restore .- SIGS
+    SNAPS -. take/restore .- CONST
+```
 
 ### 4.1 Middleware (Veracity, Privacy, Adversarial)
 
@@ -137,6 +285,37 @@ Numel improves itself by closing this loop:
 your feedback → optimization sandbox → alignment validators → promotion gate → applied (or refused)
 ```
 
+In full — the whole flow runs offline (sandboxed); the only side-effect on production is a Ledger entry:
+
+```mermaid
+flowchart LR
+    classDef evo    fill:#553a78,stroke:#9d7ab9,color:#f4eef9
+    classDef store  fill:#262a35,stroke:#586478,color:#c5d0dc
+    classDef gate   fill:#1d3557,stroke:#457b9d,color:#f1faee
+    classDef out    fill:#2a4d3a,stroke:#52b788,color:#ecf8f0
+    classDef bad    fill:#5a3939,stroke:#a05050,color:#ffeaea
+
+    LED1[("ledger.jsonl")]:::store --> STRAT["Self-Reflective strategies<br/>tighten_governor<br/>prune_quarantine<br/>relax_constitution"]:::evo
+    QUAR1[("quarantine.json")]:::store --> STRAT
+    SIGS[("alignment_signals.jsonl")]:::store --> STRAT
+    CONST1[("user_constitution.json")]:::store --> STRAT
+
+    STRAT --> CAND["Candidate<br/>{kind, target, payload, rationale}"]:::evo
+
+    CAND --> SIM["simulate_candidate()<br/>replay ledger under hypothesis"]:::evo
+    SIM --> GATE["Promotion gate<br/>promote(candidate)"]:::evo
+
+    GATE --> RUNALIGN["run_alignment()<br/>every registered validator"]:::gate
+    RUNALIGN -- pass --> APPLIER["Kind-specific applier<br/>constitution_rule_add<br/>constitution_rule_remove"]:::evo
+    RUNALIGN -- veto --> REFUSED["refused_by_validator"]:::bad
+
+    APPLIER -- writes --> CONST2[("user_constitution.json (v+1)")]:::store
+    APPLIER --> APPLIED["applied / noop / apply_failed"]:::out
+
+    APPLIED --> LED2[("Ledger entry<br/>topic: core.evolution.promotion")]:::store
+    REFUSED --> LED2
+```
+
 | Stage | What you see | What's underneath |
 |---|---|---|
 | **You give feedback.** Thumbs-up means "yes, more of this." Thumbs-down means "no, don't do this kind of thing again." Edits ("I would have answered differently") are also captured. | Click thumbs in any Vitals row, or write a free-form comment in the modal. | `app/proactive/evolution.py` — `record_feedback(kind, target, payload)`. Kinds: `KIND_THUMBS`, `KIND_EDIT`, `KIND_PREFERENCE`. Stored in `feedback.jsonl`. |
@@ -151,7 +330,35 @@ your feedback → optimization sandbox → alignment validators → promotion ga
 
 ## 7. External integrations
 
-The same gate-chain that protects internal actions protects external ones. Three integration surfaces:
+The same gate-chain that protects internal actions protects external ones. Three integration surfaces — all of them route through the Substrate's Adversarial → Alignment → Privacy chain before anything reaches a handler or leaves the box:
+
+```mermaid
+flowchart LR
+    classDef ext    fill:#6b3f2a,stroke:#c97a52,color:#fff1e7
+    classDef gate   fill:#1d3557,stroke:#457b9d,color:#f1faee
+    classDef store  fill:#262a35,stroke:#586478,color:#c5d0dc
+    classDef peer   fill:#1e3a5f,stroke:#5085c0,color:#dbe9ff
+
+    PEER1["External MCP client"]:::peer --> MCP_OUT["MCP bridge<br/>list_tools_as_mcp / call_tool"]:::ext
+    PEER2["External MCP server"]:::peer --> MCP_IN["MCP bridge<br/>register_remote"]:::ext
+    PEER3["Federated peer (peer/partner/federated)"]:::peer --> A2A_IN["A2A bridge<br/>receive / share_state"]:::ext
+    LLM["External LLM<br/>(OpenAI-compat / Anthropic)"]:::peer --> TRN["Transports<br/>register_transport / call_transport"]:::ext
+
+    MCP_OUT --> ADV["Adversarial filter on args"]:::gate
+    A2A_IN  --> ADV
+    TRN     --> ADV
+
+    ADV --> ALIGN["Alignment chain<br/>(every validator)"]:::gate
+    ALIGN --> HANDLER["Handler dispatch<br/>(MCP handler / A2A receive log /<br/>transport HTTP call or dry-run)"]:::ext
+    HANDLER --> PRI["Privacy gate on response"]:::gate
+    PRI --> CALLER["Response back to caller"]:::ext
+
+    MCP_IN --> CAPS[("capabilities.json<br/>mcp.<server>.<tool>")]:::store
+    TRN    --> CAPS2[("capabilities.json<br/>transport.<kind>.<alias>")]:::store
+
+    A2A_IN -. reads .-> WM[("world_model.json")]:::store
+    A2A_IN --> SHARED[("a2a_shared.jsonl<br/>(redacted excerpts)")]:::store
+```
 
 ### 7.1 MCP (Model Context Protocol)
 
@@ -195,12 +402,52 @@ The Vitals panel (right sidebar of the workflow UI when a proactive workflow is 
 |---|---|---|
 | **Approve a pending action.** | The Approve button on a `consent_required` row. | Social layer pulls the request from `consent_requests.json`, marks it approved, emits a Ledger entry; Motor layer, on its next pass, picks it up and invokes the capability. |
 | **Reject a pending action.** | Reject button. | Social layer marks rejected; Motor never sees it; Ledger gets a `consent_rejected` entry. |
-| **Inspect why something happened.** | Click any Ledger row. | Modal opens showing the entry's full Why-chain (candidate → simulation → alignment.verdicts → applied → motor_status → social_consent_request → provenance). |
+| **Inspect why something happened.** | Click any Ledger row. | Modal opens showing the entry's full Why-chain (candidate → simulation → alignment.verdicts → applied → motor_status → social_consent_request → provenance) — see the [Why-chain anatomy](#anatomy-of-a-ledger-entry) below for the full field set. |
 | **Give feedback on an action.** | Thumbs-up or thumbs-down on a Ledger row. | `record_feedback(kind=KIND_THUMBS, target=<entry_id>, payload={"value": ±1})`. Used by Optimization sandbox to propose tightening / relaxing rules. |
 | **Add a constitution rule manually.** | "Add rule" in Constitution section. | Goes through `promote(candidate=..., simulate=True)` like any auto-proposal. |
 | **Roll back a bad evolution.** | Snapshots → Restore. | Restores the full state directory from a tar-zipped snapshot. |
 | **Quarantine cleanup.** | Quarantine subsection → Release / Purge. | `quarantine.release(id)` re-injects to the Ledger; `purge_older_than(days)` deletes expired entries. |
 | **Test an LLM bridge without spending tokens.** | LLM transports → Test on the bridge row. | Calls `call_transport(alias, prompt, dry_run=True)` — synthetic echo, no network. |
+
+### Anatomy of a Ledger entry
+
+<a id="anatomy-of-a-ledger-entry"></a>
+
+Every entry in `ledger.jsonl` is a complete audit record. Different topics carry different field sets, but they all share the spine: `id` · `ts` · `correlation_id` · `trigger.topic` · `provenance[]`. Promotion entries additionally carry the full `simulation` + `alignment.verdicts` + `applied` chain.
+
+```mermaid
+flowchart LR
+    classDef trig   fill:#1d3557,stroke:#457b9d,color:#f1faee
+    classDef field  fill:#262a35,stroke:#586478,color:#c5d0dc
+    classDef extra  fill:#553a78,stroke:#9d7ab9,color:#f4eef9
+
+    LED["Ledger entry"]:::trig
+
+    LED --> id["id (led_N)"]:::field
+    LED --> ts["ts"]:::field
+    LED --> corr["correlation_id"]:::field
+    LED --> trig["trigger.topic"]:::field
+    LED --> prov["provenance[]<br/>{stage, ...} per gate"]:::field
+
+    trig --> T1["core.middleware.input_received"]:::extra
+    trig --> T2["core.sensory.observation"]:::extra
+    trig --> T3["core.motor.action_attempt"]:::extra
+    trig --> T4["core.evolution.promotion"]:::extra
+
+    T3 --> verdict["governor_verdict<br/>{decision, reason, scopes,<br/>confidence, capability}"]:::field
+    T3 --> motor["motor_status<br/>(executed / deferred / no_action)"]:::field
+    T3 --> social["social_consent_request<br/>(if consent_required)"]:::field
+
+    T4 --> cand["candidate"]:::field
+    T4 --> sim["simulation"]:::field
+    T4 --> align["alignment{decision, verdicts[]}"]:::field
+    T4 --> appl["applied{status, ...}"]:::field
+    T4 --> dec["decision (applied/noop/refused/skipped/apply_failed)"]:::field
+
+    LED --> outc["expected_outcome / actual_outcome"]:::field
+```
+
+Click any Ledger row in the **Vitals** sidebar to see one of these entries pretty-printed in full.
 
 ---
 
@@ -253,16 +500,106 @@ The Vitals panel (right sidebar of the workflow UI when a proactive workflow is 
 
 State directory is rooted at `NUMEL_PROACTIVE_DIR` (default `./proactive_state/`).
 
-### 9.3 HTTP endpoints (POST, all of them)
+### 9.3 Module dependency graph
 
-Approximately 40 endpoints; see `docs/proactive-architecture.md` §7 for a milestone-grouped diagram. Highlights:
+`persistence.py` is the only leaf — every other module imports it; nothing else has cycles. Useful when planning where to add functionality without creating cross-cuts:
 
-- Substrate: `/proactive/world`, `/proactive/capabilities`, `/proactive/governor/gate`, `/proactive/ledger/recent`, `/proactive/vitals`
-- Quarantine: `/proactive/quarantine/list`, `/release`, `/purge`
-- Evolution: `/proactive/feedback/record`, `/list`, `/proactive/constitution`, `/proactive/optimization/propose`, `/proactive/promotion/promote`
-- External: `/proactive/mcp/*`, `/proactive/a2a/*`, `/proactive/transports/*`
+```mermaid
+flowchart TB
+    classDef root  fill:#262a35,stroke:#586478,color:#c5d0dc
+    classDef mod   fill:#1d3557,stroke:#457b9d,color:#f1faee
 
-### 9.4 Glossary
+    PER["persistence.py<br/>state_dir / read/write JSON+JSONL"]:::root
+
+    MID["middleware.py<br/>Veracity / Privacy / Adversarial"]:::mod
+    QUAR["quarantine.py<br/>failure tracker + snapshots"]:::mod
+    EV["evolution.py<br/>signals + constitution + validator chain"]:::mod
+    OPT["optimization.py<br/>sandbox + strategies + simulator"]:::mod
+    PROMO["promotion.py<br/>chained simulate→align→apply"]:::mod
+    MCP["mcp.py<br/>tool list/call/remote"]:::mod
+    A2A["a2a.py<br/>peers + trust tiers + share_state"]:::mod
+    TRN["transports.py<br/>OpenAI-compat + Anthropic bridges"]:::mod
+
+    MID --> PER
+    QUAR --> PER
+    EV --> PER
+    OPT --> PER
+    OPT --> EV
+    OPT --> QUAR
+    PROMO --> PER
+    PROMO --> EV
+    PROMO --> OPT
+    MCP --> PER
+    MCP --> MID
+    MCP --> EV
+    A2A --> PER
+    A2A --> MID
+    TRN --> PER
+    TRN --> MCP
+```
+
+### 9.4 HTTP endpoints (POST, all of them)
+
+Approximately 40 endpoints, grouped by milestone. All POST. All gate-routed where relevant:
+
+```mermaid
+flowchart LR
+    classDef hdr   fill:#1d3557,stroke:#457b9d,color:#f1faee,font-weight:bold
+    classDef ep    fill:#262a35,stroke:#586478,color:#c5d0dc
+
+    M3["M3.3 Vitals UI"]:::hdr
+    M3 --> e1["/vitals"]:::ep
+    M3 --> e2["/ledger"]:::ep
+
+    M34["M3.4 Quarantine + Snapshots"]:::hdr
+    M34 --> e3["/quarantine"]:::ep
+    M34 --> e4["/quarantine/release"]:::ep
+    M34 --> e5["/snapshots"]:::ep
+    M34 --> e6["/snapshot/take"]:::ep
+    M34 --> e7["/snapshot/restore"]:::ep
+    M34 --> e8["/snapshot/delete"]:::ep
+
+    M41["M4.1 Alignment"]:::hdr
+    M41 --> e9["/feedback"]:::ep
+    M41 --> e10["/feedback/list"]:::ep
+    M41 --> e11["/constitution"]:::ep
+    M41 --> e12["/constitution/update"]:::ep
+    M41 --> e13["/alignment/validators"]:::ep
+    M41 --> e14["/alignment/check"]:::ep
+
+    M42["M4.2 Optimization"]:::hdr
+    M42 --> e15["/optimization/propose"]:::ep
+    M42 --> e16["/optimization/simulate"]:::ep
+
+    M43["M4.3 Promotion"]:::hdr
+    M43 --> e17["/promotion/promote"]:::ep
+
+    M51["M5.1 MCP"]:::hdr
+    M51 --> e18["/mcp/tools"]:::ep
+    M51 --> e19["/mcp/call"]:::ep
+    M51 --> e20["/mcp/register_remote"]:::ep
+    M51 --> e21["/mcp/remote_tools"]:::ep
+    M51 --> e22["/mcp/drop_remote"]:::ep
+    M51 --> e23["/mcp/calls"]:::ep
+
+    M52["M5.2 A2A"]:::hdr
+    M52 --> e24["/a2a/peers"]:::ep
+    M52 --> e25["/a2a/peers/register"]:::ep
+    M52 --> e26["/a2a/peers/drop"]:::ep
+    M52 --> e27["/a2a/receive"]:::ep
+    M52 --> e28["/a2a/send"]:::ep
+    M52 --> e29["/a2a/share_state"]:::ep
+    M52 --> e30["/a2a/inbox /outbox /shared"]:::ep
+
+    M53["M5.3 Transports"]:::hdr
+    M53 --> e31["/transports"]:::ep
+    M53 --> e32["/transports/register"]:::ep
+    M53 --> e33["/transports/drop"]:::ep
+    M53 --> e34["/transports/call"]:::ep
+    M53 --> e35["/transports/calls"]:::ep
+```
+
+### 9.5 Glossary
 
 | Term | Meaning |
 |---|---|
@@ -277,7 +614,7 @@ Approximately 40 endpoints; see `docs/proactive-architecture.md` §7 for a miles
 | **Verdict** | An alignment-validator result: accept / veto / abstain (+ reason). |
 | **Why-chain** | The full reasoning trace attached to a Ledger entry. |
 
-### 9.5 How this guide relates to the other proactive docs
+### 9.6 How this guide relates to the other proactive docs
 
 - **`~/Desktop/proactive.md`** — *what* the system is and *why* it's shaped this way (conceptual blueprint).
 - **`~/Desktop/proactive-technical.md`** — *exhaustive* engineer-facing spec (every API, every persistence file, every endpoint).
