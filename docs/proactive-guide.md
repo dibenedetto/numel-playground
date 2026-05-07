@@ -330,7 +330,7 @@ flowchart LR
 
 ## 7. External integrations
 
-The same gate-chain that protects internal actions protects external ones. Three integration surfaces — all of them route through the Substrate's Adversarial → Alignment → Privacy chain before anything reaches a handler or leaves the box:
+The same gate-chain that protects internal actions protects external ones. **After the M5.4–M5.6 unification, all five surfaces — local agents (`agent_flow`), remote endpoints (`agent_endpoint_flow`), MCP, LLM transports, and A2A federation — share one invocation primitive: `mcp.call_tool` through the Capability Registry.** Every external-touching action becomes a Capability with declared scopes that the Governor and constitution rules can target by name. The diagram below shows the funnel — every arrow lands in `mcp.call_tool` and runs the same chain:
 
 ```mermaid
 flowchart LR
@@ -360,6 +360,19 @@ flowchart LR
     A2A_IN --> SHARED[("a2a_shared.jsonl<br/>(redacted excerpts)")]:::store
 ```
 
+The five flavours of capability that share the Registry under the unified model:
+
+| Capability name pattern | Source | What it represents | Default scopes |
+|---|---|---|---|
+| `core.<verb>` | built-in | Native handler (notify, send_email, transfer_funds) | per-handler |
+| `mcp.<server>.<tool>` | M5.1 — `register_remote` | A tool advertised by an MCP-aware peer | `["external-network"]` |
+| `transport.<kind>.<alias>` | M5.3 — `register_transport` | An external LLM endpoint (OpenAI / Anthropic) | `["external-network", "spends-money"]` |
+| `agent.<alias>` | M5.4 — `register_agent_handler(kind=local)` | An in-process `agent_flow` invocation | `["llm"]` |
+| `agent.endpoint.<alias>.<mode>` | M5.5 — auto-registered per (node, mode) | A remote `agent_endpoint_flow` call (consult / delegate / notify / handoff) | `["external-network"]` + mode-specific |
+| `a2a.<peer>.send` / `a2a.<peer>.share_state` | M5.6 — auto-registered per peer | A federation interaction with a registered A2A peer | `["external-network", "tier:<tier>"]` |
+
+Constitution rules can target any of these by name (`{kind: never, target: "agent.endpoint.alpha.delegate"}`) so the Governor's policy is declarative across every integration surface.
+
 ### 7.1 MCP (Model Context Protocol)
 
 | What it does for you | How it's built |
@@ -378,6 +391,18 @@ flowchart LR
 |---|---|
 | Lets Numel use external LLMs (OpenAI-compatible, Anthropic) as first-class capabilities. The Conscious layer can route a decision through Claude Sonnet by calling the bridge alias; the response goes back through the same Adversarial → Alignment → handler → Privacy chain that any internal capability does. API keys are loaded from environment variables at call time, never persisted. | `app/proactive/transports.py`. Two flavours: `openai` (Chat Completions, Bearer auth) + `anthropic` (Messages API, x-api-key auth). API: `register_transport(alias, *, kind, base_url, model, api_key_env, scopes, extra)`, `call_transport(alias, prompt, *, dry_run=False)`. Caps registered as `transport.<kind>.<alias>`. Default scopes: `["external-network", "spends-money"]` (high-stake on both axes). HTTP via `urllib.request` (no extra deps). `dry_run=True` returns a synthetic echo. |
 
+### 7.4 Agents — local + remote (M5.4 / M5.5)
+
+| What it does for you | How it's built |
+|---|---|
+| **Local agent_flow nodes** become Capabilities the moment proactive gating is enabled — every LLM turn runs through Adversarial → Alignment → handler → Privacy. A constitution rule banning `agent.<alias>` blocks that agent without touching the workflow JSON. **Remote `agent_endpoint_flow` nodes** register one Capability per (node, mode) so `consult` and `delegate` against the same endpoint carry different scopes — the Governor sees them as different actions. Mode is part of the cap name (`agent.endpoint.<alias>.delegate`) so rules can target it. | `app/proactive/agents.py` is the unification primitive. API: `register_agent_handler(alias, handler, *, kind, scopes, description, input_schema, extra)`, `call_agent(alias, request, *, image, kind, extra_args)`. Three kinds: `KIND_LOCAL` (`agent.<alias>`, default scopes `["llm"]`), `KIND_ENDPOINT` (`agent.endpoint.<alias>`, default scopes `["external-network", "delegates-authority"]`), `KIND_A2A` (`a2a.<peer>.<verb>`, used by M5.6). Async handlers tolerated via coroutine detection. **Opt-in via `NUMEL_PROACTIVE_AGENT_GATING=1`** — when unset, `WFAgentFlow` and `WFAgentEndpointFlow` fall through to the original direct-call path so non-proactive deployments are unchanged. |
+
+### 7.5 A2A federation under the unified model (M5.6)
+
+| What it does for you | How it's built |
+|---|---|
+| **Registering a peer auto-creates two Capabilities** — `a2a.<peer>.send` and `a2a.<peer>.share_state` — with the trust tier carried as a scope (`tier:peer` / `tier:partner` / `tier:federated`). That means a constitution rule like "don't send to anything under `tier:peer` without consent" or "ban `a2a.untrusted_partner.share_state`" works declaratively, no code change. Outbound goes through the gate chain like any other capability; inbound `receive` keeps the existing inline Adversarial filter (a different model — the system is being acted upon, nothing to align over). | `app/proactive/a2a.py` post-M5.6: `register_peer` calls `_ensure_peer_capabilities(peer_id, tier)` which registers both verbs via `proactive.agents.register_agent_handler`. `send` and `share_state` are thin wrappers that dispatch through `proactive.agents.call_agent`; the actual outbox / share work lives in private `_send_handler` / `_share_state_handler` that run after the gate chain clears. `drop_peer` removes the per-peer caps. The per-namespace Privacy gate inside `share_state` stays as audit detail; the chain's outer Privacy gate is defence-in-depth. |
+
 ---
 
 ## 8. Operating Numel — the Vitals panel walk-through
@@ -395,6 +420,7 @@ The Vitals panel (right sidebar of the workflow UI when a proactive workflow is 
 | **MCP** | Connected MCP tools (server + client side). Recent tool calls. | `/proactive/mcp/*` |
 | **Federation (A2A)** | Registered peers. Inbox / outbox / shared excerpts (3 most recent each). | `/proactive/a2a/*` |
 | **LLM transports** | Registered bridges. Recent call traces. **"Test"** button does a `dry_run=True` round-trip. | `/proactive/transports/*` |
+| **Agents (gated)** | Local + remote agent capabilities (gated via `NUMEL_PROACTIVE_AGENT_GATING`). Recent call traces. | `/proactive/agents/*` |
 
 ### Common operations, end-to-end
 
@@ -466,6 +492,7 @@ Click any Ledger row in the **Vitals** sidebar to see one of these entries prett
 | `app/proactive/mcp.py` | MCP server + client |
 | `app/proactive/a2a.py` | A2A federation (3 trust tiers) |
 | `app/proactive/transports.py` | OpenAI + Anthropic LLM bridges |
+| `app/proactive/agents.py` | M5.4 — Capability bridge for local agents, remote endpoints, A2A peers |
 | `app/proactive/persistence.py` | Atomic JSON write, JSONL append (the only leaf module) |
 | `web/numel-proactive-vitals.js` | The Vitals panel |
 | `examples/proactive-substrate-stub.json` | Substrate-only scaffold (no agent layers) |
@@ -497,6 +524,8 @@ Click any Ledger row in the **Vitals** sidebar to see one of these entries prett
 | `a2a_peers.json` | A2A | peer registry |
 | `a2a_inbox.jsonl` / `outbox.jsonl` / `shared.jsonl` | A2A | message logs |
 | `transport_calls.jsonl` | Transports | call audit log |
+| `agent_configs.json` | Agents (M5.4) | bridge configs (alias, kind, scopes, description) |
+| `agent_calls.jsonl` | Agents (M5.4) | call audit log (mirrors `transport_calls.jsonl`) |
 
 State directory is rooted at `NUMEL_PROACTIVE_DIR` (default `./proactive_state/`).
 
@@ -519,6 +548,7 @@ flowchart TB
     MCP["mcp.py<br/>tool list/call/remote"]:::mod
     A2A["a2a.py<br/>peers + trust tiers + share_state"]:::mod
     TRN["transports.py<br/>OpenAI-compat + Anthropic bridges"]:::mod
+    AGT["agents.py<br/>M5.4 unification primitive<br/>(local / endpoint / a2a)"]:::mod
 
     MID --> PER
     QUAR --> PER
@@ -534,13 +564,16 @@ flowchart TB
     MCP --> EV
     A2A --> PER
     A2A --> MID
+    A2A --> AGT
     TRN --> PER
     TRN --> MCP
+    AGT --> PER
+    AGT --> MCP
 ```
 
 ### 9.4 HTTP endpoints (POST, all of them)
 
-Approximately 40 endpoints, grouped by milestone. All POST. All gate-routed where relevant:
+Approximately 44 endpoints, grouped by milestone. All POST. All gate-routed where relevant:
 
 ```mermaid
 flowchart LR
@@ -597,7 +630,15 @@ flowchart LR
     M53 --> e33["/transports/drop"]:::ep
     M53 --> e34["/transports/call"]:::ep
     M53 --> e35["/transports/calls"]:::ep
+
+    M54["M5.4-5.6 Agents (unified)"]:::hdr
+    M54 --> e36["/agents"]:::ep
+    M54 --> e37["/agents/call"]:::ep
+    M54 --> e38["/agents/drop"]:::ep
+    M54 --> e39["/agents/calls"]:::ep
 ```
+
+> M5.4–M5.6 doesn't add new entry points beyond `/agents/*` — the unification is on the *invocation side*. Local `agent_flow` calls, remote `agent_endpoint_flow` calls, and A2A `send` / `share_state` all share `proactive.agents.call_agent`, which dispatches to `mcp.call_tool`. Per-stage details: M5.4 = `agent.<alias>` for local agents, M5.5 = `agent.endpoint.<alias>.<mode>` for remote endpoints with mode-specific scopes, M5.6 = `a2a.<peer>.<verb>` for federation with `tier:<tier>` as a scope. `register_agent_handler` is Python-only (handlers aren't JSON-serialisable); registration happens automatically when a workflow loads (M5.4 / M5.5) or a peer is registered (M5.6).
 
 ### 9.5 Glossary
 

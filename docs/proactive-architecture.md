@@ -250,6 +250,8 @@ flowchart LR
 
 All shared excerpts pass through Privacy gate before leaving the system.
 
+**Post-M5.6** the trust tier is also a **scope** on every per-peer capability (`tier:peer` / `tier:partner` / `tier:federated`), so constitution rules and Governor policy can target a tier declaratively rather than naming peers individually. After M5.4 → M5.5 → M5.6 the diagram above shows one funnel per surface, but at the implementation level every surface dispatches through `proactive.agents.call_agent` → `mcp.call_tool`. There is one outbound primitive, not five.
+
 ---
 
 ## 6. Module dependency graph
@@ -271,6 +273,7 @@ flowchart TB
     MCP["mcp.py<br/>tool list/call/remote"]:::mod
     A2A["a2a.py<br/>peers + trust tiers + share_state"]:::mod
     TRN["transports.py<br/>OpenAI-compat + Anthropic bridges"]:::mod
+    AGT["agents.py<br/>M5.4 unification primitive<br/>(local / endpoint / a2a)"]:::mod
 
     MID --> PER
     QUAR --> PER
@@ -286,8 +289,11 @@ flowchart TB
     MCP --> EV
     A2A --> PER
     A2A --> MID
+    A2A --> AGT
     TRN --> PER
     TRN --> MCP
+    AGT --> PER
+    AGT --> MCP
 ```
 
 `persistence.py` is the only leaf. Everything stacks on top.
@@ -353,7 +359,15 @@ flowchart LR
     M53 --> e33["/transports/drop"]:::ep
     M53 --> e34["/transports/call"]:::ep
     M53 --> e35["/transports/calls"]:::ep
+
+    M54["M5.4-5.6 Agents (unified)"]:::hdr
+    M54 --> e36["/agents"]:::ep
+    M54 --> e37["/agents/call"]:::ep
+    M54 --> e38["/agents/drop"]:::ep
+    M54 --> e39["/agents/calls"]:::ep
 ```
+
+After M5.4 → M5.5 → M5.6, every "outbound action that touches an agent or external system" — local `agent_flow`, remote `agent_endpoint_flow`, MCP, LLM transports, A2A `send` / `share_state` — flows through `proactive.agents.call_agent`, dispatches via `mcp.call_tool`, and runs the same Adversarial → Alignment → handler → Privacy chain. The Capability Registry holds all five flavours: `core.<verb>`, `mcp.<server>.<tool>`, `transport.<kind>.<alias>`, `agent.<alias>`, `agent.endpoint.<alias>.<mode>`, `a2a.<peer>.<verb>`. Constitution rules can target any of them by name.
 
 ---
 
