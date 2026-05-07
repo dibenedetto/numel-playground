@@ -369,13 +369,8 @@ class WFAgentFlow(WFFlowType):
 
 			if self.ref is None:
 				response = {"error": "No agent configured"}
-			elif _proactive_agent_gating_enabled():
-				response = await self._run_via_proactive_gate(context, message, image)
 			else:
-				if image:
-					response = await self.ref(message, image=image)
-				else:
-					response = await self.ref(message)
+				response = await self._run_via_proactive_gate(context, message, image)
 
 			result.outputs["response"] = {
 				"request"  : request,
@@ -418,17 +413,6 @@ class WFAgentFlow(WFFlowType):
 		if isinstance(response, dict) and response.get("ok") is True:
 			return response.get("result")
 		return response
-
-
-def _proactive_agent_gating_enabled() -> bool:
-	"""True when WFAgentFlow / WFAgentEndpointFlow should route through
-	proactive.agents. Lives behind a lazy import so non-proactive
-	deployments don't pay the import cost."""
-	try:
-		from proactive import agents as _agents
-	except Exception:
-		return False
-	return _agents.gating_enabled()
 
 
 def _make_agent_flow_handler(ref: Any) -> Callable[[Dict[str, Any]], Any]:
@@ -493,17 +477,7 @@ class WFAgentEndpointFlow(WFFlowType):
 				"user_id":              context.inputs.get("user_id"),
 			}
 
-			if _proactive_agent_gating_enabled():
-				endpoint_result = await self._run_via_proactive_gate(context, prompt, mode, extra_args)
-			else:
-				endpoint_result = await self.ref(
-					mode                 = mode,
-					prompt               = prompt,
-					session_id           = extra_args["session_id"],
-					source_deployment_id = extra_args["source_deployment_id"],
-					sender_name          = extra_args["sender_name"],
-					user_id              = extra_args["user_id"],
-				)
+			endpoint_result = await self._run_via_proactive_gate(context, prompt, mode, extra_args)
 
 			error_text = str(endpoint_result.get("error") or "").strip() or None
 			status_value = str(endpoint_result.get("status") or ("error" if error_text else "ok"))

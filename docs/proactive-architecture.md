@@ -2,7 +2,7 @@
 
 Eight Mermaid diagrams, each one capturing a different view of the system. Read in order for an end-to-end walkthrough; jump in by section if you already know the surface.
 
-The conceptual blueprint is at `~/Desktop/proactive.md`; the engineer-facing spec is at `~/Desktop/proactive-technical.md`. This document is the picture-book companion.
+The conceptual blueprint is at [proactive.md](proactive.md); the engineer-facing spec is at [proactive-technical.md](proactive-technical.md). This document is the picture-book companion.
 
 ---
 

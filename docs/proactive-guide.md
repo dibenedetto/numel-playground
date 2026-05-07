@@ -6,7 +6,7 @@ A single document that explains the whole Proactive AI Agent Ecology, written fo
 - **The right column** is the technical sidebar — file paths, function names, data shapes, endpoints. Skip it on a first read.
 - **Diagrams are embedded inline** at the section they belong to (big picture in §1, signal flow in §3, Substrate read/write contract in §4, Evolution loop in §6, External integrations in §7, Why-chain anatomy in §8, module deps + HTTP surface in §9). The standalone collection lives at [docs/proactive-architecture.md](proactive-architecture.md).
 
-> Companion documents: the conceptual blueprint at `~/Desktop/proactive.md`, the engineer-facing spec at `~/Desktop/proactive-technical.md`, the visual-diagrams collection at [proactive-architecture.md](proactive-architecture.md), and the change log at [examples/proactive-CHANGELOG.md](../examples/proactive-CHANGELOG.md). This guide is the bridge between them.
+> Companion documents: the conceptual blueprint at [proactive.md](proactive.md), the engineer-facing spec at [proactive-technical.md](proactive-technical.md), the visual-diagrams collection at [proactive-architecture.md](proactive-architecture.md), and the change log at [examples/proactive-CHANGELOG.md](../examples/proactive-CHANGELOG.md). This guide is the bridge between them.
 
 ---
 
@@ -395,7 +395,7 @@ Constitution rules can target any of these by name (`{kind: never, target: "agen
 
 | What it does for you | How it's built |
 |---|---|
-| **Local agent_flow nodes** become Capabilities the moment proactive gating is enabled — every LLM turn runs through Adversarial → Alignment → handler → Privacy. A constitution rule banning `agent.<alias>` blocks that agent without touching the workflow JSON. **Remote `agent_endpoint_flow` nodes** register one Capability per (node, mode) so `consult` and `delegate` against the same endpoint carry different scopes — the Governor sees them as different actions. Mode is part of the cap name (`agent.endpoint.<alias>.delegate`) so rules can target it. | `app/proactive/agents.py` is the unification primitive. API: `register_agent_handler(alias, handler, *, kind, scopes, description, input_schema, extra)`, `call_agent(alias, request, *, image, kind, extra_args)`. Three kinds: `KIND_LOCAL` (`agent.<alias>`, default scopes `["llm"]`), `KIND_ENDPOINT` (`agent.endpoint.<alias>`, default scopes `["external-network", "delegates-authority"]`), `KIND_A2A` (`a2a.<peer>.<verb>`, used by M5.6). Async handlers tolerated via coroutine detection. **Opt-in via `NUMEL_PROACTIVE_AGENT_GATING=1`** — when unset, `WFAgentFlow` and `WFAgentEndpointFlow` fall through to the original direct-call path so non-proactive deployments are unchanged. |
+| **Local agent_flow nodes** become Capabilities — every LLM turn runs through Adversarial → Alignment → handler → Privacy. A constitution rule banning `agent.<alias>` blocks that agent without touching the workflow JSON. **Remote `agent_endpoint_flow` nodes** register one Capability per (node, mode) so `consult` and `delegate` against the same endpoint carry different scopes — the Governor sees them as different actions. Mode is part of the cap name (`agent.endpoint.<alias>.delegate`) so rules can target it. | `app/proactive/agents.py` is the unification primitive. API: `register_agent_handler(alias, handler, *, kind, scopes, description, input_schema, extra)`, `call_agent(alias, request, *, image, kind, extra_args)`. Three kinds: `KIND_LOCAL` (`agent.<alias>`, default scopes `["llm"]`), `KIND_ENDPOINT` (`agent.endpoint.<alias>`, default scopes `["external-network", "delegates-authority"]`), `KIND_A2A` (`a2a.<peer>.<verb>`, used by M5.6). Async handlers tolerated via coroutine detection. `WFAgentFlow` and `WFAgentEndpointFlow` always route through this module — there is no opt-out. |
 
 ### 7.5 A2A federation under the unified model (M5.6)
 
@@ -420,7 +420,7 @@ The Vitals panel (right sidebar of the workflow UI when a proactive workflow is 
 | **MCP** | Connected MCP tools (server + client side). Recent tool calls. | `/proactive/mcp/*` |
 | **Federation (A2A)** | Registered peers. Inbox / outbox / shared excerpts (3 most recent each). | `/proactive/a2a/*` |
 | **LLM transports** | Registered bridges. Recent call traces. **"Test"** button does a `dry_run=True` round-trip. | `/proactive/transports/*` |
-| **Agents (gated)** | Local + remote agent capabilities (gated via `NUMEL_PROACTIVE_AGENT_GATING`). Recent call traces. | `/proactive/agents/*` |
+| **Agents** | Local + remote agent capabilities (always gated). Recent call traces. | `/proactive/agents/*` |
 
 ### Common operations, end-to-end
 
@@ -657,8 +657,8 @@ flowchart LR
 
 ### 9.6 How this guide relates to the other proactive docs
 
-- **`~/Desktop/proactive.md`** — *what* the system is and *why* it's shaped this way (conceptual blueprint).
-- **`~/Desktop/proactive-technical.md`** — *exhaustive* engineer-facing spec (every API, every persistence file, every endpoint).
+- **[docs/proactive.md](proactive.md)** — *what* the system is and *why* it's shaped this way (conceptual blueprint).
+- **[docs/proactive-technical.md](proactive-technical.md)** — *exhaustive* engineer-facing spec (every API, every persistence file, every endpoint).
 - **[docs/proactive-architecture.md](proactive-architecture.md)** — visual: eight Mermaid diagrams.
 - **This document** — *bridge*: user-prose spine + technical sidebars, walks through what you actually see and do.
 - **[examples/proactive-CHANGELOG.md](../examples/proactive-CHANGELOG.md)** — what changed when, since 2026-04-28.

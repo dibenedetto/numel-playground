@@ -951,22 +951,7 @@ def _smoke_agents(verbose: bool) -> None:
     # Drop by full cap_name also works.
     assert ag.drop_agent("agent.async_agent") is True
 
-    # ---- 9. Gating flag is opt-in ----------------------------------------
-
-    saved = os.environ.pop("NUMEL_PROACTIVE_AGENT_GATING", None)
-    try:
-        assert ag.gating_enabled() is False, "gating must default to off"
-        os.environ["NUMEL_PROACTIVE_AGENT_GATING"] = "1"
-        assert ag.gating_enabled() is True, "env var=1 must enable gating"
-        os.environ["NUMEL_PROACTIVE_AGENT_GATING"] = "no"
-        assert ag.gating_enabled() is False, "env var=no must disable gating"
-    finally:
-        if saved is None:
-            os.environ.pop("NUMEL_PROACTIVE_AGENT_GATING", None)
-        else:
-            os.environ["NUMEL_PROACTIVE_AGENT_GATING"] = saved
-
-    # ---- 10. Endpoint kind (M5.5) — mode-specific scopes ----------------
+    # ---- 9. Endpoint kind (M5.5) — mode-specific scopes ----------------
 
     async def _endpoint_ref(*, mode, prompt, session_id=None,
                               source_deployment_id=None, sender_name=None,
@@ -1384,8 +1369,6 @@ def _smoke_integration(verbose: bool) -> None:
         # call / drop / calls. From the subprocess we exercise the shape.
         alist = _post_json(f"{url}/proactive/agents")
         assert "agents" in alist and isinstance(alist["agents"], list)
-        assert "gating_enabled" in alist and alist["gating_enabled"] is False, \
-            f"gating must default off in subprocess: {alist}"
 
         # Calling an unregistered alias surfaces unknown_capability cleanly.
         acall_unknown = _post_json(f"{url}/proactive/agents/call", {

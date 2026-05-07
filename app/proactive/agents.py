@@ -55,10 +55,11 @@ Design notes:
     "delegates-authority"]` for remote endpoints. `mode_scopes` lets
     the M5.5 layer add `delegate` → `["delegates-authority"]`,
     `notify` → `["affects-third-party"]`, etc.
-  - Gating is opt-in via the `NUMEL_PROACTIVE_AGENT_GATING` env var
-    (read at WFAgentFlow / WFAgentEndpointFlow execute time). When
-    disabled, those nodes call their backend `ref` directly — no
-    behaviour change for non-proactive deployments.
+  - WFAgentFlow / WFAgentEndpointFlow always route through the gate
+    chain via this module — there is no opt-out. Workflows that don't
+    set up a proactive state directory still work because mcp.call_tool
+    lazy-seeds capabilities and the gate chain is a no-op when no
+    validators / PII patterns are present.
 """
 
 from __future__ import annotations
@@ -383,22 +384,3 @@ def _summarise(request: Any, limit: int = 500) -> Any:
 def list_calls(limit: int = 50) -> List[Dict[str, Any]]:
     rows = _persistence.read_jsonl(_CALL_LOG)
     return list(reversed(rows))[:max(1, min(500, int(limit)))]
-
-
-# ============================================================================
-# Gating policy — opt-in for WFAgentFlow / WFAgentEndpointFlow
-# ============================================================================
-
-import os
-
-
-def gating_enabled() -> bool:
-    """True when WFAgentFlow / WFAgentEndpointFlow should route their
-    invocations through the Substrate gate chain.
-
-    Opt-in via the `NUMEL_PROACTIVE_AGENT_GATING` env var so existing
-    non-proactive deployments are not silently retrofitted with gating
-    overhead. Set to "1" / "true" / "yes" (case-insensitive) to enable.
-    """
-    value = (os.environ.get("NUMEL_PROACTIVE_AGENT_GATING") or "").strip().lower()
-    return value in {"1", "true", "yes", "on"}

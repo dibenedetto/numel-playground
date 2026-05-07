@@ -3497,8 +3497,8 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 
 	@app.post("/proactive/agents")
 	async def proactive_agents_list(body: Optional[Dict[str, Any]] = None):
-		from proactive.agents import list_agents, gating_enabled
-		return {"agents": list_agents(), "gating_enabled": gating_enabled()}
+		from proactive.agents import list_agents
+		return {"agents": list_agents()}
 
 
 	@app.post("/proactive/agents/drop")
