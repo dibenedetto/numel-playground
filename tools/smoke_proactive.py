@@ -800,6 +800,141 @@ def _smoke_transports(verbose: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Phase 5 (M5.4) — local agent capability bridge
+# ---------------------------------------------------------------------------
+
+def _smoke_agents(verbose: bool) -> None:
+    """In-process check of the agent capability bridge. Verifies the
+    proactive.agents module: registration → cap appears in registry →
+    call routes through mcp.call_tool gate chain → privacy redaction
+    on response → alignment veto path → idempotent drop. Exercises both
+    sync and async handlers."""
+    from proactive.persistence import clear_state, state_dir, read_json
+    from proactive import evolution as ev
+    from proactive import agents as ag
+
+    snap_dir = state_dir() / "snapshots"
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+    # ---- 1. Sync handler registration + dispatch -------------------------
+
+    def _sync_echo(args):
+        return {"ok": True, "echoed": args.get("request", "")}
+
+    cfg = ag.register_agent_handler(
+        "research_assistant", _sync_echo,
+        kind=ag.KIND_LOCAL,
+        description="In-process research agent (test stub)",
+        scopes=["llm", "knowledge:read"],
+    )
+    assert cfg["cap_name"] == "agent.research_assistant"
+    assert "llm" in cfg["scopes"] and "knowledge:read" in cfg["scopes"]
+
+    # Capability is now in the shared registry.
+    caps = read_json("capabilities", default={})
+    assert "agent.research_assistant" in caps, \
+        f"expected agent.research_assistant in caps; got {sorted(caps)}"
+
+    r1 = ag.call_agent("research_assistant", "What is the airspeed of an unladen swallow?")
+    assert r1["ok"] is True, f"clean call failed: {r1}"
+    assert r1["result"]["echoed"].startswith("What is the airspeed"), \
+        f"echo missing/wrong: {r1}"
+
+    # ---- 2. Async handler ------------------------------------------------
+
+    async def _async_echo(args):
+        return {"ok": True, "echoed_async": args.get("request", "")}
+
+    ag.register_agent_handler("async_agent", _async_echo, kind=ag.KIND_LOCAL)
+    r2 = ag.call_agent("async_agent", "ping")
+    assert r2["ok"] is True and r2["result"]["echoed_async"] == "ping", \
+        f"async handler dispatch broken: {r2}"
+
+    # ---- 3. Privacy gate redacts the handler's response ------------------
+
+    def _leaky(args):
+        return {"draft": "Send card 4111111111111111 to alice@example.com"}
+
+    ag.register_agent_handler("leaky_agent", _leaky, kind=ag.KIND_LOCAL)
+    r3 = ag.call_agent("leaky_agent", "draft something")
+    assert r3["ok"] is True
+    redacted = r3["result"]["draft"]
+    assert "[card]" in redacted and "[email]" in redacted, \
+        f"privacy gate didn't redact agent response: {redacted!r}"
+
+    # ---- 4. Alignment veto on a banned cap -------------------------------
+
+    ev.update_constitution({"rules": [{"kind": "never",
+                                        "target": "agent.research_assistant"}]})
+    r4 = ag.call_agent("research_assistant", "try again")
+    assert r4["ok"] is False and r4["error"] == "alignment_veto", \
+        f"alignment veto missing: {r4}"
+    ev.remove_rule(match={"kind": "never",
+                          "target": "agent.research_assistant"})
+
+    # ---- 5. Unknown alias short-circuits ---------------------------------
+
+    r5 = ag.call_agent("nope_does_not_exist", "hi")
+    assert r5["ok"] is False and r5["error"] == "unknown_capability", \
+        f"unknown alias: expected unknown_capability, got {r5}"
+
+    # ---- 6. Validation guards --------------------------------------------
+
+    try:
+        ag.register_agent_handler("with spaces", _sync_echo)
+        assert False, "alias with spaces should raise"
+    except ValueError:
+        pass
+    try:
+        ag.register_agent_handler("ok", _sync_echo, kind="not_a_kind")
+        assert False, "invalid kind should raise"
+    except ValueError:
+        pass
+
+    # ---- 7. Call log captures every call ---------------------------------
+
+    calls = ag.list_calls()
+    assert len(calls) >= 4, f"agent call log: expected >=4, got {len(calls)}"
+
+    # ---- 8. Drop is idempotent + cap leaves the registry -----------------
+
+    assert ag.drop_agent("research_assistant", kind=ag.KIND_LOCAL) is True
+    assert ag.drop_agent("research_assistant", kind=ag.KIND_LOCAL) is False
+    caps_after = read_json("capabilities", default={})
+    assert "agent.research_assistant" not in caps_after, \
+        "cap should be gone from registry after drop"
+
+    # Drop by full cap_name also works.
+    assert ag.drop_agent("agent.async_agent") is True
+
+    # ---- 9. Gating flag is opt-in ----------------------------------------
+
+    saved = os.environ.pop("NUMEL_PROACTIVE_AGENT_GATING", None)
+    try:
+        assert ag.gating_enabled() is False, "gating must default to off"
+        os.environ["NUMEL_PROACTIVE_AGENT_GATING"] = "1"
+        assert ag.gating_enabled() is True, "env var=1 must enable gating"
+        os.environ["NUMEL_PROACTIVE_AGENT_GATING"] = "no"
+        assert ag.gating_enabled() is False, "env var=no must disable gating"
+    finally:
+        if saved is None:
+            os.environ.pop("NUMEL_PROACTIVE_AGENT_GATING", None)
+        else:
+            os.environ["NUMEL_PROACTIVE_AGENT_GATING"] = saved
+
+    if verbose:
+        print(f"  agents registered:  {[a['alias'] for a in ag.list_agents()]}")
+        print(f"  call log rows:      {len(calls)}")
+        print(f"  privacy redaction:  {redacted!r}")
+
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Integration mode — spawn the actual app and exercise HTTP endpoints
 # ---------------------------------------------------------------------------
 
@@ -1123,6 +1258,35 @@ def _smoke_integration(verbose: bool) -> None:
         td = _post_json(f"{url}/proactive/transports/drop", {"alias": "smoke_bridge"})
         assert td["dropped"] is True
 
+        # M5.4 — Agent capability bridge. Handlers are Python callables so
+        # registration is in-process only; the HTTP surface exposes list /
+        # call / drop / calls. From the subprocess we exercise the shape.
+        alist = _post_json(f"{url}/proactive/agents")
+        assert "agents" in alist and isinstance(alist["agents"], list)
+        assert "gating_enabled" in alist and alist["gating_enabled"] is False, \
+            f"gating must default off in subprocess: {alist}"
+
+        # Calling an unregistered alias surfaces unknown_capability cleanly.
+        acall_unknown = _post_json(f"{url}/proactive/agents/call", {
+            "alias":   "no_such_agent",
+            "request": "hi",
+        })
+        assert acall_unknown.get("ok") is False
+        assert acall_unknown.get("error") == "unknown_capability", \
+            f"unknown agent: {acall_unknown}"
+
+        # Calls log endpoint should be readable and (newly) include the
+        # unknown call we just made — but only if call_agent logged it.
+        # Our current implementation only logs after dispatch; an unknown
+        # cap returns early from mcp.call_tool, so the agent log may be
+        # empty or 1. Just verify the shape.
+        acalls = _post_json(f"{url}/proactive/agents/calls", {"limit": 5})
+        assert "entries" in acalls and isinstance(acalls["entries"], list)
+
+        # Idempotent drop on an unregistered alias.
+        adrop = _post_json(f"{url}/proactive/agents/drop", {"alias": "no_such_agent"})
+        assert adrop.get("dropped") is False
+
         if verbose:
             print(f"  app on        {url}")
             print(f"  state dir     {tmp_dir}")
@@ -1155,6 +1319,7 @@ _INPROC_TESTS = [
     ("Phase 5 · MCP bridge",           _smoke_mcp),
     ("Phase 5 · A2A federation",       _smoke_a2a),
     ("Phase 5 · LLM transports",       _smoke_transports),
+    ("Phase 5 · agent capabilities",   _smoke_agents),
 ]
 
 _INTEGRATION_TESTS = [

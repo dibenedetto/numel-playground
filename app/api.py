@@ -3493,6 +3493,55 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		return {"entries": entries, "count": len(entries)}
 
 
+	# === M5.4 — Local agent capability bridge ================================
+
+	@app.post("/proactive/agents")
+	async def proactive_agents_list(body: Optional[Dict[str, Any]] = None):
+		from proactive.agents import list_agents, gating_enabled
+		return {"agents": list_agents(), "gating_enabled": gating_enabled()}
+
+
+	@app.post("/proactive/agents/drop")
+	async def proactive_agents_drop(body: Optional[Dict[str, Any]] = None):
+		"""Body: {alias, kind?}. `kind` defaults to 'local'; pass 'endpoint'
+		or 'a2a' to drop the namespaced cap. Idempotent."""
+		from proactive.agents import drop_agent, KIND_LOCAL
+		body  = body or {}
+		alias = str(body.get("alias") or body.get("cap_name") or "").strip()
+		kind  = str(body.get("kind") or KIND_LOCAL).strip() or KIND_LOCAL
+		if not alias:
+			raise HTTPException(status_code=400, detail="missing 'alias' or 'cap_name'")
+		return {"alias": alias, "dropped": drop_agent(alias, kind=kind)}
+
+
+	@app.post("/proactive/agents/call")
+	async def proactive_agents_call(body: Optional[Dict[str, Any]] = None):
+		"""Invoke a registered agent capability through the gate chain.
+		Body: {alias, request, kind?, image?, extra_args?}."""
+		from proactive.agents import call_agent, KIND_LOCAL
+		body    = body or {}
+		alias   = str(body.get("alias") or "").strip()
+		request = body.get("request")
+		kind    = str(body.get("kind") or KIND_LOCAL).strip() or KIND_LOCAL
+		image   = body.get("image")
+		extra   = body.get("extra_args") if isinstance(body.get("extra_args"), dict) else None
+		if not alias:
+			raise HTTPException(status_code=400, detail="missing 'alias'")
+		if request is None:
+			raise HTTPException(status_code=400, detail="missing 'request'")
+		return call_agent(alias, request, image=image, kind=kind, extra_args=extra)
+
+
+	@app.post("/proactive/agents/calls")
+	async def proactive_agents_calls(body: Optional[Dict[str, Any]] = None):
+		from proactive.agents import list_calls
+		body  = body or {}
+		try:    limit = int(body.get("limit", 25))
+		except (TypeError, ValueError): limit = 25
+		entries = list_calls(limit=limit)
+		return {"entries": entries, "count": len(entries)}
+
+
 	# === Sub-Graph Templates API ===
 
 	_templates_path = str(Path(__file__).parent / "templates.json")

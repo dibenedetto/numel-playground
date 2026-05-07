@@ -351,7 +351,8 @@ class WFAgentFlow(WFFlowType):
 	def __init__(self, config: Dict[str, Any], impl: Any = None, **kwargs):
 		assert "ref" in kwargs, "WFAgentNode requires 'ref' argument"
 		super().__init__(config, impl, **kwargs)
-		self.ref = kwargs["ref"]
+		self.ref               = kwargs["ref"]
+		self._proactive_alias  = None   # populated lazily on first gated call
 
 
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
@@ -364,14 +365,17 @@ class WFAgentFlow(WFFlowType):
 			else:
 				message = str(request)
 
-			if self.ref:
-				image = context.inputs.get("image")
+			image = context.inputs.get("image")
+
+			if self.ref is None:
+				response = {"error": "No agent configured"}
+			elif _proactive_agent_gating_enabled():
+				response = await self._run_via_proactive_gate(context, message, image)
+			else:
 				if image:
 					response = await self.ref(message, image=image)
 				else:
 					response = await self.ref(message)
-			else:
-				response = {"error": "No agent configured"}
 
 			result.outputs["response"] = {
 				"request"  : request,
@@ -383,6 +387,63 @@ class WFAgentFlow(WFFlowType):
 			result.error   = str(e)
 
 		return result
+
+
+	async def _run_via_proactive_gate(self, context: NodeExecutionContext, message: str, image: Optional[str]) -> Any:
+		"""Route an agent_flow invocation through proactive.agents.call_agent
+		so the Substrate Adversarial → Alignment → Privacy chain wraps the
+		LLM call. Auto-registers a per-node Capability on first invocation."""
+		from proactive import agents as _agents
+
+		if self._proactive_alias is None:
+			alias = f"node_{context.node_index}"
+			handler = _make_agent_flow_handler(self.ref)
+			_agents.register_agent_handler(
+				alias,
+				handler,
+				kind        = _agents.KIND_LOCAL,
+				description = f"agent_flow at workflow node {context.node_index}",
+			)
+			self._proactive_alias = alias
+
+		response = _agents.call_agent(
+			self._proactive_alias,
+			message,
+			image = image,
+		)
+		# call_agent returns the mcp.call_tool envelope — surface the
+		# inner result on success so the workflow sees the same shape it
+		# used to. On a gate veto / handler error, surface the envelope
+		# verbatim so the operator can inspect what happened.
+		if isinstance(response, dict) and response.get("ok") is True:
+			return response.get("result")
+		return response
+
+
+def _proactive_agent_gating_enabled() -> bool:
+	"""True when WFAgentFlow / WFAgentEndpointFlow should route through
+	proactive.agents. Lives behind a lazy import so non-proactive
+	deployments don't pay the import cost."""
+	try:
+		from proactive import agents as _agents
+	except Exception:
+		return False
+	return _agents.gating_enabled()
+
+
+def _make_agent_flow_handler(ref: Any) -> Callable[[Dict[str, Any]], Any]:
+	"""Wrap a backend `run_agent` partial into a proactive.agents handler.
+
+	The handler unpacks the args dict (`{request, image?}`) and awaits
+	the underlying ref. Returning the raw coroutine lets _wrap_handler
+	in proactive.agents detect it and run it on a fresh loop."""
+	async def _handler(args: Dict[str, Any]) -> Any:
+		request = args.get("request", "")
+		image   = args.get("image")
+		if image:
+			return await ref(request, image=image)
+		return await ref(request)
+	return _handler
 
 
 class WFAgentEndpointFlow(WFFlowType):
