@@ -243,7 +243,7 @@ Contracts:
 * Social must record a `pending_consents` entry for every `consent_required` it sees that has an `intent` — otherwise the user has no surface to approve from.
 * Conscious-emitted intents must carry a `capability` field that exists in the Capability Registry — otherwise downstream resolution will fail.
 
-The agentic vertical slice (`examples/proactive-vertical-slice-agentic.json`) shows how to swap a deterministic Conscious decision for an LLM call routed through a M5.3 transport bridge while preserving every other contract.
+For LLM-backed Conscious reasoning the canonical pattern since M5.4 is to wire an `agent_flow` node into the Conscious slot — every turn auto-registers as `agent.<id>` in the Capability Registry and runs through the same Adversarial → Alignment → handler → Privacy chain as any other capability, with no extra setup. The legacy pattern, where a `transform_flow` calls `proactive.transports.call_transport(alias, prompt, dry_run=True)`, is preserved in `examples/proactive-vertical-slice-agentic.json` as the **offline / dry-run** variant — useful when you don't have a model backend running, but no longer the recommended path for real workflows.
 
 ---
 

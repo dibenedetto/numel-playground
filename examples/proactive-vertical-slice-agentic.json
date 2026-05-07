@@ -2,7 +2,7 @@
   "type": "workflow",
   "options": {
     "name": "proactive_vertical_slice_agentic",
-    "description": "Phase 5 demo — agentic variant of proactive-vertical-slice.json. The Conscious-layer transform now routes its anticipatory decision through an M5.3 LLM transport bridge (proactive.transports.call_transport) instead of pattern-matching subject keywords. Runs without external network thanks to dry_run=True; the bridge's synthetic echo is parsed back into an intent envelope. To use a real LLM: register a transport via /proactive/transports/register, set TRANSPORT_ALIAS in this script's context, and flip DRY_RUN to False."
+    "description": "OFFLINE / DRY-RUN VARIANT of proactive-vertical-slice.json. The Conscious-layer transform routes its anticipatory decision through an M5.3 LLM transport bridge (proactive.transports.call_transport) so the workflow runs without a real model — the bridge's synthetic echo (dry_run=True) is parsed back into an intent envelope. NOTE: since M5.4 the canonical pattern for LLM-backed Conscious reasoning is to wire an agent_flow node directly (auto-registers as agent.<id> in the Capability Registry, runs through Adversarial → Alignment → handler → Privacy without extra wiring, and gets full Agno features — tools, memory, knowledge, multimodal). This slice predates M5.4; keep it for offline demos when you don't have a model backend, otherwise prefer agent_flow. To use a real transport: register one via /proactive/transports/register, set TRANSPORT_ALIAS in this script's context, and flip DRY_RUN to False."
   },
   "nodes": [
     {"type": "start_flow", "extra": {"pos": [0, 0], "name": "Start"}},
