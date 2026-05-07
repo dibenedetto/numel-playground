@@ -674,18 +674,60 @@ def _smoke_a2a(verbose: bool) -> None:
     sp3 = a2a.share_state("boss", ["core.public", "vendor.acme"])
     assert not sp3["refused"]
 
-    # 5. Drop peer (idempotent).
+    # 5. M5.6 — register_peer auto-registered per-peer caps with trust
+    # tier as a scope. Verify each peer has both verbs in the registry.
+    from proactive.persistence import read_json as _rj
+    caps_now = _rj("capabilities", default={})
+    expected_caps = {
+        "a2a.alice.dev.send",        "a2a.alice.dev.share_state",
+        "a2a.bob.partner.send",      "a2a.bob.partner.share_state",
+        "a2a.boss.send",             "a2a.boss.share_state",
+    }
+    missing = expected_caps - set(caps_now)
+    assert not missing, f"missing per-peer caps after register_peer: {missing}"
+
+    # Trust tier appears as a scope `tier:<tier>` so constitution rules
+    # can target a tier rather than naming peers individually.
+    bob_send_scopes = caps_now["a2a.bob.partner.send"]["scopes"]
+    boss_send_scopes = caps_now["a2a.boss.send"]["scopes"]
+    assert "tier:partner"   in bob_send_scopes,  f"bob send scopes: {bob_send_scopes}"
+    assert "tier:federated" in boss_send_scopes, f"boss send scopes: {boss_send_scopes}"
+
+    # 6. M5.6 — banning a single peer's send via constitution rule blocks
+    # only that peer. The other peer's send still works.
+    from proactive import evolution as _ev
+    _ev.update_constitution({"rules": [{"kind": "never",
+                                        "target": "a2a.bob.partner.send"}]})
+
+    s_block = a2a.send("bob.partner", {"body": "should be blocked"}, kind="reply")
+    assert s_block["ok"] is False, f"banned peer's send must fail: {s_block}"
+    assert s_block.get("reason") in {"alignment_veto", "gated"}, \
+        f"unexpected reason: {s_block}"
+
+    s_pass = a2a.send("boss", {"body": "still allowed"}, kind="reply")
+    assert s_pass["ok"] is True, f"unbanned peer's send should pass: {s_pass}"
+
+    _ev.remove_rule(match={"kind": "never", "target": "a2a.bob.partner.send"})
+
+    # 7. Drop peer (idempotent) + per-peer caps go away too.
     assert a2a.drop_peer("alice.dev") is True
     assert a2a.drop_peer("alice.dev") is False
+    caps_after = _rj("capabilities", default={})
+    assert "a2a.alice.dev.send"        not in caps_after, "send cap leaked after drop"
+    assert "a2a.alice.dev.share_state" not in caps_after, "share_state cap leaked after drop"
 
-    # 6. Logs accumulated.
+    # 8. Logs accumulated. Outbox: original s1 (alice reply) + s_pass to
+    # boss + the redirected s_block attempt also writes a record because
+    # the gate-veto path doesn't call _send_handler — so outbox = 2.
     assert len(a2a.list_inbox())  == 3
-    assert len(a2a.list_outbox()) == 1   # only s1 logged; unknown_peer doesn't append
+    assert len(a2a.list_outbox()) == 2, \
+        f"outbox: expected 2, got {len(a2a.list_outbox())}"
     assert len(a2a.list_shared()) == 3
 
     if verbose:
         print(f"  peers (after drop): {[p['peer_id'] + '/' + p['tier'] for p in a2a.list_peers()]}")
         print(f"  inbox / outbox / shared: {len(a2a.list_inbox())} / {len(a2a.list_outbox())} / {len(a2a.list_shared())}")
+        print(f"  per-peer caps: {sorted(c for c in caps_after if c.startswith('a2a.'))}")
 
     clear_state()
     if snap_dir.exists():

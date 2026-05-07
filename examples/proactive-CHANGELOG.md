@@ -264,6 +264,23 @@ This commit closes M5.1 — Numel can now be discovered as an MCP server (with s
 
 This commit closes **Phase 5 — External integrations**. Numel can now (a) advertise its capabilities via MCP and consume peers' tools (M5.1), (b) federate with other systems through three trust tiers with adversarial-gated inbound and privacy-gated outbound (M5.2), and (c) bridge external LLMs (OpenAI-compatible + Claude) as first-class capabilities subject to the same Substrate gates (M5.3).
 
+### Proactive System — Phase 5 (M5.6: A2A federation joins the unified Capability model — closes the staged migration)
+
+Final stage. A2A `send` and `share_state` now route through `mcp.call_tool` so federation gets the same Adversarial → Alignment → handler → Privacy chain as every other capability. Trust tier becomes a **scope** (`tier:peer` / `tier:partner` / `tier:federated`) — declarative policy instead of buried if-branches.
+
+- `app/proactive/a2a.py` — **register_peer / drop_peer / send / share_state rewritten.**
+  - `register_peer(peer_id, *, tier, ...)` now auto-registers two capabilities: `a2a.<peer_id>.send` and `a2a.<peer_id>.share_state`. Both carry the trust tier as a scope so constitution rules can target a tier instead of naming peers individually (e.g. `{kind: never, target_scope: "tier:peer"}` would block any send to a peer-tier peer).
+  - `drop_peer(peer_id)` now drops the per-peer caps too — no orphan registry entries after a peer is removed.
+  - `send(peer_id, message, *, kind)` is now a thin public wrapper that (1) checks `unknown_peer` early, (2) lazy-ensures caps for peers that pre-date M5.6, (3) dispatches via `proactive.agents.call_agent(kind=KIND_A2A, alias=f"{peer_id}.send")`. The actual outbox-write logic moved to `_send_handler(args)` which runs after the gate chain has cleared the message. Return shape is preserved: outbox record on success, `{ok: False, reason}` on unknown_peer or gate veto.
+  - `share_state(peer_id, namespaces)` similarly delegates to `_share_state_handler`. The per-namespace Privacy gate inside the handler stays (it's finer-grained than the chain's outer Privacy pass) — both run; inner is for audit detail, outer is defence-in-depth.
+  - `receive(peer_id, message, *, kind)` is **unchanged** — inbound A2A is a different model. The existing inline `middleware.adversarial_gate` call is the right primitive there because there's no candidate to align over (the system is being acted upon, not deciding to act).
+- **Scope set per A2A verb:**
+  - `a2a.<peer>.send`        → `["external-network", "affects-third-party", "tier:<tier>"]`
+  - `a2a.<peer>.share_state` → `["external-network", "shares-state",        "tier:<tier>"]`
+- `tools/smoke_proactive.py` — extended **Phase 5 · A2A federation** check with M5.6 coverage: per-peer caps appear after `register_peer` for all three tiers (six caps total: 3 peers × 2 verbs); trust tier is on each cap as `tier:<tier>`; constitution rule banning ONLY `a2a.bob.partner.send` blocks Bob's send while Boss's send still works; `drop_peer` removes the per-peer caps from the registry. Outbox count adjusted from 1 → 2 to reflect that the gate-vetoed send doesn't append (verifies the gate is actually short-circuiting before `_send_handler`). Full run: **12 / 12** (11 in-process + 1 integration subprocess).
+
+This commit closes M5.6 — and closes the M5.4 → M5.5 → M5.6 unification arc. The system now has **one** outbound model: every "thing the system does that touches an agent or an external system" goes through `mcp.call_tool`, runs the same gate chain, lands in the same audit pattern, shows up in the same Capability Registry with declared scopes that the Governor and constitution rules can target. The five formerly parallel codepaths (`agent_flow` / `agent_endpoint_flow` / `mcp` / `transports` / `a2a`) now share one invocation primitive.
+
 ### Proactive System — Phase 5 (M5.5: Remote agent endpoint as Capability — second stage of unification)
 
 Second of three staged commits. Brings `agent_endpoint_flow` (the workflow primitive for "call another deployment or A2A remote agent") into the same Capability Registry + `mcp.call_tool` model as M5.4's local `agent_flow`. The new wrinkle here is **mode-specific scopes**: `consult` / `delegate` / `notify` / `handoff` represent very different stakes, so each (node, mode) pair gets its own Capability with mode-derived scopes.

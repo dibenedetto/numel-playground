@@ -70,6 +70,59 @@ _SHARED_FILE = "a2a_shared"     # → a2a_shared.jsonl
 
 
 # ============================================================================
+# M5.6 — per-peer capabilities so a2a.send / share_state route through
+# the same Adversarial → Alignment → handler → Privacy chain as every
+# other Capability Registry entry. Registered at register_peer() time
+# (and lazily on first call for peers added before M5.6).
+# ============================================================================
+
+_VERB_SEND        = "send"
+_VERB_SHARE_STATE = "share_state"
+
+
+def _scopes_for(verb: str, tier: str) -> List[str]:
+    """A2A scopes carry the trust tier as `tier:<peer/partner/federated>`
+    so the Governor and constitution rules can declaratively gate on it.
+    Trust escalation appears as a scope, not as a hidden if-branch."""
+    base: List[str]
+    if verb == _VERB_SEND:
+        base = ["external-network", "affects-third-party"]
+    elif verb == _VERB_SHARE_STATE:
+        base = ["external-network", "shares-state"]
+    else:
+        base = ["external-network"]
+    return base + [f"tier:{tier}"]
+
+
+def _ensure_peer_capabilities(peer_id: str, tier: str) -> None:
+    """Auto-register `a2a.<peer_id>.send` and `.share_state` capabilities
+    for a peer. Idempotent — safe to call repeatedly. Invoked on
+    register_peer() and lazily from send() / share_state() so peers that
+    pre-date M5.6 still get caps on first use."""
+    from . import agents as _agents
+    _agents.register_agent_handler(
+        f"{peer_id}.{_VERB_SEND}",
+        _send_handler,
+        kind        = _agents.KIND_A2A,
+        scopes      = _scopes_for(_VERB_SEND, tier),
+        description = f"A2A send to peer {peer_id!r} ({tier})",
+    )
+    _agents.register_agent_handler(
+        f"{peer_id}.{_VERB_SHARE_STATE}",
+        _share_state_handler,
+        kind        = _agents.KIND_A2A,
+        scopes      = _scopes_for(_VERB_SHARE_STATE, tier),
+        description = f"A2A share_state with peer {peer_id!r} ({tier})",
+    )
+
+
+def _drop_peer_capabilities(peer_id: str) -> None:
+    from . import agents as _agents
+    _agents.drop_agent(f"a2a.{peer_id}.{_VERB_SEND}")
+    _agents.drop_agent(f"a2a.{peer_id}.{_VERB_SHARE_STATE}")
+
+
+# ============================================================================
 # Trust tiers
 # ============================================================================
 
@@ -123,6 +176,7 @@ def register_peer(
     }
     peers[peer_id] = entry
     _persistence.write_json(_PEERS_FILE, peers)
+    _ensure_peer_capabilities(peer_id, tier)
     return entry
 
 
@@ -143,6 +197,7 @@ def drop_peer(peer_id: str) -> bool:
         return False
     del peers[peer_id]
     _persistence.write_json(_PEERS_FILE, peers)
+    _drop_peer_capabilities(peer_id)
     return True
 
 
@@ -203,19 +258,56 @@ def send(
     *,
     kind: str = "message",
 ) -> Dict[str, Any]:
-    """Stub for the actual outbound transport. Logs to outbox and returns
-    ok=True. Real implementation plugs in HTTP / SSE / etc.
+    """Outbound A2A message — routes through the Substrate gate chain.
+
+    M5.6: dispatches via `proactive.agents.call_agent` so the
+    Adversarial → Alignment → handler → Privacy chain runs around every
+    send. Validators can veto by peer or by trust tier (scope `tier:peer`
+    et al.) without changing this function's return shape — `send` keeps
+    returning the outbox record on success, and a `{ok: False, reason}`
+    envelope on unknown peer or gate veto.
     """
     peer = get_peer(peer_id)
     if peer is None:
         return {"ok": False, "reason": "unknown_peer", "peer_id": peer_id}
 
+    # Defensive: if the cap was somehow dropped (or the peer pre-dates
+    # M5.6) make sure both verbs are registered before dispatching.
+    _ensure_peer_capabilities(peer_id, peer.get("tier") or TIER_PEER)
+
+    from . import agents as _agents
+    response = _agents.call_agent(
+        f"{peer_id}.{_VERB_SEND}",
+        message,
+        kind       = _agents.KIND_A2A,
+        extra_args = {"peer_id": peer_id, "msg_kind": kind},
+    )
+    if response.get("ok"):
+        return response.get("result") or {}
+    return {
+        "ok":       False,
+        "reason":   response.get("error") or "gated",
+        "peer_id":  peer_id,
+        "verdicts": response.get("verdicts"),
+    }
+
+
+def _send_handler(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Inner send. Runs after the gate chain has cleared the message."""
+    peer_id  = args.get("peer_id") or ""
+    message  = args.get("request")
+    msg_kind = args.get("msg_kind") or "message"
+    peer     = get_peer(peer_id)
+    if peer is None:
+        # Shouldn't happen — public send() short-circuits earlier — but
+        # the gate chain can be invoked directly via mcp.call_tool.
+        return {"ok": False, "reason": "unknown_peer", "peer_id": peer_id}
     record = {
         "id":      f"a2a_{uuid.uuid4().hex[:12]}",
         "ts":      time.time(),
         "peer_id": peer_id,
         "tier":    peer.get("tier"),
-        "kind":    kind,
+        "kind":    msg_kind,
         "message": message,
         "ok":      True,
     }
@@ -233,28 +325,60 @@ def share_state(
 ) -> Dict[str, Any]:
     """Read requested World Model namespaces, gate by trust tier, run
     each excerpt through the Privacy gate, log the redacted excerpts,
-    and return them. Refused paths (tier doesn't permit) are listed
-    in `refused`.
+    and return them. M5.6: dispatched through `mcp.call_tool` so the
+    same gate chain that wraps `send` runs here too. The per-namespace
+    Privacy pass inside the handler is finer-grained than the chain's
+    outer Privacy gate — both run; the inner is for audit detail, the
+    outer is defence-in-depth.
     """
     peer = get_peer(peer_id)
     if peer is None:
         return {"ok": False, "reason": "unknown_peer", "peer_id": peer_id,
                  "excerpts": {}, "refused": list(namespaces or [])}
 
+    _ensure_peer_capabilities(peer_id, peer.get("tier") or TIER_PEER)
+
+    from . import agents as _agents
+    response = _agents.call_agent(
+        f"{peer_id}.{_VERB_SHARE_STATE}",
+        None,
+        kind       = _agents.KIND_A2A,
+        extra_args = {"peer_id": peer_id, "namespaces": list(namespaces or [])},
+    )
+    if response.get("ok"):
+        return response.get("result") or {}
+    return {
+        "ok":       False,
+        "reason":   response.get("error") or "gated",
+        "peer_id":  peer_id,
+        "excerpts": {},
+        "refused":  list(namespaces or []),
+        "verdicts": response.get("verdicts"),
+    }
+
+
+def _share_state_handler(args: Dict[str, Any]) -> Dict[str, Any]:
+    """Inner share_state. Runs after the gate chain has cleared the
+    namespaces request; still applies the per-namespace Privacy pass."""
+    peer_id    = args.get("peer_id") or ""
+    namespaces = args.get("namespaces") or []
+    peer       = get_peer(peer_id)
+    if peer is None:
+        return {"ok": False, "reason": "unknown_peer", "peer_id": peer_id,
+                 "excerpts": {}, "refused": list(namespaces)}
+
     tier = peer.get("tier") or TIER_PEER
     wm   = _persistence.read_json("world_model", default={})
 
     excerpts: Dict[str, Any] = {}
     refused:  List[str]      = []
-    for ns in (namespaces or []):
+    for ns in namespaces:
         if not _can_read_namespace(tier, ns):
             refused.append(ns)
             continue
-        # Match exact path or prefix (anything under `ns.*`).
         slice_ = {k: v for k, v in wm.items() if k == ns or k.startswith(ns + ".")}
         if not slice_:
             slice_ = {ns: None}
-        # Pass through Privacy gate as a synthetic envelope.
         env = _middleware.privacy_gate({"source": f"a2a:{peer_id}", "payload": slice_})
         excerpts[ns] = env.get("payload")
 
@@ -263,7 +387,7 @@ def share_state(
         "ts":         time.time(),
         "peer_id":    peer_id,
         "tier":       tier,
-        "namespaces": list(namespaces or []),
+        "namespaces": list(namespaces),
         "refused":    refused,
         "excerpts":   excerpts,
     }
