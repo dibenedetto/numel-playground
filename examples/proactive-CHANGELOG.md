@@ -264,6 +264,21 @@ This commit closes M5.1 — Numel can now be discovered as an MCP server (with s
 
 This commit closes **Phase 5 — External integrations**. Numel can now (a) advertise its capabilities via MCP and consume peers' tools (M5.1), (b) federate with other systems through three trust tiers with adversarial-gated inbound and privacy-gated outbound (M5.2), and (c) bridge external LLMs (OpenAI-compatible + Claude) as first-class capabilities subject to the same Substrate gates (M5.3).
 
+### Proactive System — Phase 5 (M5.5: Remote agent endpoint as Capability — second stage of unification)
+
+Second of three staged commits. Brings `agent_endpoint_flow` (the workflow primitive for "call another deployment or A2A remote agent") into the same Capability Registry + `mcp.call_tool` model as M5.4's local `agent_flow`. The new wrinkle here is **mode-specific scopes**: `consult` / `delegate` / `notify` / `handoff` represent very different stakes, so each (node, mode) pair gets its own Capability with mode-derived scopes.
+
+- `app/nodes.py` — **`WFAgentEndpointFlow.execute` updated.** Same opt-in env var (`NUMEL_PROACTIVE_AGENT_GATING`); when set, routes through `proactive.agents.call_agent(kind=KIND_ENDPOINT)`. Each mode gets its own lazy-registered cap `agent.endpoint.node_<index>.<mode>` so the Governor and constitution rules see different scopes per mode. Cached on the node instance via `self._proactive_aliases: dict[mode -> alias]` to avoid re-registering on every call. Two new module-level helpers: `_scopes_for_endpoint_mode(mode)` (maps mode → scope set) and `_make_endpoint_handler(ref)` (wraps the engine's `_run_agent_endpoint` partial into a `proactive.agents` handler).
+- **Mode → scopes map:**
+  - `consult`  → `["external-network"]` (read-only conversation)
+  - `delegate` → `["external-network", "delegates-authority"]` (give the remote agent decision-making power)
+  - `handoff`  → `["external-network", "delegates-authority", "non-reversible"]` (transfer ownership of the conversation)
+  - `notify`   → `["external-network", "affects-third-party"]` (one-way side-effect)
+- `tools/smoke_proactive.py` — extended **Phase 5 · agent capabilities** check with endpoint-kind coverage: register three caps for one node across consult/delegate/notify; verify each cap appears with its mode-specific scopes; clean dispatch through consult; constitution rule banning ONLY `agent.endpoint.node_42.delegate` → consult survives, delegate is vetoed. Full run: **12 / 12** (11 in-process + 1 integration subprocess).
+- **Constitution targeting works at mode granularity now.** Previously a rule banning a remote endpoint had to ban the whole endpoint or rely on transform-script logic. After M5.5 the operator can write `{kind: never, target: agent.endpoint.<id>.delegate}` and the same endpoint stays usable for consult — exactly the policy split the trust model needs.
+
+This commit closes M5.5. Local `agent_flow` (M5.4) and remote `agent_endpoint_flow` (M5.5) now share one Capability Registry, one gate chain, one audit log. Next stage: M5.6 (A2A `send` / `share_state` route through `mcp.call_tool` so federation joins the same model and the inline `adversarial_gate` calls inside `a2a.py` can shed).
+
 ### Proactive System — Phase 5 (M5.4: Local agent capability bridge — first stage of unification)
 
 This is the first of three staged commits (M5.4 → M5.5 → M5.6) that collapse the previously parallel codepaths (`agent_flow` / `agent_endpoint_flow` / `a2a` / `mcp` / `transports`) into one uniform Capability Registry + `mcp.call_tool` invocation model. After M5.6, every "thing the system does that touches an agent or an external system" goes through the same Adversarial → Alignment → handler → Privacy chain, lands in the same audit log, and shows up in the same Capability Registry with declared scopes.

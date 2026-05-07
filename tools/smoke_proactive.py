@@ -924,10 +924,89 @@ def _smoke_agents(verbose: bool) -> None:
         else:
             os.environ["NUMEL_PROACTIVE_AGENT_GATING"] = saved
 
+    # ---- 10. Endpoint kind (M5.5) — mode-specific scopes ----------------
+
+    async def _endpoint_ref(*, mode, prompt, session_id=None,
+                              source_deployment_id=None, sender_name=None,
+                              user_id=None):
+        return {
+            "status":   "ok",
+            "response": f"[{mode}] {prompt}",
+            "kind":     "deployment",
+            "task_id":  None,
+        }
+
+    def _endpoint_handler(args):
+        # Mirrors _make_endpoint_handler in nodes.py (sync wrapping a coroutine).
+        async def _go():
+            return await _endpoint_ref(
+                mode=args.get("mode") or "consult",
+                prompt=args.get("request") or "",
+                session_id=args.get("session_id"),
+                source_deployment_id=args.get("source_deployment_id"),
+                sender_name=args.get("sender_name"),
+                user_id=args.get("user_id"),
+            )
+        import asyncio as _aio
+        try:
+            loop = _aio.get_event_loop()
+            if loop.is_running():
+                return None  # exercised via _wrap_handler in production
+            return loop.run_until_complete(_go())
+        except RuntimeError:
+            return _aio.run(_go())
+
+    # Register one cap per (node, mode) — the same shape WFAgentEndpointFlow uses.
+    ag.register_agent_handler("node_42.consult",  _endpoint_handler,
+                                kind=ag.KIND_ENDPOINT,
+                                scopes=["external-network"])
+    ag.register_agent_handler("node_42.delegate", _endpoint_handler,
+                                kind=ag.KIND_ENDPOINT,
+                                scopes=["external-network", "delegates-authority"])
+    ag.register_agent_handler("node_42.notify",   _endpoint_handler,
+                                kind=ag.KIND_ENDPOINT,
+                                scopes=["external-network", "affects-third-party"])
+
+    # Each mode appears as its own cap with its own scopes.
+    caps2 = read_json("capabilities", default={})
+    consult_scopes  = caps2["agent.endpoint.node_42.consult"]["scopes"]
+    delegate_scopes = caps2["agent.endpoint.node_42.delegate"]["scopes"]
+    notify_scopes   = caps2["agent.endpoint.node_42.notify"]["scopes"]
+    assert "delegates-authority" not in consult_scopes
+    assert "delegates-authority" in delegate_scopes
+    assert "affects-third-party" in notify_scopes
+    assert "affects-third-party" not in delegate_scopes
+
+    # Consult call works.
+    rc = ag.call_agent("node_42.consult", "what's the weather?",
+                       kind=ag.KIND_ENDPOINT,
+                       extra_args={"mode": "consult"})
+    assert rc["ok"] is True
+    assert rc["result"]["response"].startswith("[consult]"), \
+        f"endpoint consult result: {rc}"
+
+    # Constitution rule that bans only delegate. Consult should still work.
+    ev.update_constitution({"rules": [{"kind": "never",
+                                        "target": "agent.endpoint.node_42.delegate"}]})
+    rc2 = ag.call_agent("node_42.consult", "still allowed",
+                        kind=ag.KIND_ENDPOINT,
+                        extra_args={"mode": "consult"})
+    assert rc2["ok"] is True, f"consult must survive a delegate-only ban: {rc2}"
+
+    rd = ag.call_agent("node_42.delegate", "should be blocked",
+                       kind=ag.KIND_ENDPOINT,
+                       extra_args={"mode": "delegate"})
+    assert rd["ok"] is False and rd["error"] == "alignment_veto", \
+        f"delegate must be vetoed when banned: {rd}"
+
+    ev.remove_rule(match={"kind": "never",
+                          "target": "agent.endpoint.node_42.delegate"})
+
     if verbose:
         print(f"  agents registered:  {[a['alias'] for a in ag.list_agents()]}")
         print(f"  call log rows:      {len(calls)}")
         print(f"  privacy redaction:  {redacted!r}")
+        print(f"  endpoint scopes:    consult={consult_scopes} delegate={delegate_scopes} notify={notify_scopes}")
 
     clear_state()
     if snap_dir.exists():

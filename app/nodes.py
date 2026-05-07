@@ -450,7 +450,8 @@ class WFAgentEndpointFlow(WFFlowType):
 	def __init__(self, config: Dict[str, Any], impl: Any = None, **kwargs):
 		assert "ref" in kwargs, "WFAgentEndpointFlow requires 'ref' argument"
 		super().__init__(config, impl, **kwargs)
-		self.ref = kwargs["ref"]
+		self.ref                  = kwargs["ref"]
+		self._proactive_aliases   = {}   # mode -> registered alias (cache)
 
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = await super().execute(context)
@@ -484,14 +485,25 @@ class WFAgentEndpointFlow(WFFlowType):
 			config_value = context.inputs.get("config") or getattr(self.config, "config", None) or self.config
 			endpoint_config = normalize_agent_endpoint_config(endpoint=config_value)
 
-			endpoint_result = await self.ref(
-				mode=mode,
-				prompt=prompt,
-				session_id=context.inputs.get("session_id"),
-				source_deployment_id=context.inputs.get("source_deployment_id"),
-				sender_name=context.inputs.get("sender_name"),
-				user_id=context.inputs.get("user_id"),
-			)
+			extra_args = {
+				"mode":                 mode,
+				"session_id":           context.inputs.get("session_id"),
+				"source_deployment_id": context.inputs.get("source_deployment_id"),
+				"sender_name":          context.inputs.get("sender_name"),
+				"user_id":              context.inputs.get("user_id"),
+			}
+
+			if _proactive_agent_gating_enabled():
+				endpoint_result = await self._run_via_proactive_gate(context, prompt, mode, extra_args)
+			else:
+				endpoint_result = await self.ref(
+					mode                 = mode,
+					prompt               = prompt,
+					session_id           = extra_args["session_id"],
+					source_deployment_id = extra_args["source_deployment_id"],
+					sender_name          = extra_args["sender_name"],
+					user_id              = extra_args["user_id"],
+				)
 
 			error_text = str(endpoint_result.get("error") or "").strip() or None
 			status_value = str(endpoint_result.get("status") or ("error" if error_text else "ok"))
@@ -511,6 +523,80 @@ class WFAgentEndpointFlow(WFFlowType):
 			result.outputs["error"] = str(e)
 
 		return result
+
+
+	async def _run_via_proactive_gate(self, context: NodeExecutionContext, prompt: str, mode: str, extra_args: Dict[str, Any]) -> Dict[str, Any]:
+		"""Route an endpoint invocation through proactive.agents.call_agent.
+
+		Each (node, mode) pair gets its own Capability so the Governor sees
+		mode-specific scopes — `consult` calls don't carry the
+		`delegates-authority` scope that `delegate` calls do, and `notify`
+		picks up `affects-third-party`. Constitution rules can target a
+		specific mode by full cap name (`agent.endpoint.node_3.delegate`)."""
+		from proactive import agents as _agents
+
+		alias = self._proactive_aliases.get(mode)
+		if alias is None:
+			alias = f"node_{context.node_index}.{mode}"
+			scopes = _scopes_for_endpoint_mode(mode)
+			handler = _make_endpoint_handler(self.ref)
+			_agents.register_agent_handler(
+				alias,
+				handler,
+				kind        = _agents.KIND_ENDPOINT,
+				scopes      = scopes,
+				description = f"agent_endpoint_flow at node {context.node_index} (mode={mode})",
+			)
+			self._proactive_aliases[mode] = alias
+
+		response = _agents.call_agent(
+			alias,
+			prompt,
+			kind       = _agents.KIND_ENDPOINT,
+			extra_args = extra_args,
+		)
+		# Surface the inner result on success so the workflow sees the
+		# same dict shape it used to. On gate veto / handler error,
+		# return a dict that the surrounding error-handling can read.
+		if isinstance(response, dict) and response.get("ok") is True:
+			return response.get("result") or {}
+		# Translate the gate-chain envelope into the endpoint result shape.
+		return {
+			"status":   "error",
+			"error":    response.get("error") if isinstance(response, dict) else "gate_chain_failed",
+			"verdicts": (response or {}).get("verdicts") if isinstance(response, dict) else None,
+		}
+
+
+_ENDPOINT_BASE_SCOPES   = ["external-network"]
+_ENDPOINT_MODE_SCOPES = {
+	"consult":  [],
+	"delegate": ["delegates-authority"],
+	"handoff":  ["delegates-authority", "non-reversible"],
+	"notify":   ["affects-third-party"],
+}
+
+
+def _scopes_for_endpoint_mode(mode: str) -> List[str]:
+	"""Mode-derived scope set so the Governor can apply different policy
+	to consult vs delegate vs notify even though they share one underlying
+	endpoint configuration."""
+	extra = _ENDPOINT_MODE_SCOPES.get(mode, _ENDPOINT_MODE_SCOPES["consult"])
+	return list(_ENDPOINT_BASE_SCOPES) + list(extra)
+
+
+def _make_endpoint_handler(ref: Any) -> Callable[[Dict[str, Any]], Any]:
+	"""Wrap the engine's `_run_agent_endpoint` partial into a proactive.agents handler."""
+	async def _handler(args: Dict[str, Any]) -> Dict[str, Any]:
+		return await ref(
+			mode                 = args.get("mode") or "consult",
+			prompt               = args.get("request") or "",
+			session_id           = args.get("session_id"),
+			source_deployment_id = args.get("source_deployment_id"),
+			sender_name          = args.get("sender_name"),
+			user_id              = args.get("user_id"),
+		)
+	return _handler
 
 
 class WFKnowledgeIngestFlow(WFFlowType):
