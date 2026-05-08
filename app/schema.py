@@ -1141,6 +1141,232 @@ class KnowledgeSearchFlow(FlowType):
 
 
 # =============================================================================
+# PROACTIVE FLOW NODES
+# First-class graph elements for the Substrate stages so workflows don't need
+# to call proactive.* APIs from transform_flow scripts. Each node is a thin
+# wrapper around the corresponding function in app/proactive/*.py and emits
+# the same envelope shape the transform-based slices used.
+# =============================================================================
+
+@node_info(
+	title       = "Veracity Gate",
+	description = "Substrate Middleware — classify the inbound source's veracity",
+	icon        = "🔍",
+	section     = "Proactive",
+	layer       = 2,
+	visible     = True
+)
+class VeracityGateFlow(FlowType):
+	"""Substrate Middleware §3.1 — runs the envelope through `proactive.middleware.veracity_gate`.
+	Classifies the inbound source as trusted / untrusted with a confidence band.
+	Pass the proactive envelope dict on `input`; the gated envelope comes out on `output`."""
+	type   : Annotated[Literal["veracity_gate_flow"], FieldRole.CONSTANT] = "veracity_gate_flow"
+	input  : Annotated[Optional[Any]               , FieldRole.INPUT   ] = Field(default=None, description="Proactive envelope dict (must include `source` / `payload`)")
+	output : Annotated[Any                         , FieldRole.OUTPUT  ] = Field(default=None, description="Envelope with veracity classification + confidence merged in")
+
+
+@node_info(
+	title       = "Privacy Gate",
+	description = "Substrate Middleware — redact PII / secrets from the envelope payload",
+	icon        = "🔒",
+	section     = "Proactive",
+	layer       = 2,
+	visible     = True
+)
+class PrivacyGateFlow(FlowType):
+	"""Substrate Middleware §3.1 — runs the envelope through `proactive.middleware.privacy_gate`.
+	Redacts card / email / SSN / phone patterns in the payload (mutates a deep copy).
+	Pass the proactive envelope on `input`; redacted envelope comes out on `output`."""
+	type   : Annotated[Literal["privacy_gate_flow"], FieldRole.CONSTANT] = "privacy_gate_flow"
+	input  : Annotated[Optional[Any]              , FieldRole.INPUT   ] = Field(default=None, description="Proactive envelope dict")
+	output : Annotated[Any                        , FieldRole.OUTPUT  ] = Field(default=None, description="Envelope with payload PII redacted")
+
+
+@node_info(
+	title       = "Adversarial Gate",
+	description = "Substrate Middleware — detect prompt-injection in inbound content",
+	icon        = "🛡️",
+	section     = "Proactive",
+	layer       = 2,
+	visible     = True
+)
+class AdversarialGateFlow(FlowType):
+	"""Substrate Middleware §3.1 — runs the envelope through `proactive.middleware.adversarial_gate`.
+	Wraps the payload as `untrusted_content` and records `injection_hits`.
+	Pass the proactive envelope on `input`; flagged envelope comes out on `output`."""
+	type   : Annotated[Literal["adversarial_gate_flow"], FieldRole.CONSTANT] = "adversarial_gate_flow"
+	input  : Annotated[Optional[Any]                  , FieldRole.INPUT   ] = Field(default=None, description="Proactive envelope dict")
+	output : Annotated[Any                            , FieldRole.OUTPUT  ] = Field(default=None, description="Envelope with `untrusted_content` + `injection_hits` set")
+
+
+DEFAULT_WORLD_MODEL_NAMESPACE : str = "core.observations.email"
+
+
+@node_info(
+	title       = "World Model: Write",
+	description = "Substrate §3.2 — append an observation under a World Model namespace",
+	icon        = "🌍",
+	section     = "Proactive",
+	layer       = 2,
+	visible     = True
+)
+class WorldModelWriteFlow(FlowType):
+	"""Substrate §3.2 — appends the envelope's observation under `<namespace>.<rev>` in
+	`variables["world_model"]`. Maintains a per-namespace `__index__` list so revisions
+	are dense and ordered. Emits `world_model_write = {path, revision}` on the envelope."""
+	type      : Annotated[Literal["world_model_write_flow"], FieldRole.CONSTANT] = "world_model_write_flow"
+	input     : Annotated[Optional[Any]                    , FieldRole.INPUT   ] = Field(default=None,                            description="Proactive envelope dict (uses `observation`, `untrusted_content`, `confidence`, `source`)")
+	namespace : Annotated[str                              , FieldRole.INPUT   ] = Field(default=DEFAULT_WORLD_MODEL_NAMESPACE,  description="Dotted namespace under `variables[\"world_model\"]` to append into")
+	output    : Annotated[Any                              , FieldRole.OUTPUT  ] = Field(default=None,                            description="Envelope with `world_model_write` set")
+
+
+DEFAULT_LEDGER_TOPIC : str = "core.ledger"
+
+
+@node_info(
+	title       = "Ledger: Append",
+	description = "Substrate §6.1 — append an audit entry to the rolling Ledger",
+	icon        = "📜",
+	section     = "Proactive",
+	layer       = 2,
+	visible     = True
+)
+class LedgerAppendFlow(FlowType):
+	"""Substrate §6.1 — appends an audit entry to `variables["ledger"]`. The entry
+	is auto-populated from the envelope (intent / governor_verdict / motor_status /
+	social_consent_request / observation / world_model_write / provenance, etc.).
+	Set `topic` to the trigger topic ("core.sensory.observation",
+	"core.motor.action_attempt", …); `gate_on_intent=True` skips the append when no
+	intent is present (used for action-attempt entries)."""
+	type             : Annotated[Literal["ledger_append_flow"], FieldRole.CONSTANT] = "ledger_append_flow"
+	input            : Annotated[Optional[Any]               , FieldRole.INPUT   ] = Field(default=None,                  description="Proactive envelope dict")
+	topic            : Annotated[str                         , FieldRole.INPUT   ] = Field(default=DEFAULT_LEDGER_TOPIC, description="trigger.topic for the entry, e.g. 'core.sensory.observation'")
+	expected_outcome : Annotated[Optional[str]               , FieldRole.INPUT   ] = Field(default=None,                  description="Optional `expected_outcome` annotation for the entry")
+	gate_on_intent   : Annotated[bool                        , FieldRole.INPUT   ] = Field(default=False,                 description="If True, skip append when envelope has no `intent` (use for action entries)")
+	output           : Annotated[Any                         , FieldRole.OUTPUT  ] = Field(default=None,                  description="Envelope passed through unchanged")
+
+
+DEFAULT_STANDING_GOAL_ID    : str = "core.demo.standing"
+DEFAULT_STANDING_GOAL_TITLE : str = "Stay aware of inbound signals and route them safely"
+
+
+@node_info(
+	title       = "Goal Hierarchy: Match",
+	description = "Substrate §3.3 — list active goals matching the envelope",
+	icon        = "🎯",
+	section     = "Proactive",
+	layer       = 2,
+	visible     = True
+)
+class GoalMatchFlow(FlowType):
+	"""Substrate §3.3 — lazy-seeds a Standing Goal in `variables["goals"]` and emits the
+	list of currently-active goal ids on the envelope as `relevant_goals`."""
+	type                : Annotated[Literal["goal_match_flow"], FieldRole.CONSTANT] = "goal_match_flow"
+	input               : Annotated[Optional[Any]            , FieldRole.INPUT   ] = Field(default=None,                          description="Proactive envelope dict")
+	standing_goal_id    : Annotated[str                      , FieldRole.INPUT   ] = Field(default=DEFAULT_STANDING_GOAL_ID,    description="Id used when seeding the Standing Goal")
+	standing_goal_title : Annotated[str                      , FieldRole.INPUT   ] = Field(default=DEFAULT_STANDING_GOAL_TITLE, description="Title used when seeding the Standing Goal")
+	output              : Annotated[Any                      , FieldRole.OUTPUT  ] = Field(default=None,                          description="Envelope with `relevant_goals` populated")
+
+
+@node_info(
+	title       = "Capability Registry: Lookup",
+	description = "Substrate §3.4 — resolve an intent's capability and fold its scopes",
+	icon        = "🧰",
+	section     = "Proactive",
+	layer       = 2,
+	visible     = True
+)
+class CapabilityLookupFlow(FlowType):
+	"""Substrate §3.4 — looks up `envelope.intent.capability` in `variables["capabilities"]`
+	(lazy-seeded with `core.notify` / `core.send_email` / `core.transfer_funds`),
+	merges the capability's scopes into `envelope.scopes`, and emits
+	`resolved_capability` on the envelope."""
+	type   : Annotated[Literal["capability_lookup_flow"], FieldRole.CONSTANT] = "capability_lookup_flow"
+	input  : Annotated[Optional[Any]                   , FieldRole.INPUT   ] = Field(default=None, description="Proactive envelope dict (uses `intent.capability`)")
+	output : Annotated[Any                             , FieldRole.OUTPUT  ] = Field(default=None, description="Envelope with `resolved_capability` and updated `scopes`")
+
+
+DEFAULT_HIGH_STAKE_SCOPES        : List[str] = ["spends-money", "impersonates-user", "affects-third-party"]
+DEFAULT_WRITE_SCOPES             : List[str] = ["write"]
+DEFAULT_WRITE_CONFIDENCE_THRESHOLD : float    = 0.85
+
+
+@node_info(
+	title       = "Governor: Decide",
+	description = "Substrate §3.5 — emit allow / consent_required / deny per scope policy",
+	icon        = "⚖️",
+	section     = "Proactive",
+	layer       = 2,
+	visible     = True
+)
+class GovernorDecideFlow(FlowType):
+	"""Substrate §3.5 — runs the Governor over `envelope.scopes` + `envelope.confidence`.
+	Emits `governor_verdict = {decision, reason, scopes, confidence}` on the envelope.
+	Decision is `consent_required` for any scope in `high_stake_scopes`, else
+	`consent_required` for any scope in `write_scopes` when confidence is below
+	`write_confidence_threshold`, otherwise `allow`."""
+	type                       : Annotated[Literal["governor_decide_flow"], FieldRole.CONSTANT] = "governor_decide_flow"
+	input                      : Annotated[Optional[Any]                  , FieldRole.INPUT   ] = Field(default=None,                              description="Proactive envelope dict")
+	high_stake_scopes          : Annotated[List[str]                      , FieldRole.INPUT   ] = Field(default_factory=lambda: list(DEFAULT_HIGH_STAKE_SCOPES), description="Scopes that always require consent")
+	write_scopes               : Annotated[List[str]                      , FieldRole.INPUT   ] = Field(default_factory=lambda: list(DEFAULT_WRITE_SCOPES),     description="Scopes flagged as 'write' for the confidence-gate path")
+	write_confidence_threshold : Annotated[float                          , FieldRole.INPUT   ] = Field(default=DEFAULT_WRITE_CONFIDENCE_THRESHOLD, description="If confidence is below this AND a write scope is present, require consent")
+	output                     : Annotated[Any                            , FieldRole.OUTPUT  ] = Field(default=None,                              description="Envelope with `governor_verdict` populated")
+
+
+@node_info(
+	title       = "Motor: Execute",
+	description = "Substrate §4 — execute (allow) or defer (consent_required) the intent",
+	icon        = "🦾",
+	section     = "Proactive",
+	layer       = 2,
+	visible     = True
+)
+class MotorExecuteFlow(FlowType):
+	"""Substrate §4 Motor — when the Governor returns `allow` and an intent is set,
+	appends an action stub to `variables["actions"]` and tags the envelope with
+	`motor_status = "executed"`. On `consent_required` tags `motor_status =
+	"deferred_to_social"`. Otherwise `motor_status = "no_action"`."""
+	type   : Annotated[Literal["motor_execute_flow"], FieldRole.CONSTANT] = "motor_execute_flow"
+	input  : Annotated[Optional[Any]                , FieldRole.INPUT   ] = Field(default=None, description="Proactive envelope dict (uses `intent` and `governor_verdict`)")
+	output : Annotated[Any                          , FieldRole.OUTPUT  ] = Field(default=None, description="Envelope with `motor_action` and `motor_status` set")
+
+
+@node_info(
+	title       = "Social: Consent",
+	description = "Substrate §4 — emit a pending consent request on consent_required",
+	icon        = "🗣️",
+	section     = "Proactive",
+	layer       = 2,
+	visible     = True
+)
+class SocialConsentFlow(FlowType):
+	"""Substrate §4 Social — when the Governor returns `consent_required` and an intent
+	is set, appends a pending-consent record to `variables["pending_consents"]` and
+	tags the envelope with `social_consent_request`."""
+	type   : Annotated[Literal["social_consent_flow"], FieldRole.CONSTANT] = "social_consent_flow"
+	input  : Annotated[Optional[Any]                 , FieldRole.INPUT   ] = Field(default=None, description="Proactive envelope dict (uses `intent` and `governor_verdict`)")
+	output : Annotated[Any                           , FieldRole.OUTPUT  ] = Field(default=None, description="Envelope with `social_consent_request` set when applicable")
+
+
+@node_info(
+	title       = "Vitals: Sweep",
+	description = "Substrate §3.6 — recompute Vitals counters over the rolling Ledger",
+	icon        = "📊",
+	section     = "Proactive",
+	layer       = 2,
+	visible     = True
+)
+class VitalsSweepFlow(FlowType):
+	"""Substrate §3.6 — sweeps `variables["ledger"]` and updates `variables["vitals"]`
+	with rolling counters (`ledger_count`, `observation_count`, `action_attempt_count`,
+	`governor_decisions`, `motor_status_counts`, `avg_pipeline_latency_s`). Emits a
+	snapshot dict on `output` for previewing."""
+	type   : Annotated[Literal["vitals_sweep_flow"], FieldRole.CONSTANT] = "vitals_sweep_flow"
+	input  : Annotated[Optional[Any]               , FieldRole.INPUT   ] = Field(default=None, description="Proactive envelope dict (passed through; latest fields surfaced in the snapshot)")
+	output : Annotated[Any                         , FieldRole.OUTPUT  ] = Field(default=None, description="Snapshot dict {vitals, latest_observation, latest_intent, latest_motor_status, latest_consent_id}")
+
+
+# =============================================================================
 # LOOP FLOW NODES
 # Enables nested loops within workflows
 # =============================================================================
@@ -1904,6 +2130,19 @@ WorkflowNodeUnion = Union[
 	AgentEndpointFlow,
 	KnowledgeIngestFlow,
 	KnowledgeSearchFlow,
+
+	# Proactive Substrate flow nodes (M5.7)
+	VeracityGateFlow,
+	PrivacyGateFlow,
+	AdversarialGateFlow,
+	WorldModelWriteFlow,
+	LedgerAppendFlow,
+	GoalMatchFlow,
+	CapabilityLookupFlow,
+	GovernorDecideFlow,
+	MotorExecuteFlow,
+	SocialConsentFlow,
+	VitalsSweepFlow,
 
 	# Loop nodes
 	LoopStartFlow,

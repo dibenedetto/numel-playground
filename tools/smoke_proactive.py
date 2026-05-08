@@ -57,31 +57,79 @@ def _engine_exec(script: str, ns: Dict[str, Any]) -> None:
     exec(script, None, ns)
 
 
+_PIPELINE_FLOW_TYPES = {
+    # transform_flow stays with inline exec because its script is the data;
+    # everything else is a first-class node we drive through WFFlowType.execute.
+    "transform_flow",
+    "veracity_gate_flow",
+    "privacy_gate_flow",
+    "adversarial_gate_flow",
+    "world_model_write_flow",
+    "ledger_append_flow",
+    "goal_match_flow",
+    "capability_lookup_flow",
+    "governor_decide_flow",
+    "motor_execute_flow",
+    "social_consent_flow",
+    "vitals_sweep_flow",
+}
+
+
 def _run_pipeline(workflow_path: Path, signals: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-    """Drive `signals` through every transform_flow node in the workflow.
-    Returns (variables, last_outputs)."""
+    """Drive `signals` through every Substrate / transform_flow node in the
+    workflow, in graph order. Returns (variables, last_outputs).
+
+    `transform_flow` scripts run under engine semantics (`exec(script, None, ns)`)
+    so split-namespace bugs surface here. Everything else (the M5.7 first-class
+    Substrate nodes) is dispatched through its WFFlowType.execute, which is the
+    same code path the live engine uses."""
     from schema import Workflow
+    from nodes  import NodeExecutionContext, create_node
 
     wf = Workflow.model_validate(json.loads(workflow_path.read_text(encoding="utf-8")))
     wf.link()
 
-    transforms = [(i, n) for i, n in enumerate(wf.nodes) if n.type == "transform_flow"]
+    pipeline = [(i, n) for i, n in enumerate(wf.nodes) if n.type in _PIPELINE_FLOW_TYPES]
     variables: Dict[str, Any] = {}
     last_outputs: List[Dict[str, Any]] = []
 
+    import asyncio as _asyncio
+
     for sig in signals:
         data = sig
-        for idx, node in transforms:
-            ns = {"input": data, "variables": variables, "context": None, "output": None}
+        for idx, node in pipeline:
+            node_name = (node.extra or {}).get("name") or node.type
             try:
-                _engine_exec(node.script, ns)
+                if node.type == "transform_flow":
+                    ns = {"input": data, "variables": variables, "context": None, "output": None}
+                    _engine_exec(node.script, ns)
+                    data = ns["output"]
+                else:
+                    wf_node = create_node(node)
+                    ctx     = NodeExecutionContext()
+                    ctx.variables  = variables
+                    ctx.node_index = idx
+                    # Mirror what the engine assembles: every declared INPUT
+                    # field appears in ctx.inputs. For our Substrate nodes
+                    # that means (input, namespace, topic, …) — pull the
+                    # current `data` for `input`, then layer the node's own
+                    # field defaults from the parsed model on top.
+                    ctx.inputs = {"input": data}
+                    for fname in type(node).model_fields:
+                        if fname in ("type", "extra", "flow_in", "flow_out", "input"):
+                            continue
+                        val = getattr(node, fname, None)
+                        if val is not None:
+                            ctx.inputs[fname] = val
+                    res = _asyncio.run(wf_node.execute(ctx))
+                    if not res.success:
+                        raise RuntimeError(res.error or "unknown")
+                    data = res.outputs.get("output")
             except Exception as exc:
-                node_name = (node.extra or {}).get("name") or node.type
                 raise RuntimeError(
-                    f"{workflow_path.name} node[{idx}] {node_name!r} failed under engine exec: "
+                    f"{workflow_path.name} node[{idx}] {node_name!r} failed: "
                     f"{type(exc).__name__}: {exc}"
                 ) from exc
-            data = ns["output"]
         last_outputs.append(data if isinstance(data, dict) else {"value": data})
     return variables, last_outputs
 

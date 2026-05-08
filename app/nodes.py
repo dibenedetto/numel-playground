@@ -674,6 +674,387 @@ class WFKnowledgeSearchFlow(WFFlowType):
 
 
 # =============================================================================
+# PROACTIVE FLOW NODES
+# Thin executors for the Substrate stages — each one wraps the corresponding
+# function in app/proactive/*.py so workflows compose Substrate primitives as
+# first-class graph nodes instead of transform_flow scripts.
+# =============================================================================
+
+def _ensure_proactive_on_path() -> None:
+	"""Make `import proactive.*` work regardless of how the engine launched."""
+	try:
+		import proactive  # noqa: F401
+	except ImportError:
+		import sys
+		app_dir = os.path.dirname(os.path.abspath(__file__))
+		if app_dir not in sys.path:
+			sys.path.insert(0, app_dir)
+
+
+def _coerce_envelope(input_value: Any) -> Dict[str, Any]:
+	"""Coerce whatever arrived on `input` into a dict envelope. transform_flow
+	users were doing this inline; centralising lets the Substrate nodes accept
+	non-dict upstreams gracefully."""
+	if isinstance(input_value, dict):
+		return dict(input_value)
+	return {"raw": input_value}
+
+
+class _WFProactiveMiddlewareBase(WFFlowType):
+	"""Shared scaffolding for the three Middleware gates — they're all the same
+	shape (envelope in → envelope out) so factor it once."""
+	_gate_attr: str = ""
+
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		try:
+			_ensure_proactive_on_path()
+			from proactive import middleware as _middleware
+			env  = _coerce_envelope(context.inputs.get("input"))
+			gate = getattr(_middleware, self._gate_attr)
+			result.outputs["output"] = gate(env)
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+		return result
+
+
+class WFVeracityGateFlow(_WFProactiveMiddlewareBase):
+	_gate_attr = "veracity_gate"
+
+
+class WFPrivacyGateFlow(_WFProactiveMiddlewareBase):
+	_gate_attr = "privacy_gate"
+
+
+class WFAdversarialGateFlow(_WFProactiveMiddlewareBase):
+	_gate_attr = "adversarial_gate"
+
+
+class WFWorldModelWriteFlow(WFFlowType):
+	"""Substrate §3.2 — append the envelope's observation under
+	`<namespace>.<rev>` in `variables["world_model"]`. Maintains a per-namespace
+	`__index__` list so revisions are dense and ordered."""
+
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		import time as _time
+		result = await super().execute(context)
+		try:
+			env       = _coerce_envelope(context.inputs.get("input"))
+			namespace = str(context.inputs.get("namespace") or "core.observations.email")
+			wm        = context.variables.setdefault("world_model", {})
+			index_key = f"{namespace}.__index__"
+			index     = wm.setdefault(index_key, [])
+			rev       = len(index) + 1
+			path      = f"{namespace}.{rev}"
+			wm[path]  = {
+				"observation":       env.get("observation"),
+				"untrusted_content": env.get("untrusted_content"),
+				"confidence":        env.get("confidence"),
+				"source":            env.get("source"),
+				"revision":          rev,
+				"ts":                _time.time(),
+			}
+			index.append(path)
+			env["world_model_write"] = {"path": path, "revision": rev}
+			result.outputs["output"] = env
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+		return result
+
+
+class WFLedgerAppendFlow(WFFlowType):
+	"""Substrate §6.1 — append an audit entry to `variables["ledger"]`. The
+	entry is auto-populated from the envelope so workflows don't have to
+	enumerate the fields by hand."""
+
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		import time as _time
+		result = await super().execute(context)
+		try:
+			env              = _coerce_envelope(context.inputs.get("input"))
+			topic            = str(context.inputs.get("topic")            or "core.ledger")
+			expected_outcome = context.inputs.get("expected_outcome")
+			gate_on_intent   = bool(context.inputs.get("gate_on_intent")  or False)
+
+			if gate_on_intent and not env.get("intent"):
+				result.outputs["output"] = env
+				return result
+
+			ledger = context.variables.setdefault("ledger", [])
+			entry = {
+				"id":             f"led_{len(ledger) + 1}",
+				"ts":             _time.time(),
+				"correlation_id": env.get("correlation_id"),
+				"trigger":        {"topic": topic},
+				"provenance":     env.get("provenance", []),
+			}
+			# Carry over whichever envelope fields are populated; absent
+			# fields stay absent rather than landing as `None`.
+			for key in (
+				"observation", "world_model_write",
+				"intent", "resolved_capability", "relevant_goals",
+				"governor_verdict", "motor_action", "motor_status",
+				"social_consent_request",
+			):
+				if env.get(key) is not None:
+					entry[key] = env[key]
+			if expected_outcome is not None:
+				entry["expected_outcome"] = str(expected_outcome)
+			# `actual_outcome` defaults from motor_status (action entries) or
+			# the literal "recorded" (observation entries).
+			entry["actual_outcome"] = env.get("motor_status") or "recorded"
+			ledger.append(entry)
+			result.outputs["output"] = env
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+		return result
+
+
+class WFGoalMatchFlow(WFFlowType):
+	"""Substrate §3.3 — lazy-seed a Standing Goal in `variables["goals"]` and
+	emit the list of currently-active goal ids on the envelope."""
+
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		import time as _time
+		result = await super().execute(context)
+		try:
+			env   = _coerce_envelope(context.inputs.get("input"))
+			gid   = str(context.inputs.get("standing_goal_id")    or "core.demo.standing")
+			title = str(context.inputs.get("standing_goal_title") or "Stay aware of inbound signals and route them safely")
+			goals = context.variables.setdefault("goals", {})
+			if gid not in goals:
+				goals[gid] = {
+					"id":         gid,
+					"tier":       "Standing Goal",
+					"title":      title,
+					"lifecycle":  "active",
+					"created_at": _time.time(),
+				}
+			active = [g["id"] for g in goals.values() if g.get("lifecycle") == "active"]
+			env["relevant_goals"] = active
+			env.setdefault("provenance", []).append({"stage": "goal_hierarchy", "matched": len(active)})
+			result.outputs["output"] = env
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+		return result
+
+
+_BUILTIN_CAPS_SEED = {
+	"core.notify": {
+		"name": "core.notify", "purpose": "Surface a UI notification",
+		"scopes": ["read-only"], "latency_tier": "interactive", "cost_estimate": 0.0,
+	},
+	"core.send_email": {
+		"name": "core.send_email", "purpose": "Send an outbound email",
+		"scopes": ["write", "external-network", "affects-third-party"],
+		"latency_tier": "responsive", "cost_estimate": 0.001,
+	},
+	"core.transfer_funds": {
+		"name": "core.transfer_funds", "purpose": "Initiate a money transfer",
+		"scopes": ["spends-money", "write", "affects-third-party"],
+		"latency_tier": "responsive", "cost_estimate": 0.5,
+	},
+}
+
+
+class WFCapabilityLookupFlow(WFFlowType):
+	"""Substrate §3.4 — look up `intent.capability` in `variables["capabilities"]`
+	(lazy-seeded with the built-in registry), merge scopes, emit
+	`resolved_capability`."""
+
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		try:
+			env  = _coerce_envelope(context.inputs.get("input"))
+			caps = context.variables.setdefault("capabilities", {})
+			if not caps:
+				for name, cap in _BUILTIN_CAPS_SEED.items():
+					caps[name] = dict(cap)
+			intent   = env.get("intent") or {}
+			cap_name = intent.get("capability")
+			prov     = env.setdefault("provenance", [])
+			if cap_name and cap_name in caps:
+				cap = caps[cap_name]
+				env["resolved_capability"] = {
+					"name":         cap_name,
+					"scopes":       cap["scopes"],
+					"latency_tier": cap["latency_tier"],
+				}
+				env["scopes"] = sorted(set(list(env.get("scopes", [])) + list(cap["scopes"])))
+				prov.append({"stage": "capability_registry", "resolved": cap_name})
+			else:
+				prov.append({"stage": "capability_registry", "resolved": None})
+			result.outputs["output"] = env
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+		return result
+
+
+class WFGovernorDecideFlow(WFFlowType):
+	"""Substrate §3.5 — runs the Governor over scopes + confidence."""
+
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		try:
+			env             = _coerce_envelope(context.inputs.get("input"))
+			scopes          = list(env.get("scopes", ["read-only"]))
+			conf            = float(env.get("confidence", 1.0))
+			high_stake      = set(context.inputs.get("high_stake_scopes")
+			                      or ["spends-money", "impersonates-user", "affects-third-party"])
+			write_scopes    = set(context.inputs.get("write_scopes") or ["write"])
+			conf_threshold  = float(context.inputs.get("write_confidence_threshold") or 0.85)
+
+			has_high  = any(s in high_stake   for s in scopes)
+			has_write = any(s in write_scopes for s in scopes)
+
+			if has_high:
+				decision, reason = "consent_required", "high-stake scope present"
+			elif has_write and conf < conf_threshold:
+				decision, reason = "consent_required", "write at low confidence"
+			else:
+				decision, reason = "allow", "low-class action"
+
+			env["governor_verdict"] = {
+				"decision":   decision,
+				"reason":     reason,
+				"scopes":     scopes,
+				"confidence": conf,
+			}
+			result.outputs["output"] = env
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+		return result
+
+
+class WFMotorExecuteFlow(WFFlowType):
+	"""Substrate §4 Motor — execute (allow) or defer (consent_required)."""
+
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		import time as _time
+		result = await super().execute(context)
+		try:
+			env     = _coerce_envelope(context.inputs.get("input"))
+			intent  = env.get("intent")
+			verdict = (env.get("governor_verdict") or {}).get("decision")
+			if intent and verdict == "allow":
+				actions = context.variables.setdefault("actions", [])
+				rev     = len(actions) + 1
+				action  = {
+					"id":          f"act_{rev}",
+					"capability":  intent.get("capability"),
+					"args":        intent.get("args"),
+					"executed_at": _time.time(),
+					"result":      "stub_success",
+				}
+				actions.append(action)
+				env["motor_action"] = action
+				env["motor_status"] = "executed"
+			elif intent and verdict == "consent_required":
+				env["motor_status"] = "deferred_to_social"
+			else:
+				env["motor_status"] = "no_action"
+			env.setdefault("provenance", []).append({"stage": "motor", "status": env["motor_status"]})
+			result.outputs["output"] = env
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+		return result
+
+
+class WFSocialConsentFlow(WFFlowType):
+	"""Substrate §4 Social — emit a pending consent request on consent_required."""
+
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		import time as _time
+		result = await super().execute(context)
+		try:
+			env     = _coerce_envelope(context.inputs.get("input"))
+			intent  = env.get("intent")
+			verdict = (env.get("governor_verdict") or {}).get("decision")
+			if intent and verdict == "consent_required":
+				pending = context.variables.setdefault("pending_consents", [])
+				rev     = len(pending) + 1
+				consent = {
+					"id":             f"consent_{rev}",
+					"capability":     intent.get("capability"),
+					"rationale":      intent.get("rationale"),
+					"correlation_id": env.get("correlation_id"),
+					"requested_at":   _time.time(),
+					"status":         "awaiting_user",
+				}
+				pending.append(consent)
+				env["social_consent_request"] = consent
+			result.outputs["output"] = env
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+		return result
+
+
+class WFVitalsSweepFlow(WFFlowType):
+	"""Substrate §3.6 — recompute Vitals counters over the rolling Ledger."""
+
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		import time as _time
+		result = await super().execute(context)
+		try:
+			env_in = context.inputs.get("input")
+			env    = env_in if isinstance(env_in, dict) else {}
+			vitals = context.variables.setdefault("vitals", {
+				"updated_at": 0.0, "ledger_count": 0,
+				"observation_count": 0, "action_attempt_count": 0,
+				"governor_decisions": {}, "motor_status_counts": {},
+				"avg_pipeline_latency_s": 0.0,
+			})
+			ledger = context.variables.get("ledger", [])
+			obs_n, act_n = 0, 0
+			decisions, motor_states = {}, {}
+			latencies = []
+			for entry in ledger:
+				topic = (entry.get("trigger") or {}).get("topic", "")
+				if topic == "core.sensory.observation":
+					obs_n += 1
+				elif topic == "core.motor.action_attempt":
+					act_n += 1
+					d = (entry.get("governor_verdict") or {}).get("decision", "unknown")
+					decisions[d] = decisions.get(d, 0) + 1
+					m = entry.get("motor_status")
+					if m:
+						motor_states[m] = motor_states.get(m, 0) + 1
+				prov     = entry.get("provenance") or []
+				ts_first = next((p.get("ts") for p in prov if "ts" in p), None)
+				if ts_first and entry.get("ts"):
+					latencies.append(entry["ts"] - ts_first)
+			vitals.update({
+				"updated_at":             _time.time(),
+				"ledger_count":           len(ledger),
+				"observation_count":      obs_n,
+				"action_attempt_count":   act_n,
+				"governor_decisions":     decisions,
+				"motor_status_counts":    motor_states,
+				"avg_pipeline_latency_s": (sum(latencies) / len(latencies)) if latencies else 0.0,
+			})
+			snapshot = {
+				"vitals":              vitals,
+				"latest_observation":  env.get("observation"),
+				"latest_intent":       env.get("intent"),
+				"latest_motor_status": env.get("motor_status"),
+				"latest_consent_id":   ((env.get("social_consent_request") or {}).get("id")),
+			}
+			result.outputs["output"] = snapshot
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+		return result
+
+
+# =============================================================================
 # LOOP FLOW NODES
 # =============================================================================
 
@@ -1930,6 +2311,19 @@ _NODE_TYPES = {
 	"agent_endpoint_flow"      : WFAgentEndpointFlow,
 	"knowledge_ingest_flow"    : WFKnowledgeIngestFlow,
 	"knowledge_search_flow"    : WFKnowledgeSearchFlow,
+
+	# Proactive Substrate nodes (Phase 5 / M5.7)
+	"veracity_gate_flow"       : WFVeracityGateFlow,
+	"privacy_gate_flow"        : WFPrivacyGateFlow,
+	"adversarial_gate_flow"    : WFAdversarialGateFlow,
+	"world_model_write_flow"   : WFWorldModelWriteFlow,
+	"ledger_append_flow"       : WFLedgerAppendFlow,
+	"goal_match_flow"          : WFGoalMatchFlow,
+	"capability_lookup_flow"   : WFCapabilityLookupFlow,
+	"governor_decide_flow"     : WFGovernorDecideFlow,
+	"motor_execute_flow"       : WFMotorExecuteFlow,
+	"social_consent_flow"      : WFSocialConsentFlow,
+	"vitals_sweep_flow"        : WFVitalsSweepFlow,
 
 	# Loop nodes
 	"loop_start_flow"          : WFLoopStartFlow,
