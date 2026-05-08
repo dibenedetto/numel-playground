@@ -89,6 +89,16 @@ VALID_KINDS    = {KIND_OPENAI, KIND_ANTHROPIC}
 _DEFAULT_SCOPES = ["external-network", "spends-money"]
 
 
+def _default_scopes() -> List[str]:
+    """Resolve transport default scopes through proactive.config so
+    `transports.default_scopes` in proactive_config.json overrides the
+    in-code default without requiring callers to pass scopes at every
+    register_transport()."""
+    from . import config as _config
+    val = _config.cfg("transports.default_scopes", _DEFAULT_SCOPES)
+    return list(val) if isinstance(val, list) else list(_DEFAULT_SCOPES)
+
+
 # ============================================================================
 # Configuration registry
 # ============================================================================
@@ -121,7 +131,7 @@ def register_transport(
     if not base_url or not model:
         raise ValueError("base_url and model are required")
 
-    eff_scopes = list(scopes) if scopes else list(_DEFAULT_SCOPES)
+    eff_scopes = list(scopes) if scopes else _default_scopes()
     cfg = {
         "alias":       alias,
         "kind":        kind,

@@ -1,0 +1,44 @@
+{
+  "_comment": "Reference overlay for the proactive runtime. Copy this to <state_dir>/proactive_config.json (defaults to app/storage/proactive/proactive_config.json) and remove any keys you don't want to override — every path returns its in-code default when the overlay is silent. Discover the live catalogue at any time via POST /proactive/config (returns the overrides + the list of known paths the modules consult).",
+
+  "optimization": {
+    "_comment": "Tuning knobs for the four built-in Optimization strategies (tighten_governor, prune_quarantine, relax_constitution, llm_propose). Defaults below match the in-code constants so this file is a no-op if dropped in unchanged.",
+    "deny_rate_threshold":      0.50,
+    "deny_min_samples":         4,
+    "quarantine_failure_floor": 5,
+    "thumbs_up_to_relax":       3
+  },
+
+  "evolution": {
+    "_comment": "Implicit-feedback weighting (0.5 means an implicit signal counts half an explicit thumbs vote) and the recent_thumbs_down validator's weighted veto threshold.",
+    "implicit_weight":            0.5,
+    "thumbs_down_veto_threshold": 3.0
+  },
+
+  "llm_proposer": {
+    "_comment": "M5.8-B LLM-backed Evolution proposer. `alias` names the Capability (registered as agent.<alias>); `model.*` configures the auto-registered transport-backed handler when no operator-supplied handler exists. Setting `model.source` to ollama/openai/anthropic picks sensible defaults; override base_url / api_key_env to point at any OpenAI-compatible or Anthropic endpoint.",
+    "alias":          "evolution_proposer",
+    "ledger_limit":   50,
+    "feedback_limit": 30,
+    "model": {
+      "source":      "ollama",
+      "name":        "llama3",
+      "base_url":    "http://localhost:11434/v1",
+      "api_key_env": null
+    }
+  },
+
+  "transports": {
+    "_comment": "Default scopes applied to a register_transport() call when the caller doesn't pass scopes explicitly. The defaults below are the safest possible (high-stake on both axes) so accidentally-loose transports get gated.",
+    "default_scopes": ["external-network", "spends-money"]
+  },
+
+  "agents": {
+    "_comment": "Default scopes per agent kind (local / endpoint / a2a). Same fallback semantics as transports.default_scopes.",
+    "default_scopes": {
+      "local":    ["llm"],
+      "endpoint": ["external-network", "delegates-authority"],
+      "a2a":      ["external-network"]
+    }
+  }
+}

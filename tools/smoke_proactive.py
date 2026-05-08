@@ -723,6 +723,66 @@ def _smoke_optimization(verbose: bool) -> None:
     ag.drop_agent(opt.LLM_PROPOSER_ALIAS, kind=ag.KIND_LOCAL)
     assert opt.llm_proposer_registered() is False
 
+    # M5.9-2 — config-driven LLM proposer model id + ensure_default_proposer.
+    # Override the alias so the auto-registered handler doesn't collide
+    # with the rest of the suite, and verify the resolved model spec
+    # tracks the config block.
+    cfg.set_override("llm_proposer.alias",            "smoke_proposer")
+    cfg.set_override("llm_proposer.model.source",     "ollama")
+    cfg.set_override("llm_proposer.model.name",       "llama3.2")
+    cfg.set_override("llm_proposer.model.base_url",   "http://localhost:11434/v1")
+    spec = opt._resolve_proposer_model()
+    assert spec["alias"]    == "smoke_proposer"
+    assert spec["source"]   == "ollama"
+    assert spec["model"]    == "llama3.2"
+    assert spec["kind"]     == "openai"
+    assert spec["base_url"] == "http://localhost:11434/v1"
+
+    status = opt.ensure_default_proposer(dry_run=True)
+    assert status["registered_now"] is True, "first call should register"
+    assert opt.llm_proposer_registered() is True
+
+    again = opt.ensure_default_proposer(dry_run=True)
+    assert again["registered_now"] is False, "second call should be idempotent no-op"
+
+    # Trigger the strategy end-to-end. dry_run keeps the synthetic echo
+    # in proactive.transports honest (no real network); the echo doesn't
+    # parse to JSON proposals, so the strategy returns []. That's fine —
+    # we're proving the wiring, not the LLM's competence.
+    cands_dryrun = opt.strategy_llm_propose([], [])
+    assert isinstance(cands_dryrun, list)
+
+    # Switching the source picks new defaults from _MODEL_SOURCE_DEFAULTS.
+    cfg.set_override("llm_proposer.model.source", "anthropic")
+    cfg.clear_override("llm_proposer.model.base_url")  # let source default win
+    cfg.clear_override("llm_proposer.model.api_key_env")
+    spec_a = opt._resolve_proposer_model()
+    assert spec_a["kind"]        == "anthropic"
+    assert spec_a["base_url"]    == "https://api.anthropic.com"
+    assert spec_a["api_key_env"] == "ANTHROPIC_API_KEY"
+
+    # Prompt loader resolves the package-shipped default and round-trips
+    # an overlay override.
+    from proactive.config import load_prompt
+    pkg_text = load_prompt(opt._LLM_PROMPT_NAME)
+    assert "Evolution proposer" in pkg_text, \
+        f"package prompt content missing: {pkg_text[:80]!r}"
+
+    # Drop a state-dir overlay; loader must prefer it over the package file.
+    from proactive.persistence import state_dir as _sd
+    overlay_dir  = _sd() / "prompts"
+    overlay_dir.mkdir(parents=True, exist_ok=True)
+    overlay_file = overlay_dir / f"{opt._LLM_PROMPT_NAME}.txt"
+    overlay_file.write_text("OVERLAY_PROMPT_MARKER", encoding="utf-8")
+    try:
+        assert load_prompt(opt._LLM_PROMPT_NAME) == "OVERLAY_PROMPT_MARKER"
+    finally:
+        overlay_file.unlink()
+
+    # Cleanup the auto-registered proposer + drop overrides.
+    ag.drop_agent("smoke_proposer", kind=ag.KIND_LOCAL)
+    cfg.clear_override()
+
     # Unsupported candidate kind returns a structured error rather than raising.
     sim_x = opt.simulate_candidate({"kind": "future_thing", "payload": {}})
     assert sim_x["kind"] == "unsupported"
@@ -1165,6 +1225,18 @@ def _smoke_transports(verbose: bool) -> None:
     # Drop bridge + idempotent re-drop.
     assert tr.drop_transport("ollama_llama3") is True
     assert tr.drop_transport("ollama_llama3") is False
+
+    # M5.9-2 — transports.default_scopes flows through proactive.config.
+    from proactive import config as _cfg
+    _cfg.set_override("transports.default_scopes", ["external-network", "audit:smoke"])
+    cfg_d = tr.register_transport(
+        "scope_default_check", kind="openai",
+        base_url="http://localhost:11434/v1", model="llama3",
+    )
+    assert cfg_d["scopes"] == ["external-network", "audit:smoke"], \
+        f"default scopes from config not applied: {cfg_d['scopes']}"
+    tr.drop_transport("scope_default_check")
+    _cfg.clear_override()
 
     # Capability registry should reflect the drop.
     caps_after = read_json("capabilities", default={})

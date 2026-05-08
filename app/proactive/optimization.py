@@ -347,37 +347,140 @@ def propose_from_state() -> List[Dict[str, Any]]:
 # ============================================================================
 
 LLM_PROPOSER_ALIAS  = "evolution_proposer"
-_LLM_PROPOSER_CAP   = "agent.evolution_proposer"   # cap_name = agent.<alias>
 _LLM_LEDGER_LIMIT   = 50    # most-recent N entries to summarise
 _LLM_FEEDBACK_LIMIT = 30
-_LLM_PROMPT_GUARD   = (
-    "You are an Evolution proposer for the Numel proactive system. "
-    "Read the recent system activity below and propose ZERO OR MORE "
-    "Constitution rule changes that would improve safety / alignment. "
-    "Reply with a single JSON object exactly matching this shape:\n"
+_LLM_PROMPT_NAME    = "evolution_proposer"   # → app/proactive/prompts/evolution_proposer.txt
+# Last-resort default if neither the package-shipped prompt file nor the
+# state_dir overlay exists. Kept short — the real prompt lives in
+# app/proactive/prompts/evolution_proposer.txt.
+_LLM_PROMPT_FALLBACK = (
+    "You are an Evolution proposer. Reply with "
     '{"proposals": [{"action": "ban"|"relax", '
-    '"target": "<capability_name>", "rationale": "<one sentence>"}]}\n'
-    "If you have no proposals, reply {\"proposals\": []}. "
-    "Do NOT propose anything outside the visible capability set."
+    '"target": "<capability_name>", "rationale": "<one sentence>"}]}.'
 )
 
 
+def _llm_proposer_alias() -> str:
+    return str(_config.cfg("llm_proposer.alias", LLM_PROPOSER_ALIAS))
+
+
 def llm_proposer_registered() -> bool:
-    """True when an `agent.evolution_proposer` capability is in the
-    Capability Registry (i.e. an operator has called
-    `proactive.agents.register_agent_handler('evolution_proposer', …)`)."""
+    """True when the configured LLM proposer alias resolves to a registered
+    Capability (i.e. an operator has called
+    `proactive.agents.register_agent_handler(<alias>, …)` or
+    `ensure_default_proposer()` has wired up the auto-registered bridge)."""
+    cap_name = f"agent.{_llm_proposer_alias()}"
     caps = _persistence.read_json("capabilities", default={})
-    return _LLM_PROPOSER_CAP in caps
+    return cap_name in caps
+
+
+# Per-source defaults so config can stay terse — `llm_proposer.model.source`
+# alone is enough for OpenAI-compat hosts running on conventional URLs.
+_MODEL_SOURCE_DEFAULTS: Dict[str, Dict[str, Any]] = {
+    "ollama":    {"kind": "openai",    "base_url": "http://localhost:11434/v1", "api_key_env": None},
+    "openai":    {"kind": "openai",    "base_url": "https://api.openai.com/v1", "api_key_env": "OPENAI_API_KEY"},
+    "anthropic": {"kind": "anthropic", "base_url": "https://api.anthropic.com",  "api_key_env": "ANTHROPIC_API_KEY"},
+}
+
+
+def _resolve_proposer_model() -> Dict[str, Any]:
+    """Resolve {kind, alias, base_url, model, api_key_env} from the
+    `llm_proposer.model.*` config block. The `source` field selects a
+    canonical endpoint family (ollama / openai / anthropic), and any of
+    the per-source defaults can be overridden in config — so an operator
+    pointing at a self-hosted vLLM behind a custom URL just sets
+    `source=openai` + `base_url=http://my-vllm:8000/v1`."""
+    source = str(_config.cfg("llm_proposer.model.source", "ollama")).strip().lower()
+    name   = str(_config.cfg("llm_proposer.model.name",   "llama3")).strip()
+    base   = _config.cfg("llm_proposer.model.base_url",   None)
+    api_env = _config.cfg("llm_proposer.model.api_key_env", None)
+
+    defaults = _MODEL_SOURCE_DEFAULTS.get(source) or _MODEL_SOURCE_DEFAULTS["openai"]
+    if base is None:
+        base = defaults["base_url"]
+    if api_env is None:
+        api_env = defaults["api_key_env"]
+    return {
+        "source":      source,
+        "kind":        defaults["kind"],
+        "model":       name,
+        "base_url":    str(base).rstrip("/"),
+        "api_key_env": api_env,
+        "alias":       _llm_proposer_alias(),
+    }
+
+
+def ensure_default_proposer(*, dry_run: bool = False) -> Dict[str, Any]:
+    """Idempotent — make sure an `agent.<llm_proposer.alias>` Capability is
+    registered. If one's already there (operator wired their own handler),
+    do nothing. Otherwise register a transport-backed handler that
+    forwards the prompt to whatever model the `llm_proposer.model.*`
+    config block points at.
+
+    `dry_run=True` makes the auto-registered handler call
+    `proactive.transports.call_transport(..., dry_run=True)` so smoke
+    tests can exercise the round-trip without hitting a real model.
+
+    Returns a status dict: {alias, cap_name, source, model, registered_now}."""
+    from . import agents     as _agents
+    from . import transports as _tr
+
+    spec     = _resolve_proposer_model()
+    alias    = spec["alias"]
+    cap_name = f"agent.{alias}"
+
+    if llm_proposer_registered():
+        return {**spec, "cap_name": cap_name, "registered_now": False}
+
+    # Register the transport bridge (idempotent — drop+re-register keeps
+    # the metadata in sync with the current config).
+    transport_alias = f"proposer__{alias}"
+    try:
+        _tr.drop_transport(transport_alias)
+    except Exception:
+        pass
+    _tr.register_transport(
+        transport_alias,
+        kind        = spec["kind"],
+        base_url    = spec["base_url"],
+        model       = spec["model"],
+        api_key_env = spec["api_key_env"],
+        scopes      = ["external-network", "llm"],
+    )
+
+    def _handler(args):
+        prompt   = args.get("request") or args.get("prompt") or ""
+        response = _tr.call_transport(transport_alias, str(prompt), dry_run=bool(dry_run))
+        # call_transport returns the mcp.call_tool envelope. The
+        # proposer's parser reads `result.text`/`result.content`, so we
+        # surface whichever the transport emitted.
+        if isinstance(response, dict) and response.get("ok"):
+            inner = response.get("result")
+            if isinstance(inner, dict):
+                return {"content": inner.get("text") or inner.get("content") or "", "content_type": "text"}
+            return {"content": str(inner or ""), "content_type": "text"}
+        # Failure — the strategy will see ok=False and return [].
+        return response
+
+    _agents.register_agent_handler(
+        alias, _handler,
+        kind        = _agents.KIND_LOCAL,
+        description = f"Auto-registered LLM proposer ({spec['source']}/{spec['model']})",
+    )
+    return {**spec, "cap_name": cap_name, "registered_now": True}
 
 
 def _summarise_ledger_for_llm(
     ledger: List[Dict[str, Any]],
-    limit:  int = _LLM_LEDGER_LIMIT,
+    limit:  Optional[int] = None,
 ) -> str:
     """Build a compact, deterministic ledger summary for the LLM prompt.
 
     One line per entry: `<topic>  <decision>  <capability>  <motor_status>`.
-    Only the last `limit` entries (most-recent first)."""
+    Only the last `limit` entries (most-recent first). When `limit` is
+    None it's read from `llm_proposer.ledger_limit` config."""
+    if limit is None:
+        limit = int(_config.cfg("llm_proposer.ledger_limit", _LLM_LEDGER_LIMIT))
     rows: List[str] = []
     for entry in list(reversed(ledger))[:max(1, limit)]:
         topic    = (entry.get("trigger") or {}).get("topic", "?")
@@ -391,9 +494,11 @@ def _summarise_ledger_for_llm(
 
 def _summarise_feedback_for_llm(
     signals: List[Dict[str, Any]],
-    limit:   int = _LLM_FEEDBACK_LIMIT,
+    limit:   Optional[int] = None,
 ) -> str:
     """Compact feedback summary — kind, value, and the targeted capability."""
+    if limit is None:
+        limit = int(_config.cfg("llm_proposer.feedback_limit", _LLM_FEEDBACK_LIMIT))
     rows: List[str] = []
     for s in list(reversed(signals))[:max(1, limit)]:
         kind  = s.get("kind") or "-"
@@ -499,7 +604,7 @@ def strategy_llm_propose(
     ledger:  List[Dict[str, Any]],
     signals: List[Dict[str, Any]],
     *,
-    alias:   str = LLM_PROPOSER_ALIAS,
+    alias:   Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Ask a registered LLM agent (`agent.<alias>`) to propose Constitution
     rule changes. The agent reads a compact summary of recent activity
@@ -507,10 +612,11 @@ def strategy_llm_propose(
     rest of the Evolution loop (simulator, validators, promotion gate)
     treats identically to a heuristic-strategy candidate.
 
-    Returns [] if no `agent.<alias>` is registered, or the call fails,
-    or the LLM returns no parseable proposals. The strategy is
-    side-effect-free apart from the gate-routed agent call (which itself
-    appends to `agent_calls.jsonl` for audit)."""
+    The `alias`, the prompt body, and the model behind the alias are all
+    operator-tunable through `proactive_config.json` and the
+    `prompts/evolution_proposer.txt` overlay. When the alias is not
+    registered, this strategy is a clean no-op."""
+    effective_alias = alias or _llm_proposer_alias()
     if not llm_proposer_registered():
         return []
 
@@ -537,6 +643,13 @@ def strategy_llm_propose(
             if isinstance(tgt, str) and tgt:
                 allowed_targets.add(tgt)
 
+    # The prompt body is loaded from app/proactive/prompts/evolution_proposer.txt
+    # (or its state_dir overlay) so operators can tune wording / policy
+    # without touching code. _LLM_PROMPT_FALLBACK is the last-resort
+    # in-code default — used only if both the package file and the
+    # overlay file are missing.
+    prompt_guard = _config.load_prompt(_LLM_PROMPT_NAME, default=_LLM_PROMPT_FALLBACK)
+
     prompt = (
         f"## Recent ledger activity (newest first)\n"
         f"{_summarise_ledger_for_llm(ledger)}\n\n"
@@ -544,11 +657,11 @@ def strategy_llm_propose(
         f"{_summarise_feedback_for_llm(signals)}\n\n"
         f"## Current Constitution rules\n"
         f"{_summarise_constitution_for_llm()}\n\n"
-        f"{_LLM_PROMPT_GUARD}"
+        f"{prompt_guard}"
     )
 
     try:
-        response = _agents.call_agent(alias, prompt, kind=_agents.KIND_LOCAL)
+        response = _agents.call_agent(effective_alias, prompt, kind=_agents.KIND_LOCAL)
     except Exception:
         return []
 

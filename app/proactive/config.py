@@ -32,12 +32,15 @@ atomically (uses persistence.write_json under the hood).
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing  import Any, Dict, List, Optional
 
 from . import persistence as _persistence
 
 
 _OVERRIDE_FILE = "proactive_config"   # → proactive_config.json
+_PROMPTS_SUBDIR = "prompts"            # state_dir()/prompts/<name>.txt overrides
+_PACKAGE_PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 
 
 # Centralised registry of dotted paths the proactive modules read. Modules
@@ -57,6 +60,13 @@ _KNOWN_PATHS: List[str] = [
     "llm_proposer.alias",
     "llm_proposer.ledger_limit",
     "llm_proposer.feedback_limit",
+    # Model identity for the auto-registered default proposer (ollama by
+    # default — set source / name / base_url / api_key_env to point at
+    # any OpenAI-compat or Anthropic endpoint without writing Python).
+    "llm_proposer.model.source",
+    "llm_proposer.model.name",
+    "llm_proposer.model.base_url",
+    "llm_proposer.model.api_key_env",
     # Default scopes for newly registered Capabilities
     "transports.default_scopes",
     "agents.default_scopes.local",
@@ -119,6 +129,54 @@ def set_override(path: str, value: Any) -> Dict[str, Any]:
     cur[parts[-1]] = value
     _persistence.write_json(_OVERRIDE_FILE, overrides)
     return overrides
+
+
+def load_prompt(name: str, *, default: Optional[str] = None) -> str:
+    """Load a named prompt as plain text.
+
+    Resolution: `state_dir()/prompts/<name>.txt` (operator override) wins
+    over `app/proactive/prompts/<name>.txt` (package-shipped default)
+    wins over the `default` parameter (caller-supplied last-resort).
+
+    Returns the file contents stripped of a single trailing newline so
+    the caller can format the prompt without worrying about an extra
+    blank line at the end. Empty files return "" (not the default — an
+    empty file is an explicit "I want no prompt" choice)."""
+    if not name:
+        raise ValueError("prompt name must be non-empty")
+
+    overlay = _persistence.state_dir() / _PROMPTS_SUBDIR / f"{name}.txt"
+    pkg     = _PACKAGE_PROMPTS_DIR / f"{name}.txt"
+
+    for path in (overlay, pkg):
+        if path.is_file():
+            try:
+                text = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            return text.rstrip("\n")
+
+    if default is None:
+        raise FileNotFoundError(
+            f"prompt {name!r} not found at {overlay} or {pkg} and no default supplied"
+        )
+    return default
+
+
+def list_prompt_overrides() -> List[Dict[str, Any]]:
+    """Return the catalogue of {name, source: 'overlay'|'package', path} for
+    every prompt the system can resolve. Useful for the discovery
+    endpoint and the docs."""
+    out: Dict[str, Dict[str, Any]] = {}
+    pkg_dir = _PACKAGE_PROMPTS_DIR
+    overlay_dir = _persistence.state_dir() / _PROMPTS_SUBDIR
+    if pkg_dir.is_dir():
+        for p in sorted(pkg_dir.glob("*.txt")):
+            out[p.stem] = {"name": p.stem, "source": "package", "path": str(p)}
+    if overlay_dir.is_dir():
+        for p in sorted(overlay_dir.glob("*.txt")):
+            out[p.stem] = {"name": p.stem, "source": "overlay", "path": str(p)}
+    return list(out.values())
 
 
 def clear_override(path: Optional[str] = None) -> Dict[str, Any]:

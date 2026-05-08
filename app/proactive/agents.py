@@ -92,6 +92,16 @@ _DEFAULT_SCOPES_BY_KIND: Dict[str, List[str]] = {
 }
 
 
+def _default_scopes_for(kind: str) -> List[str]:
+    """Resolve per-kind default scopes through proactive.config so
+    `agents.default_scopes.<kind>` in proactive_config.json overrides
+    the baseline above without requiring callers to pass scopes at
+    every register_agent_handler()."""
+    from . import config as _config
+    val = _config.cfg(f"agents.default_scopes.{kind}", _DEFAULT_SCOPES_BY_KIND.get(kind, []))
+    return list(val) if isinstance(val, list) else list(_DEFAULT_SCOPES_BY_KIND.get(kind, []))
+
+
 HandlerCallable = Callable[[Dict[str, Any]], Union[Any, Awaitable[Any]]]
 
 
@@ -147,7 +157,7 @@ def register_agent_handler(
         raise ValueError("handler must be callable")
 
     cap_name   = _cap_name(kind, alias)
-    eff_scopes = list(scopes) if scopes else list(_DEFAULT_SCOPES_BY_KIND[kind])
+    eff_scopes = list(scopes) if scopes else _default_scopes_for(kind)
     purpose    = description or _default_purpose(kind, alias)
     schema     = input_schema or _default_input_schema(kind)
 
