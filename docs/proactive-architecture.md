@@ -4,6 +4,8 @@ Eight Mermaid diagrams, each one capturing a different view of the system. Read 
 
 The conceptual blueprint is at [proactive.md](proactive.md); the engineer-facing spec is at [proactive-technical.md](proactive-technical.md). This document is the picture-book companion.
 
+> **Since M5.7** each Substrate primitive is also a **first-class graph node** (`veracity_gate_flow`, `privacy_gate_flow`, `adversarial_gate_flow`, `world_model_write_flow`, `ledger_append_flow`, `goal_match_flow`, `capability_lookup_flow`, `governor_decide_flow`, `motor_execute_flow`, `social_consent_flow`, `vitals_sweep_flow`) under the **Proactive** palette section, so the proactive workflow JSONs compose them visually instead of hiding them inside `transform_flow` adapter scripts. The diagrams below are unchanged in shape — they describe the same Substrate functions either way.
+
 ---
 
 ## 1. Big picture — what's where

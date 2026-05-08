@@ -264,6 +264,51 @@ This commit closes M5.1 — Numel can now be discovered as an MCP server (with s
 
 This commit closes **Phase 5 — External integrations**. Numel can now (a) advertise its capabilities via MCP and consume peers' tools (M5.1), (b) federate with other systems through three trust tiers with adversarial-gated inbound and privacy-gated outbound (M5.2), and (c) bridge external LLMs (OpenAI-compatible + Claude) as first-class capabilities subject to the same Substrate gates (M5.3).
 
+### Proactive System — Phase 5 (M5.7: Substrate primitives as first-class flow nodes)
+
+The proactive workflows used to be ~80% `transform_flow` scripts that called `proactive.*` APIs. That defeated the visual-workflow point of the graph: anyone reading the JSON had to expand 11+ tiny Python adapters to understand what the slice did. **M5.7 promotes every Substrate primitive to its own `FlowType` + `WFFlowType`**, so workflows now compose typed nodes the operator can drag-and-drop.
+
+Eleven new node types in `schema.py` + `nodes.py`, registered under the **Proactive** palette section:
+
+| Node type | Wraps | Default scope |
+|---|---|---|
+| `veracity_gate_flow`     | `middleware.veracity_gate`       | gate (Stage 1) |
+| `privacy_gate_flow`      | `middleware.privacy_gate`        | gate (Stage 1) |
+| `adversarial_gate_flow`  | `middleware.adversarial_gate`    | gate (Stage 1) |
+| `world_model_write_flow` | per-rev append under `<namespace>.<rev>` | store (Stage 2) |
+| `ledger_append_flow`     | env-aware audit entry append (`topic`, `expected_outcome`, `gate_on_intent`) | store (Stage 2) |
+| `goal_match_flow`        | lazy-seed Standing Goal + emit `relevant_goals` | store (Stage 2) |
+| `capability_lookup_flow` | resolve `intent.capability` + fold scopes | store (Stage 2) |
+| `vitals_sweep_flow`      | recompute `variables["vitals"]` over the rolling Ledger | store (Stage 2) |
+| `governor_decide_flow`   | allow / consent_required by scope policy (configurable `high_stake_scopes` / `write_scopes` / `write_confidence_threshold`) | decision (Stage 3) |
+| `motor_execute_flow`     | execute (allow) or defer (consent_required) | actuation (Stage 3) |
+| `social_consent_flow`    | emit pending consent on consent_required | actuation (Stage 3) |
+
+Inputs/outputs mirror `transform_flow`'s `input` / `output` slots so existing graph topology stays unchanged when swapping a transform for the typed equivalent. Configurable knobs (e.g. `namespace` on `world_model_write_flow`, `topic` on `ledger_append_flow`) are declarative graph fields rather than hardcoded constants in scripts.
+
+**Workflows rewritten** (all five M5.7 commits land on the `proactive` branch):
+
+| Workflow | Was | Now |
+|---|---|---|
+| `proactive-vertical-slice.json` | 15 `transform_flow` | 3 `transform_flow` (Sensor + Sensory + Conscious heuristic) |
+| `proactive-vertical-slice-agentic.json` | 16 `transform_flow` | 3 `transform_flow` (Sensor + Sensory + Conscious-via-call_transport) |
+| `proactive-vertical-slice-agent-flow.json` | 17 `transform_flow` | 4 `transform_flow` (Sensor + Sensory + Build/Parse Prompt around the `agent_flow`) |
+| `proactive-sensory-slice.json` | 11 `transform_flow` | 2 `transform_flow` (Sensor + Sensory) |
+| `proactive-substrate-stub.json` | 9 `transform_flow` | **0** `transform_flow` (every node is typed) |
+
+The only `transform_flow` nodes left in the proactive demos are genuinely workflow-specific glue — the synthetic-inbox fixture source, the Sensory email parser, the Conscious decision heuristic, and the Build / Parse Prompt nodes that flank the `agent_flow`. The Substrate itself is now visually composed.
+
+**Smoke harness** (`tools/smoke_proactive.py`): `_run_pipeline` now uses dual dispatch — `transform_flow` runs through inline `exec(script, None, ns)` (engine semantics, so split-namespace bugs surface), every typed node runs through its `WFFlowType.execute` (the same code path the live engine uses). `_smoke_vertical_slice_agent_flow` got the same treatment.
+
+**`VitalsSweepFlow` generalised** to count decisions for any Ledger entry carrying a `governor_verdict` (was topic-gated to `core.motor.action_attempt`). Slice workflows keep their existing counts because observation entries don't carry a verdict; substrate-only workflows that route everything through a single topic now get accurate decision counters.
+
+Two smoke fixtures shifted to match the **real** behaviour of the proactive modules (the old transform-stubs were rough approximations of `proactive.middleware`):
+
+- `substrate-stub`: real `veracity_gate` uses per-source trust priors (webhook=0.70). The write-scope fixture now correctly trips "write at low confidence" → `decisions={allow:2, consent_required:2}` (was `{allow:3, consent_required:1}` under the old hardcoded 0.9 default).
+- `sensory-slice`: real `adversarial_gate` wraps payload as `{value, is_trusted, injection_hits}` — body lives at `untrusted_content.value.body` now (was `untrusted_content.body` under the old transform-stub).
+
+13/13 smoke checks pass. Linter clean. Three commits on `proactive`: M5.7-1 (`8d3dd12`), M5.7-2 (`3166be5`), M5.7-3 (`fc95857`).
+
 ### `examples/proactive-vertical-slice-agent-flow.json` — canonical M5.4 demo
 
 A third variant of the vertical slice — same Substrate scaffold (Sensor → Sensory → Middleware → World Model → Goals → Capabilities → Governor → Motor → Social → Ledger → Vitals), but the Conscious decision is now a real **`agent_flow`** node instead of a `transform_flow` calling an LLM bridge. This is the canonical pattern post-M5.4: the agent_flow auto-registers as `agent.<id>` in the Capability Registry and the Substrate gate chain (Adversarial → Alignment → handler → Privacy) wraps every turn automatically.
