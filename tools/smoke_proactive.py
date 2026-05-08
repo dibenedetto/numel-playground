@@ -487,11 +487,25 @@ def _smoke_alignment(verbose: bool) -> None:
     except ValueError:
         pass
 
+    # M5.9 — validator threshold flips with config. Lower the veto
+    # threshold to 1.0 so a single explicit thumbs-down is enough.
+    from proactive import config as cfg
+    cfg.set_override("evolution.thumbs_down_veto_threshold", 1.0)
+    cap_lax = "core.lax_threshold"
+    ev.record_feedback("led_lax", "thumbs", "down", {"capability": cap_lax})  # 1.0 weighted
+    r = ev.run_alignment({"kind": "modular_upgrade",
+                          "payload": {"capability": cap_lax}})
+    veto_by = [v["by"] for v in r["verdicts"] if v["decision"] == "veto"]
+    assert "recent_thumbs_down" in veto_by, \
+        f"threshold=1.0: single thumbs-down should veto, got {veto_by}"
+    cfg.clear_override("evolution.thumbs_down_veto_threshold")
+
     if verbose:
         print(f"  feedback signals: {len(sigs)}  thumbs: {len(thumbs)}")
         print(f"  constitution v0/v1: {c0['version']}/{c1['version']}")
         print(f"  validators: {ev.list_validators()}")
         print(f"  implicit accumulation veto: cap={cap_implicit} after 6 signals (weight=3.0)")
+        print(f"  config-flip veto: cap={cap_lax} threshold=1.0 -> vetoed at 1 thumbs-down")
 
     clear_state()
     if snap_dir.exists():
@@ -609,6 +623,54 @@ def _smoke_optimization(verbose: bool) -> None:
     assert relax_cand["evidence"]["explicit_up"]     == 0
     assert relax_cand["evidence"]["implicit_accept"] == 6
     assert relax_cand["evidence"]["weighted_pos"]    >= 3.0
+
+    # M5.9 — config overlay overrides flip strategy behaviour without code
+    # changes. Tighten the deny_rate_threshold to 0.20 with min_samples=2,
+    # and the existing 4-deny ledger entries on core.bad_actor (which
+    # already produced a tighten_governor candidate above) should still
+    # produce one. Now nudge the threshold up to 0.99 — too strict — and
+    # the same data should produce no tighten_governor candidate.
+    from proactive import config as cfg
+
+    # Strict: 100% deny required.
+    cfg.set_override("optimization.deny_rate_threshold", 0.99)
+    cands_strict = opt.propose_from_state()
+    by_strategy = {c["by"]: c for c in cands_strict}
+    # core.bad_actor stats: 4 deny / 4 total = 1.0 ≥ 0.99 → still proposes
+    assert "tighten_governor" in by_strategy, \
+        f"deny=1.0 should clear strict 0.99 threshold: {sorted(by_strategy)}"
+
+    # Now require 1.01 (impossible) → no tighten candidate.
+    cfg.set_override("optimization.deny_rate_threshold", 1.01)
+    cands_impossible = opt.propose_from_state()
+    bad_strats = [c for c in cands_impossible
+                  if c["by"] == "tighten_governor" and c["target"] == "core.bad_actor"]
+    assert not bad_strats, \
+        f"deny rate threshold 1.01 should suppress tighten_governor: {bad_strats}"
+
+    # Lower it back to 0.20 — should still produce the tighten candidate.
+    cfg.set_override("optimization.deny_rate_threshold", 0.20)
+    cands_lax = opt.propose_from_state()
+    assert any(c["by"] == "tighten_governor" for c in cands_lax), \
+        "deny rate threshold 0.20 should produce tighten_governor"
+
+    # Implicit weight bump: set evolution.implicit_weight to 1.0 so an
+    # implicit accept is treated as strongly as an explicit thumbs-up.
+    cfg.set_override("evolution.implicit_weight", 1.0)
+    # core.implicit_relax has 6 implicit accepts → weighted=6.0 (was 3.0)
+    cands_weighted = opt.propose_from_state()
+    relax_cand_w = next(
+        (c for c in cands_weighted
+         if c["by"] == "relax_constitution" and c["target"] == "core.implicit_relax"),
+        None,
+    )
+    assert relax_cand_w is not None, "relax should still fire under weight=1.0"
+    assert relax_cand_w["evidence"]["weighted_pos"] >= 6.0, \
+        f"weighted_pos under implicit_weight=1.0 should be ≥6.0, got {relax_cand_w['evidence']['weighted_pos']}"
+
+    # Reset overrides — leave the suite in a clean state for downstream tests.
+    cfg.clear_override()
+    assert cfg.get_overrides() == {}, "clear_override() should leave overlay empty"
 
     # M5.8-B — LLM-backed proposer. Without a registered
     # agent.evolution_proposer the strategy is a no-op.
@@ -1506,6 +1568,32 @@ def _smoke_integration(verbose: bool) -> None:
         prop = _post_json(f"{url}/proactive/evolution/proposer")
         assert prop["alias"] == "evolution_proposer"
         assert prop["registered"] is False, f"proposer should be unregistered: {prop}"
+
+        # M5.9 — config overlay endpoints.
+        cfg0 = _post_json(f"{url}/proactive/config")
+        assert "overrides" in cfg0 and "known_paths" in cfg0
+        assert "optimization.deny_rate_threshold" in cfg0["known_paths"]
+        # Set + read-back round-trip.
+        cfg_set = _post_json(f"{url}/proactive/config/set",
+                             {"path": "optimization.deny_rate_threshold", "value": 0.42})
+        assert cfg_set["overrides"]["optimization"]["deny_rate_threshold"] == 0.42
+        cfg1 = _post_json(f"{url}/proactive/config")
+        assert cfg1["overrides"]["optimization"]["deny_rate_threshold"] == 0.42
+        # Clear single path.
+        cfg_clear_one = _post_json(f"{url}/proactive/config/clear",
+                                    {"path": "optimization.deny_rate_threshold"})
+        assert "optimization" in cfg_clear_one["overrides"]
+        assert "deny_rate_threshold" not in cfg_clear_one["overrides"].get("optimization", {})
+        # Clear all.
+        cfg_clear_all = _post_json(f"{url}/proactive/config/clear")
+        assert cfg_clear_all["overrides"] == {}
+        # Missing path errors cleanly.
+        bad_set = None
+        try:
+            _post_json(f"{url}/proactive/config/set", {"value": 1})
+        except urllib.error.HTTPError as exc:
+            bad_set = exc.code
+        assert bad_set == 400, f"set without path must 400, got {bad_set}"
 
         cons0 = _post_json(f"{url}/proactive/constitution")
         v0 = cons0.get("version", 0)

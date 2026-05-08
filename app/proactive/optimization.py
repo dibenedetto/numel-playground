@@ -58,7 +58,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
-from . import evolution as _evolution
+from . import config      as _config
+from . import evolution   as _evolution
 from . import persistence as _persistence
 from . import quarantine  as _quarantine
 
@@ -109,11 +110,25 @@ def sandbox(seed_files: Optional[Dict[str, Any]] = None) -> Iterator[Path]:
 # Self-Reflective Debugging — strategies that scan live state
 # ============================================================================
 
-# Tunable thresholds. Real implementation would learn these.
+# Default thresholds. Each propose() reads through proactive.config.cfg(...)
+# so an operator can override any subset via state_dir()/proactive_config.json
+# without code changes. The constants below are the *defaults* — they
+# document the safe baseline and are returned when no override is set.
 _DENY_RATE_THRESHOLD       = 0.50    # ≥50% of an action's verdicts are deny
 _DENY_MIN_SAMPLES          = 4       # need at least N total verdicts
 _QUARANTINE_FAILURE_FLOOR  = 5       # ≥N recorded failures → propose hard-ban
 _THUMBS_UP_TO_RELAX        = 3       # ≥N thumbs-up to suggest relaxing a ban
+
+
+def _opt_cfg() -> Dict[str, Any]:
+    """Resolve the four Optimization thresholds in one call (saves four
+    JSON loads when propose() runs all strategies in sequence)."""
+    return {
+        "deny_rate_threshold":       float(_config.cfg("optimization.deny_rate_threshold",       _DENY_RATE_THRESHOLD)),
+        "deny_min_samples":          int  (_config.cfg("optimization.deny_min_samples",          _DENY_MIN_SAMPLES)),
+        "quarantine_failure_floor":  int  (_config.cfg("optimization.quarantine_failure_floor",  _QUARANTINE_FAILURE_FLOOR)),
+        "thumbs_up_to_relax":        float(_config.cfg("optimization.thumbs_up_to_relax",        _THUMBS_UP_TO_RELAX)),
+    }
 
 
 def _per_cap_decisions(ledger: List[Dict[str, Any]]) -> Dict[str, Dict[str, int]]:
@@ -152,7 +167,7 @@ def _per_cap_signals(signals: List[Dict[str, Any]]) -> Dict[str, Dict[str, float
     explicit_up: int, explicit_down: int, implicit_accept: int,
     implicit_reject: int}}` so strategies can choose how to read the data.
     """
-    IMPLICIT_WEIGHT = 0.5
+    IMPLICIT_WEIGHT = float(_config.cfg("evolution.implicit_weight", 0.5))
     out: Dict[str, Dict[str, float]] = {}
     for s in signals:
         cap = (s.get("context") or {}).get("capability")
@@ -186,6 +201,9 @@ def _per_cap_signals(signals: List[Dict[str, Any]]) -> Dict[str, Dict[str, float
 
 def strategy_tighten_governor(ledger: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Capabilities the Governor keeps denying → propose a hard ban."""
+    cfg = _opt_cfg()
+    deny_rate_threshold = cfg["deny_rate_threshold"]
+    deny_min_samples    = cfg["deny_min_samples"]
     candidates: List[Dict[str, Any]] = []
     constitution = _evolution.read_constitution()
     already_banned = {
@@ -197,10 +215,10 @@ def strategy_tighten_governor(ledger: List[Dict[str, Any]]) -> List[Dict[str, An
         if cap in already_banned:
             continue
         total = sum(stats.values())
-        if total < _DENY_MIN_SAMPLES:
+        if total < deny_min_samples:
             continue
         denies = stats.get("deny", 0)
-        if denies / total < _DENY_RATE_THRESHOLD:
+        if denies / total < deny_rate_threshold:
             continue
         candidates.append({
             "kind":      "constitution_rule_add",
@@ -226,13 +244,14 @@ def strategy_prune_quarantine(quarantine_keys: Dict[str, Any]) -> List[Dict[str,
         for r in (constitution.get("rules") or [])
         if isinstance(r, dict) and r.get("kind") == "never"
     }
+    failure_floor = int(_config.cfg("optimization.quarantine_failure_floor", _QUARANTINE_FAILURE_FLOOR))
     for cap, info in (quarantine_keys or {}).items():
         if cap in already_banned:
             continue
         if not isinstance(info, dict) or not info.get("quarantined"):
             continue
         fails = info.get("failures") or []
-        if len(fails) < _QUARANTINE_FAILURE_FLOOR:
+        if len(fails) < failure_floor:
             continue
         candidates.append({
             "kind":      "constitution_rule_add",
@@ -264,6 +283,7 @@ def strategy_relax_constitution(
     if not rules:
         return []
     per_cap = _per_cap_signals(signals)
+    relax_threshold = float(_config.cfg("optimization.thumbs_up_to_relax", _THUMBS_UP_TO_RELAX))
     candidates: List[Dict[str, Any]] = []
     for rule in rules:
         cap = rule.get("target")
@@ -271,7 +291,7 @@ def strategy_relax_constitution(
             continue
         bucket  = per_cap.get(cap) or {}
         weight  = float(bucket.get("pos") or 0.0)
-        if weight < float(_THUMBS_UP_TO_RELAX):
+        if weight < relax_threshold:
             continue
         candidates.append({
             "kind":      "constitution_rule_remove",

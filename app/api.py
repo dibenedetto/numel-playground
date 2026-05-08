@@ -3197,6 +3197,54 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		return {"entry": entry}
 
 
+	# === M5.9 — Proactive runtime config overlay ============================
+
+	@app.post("/proactive/config")
+	async def proactive_config_get(body: Optional[Dict[str, Any]] = None):
+		"""Return the live overlay file contents + the catalogue of paths the
+		proactive modules consult (so operators can discover what's tunable).
+		The overlay overrides in-code defaults; any path NOT in the overlay
+		uses the constant defined in the module."""
+		from proactive.config import get_overrides, list_known_paths
+		return {
+			"overrides":   get_overrides(),
+			"known_paths": list_known_paths(),
+		}
+
+
+	@app.post("/proactive/config/set")
+	async def proactive_config_set(body: Optional[Dict[str, Any]] = None):
+		"""Body: {path: str, value: any}. Persist `value` at `path`. The new
+		overlay is returned. Setting a path outside the known-paths list is
+		allowed (forward-compat) but has no runtime effect unless a module
+		reads it. Known paths: see /proactive/config."""
+		from proactive.config import set_override
+		body = body or {}
+		path = str(body.get("path") or "").strip()
+		if not path:
+			raise HTTPException(status_code=400, detail="missing 'path'")
+		if "value" not in body:
+			raise HTTPException(status_code=400, detail="missing 'value'")
+		try:
+			overrides = set_override(path, body["value"])
+		except ValueError as exc:
+			raise HTTPException(status_code=400, detail=str(exc))
+		return {"path": path, "overrides": overrides}
+
+
+	@app.post("/proactive/config/clear")
+	async def proactive_config_clear(body: Optional[Dict[str, Any]] = None):
+		"""Body: {path?: str}. Clear a single override path, or the entire
+		overlay when `path` is omitted. Returns the resulting overlay dict."""
+		from proactive.config import clear_override
+		body = body or {}
+		path = body.get("path")
+		if path is not None:
+			path = str(path).strip() or None
+		overrides = clear_override(path)
+		return {"cleared": path, "overrides": overrides}
+
+
 	@app.post("/proactive/evolution/proposer")
 	async def proactive_evolution_proposer_status(body: Optional[Dict[str, Any]] = None):
 		"""Status of the LLM-backed Evolution proposer (M5.8-B). Returns

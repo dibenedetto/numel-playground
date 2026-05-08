@@ -40,6 +40,7 @@ import uuid
 from dataclasses import asdict, dataclass
 from typing import Any, Callable, Dict, List, Optional
 
+from . import config as _config
 from .persistence import append_jsonl, read_json, read_jsonl, write_json
 
 
@@ -361,9 +362,12 @@ def _validator_recent_thumbs_down(candidate: Dict[str, Any]) -> Verdict:
     capability would override the user signal) and to actuation kinds.
 
     Weighting: each explicit thumbs-down counts 1.0; each implicit
-    rejection counts 0.5 (noisier — operator dismissing a single
-    notification isn't as strong as them explicitly thumbs-downing it).
-    Veto fires at >= 3.0 weighted negative signals.
+    rejection counts `evolution.implicit_weight` (default 0.5 — noisier,
+    operator dismissing a single notification isn't as strong as them
+    explicitly thumbs-downing it). Veto fires at
+    `evolution.thumbs_down_veto_threshold` weighted negative signals
+    (default 3.0). Both knobs are operator-tunable via
+    state_dir()/proactive_config.json without code changes.
     """
     if str(candidate.get("kind") or "") == "constitution_rule_add":
         return Verdict("pass",
@@ -372,6 +376,9 @@ def _validator_recent_thumbs_down(candidate: Dict[str, Any]) -> Verdict:
     cap = _candidate_capability(candidate)
     if not cap:
         return Verdict("pass", "no capability to check", "recent_thumbs_down")
+
+    implicit_weight = float(_config.cfg("evolution.implicit_weight",            0.5))
+    veto_threshold  = float(_config.cfg("evolution.thumbs_down_veto_threshold", 3.0))
 
     sigs = read_jsonl(_SIGNALS_FILE)
     explicit = sum(
@@ -385,14 +392,14 @@ def _validator_recent_thumbs_down(candidate: Dict[str, Any]) -> Verdict:
         if s.get("kind") == KIND_IMPLICIT_REJECT
         and (s.get("context") or {}).get("capability") == cap
     )
-    weighted = float(explicit) + 0.5 * float(implicit)
-    if weighted >= 3.0:
+    weighted = float(explicit) + implicit_weight * float(implicit)
+    if weighted >= veto_threshold:
         return Verdict("veto",
                        f"{explicit} thumbs-down + {implicit} implicit rejections on '{cap}' "
-                       f"(weighted={weighted:.1f})",
+                       f"(weighted={weighted:.1f} >= {veto_threshold:.1f})",
                        "recent_thumbs_down")
     return Verdict("pass",
-                   f"weighted negative signal {weighted:.1f} below threshold",
+                   f"weighted negative signal {weighted:.1f} below threshold {veto_threshold:.1f}",
                    "recent_thumbs_down")
 
 
