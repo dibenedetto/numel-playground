@@ -148,8 +148,14 @@ def _smoke_substrate_stub(verbose: bool) -> None:
     ]
     variables, _ = _run_pipeline(path, signals)
     decisions = variables["vitals"]["governor_decisions"]
-    assert decisions == {"allow": 3, "consent_required": 1}, \
-        f"substrate-stub: expected {{allow:3, consent_required:1}}, got {decisions}"
+    # M5.7: real proactive.middleware.veracity_gate uses per-source trust
+    # priors (webhook=0.70). The four fixtures land:
+    #   read-only          -> allow
+    #   write @ 0.70 conf  -> consent_required (write at low confidence)
+    #   transfer_funds     -> consent_required (spends-money high-stake)
+    #   notify             -> allow            (only read-only scope)
+    assert decisions == {"allow": 2, "consent_required": 2}, \
+        f"substrate-stub: expected {{allow:2, consent_required:2}}, got {decisions}"
     assert variables["vitals"]["ledger_count"] == 4
     if verbose:
         print(f"  decisions: {decisions}")
@@ -161,9 +167,12 @@ def _smoke_sensory_slice(verbose: bool) -> None:
     variables, _ = _run_pipeline(path, ticks)
     obs = variables["world_model"]["core.observations.email.__index__"]
     assert len(obs) == 5, f"sensory: expected 5 observations, got {len(obs)}"
-    # Privacy redaction visible in tick 2 (card) and tick 3 (ssn).
-    body2 = variables["world_model"]["core.observations.email.2"]["untrusted_content"]["body"]
-    body3 = variables["world_model"]["core.observations.email.3"]["untrusted_content"]["body"]
+    # M5.7: real proactive.middleware.adversarial_gate wraps the payload
+    # as `{value, is_trusted, injection_hits}` — body lives at
+    # untrusted_content.value.body now (was untrusted_content.body in
+    # the old transform-stub variant).
+    body2 = variables["world_model"]["core.observations.email.2"]["untrusted_content"]["value"]["body"]
+    body3 = variables["world_model"]["core.observations.email.3"]["untrusted_content"]["value"]["body"]
     assert "[card]" in body2, f"sensory: tick 2 body not redacted: {body2!r}"
     assert "[ssn]"  in body3, f"sensory: tick 3 body not redacted: {body3!r}"
     if verbose:

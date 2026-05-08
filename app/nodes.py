@@ -1016,13 +1016,19 @@ class WFVitalsSweepFlow(WFFlowType):
 			obs_n, act_n = 0, 0
 			decisions, motor_states = {}, {}
 			latencies = []
+			# Bucket per-topic for observation/action counters; count any
+			# entry that carries a governor_verdict (regardless of topic) so
+			# substrate-only workflows that route everything through one
+			# topic still get accurate decision counters.
 			for entry in ledger:
 				topic = (entry.get("trigger") or {}).get("topic", "")
 				if topic == "core.sensory.observation":
 					obs_n += 1
 				elif topic == "core.motor.action_attempt":
 					act_n += 1
-					d = (entry.get("governor_verdict") or {}).get("decision", "unknown")
+				verdict = entry.get("governor_verdict") or {}
+				if verdict:
+					d = verdict.get("decision", "unknown")
 					decisions[d] = decisions.get(d, 0) + 1
 					m = entry.get("motor_status")
 					if m:

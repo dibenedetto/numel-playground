@@ -26,60 +26,17 @@
       "mode": "any",
       "extra": {"pos": [700, 0], "name": "Wait for Signal"}
     },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §3.1 — Veracity Gate (stub).\n# Tags the inbound envelope with provenance + confidence.\nimport time, uuid\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\nenv[\"correlation_id\"] = env.get(\"correlation_id\") or f\"corr_{uuid.uuid4().hex[:12]}\"\nenv[\"confidence\"] = float(env.get(\"confidence\", 0.9))\nenv.setdefault(\"provenance\", []).append({\n    \"stage\":  \"veracity\",\n    \"source\": env.get(\"source\", \"webhook\"),\n    \"ts\":     time.time(),\n})\nenv.setdefault(\"scopes\", env.get(\"scopes\", [\"read-only\"]))\noutput = env\n",
-      "extra": {"pos": [940, 0], "name": "Middleware: Veracity"}
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §3.1 — Privacy / Redaction Gate (stub).\n# Walks the payload and redacts common PII patterns BEFORE any LLM\n# can see it. Real implementation should use a per-source policy.\n#\n# All logic at top level — no nested function defs. The engine runs\n# transform scripts via exec(script, None, locals), which puts defs\n# in locals but lets them lookup names only in module globals; that\n# breaks recursive helpers and even non-recursive function-to-name\n# references. Iterating with an explicit stack avoids the problem.\nimport re\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\n\nEMAIL = re.compile(r\"\\b[\\w.+-]+@[\\w-]+\\.[\\w.-]+\\b\")\nSSN   = re.compile(r\"\\b\\d{3}-\\d{2}-\\d{4}\\b\")\nCARD  = re.compile(r\"\\b\\d{13,19}\\b\")\n\n_targets = []\nfor key in (\"payload\", \"raw\", \"body\", \"message\"):\n    if key in env:\n        _targets.append((env, key))\n\nwhile _targets:\n    parent, key = _targets.pop()\n    val = parent[key]\n    if isinstance(val, str):\n        v = EMAIL.sub(\"[email]\", val)\n        v = SSN.sub(\"[ssn]\", v)\n        v = CARD.sub(\"[card]\", v)\n        parent[key] = v\n    elif isinstance(val, dict):\n        for k in list(val.keys()):\n            _targets.append((val, k))\n    elif isinstance(val, list):\n        for i in range(len(val)):\n            _targets.append((val, i))\n\nenv.setdefault(\"provenance\", []).append({\"stage\": \"privacy\", \"redacted\": True})\noutput = env\n",
-      "extra": {"pos": [1180, 0], "name": "Middleware: Privacy"}
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §3.1 — Adversarial-Input Filter (stub).\n# All sensed content moves into an `untrusted_content` envelope.\n# Downstream prompts MUST keep this content separate from system\n# instructions — instructions inside it are never executed.\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\n\npayload = None\nfor key in (\"payload\", \"raw\", \"body\", \"message\"):\n    if key in env:\n        payload = env.pop(key)\n        break\n\nenv[\"untrusted_content\"] = payload\nenv.setdefault(\"provenance\", []).append({\"stage\": \"adversarial\", \"wrapped\": True})\noutput = env\n",
-      "extra": {"pos": [1420, 0], "name": "Middleware: Adversarial"}
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §3.3 — Goal Hierarchy (stub).\n# Lazy-seeds a default Standing Goal so downstream layers always have\n# at least one anchor. Attaches the active goal ids to the envelope so\n# Conscious / Motor agents can scope their reasoning. Real impl: a\n# typed goal store with lifecycle transitions and per-tier validators.\nimport time\nenv   = dict(input) if isinstance(input, dict) else {\"raw\": input}\ngoals = variables.setdefault(\"goals\", {})\n\nif \"core.demo.standing\" not in goals:\n    goals[\"core.demo.standing\"] = {\n        \"id\":         \"core.demo.standing\",\n        \"tier\":       \"Standing Goal\",\n        \"title\":      \"Stay aware of inbound signals and route them safely\",\n        \"lifecycle\":  \"active\",\n        \"created_at\": time.time(),\n    }\n\nactive = [g[\"id\"] for g in goals.values() if g.get(\"lifecycle\") == \"active\"]\nenv[\"relevant_goals\"] = active\nenv.setdefault(\"provenance\", []).append({\"stage\": \"goal_hierarchy\", \"matched\": len(active)})\noutput = env\n",
-      "extra": {"pos": [1660, 0], "name": "Goal Hierarchy: Lookup"}
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §3.4 — Capability Registry (stub).\n# Lazy-seeds a small built-in catalog. If the envelope carries an\n# `intent.capability` field, look up the registered scopes and fold\n# them into env[\"scopes\"] so the Governor sees a complete picture.\n# Real impl: tools register at runtime via a Manifest with versioning.\nenv  = dict(input) if isinstance(input, dict) else {\"raw\": input}\ncaps = variables.setdefault(\"capabilities\", {})\n\nif not caps:\n    caps[\"core.notify\"] = {\n        \"name\":          \"core.notify\",\n        \"purpose\":       \"Surface a UI notification to the user\",\n        \"scopes\":        [\"read-only\"],\n        \"latency_tier\":  \"interactive\",\n        \"cost_estimate\": 0.0,\n    }\n    caps[\"core.send_email\"] = {\n        \"name\":          \"core.send_email\",\n        \"purpose\":       \"Send an outbound email\",\n        \"scopes\":        [\"write\", \"external-network\", \"affects-third-party\"],\n        \"latency_tier\":  \"responsive\",\n        \"cost_estimate\": 0.001,\n    }\n    caps[\"core.transfer_funds\"] = {\n        \"name\":          \"core.transfer_funds\",\n        \"purpose\":       \"Initiate a money transfer\",\n        \"scopes\":        [\"spends-money\", \"write\", \"affects-third-party\"],\n        \"latency_tier\":  \"responsive\",\n        \"cost_estimate\": 0.5,\n    }\n\nintent   = env.get(\"intent\") or {}\ncap_name = intent.get(\"capability\")\nif cap_name and cap_name in caps:\n    cap = caps[cap_name]\n    env[\"resolved_capability\"] = {\n        \"name\":         cap_name,\n        \"scopes\":       cap[\"scopes\"],\n        \"latency_tier\": cap[\"latency_tier\"],\n    }\n    env[\"scopes\"] = sorted(set(list(env.get(\"scopes\", [])) + list(cap[\"scopes\"])))\n    env.setdefault(\"provenance\", []).append({\"stage\": \"capability_registry\", \"resolved\": cap_name})\nelse:\n    env.setdefault(\"provenance\", []).append({\"stage\": \"capability_registry\", \"resolved\": None})\noutput = env\n",
-      "extra": {"pos": [1900, 0], "name": "Capability Registry: Lookup"}
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §3.2 — Shared World Model write (stub).\n# Persists the latest envelope under `core.inbox.last_envelope`.\n# Real implementation should use SQLite/Postgres KV with revisions.\nimport time\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\n\nwm   = variables.setdefault(\"world_model\", {})\npath = \"core.inbox.last_envelope\"\nprev = wm.get(path) or {}\nrev  = int(prev.get(\"revision\", 0)) + 1\nwm[path] = {\n    \"value\":      env.get(\"untrusted_content\"),\n    \"confidence\": env.get(\"confidence\"),\n    \"source\":     \"core.middleware\",\n    \"revision\":   rev,\n    \"ts\":         time.time(),\n}\nenv[\"world_model_write\"] = {\"path\": path, \"revision\": rev}\noutput = env\n",
-      "extra": {"pos": [2140, 0], "name": "World Model: Write"}
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §3.5 — Governor (stub).\n# Decides allow / consent_required / deny from the action's scopes\n# and confidence. Real implementation should also consult budgets,\n# attention/quiet-hours from World Model, and recent action history.\n#\n# Avoid `any(... for s in scopes)`: under exec(script, None, locals)\n# the genexp body cannot see top-level locals, so the lookup of\n# HIGH_STAKE / WRITE inside the genexp would fail.\nenv    = dict(input) if isinstance(input, dict) else {\"raw\": input}\nscopes = list(env.get(\"scopes\", [\"read-only\"]))\nconf   = float(env.get(\"confidence\", 1.0))\n\nHIGH_STAKE = {\"spends-money\", \"impersonates-user\", \"affects-third-party\"}\nWRITE      = {\"write\"}\n\nhas_high  = False\nhas_write = False\nfor s in scopes:\n    if s in HIGH_STAKE: has_high  = True\n    if s in WRITE:      has_write = True\n\nif has_high:\n    decision, reason = \"consent_required\", \"high-stake scope present\"\nelif has_write and conf < 0.85:\n    decision, reason = \"consent_required\", \"write at low confidence\"\nelse:\n    decision, reason = \"allow\", \"low-class action\"\n\nenv[\"governor_verdict\"] = {\n    \"decision\":   decision,\n    \"reason\":     reason,\n    \"scopes\":     scopes,\n    \"confidence\": conf,\n}\noutput = env\n",
-      "extra": {"pos": [2380, 0], "name": "Governor: Decide"}
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §6.1 — Ledger append (stub).\n# Appends a structured Why-chain entry. Real implementation should\n# use an append-only durable log with topic subscribers.\nimport time\nenv    = dict(input) if isinstance(input, dict) else {\"raw\": input}\nledger = variables.setdefault(\"ledger\", [])\n\nentry = {\n    \"id\":                  f\"led_{len(ledger) + 1}\",\n    \"ts\":                  time.time(),\n    \"correlation_id\":      env.get(\"correlation_id\"),\n    \"trigger\":             {\"topic\": \"core.middleware.input_received\"},\n    \"provenance\":          env.get(\"provenance\", []),\n    \"relevant_goals\":      env.get(\"relevant_goals\", []),\n    \"resolved_capability\": env.get(\"resolved_capability\"),\n    \"world_model_write\":   env.get(\"world_model_write\"),\n    \"governor_verdict\":    env.get(\"governor_verdict\"),\n    \"expected_outcome\":    \"substrate_pass_through\",\n    \"actual_outcome\":      \"recorded\",\n}\nledger.append(entry)\noutput = entry\n",
-      "extra": {"pos": [2620, 0], "name": "Ledger: Append"}
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §3.6 — Vitals (stub).\n# Sweeps the Ledger to compute system health: per-decision counts,\n# rolling pipeline latency, and last-seen timestamp. Stored at\n# variables[\"vitals\"] so Conscious agents can subscribe later.\n# Real implementation should aggregate per-stage and per-agent.\nimport time\nvitals = variables.setdefault(\"vitals\", {\n    \"updated_at\":             0.0,\n    \"ledger_count\":           0,\n    \"governor_decisions\":     {},\n    \"avg_pipeline_latency_s\": 0.0,\n})\nledger = variables.get(\"ledger\", [])\n\ndecisions = {}\nlatencies = []\nfor entry in ledger:\n    d = (entry.get(\"governor_verdict\") or {}).get(\"decision\", \"unknown\")\n    decisions[d] = decisions.get(d, 0) + 1\n    prov     = entry.get(\"provenance\") or []\n    ts_first = next((p.get(\"ts\") for p in prov if \"ts\" in p), None)\n    if ts_first and entry.get(\"ts\"):\n        latencies.append(entry[\"ts\"] - ts_first)\n\nvitals.update({\n    \"updated_at\":             time.time(),\n    \"ledger_count\":           len(ledger),\n    \"governor_decisions\":     decisions,\n    \"avg_pipeline_latency_s\": (sum(latencies) / len(latencies)) if latencies else 0.0,\n})\noutput = {\"ledger_entry\": input, \"vitals\": vitals}\n",
-      "extra": {"pos": [2860, 0], "name": "Vitals: Sweep"}
-    },
+    {"type": "veracity_gate_flow",    "extra": {"pos":  [940, 0], "name": "Middleware: Veracity"}},
+    {"type": "privacy_gate_flow",     "extra": {"pos": [1180, 0], "name": "Middleware: Privacy"}},
+    {"type": "adversarial_gate_flow", "extra": {"pos": [1420, 0], "name": "Middleware: Adversarial"}},
+    {"type": "goal_match_flow",        "extra": {"pos": [1660, 0], "name": "Goal Hierarchy: Lookup"}},
+    {"type": "capability_lookup_flow", "extra": {"pos": [1900, 0], "name": "Capability Registry: Lookup"}},
+    {"type": "world_model_write_flow", "namespace": "core.inbox.last_envelope",
+     "extra": {"pos": [2140, 0], "name": "World Model: Write"}},
+    {"type": "governor_decide_flow",   "extra": {"pos": [2380, 0], "name": "Governor: Decide"}},
+    {"type": "ledger_append_flow",     "topic": "core.middleware.input_received", "expected_outcome": "substrate_pass_through",
+     "extra": {"pos": [2620, 0], "name": "Ledger: Append"}},
+    {"type": "vitals_sweep_flow",      "extra": {"pos": [2860, 0], "name": "Vitals: Sweep"}},
     {
       "type": "preview_flow",
       "hint": "json",

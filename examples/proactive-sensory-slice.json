@@ -39,60 +39,17 @@
       "script": "# Sensory agent stage (stub). In a production graph this is an `agent_flow`\n# wired to `model_config` + `agent_options_config` — the LLM extracts\n# structured fields. Here we do it deterministically so the slice runs\n# without a model.\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\nmsg = env.get(\"payload\", {}) or {}\nbody = str(msg.get(\"body\", \"\"))\n\nobservation = {\n    \"observation_type\": \"email\",\n    \"sender\":           msg.get(\"from\"),\n    \"subject\":          msg.get(\"subject\"),\n    \"body_length\":      len(body),\n    \"summary\":          (body[:80] + \"…\") if len(body) > 80 else body,\n}\nenv[\"observation\"] = observation\n# Sensory observations are read-only with respect to the world; Governor\n# will see no actuation scope and pass them straight through.\nenv[\"scopes\"]      = [\"read-only\"]\nenv[\"confidence\"]  = 0.95\nenv[\"payload\"]     = msg\noutput = env\n",
       "extra": {"pos": [1180, 0], "name": "Sensory: Structure"}
     },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §3.1 — Veracity Gate (stub).\nimport time, uuid\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\nenv[\"correlation_id\"] = env.get(\"correlation_id\") or f\"corr_{uuid.uuid4().hex[:12]}\"\nenv[\"confidence\"] = float(env.get(\"confidence\", 0.9))\nenv.setdefault(\"provenance\", []).append({\n    \"stage\":  \"veracity\",\n    \"source\": env.get(\"source\", \"sensor\"),\n    \"ts\":     time.time(),\n})\nenv.setdefault(\"scopes\", env.get(\"scopes\", [\"read-only\"]))\noutput = env\n",
-      "extra": {"pos": [1420, 0], "name": "Middleware: Veracity"}
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §3.1 — Privacy / Redaction Gate (stub).\n# All logic at top level — no nested function defs. See note in\n# proactive-substrate-stub.json's Privacy transform.\nimport re\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\n\nEMAIL = re.compile(r\"\\b[\\w.+-]+@[\\w-]+\\.[\\w.-]+\\b\")\nSSN   = re.compile(r\"\\b\\d{3}-\\d{2}-\\d{4}\\b\")\nCARD  = re.compile(r\"\\b\\d{13,19}\\b\")\n\n_targets = []\nfor key in (\"payload\", \"raw\", \"body\", \"message\", \"observation\"):\n    if key in env:\n        _targets.append((env, key))\n\nwhile _targets:\n    parent, key = _targets.pop()\n    val = parent[key]\n    if isinstance(val, str):\n        v = EMAIL.sub(\"[email]\", val)\n        v = SSN.sub(\"[ssn]\", v)\n        v = CARD.sub(\"[card]\", v)\n        parent[key] = v\n    elif isinstance(val, dict):\n        for k in list(val.keys()):\n            _targets.append((val, k))\n    elif isinstance(val, list):\n        for i in range(len(val)):\n            _targets.append((val, i))\n\nenv.setdefault(\"provenance\", []).append({\"stage\": \"privacy\", \"redacted\": True})\noutput = env\n",
-      "extra": {"pos": [1660, 0], "name": "Middleware: Privacy"}
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §3.1 — Adversarial-Input Filter (stub).\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\n\npayload = None\nfor key in (\"payload\", \"raw\", \"body\", \"message\"):\n    if key in env:\n        payload = env.pop(key)\n        break\nenv[\"untrusted_content\"] = payload\nenv.setdefault(\"provenance\", []).append({\"stage\": \"adversarial\", \"wrapped\": True})\noutput = env\n",
-      "extra": {"pos": [1900, 0], "name": "Middleware: Adversarial"}
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §3.3 — Goal Hierarchy (stub).\n# Lazy-seeds a default Standing Goal and attaches active goal ids so\n# Conscious / Motor agents downstream can scope their reasoning. Real\n# impl: a typed goal store with lifecycle transitions and per-tier\n# validators.\nimport time\nenv   = dict(input) if isinstance(input, dict) else {\"raw\": input}\ngoals = variables.setdefault(\"goals\", {})\n\nif \"core.demo.standing\" not in goals:\n    goals[\"core.demo.standing\"] = {\n        \"id\":         \"core.demo.standing\",\n        \"tier\":       \"Standing Goal\",\n        \"title\":      \"Stay aware of inbound signals and route them safely\",\n        \"lifecycle\":  \"active\",\n        \"created_at\": time.time(),\n    }\n\nactive = [g[\"id\"] for g in goals.values() if g.get(\"lifecycle\") == \"active\"]\nenv[\"relevant_goals\"] = active\nenv.setdefault(\"provenance\", []).append({\"stage\": \"goal_hierarchy\", \"matched\": len(active)})\noutput = env\n",
-      "extra": {"pos": [2140, 0], "name": "Goal Hierarchy: Lookup"}
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §3.4 — Capability Registry (stub).\n# Lazy-seeds a small built-in catalog. If the envelope carries an\n# `intent.capability` field, look up the registered scopes and fold\n# them into env[\"scopes\"]. Real impl: tools register at runtime via\n# a Manifest with versioning.\nenv  = dict(input) if isinstance(input, dict) else {\"raw\": input}\ncaps = variables.setdefault(\"capabilities\", {})\n\nif not caps:\n    caps[\"core.notify\"] = {\n        \"name\":          \"core.notify\",\n        \"purpose\":       \"Surface a UI notification to the user\",\n        \"scopes\":        [\"read-only\"],\n        \"latency_tier\":  \"interactive\",\n        \"cost_estimate\": 0.0,\n    }\n    caps[\"core.send_email\"] = {\n        \"name\":          \"core.send_email\",\n        \"purpose\":       \"Send an outbound email\",\n        \"scopes\":        [\"write\", \"external-network\", \"affects-third-party\"],\n        \"latency_tier\":  \"responsive\",\n        \"cost_estimate\": 0.001,\n    }\n    caps[\"core.transfer_funds\"] = {\n        \"name\":          \"core.transfer_funds\",\n        \"purpose\":       \"Initiate a money transfer\",\n        \"scopes\":        [\"spends-money\", \"write\", \"affects-third-party\"],\n        \"latency_tier\":  \"responsive\",\n        \"cost_estimate\": 0.5,\n    }\n\nintent   = env.get(\"intent\") or {}\ncap_name = intent.get(\"capability\")\nif cap_name and cap_name in caps:\n    cap = caps[cap_name]\n    env[\"resolved_capability\"] = {\n        \"name\":         cap_name,\n        \"scopes\":       cap[\"scopes\"],\n        \"latency_tier\": cap[\"latency_tier\"],\n    }\n    env[\"scopes\"] = sorted(set(list(env.get(\"scopes\", [])) + list(cap[\"scopes\"])))\n    env.setdefault(\"provenance\", []).append({\"stage\": \"capability_registry\", \"resolved\": cap_name})\nelse:\n    env.setdefault(\"provenance\", []).append({\"stage\": \"capability_registry\", \"resolved\": None})\noutput = env\n",
-      "extra": {"pos": [2380, 0], "name": "Capability Registry: Lookup"}
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §3.2 — World Model write under a Sensory namespace.\n# Sensory observations append to `core.observations.email.*` so multiple\n# sensors can coexist. Each entry is keyed by revision id.\nimport time\nenv = dict(input) if isinstance(input, dict) else {\"raw\": input}\n\nwm    = variables.setdefault(\"world_model\", {})\nbase  = \"core.observations.email\"\nindex = wm.setdefault(base + \".__index__\", [])\nrev   = len(index) + 1\npath  = f\"{base}.{rev}\"\n\nwm[path] = {\n    \"observation\": env.get(\"observation\"),\n    \"untrusted_content\": env.get(\"untrusted_content\"),\n    \"confidence\": env.get(\"confidence\"),\n    \"source\":     env.get(\"source\"),\n    \"revision\":   rev,\n    \"ts\":         time.time(),\n}\nindex.append(path)\nenv[\"world_model_write\"] = {\"path\": path, \"revision\": rev}\noutput = env\n",
-      "extra": {"pos": [2620, 0], "name": "World Model: Observe"}
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §3.5 — Governor (stub). For pure Sensory observations this is\n# a near no-op (read-only → allow), but keeping it on-path means anything\n# the Sensory stage later promotes (e.g. an action proposal) is gated\n# without changing the topology.\n# Explicit loop instead of any(...) genexp — see substrate-stub note.\nenv    = dict(input) if isinstance(input, dict) else {\"raw\": input}\nscopes = list(env.get(\"scopes\", [\"read-only\"]))\nconf   = float(env.get(\"confidence\", 1.0))\n\nHIGH_STAKE = {\"spends-money\", \"impersonates-user\", \"affects-third-party\"}\nWRITE      = {\"write\"}\n\nhas_high  = False\nhas_write = False\nfor s in scopes:\n    if s in HIGH_STAKE: has_high  = True\n    if s in WRITE:      has_write = True\n\nif has_high:\n    decision, reason = \"consent_required\", \"high-stake scope present\"\nelif has_write and conf < 0.85:\n    decision, reason = \"consent_required\", \"write at low confidence\"\nelse:\n    decision, reason = \"allow\", \"low-class action\"\n\nenv[\"governor_verdict\"] = {\n    \"decision\":   decision,\n    \"reason\":     reason,\n    \"scopes\":     scopes,\n    \"confidence\": conf,\n}\noutput = env\n",
-      "extra": {"pos": [2860, 0], "name": "Governor: Decide"}
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §6.1 — Ledger append (stub). Every Sensory observation is\n# recorded so downstream layers (Conscious, audit) can replay the trace.\nimport time\nenv    = dict(input) if isinstance(input, dict) else {\"raw\": input}\nledger = variables.setdefault(\"ledger\", [])\n\nentry = {\n    \"id\":                  f\"led_{len(ledger) + 1}\",\n    \"ts\":                  time.time(),\n    \"correlation_id\":      env.get(\"correlation_id\"),\n    \"trigger\":             {\"topic\": \"core.sensory.observation\"},\n    \"observation\":         env.get(\"observation\"),\n    \"provenance\":          env.get(\"provenance\", []),\n    \"relevant_goals\":      env.get(\"relevant_goals\", []),\n    \"resolved_capability\": env.get(\"resolved_capability\"),\n    \"world_model_write\":   env.get(\"world_model_write\"),\n    \"governor_verdict\":    env.get(\"governor_verdict\"),\n    \"expected_outcome\":    \"observation_recorded\",\n    \"actual_outcome\":      \"recorded\",\n}\nledger.append(entry)\noutput = entry\n",
-      "extra": {"pos": [3100, 0], "name": "Ledger: Append"}
-    },
-    {
-      "type": "transform_flow",
-      "lang": "python",
-      "script": "# Substrate §3.6 — Vitals (stub).\n# Sweeps the Ledger to compute system health: per-decision counts,\n# rolling pipeline latency, and last-seen timestamp. Stored at\n# variables[\"vitals\"] so Conscious agents can subscribe later.\nimport time\nvitals = variables.setdefault(\"vitals\", {\n    \"updated_at\":             0.0,\n    \"ledger_count\":           0,\n    \"governor_decisions\":     {},\n    \"avg_pipeline_latency_s\": 0.0,\n})\nledger = variables.get(\"ledger\", [])\n\ndecisions = {}\nlatencies = []\nfor entry in ledger:\n    d = (entry.get(\"governor_verdict\") or {}).get(\"decision\", \"unknown\")\n    decisions[d] = decisions.get(d, 0) + 1\n    prov     = entry.get(\"provenance\") or []\n    ts_first = next((p.get(\"ts\") for p in prov if \"ts\" in p), None)\n    if ts_first and entry.get(\"ts\"):\n        latencies.append(entry[\"ts\"] - ts_first)\n\nvitals.update({\n    \"updated_at\":             time.time(),\n    \"ledger_count\":           len(ledger),\n    \"governor_decisions\":     decisions,\n    \"avg_pipeline_latency_s\": (sum(latencies) / len(latencies)) if latencies else 0.0,\n})\noutput = {\"ledger_entry\": input, \"vitals\": vitals}\n",
-      "extra": {"pos": [3340, 0], "name": "Vitals: Sweep"}
-    },
+    {"type": "veracity_gate_flow",    "extra": {"pos": [1420, 0], "name": "Middleware: Veracity"}},
+    {"type": "privacy_gate_flow",     "extra": {"pos": [1660, 0], "name": "Middleware: Privacy"}},
+    {"type": "adversarial_gate_flow", "extra": {"pos": [1900, 0], "name": "Middleware: Adversarial"}},
+    {"type": "goal_match_flow",        "extra": {"pos": [2140, 0], "name": "Goal Hierarchy: Lookup"}},
+    {"type": "capability_lookup_flow", "extra": {"pos": [2380, 0], "name": "Capability Registry: Lookup"}},
+    {"type": "world_model_write_flow", "namespace": "core.observations.email",
+     "extra": {"pos": [2620, 0], "name": "World Model: Observe"}},
+    {"type": "governor_decide_flow",   "extra": {"pos": [2860, 0], "name": "Governor: Decide"}},
+    {"type": "ledger_append_flow",     "topic": "core.sensory.observation", "expected_outcome": "observation_recorded",
+     "extra": {"pos": [3100, 0], "name": "Ledger: Append"}},
+    {"type": "vitals_sweep_flow",      "extra": {"pos": [3340, 0], "name": "Vitals: Sweep"}},
     {
       "type": "preview_flow",
       "hint": "json",
