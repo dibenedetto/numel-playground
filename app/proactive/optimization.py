@@ -143,6 +143,47 @@ def _per_cap_thumbs(signals: List[Dict[str, Any]]) -> Dict[str, Dict[str, int]]:
     return out
 
 
+def _per_cap_signals(signals: List[Dict[str, Any]]) -> Dict[str, Dict[str, float]]:
+    """Aggregate per-capability positive / negative signal weights.
+
+    Explicit thumbs count 1.0; implicit signals count 0.5 (noisier — an
+    operator dismissing a notification carries less information than them
+    explicitly thumbing-down). Returns `{cap: {pos: float, neg: float,
+    explicit_up: int, explicit_down: int, implicit_accept: int,
+    implicit_reject: int}}` so strategies can choose how to read the data.
+    """
+    IMPLICIT_WEIGHT = 0.5
+    out: Dict[str, Dict[str, float]] = {}
+    for s in signals:
+        cap = (s.get("context") or {}).get("capability")
+        if not cap:
+            continue
+        bucket = out.setdefault(cap, {
+            "pos":             0.0,
+            "neg":             0.0,
+            "explicit_up":     0,
+            "explicit_down":   0,
+            "implicit_accept": 0,
+            "implicit_reject": 0,
+        })
+        kind = s.get("kind")
+        if kind == _evolution.KIND_THUMBS:
+            v = s.get("value")
+            if v == "up":
+                bucket["pos"] += 1.0
+                bucket["explicit_up"] += 1
+            elif v == "down":
+                bucket["neg"] += 1.0
+                bucket["explicit_down"] += 1
+        elif kind == _evolution.KIND_IMPLICIT_ACCEPT:
+            bucket["pos"] += IMPLICIT_WEIGHT
+            bucket["implicit_accept"] += 1
+        elif kind == _evolution.KIND_IMPLICIT_REJECT:
+            bucket["neg"] += IMPLICIT_WEIGHT
+            bucket["implicit_reject"] += 1
+    return out
+
+
 def strategy_tighten_governor(ledger: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Capabilities the Governor keeps denying → propose a hard ban."""
     candidates: List[Dict[str, Any]] = []
@@ -212,32 +253,43 @@ def strategy_relax_constitution(
     ledger: List[Dict[str, Any]],
     signals: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
-    """Constitution-banned capabilities that the user keeps thumbing-up →
-    suggest removing the rule."""
+    """Constitution-banned capabilities that have accumulated positive user
+    signal (explicit thumbs-up + implicit acceptance) → suggest removing
+    the rule. Implicit signals count half (per `_per_cap_signals`) so an
+    operator letting an action stand isn't treated as the same evidence
+    as them explicitly thumbing-up."""
     constitution = _evolution.read_constitution()
     rules = [r for r in (constitution.get("rules") or [])
              if isinstance(r, dict) and r.get("kind") == "never"]
     if not rules:
         return []
-    thumbs = _per_cap_thumbs(signals)
+    per_cap = _per_cap_signals(signals)
     candidates: List[Dict[str, Any]] = []
     for rule in rules:
         cap = rule.get("target")
         if not cap:
             continue
-        ups = (thumbs.get(cap) or {}).get("up", 0)
-        if ups < _THUMBS_UP_TO_RELAX:
+        bucket  = per_cap.get(cap) or {}
+        weight  = float(bucket.get("pos") or 0.0)
+        if weight < float(_THUMBS_UP_TO_RELAX):
             continue
         candidates.append({
             "kind":      "constitution_rule_remove",
             "target":    cap,
             "payload":   {"rule_id": rule.get("id"), "rule": rule},
             "rationale": (
-                f"'{cap}' is constitution-banned but has {ups} thumbs-up — "
+                f"'{cap}' is constitution-banned but has accumulated positive signal "
+                f"(weighted={weight:.1f}; explicit thumbs-up: {bucket.get('explicit_up', 0)}, "
+                f"implicit accept: {bucket.get('implicit_accept', 0)}) — "
                 "user signal contradicts the rule; suggest removal."
             ),
-            "evidence":  {"capability": cap, "thumbs_up": ups,
-                          "rule_id": rule.get("id")},
+            "evidence":  {
+                "capability":      cap,
+                "weighted_pos":    weight,
+                "explicit_up":     bucket.get("explicit_up", 0),
+                "implicit_accept": bucket.get("implicit_accept", 0),
+                "rule_id":         rule.get("id"),
+            },
             "by":        "relax_constitution",
         })
     return candidates

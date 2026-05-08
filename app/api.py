@@ -3170,6 +3170,60 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		return {"entries": entries, "count": len(entries)}
 
 
+	@app.post("/proactive/feedback/implicit")
+	async def proactive_feedback_implicit(body: Optional[Dict[str, Any]] = None):
+		"""Record an implicit feedback signal derived from operator action.
+		Body: {target_id: str, signal: str, context?: dict}.
+		`signal` is one of the controlled vocabulary in
+		_IMPLICIT_REJECT_SIGNALS / _IMPLICIT_ACCEPT_SIGNALS — see
+		proactive.evolution. The signal name decides whether the entry is
+		recorded as implicit_accept or implicit_reject."""
+		from proactive.evolution import record_implicit_signal
+		body = body or {}
+		target_id = str(body.get("target_id") or "").strip()
+		signal    = str(body.get("signal")    or "").strip()
+		if not target_id:
+			raise HTTPException(status_code=400, detail="missing 'target_id'")
+		if not signal:
+			raise HTTPException(status_code=400, detail="missing 'signal'")
+		try:
+			entry = record_implicit_signal(
+				target_id = target_id,
+				signal    = signal,
+				context   = body.get("context") or {},
+			)
+		except ValueError as exc:
+			raise HTTPException(status_code=400, detail=str(exc))
+		return {"entry": entry}
+
+
+	@app.post("/proactive/motor/undo")
+	async def proactive_motor_undo(body: Optional[Dict[str, Any]] = None):
+		"""Convenience wrapper — records an `action_undone` implicit-reject
+		signal against the action_id (and optionally the underlying
+		capability) so the proposer can learn from manual reversals.
+		Body: {action_id: str, capability?: str, reason?: str}.
+		This endpoint records the signal only; reversing the side-effect of
+		the original capability is the caller's responsibility (different
+		capabilities have very different reversal semantics)."""
+		from proactive.evolution import record_implicit_signal
+		body = body or {}
+		action_id  = str(body.get("action_id") or "").strip()
+		capability = str(body.get("capability") or "").strip() or None
+		reason     = str(body.get("reason")     or "").strip() or None
+		if not action_id:
+			raise HTTPException(status_code=400, detail="missing 'action_id'")
+		ctx: Dict[str, Any] = {"action_id": action_id}
+		if capability: ctx["capability"] = capability
+		if reason:     ctx["reason"]     = reason
+		entry = record_implicit_signal(
+			target_id = action_id,
+			signal    = "action_undone",
+			context   = ctx,
+		)
+		return {"entry": entry}
+
+
 	@app.post("/proactive/constitution")
 	async def proactive_constitution(body: Optional[Dict[str, Any]] = None):
 		from proactive.evolution import read_constitution

@@ -447,10 +447,51 @@ def _smoke_alignment(verbose: bool) -> None:
     finally:
         ev.unregister_validator("scope_internal_only")
 
+    # M5.8 — implicit feedback. Each implicit_reject counts 0.5 toward
+    # the recent_thumbs_down validator's threshold (3.0). With 0 explicit
+    # downs and 5 implicit rejections (0.5×5 = 2.5) the validator should
+    # NOT veto; one more implicit (now 3.0) flips it to veto.
+    cap_implicit = "core.flaky_implicit"
+    for sig in ("consent_rejected", "action_undone", "notification_dismissed",
+                "consent_rejected", "action_undone"):
+        ev.record_implicit_signal("led_implicit", sig, context={"capability": cap_implicit})
+    r = ev.run_alignment({"kind": "modular_upgrade",
+                          "payload": {"capability": cap_implicit}})
+    veto_by = [v["by"] for v in r["verdicts"] if v["decision"] == "veto"]
+    assert "recent_thumbs_down" not in veto_by, \
+        f"alignment(implicit-2.5): premature veto: {veto_by}"
+
+    ev.record_implicit_signal("led_implicit", "agent_output_discarded",
+                               context={"capability": cap_implicit})  # +0.5 → 3.0
+    r = ev.run_alignment({"kind": "modular_upgrade",
+                          "payload": {"capability": cap_implicit}})
+    veto_by = [v["by"] for v in r["verdicts"] if v["decision"] == "veto"]
+    assert "recent_thumbs_down" in veto_by, \
+        f"alignment(implicit-3.0): expected veto, got {veto_by}"
+
+    # Mixed: 1 explicit thumbs-down (1.0) + 4 implicit (2.0) = 3.0 -> veto.
+    cap_mixed = "core.mixed_signal"
+    ev.record_feedback("led_mix", "thumbs", "down", {"capability": cap_mixed})
+    for sig in ("action_undone",) * 4:
+        ev.record_implicit_signal("led_mix", sig, context={"capability": cap_mixed})
+    r = ev.run_alignment({"kind": "modular_upgrade",
+                          "payload": {"capability": cap_mixed}})
+    veto_by = [v["by"] for v in r["verdicts"] if v["decision"] == "veto"]
+    assert "recent_thumbs_down" in veto_by, \
+        f"alignment(mixed): expected veto, got {veto_by}"
+
+    # Vocabulary guard.
+    try:
+        ev.record_implicit_signal("led_x", "this_is_not_a_real_signal")
+        assert False, "unknown implicit signal must raise"
+    except ValueError:
+        pass
+
     if verbose:
         print(f"  feedback signals: {len(sigs)}  thumbs: {len(thumbs)}")
         print(f"  constitution v0/v1: {c0['version']}/{c1['version']}")
         print(f"  validators: {ev.list_validators()}")
+        print(f"  implicit accumulation veto: cap={cap_implicit} after 6 signals (weight=3.0)")
 
     clear_state()
     if snap_dir.exists():
@@ -548,6 +589,26 @@ def _smoke_optimization(verbose: bool) -> None:
     assert sim_rel["kind"] == "constitution_rule_remove_simulation"
     assert sim_rel["diff"]["thumbs_up_total"] == 4, \
         f"remove(core.legacy): thumbs_up_total {sim_rel['diff']['thumbs_up_total']} != 4"
+
+    # M5.8 — implicit acceptance also drives relax_constitution. Ban
+    # core.implicit_relax with NO explicit thumbs-up, only 6 implicit
+    # accepts (weighted 0.5 each = 3.0 ≥ _THUMBS_UP_TO_RELAX). Should
+    # appear as a relax_constitution candidate.
+    ev.update_constitution({"rules": [{"kind": "never", "target": "core.implicit_relax"}]})
+    for _ in range(6):
+        ev.record_implicit_signal("led_imp_relax", "consent_approved",
+                                   context={"capability": "core.implicit_relax"})
+    cands_with_implicit = opt.propose_from_state()
+    relax_targets = {c["target"] for c in cands_with_implicit
+                     if c["by"] == "relax_constitution"}
+    assert "core.implicit_relax" in relax_targets, \
+        f"implicit acceptance should propose relax: {relax_targets}"
+    relax_cand = next(c for c in cands_with_implicit
+                      if c["by"] == "relax_constitution"
+                      and c["target"] == "core.implicit_relax")
+    assert relax_cand["evidence"]["explicit_up"]     == 0
+    assert relax_cand["evidence"]["implicit_accept"] == 6
+    assert relax_cand["evidence"]["weighted_pos"]    >= 3.0
 
     # Unsupported candidate kind returns a structured error rather than raising.
     sim_x = opt.simulate_candidate({"kind": "future_thing", "payload": {}})

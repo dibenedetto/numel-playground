@@ -51,11 +51,64 @@ _CONSTITUTION_FILE = "user_constitution"   # → user_constitution.json
 # Feedback signals
 # ============================================================================
 
-KIND_THUMBS     = "thumbs"      # user voted up/down on a Ledger entry
-KIND_EDIT       = "edit"        # user modified a proposed intent before accepting
-KIND_PREFERENCE = "preference"  # user explicitly stated a preference
+KIND_THUMBS          = "thumbs"            # user voted up/down on a Ledger entry
+KIND_EDIT            = "edit"              # user modified a proposed intent before accepting
+KIND_PREFERENCE      = "preference"        # user explicitly stated a preference
+KIND_IMPLICIT_ACCEPT = "implicit_accept"   # user-action implies endorsement (consent approved, action allowed to stand)
+KIND_IMPLICIT_REJECT = "implicit_reject"   # user-action implies rejection (consent rejected, action undone, notification dismissed)
 
-VALID_KINDS = {KIND_THUMBS, KIND_EDIT, KIND_PREFERENCE}
+VALID_KINDS = {
+    KIND_THUMBS, KIND_EDIT, KIND_PREFERENCE,
+    KIND_IMPLICIT_ACCEPT, KIND_IMPLICIT_REJECT,
+}
+
+# Operator-action signal vocabulary. Each maps to one of the implicit
+# kinds above; the `signal` is preserved on the entry's `value` so the
+# proposer / validators can tell *what kind* of implicit signal it was
+# (a quick approval is weaker evidence than a manual undo, etc.).
+_IMPLICIT_REJECT_SIGNALS = {
+    "consent_rejected",         # operator rejected a Social-emitted consent request
+    "action_undone",            # operator manually reversed a Motor action
+    "notification_dismissed",   # operator dismissed a notify without engaging
+    "agent_output_discarded",   # operator threw away an agent_flow draft
+}
+_IMPLICIT_ACCEPT_SIGNALS = {
+    "consent_approved",         # operator approved a Social-emitted consent request
+    "action_let_stand",         # operator saw the Motor action and didn't undo it within the grace window
+    "notification_engaged",     # operator clicked through / acted on a notify
+    "agent_output_accepted",    # operator used an agent_flow draft as-is
+}
+
+
+def record_implicit_signal(
+    target_id: str,
+    signal:    str,
+    *,
+    context: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Append an implicit feedback signal to the alignment log.
+
+    Implicit signals are derived from operator actions on the running
+    system rather than from explicit thumbs / edits. The `signal` value
+    is one of the controlled vocabulary in `_IMPLICIT_*_SIGNALS` and is
+    used to decide whether the entry is recorded as an `implicit_accept`
+    or `implicit_reject`.
+
+    The optimization strategies and the `recent_thumbs_down` validator
+    weight implicit signals lower than explicit ones (noisier — an
+    operator dismissing a notification doesn't necessarily mean "I hate
+    this kind of notification") but they still count.
+    """
+    if signal in _IMPLICIT_REJECT_SIGNALS:
+        kind = KIND_IMPLICIT_REJECT
+    elif signal in _IMPLICIT_ACCEPT_SIGNALS:
+        kind = KIND_IMPLICIT_ACCEPT
+    else:
+        raise ValueError(
+            f"unknown implicit signal {signal!r}; expected one of "
+            f"{sorted(_IMPLICIT_REJECT_SIGNALS | _IMPLICIT_ACCEPT_SIGNALS)}"
+        )
+    return record_feedback(target_id, kind, value=signal, context=context)
 
 
 def record_feedback(
@@ -299,12 +352,18 @@ def _candidate_capability(candidate: Dict[str, Any]) -> Optional[str]:
 
 
 def _validator_recent_thumbs_down(candidate: Dict[str, Any]) -> Verdict:
-    """Veto if the candidate's capability has accumulated recent thumbs-down.
+    """Veto if the candidate's capability has accumulated recent negative
+    user signal — explicit thumbs-down or implicit rejections.
 
     Skipped for `constitution_rule_add` candidates — banning a capability
     *aligns* with thumbs-down signal rather than contradicting it.
     Still applied to `constitution_rule_remove` (un-banning a downvoted
     capability would override the user signal) and to actuation kinds.
+
+    Weighting: each explicit thumbs-down counts 1.0; each implicit
+    rejection counts 0.5 (noisier — operator dismissing a single
+    notification isn't as strong as them explicitly thumbs-downing it).
+    Veto fires at >= 3.0 weighted negative signals.
     """
     if str(candidate.get("kind") or "") == "constitution_rule_add":
         return Verdict("pass",
@@ -313,17 +372,28 @@ def _validator_recent_thumbs_down(candidate: Dict[str, Any]) -> Verdict:
     cap = _candidate_capability(candidate)
     if not cap:
         return Verdict("pass", "no capability to check", "recent_thumbs_down")
-    sigs = list_feedback(kind=KIND_THUMBS, limit=200)
-    downs = sum(
+
+    sigs = read_jsonl(_SIGNALS_FILE)
+    explicit = sum(
         1 for s in sigs
-        if s.get("value") == "down"
+        if s.get("kind") == KIND_THUMBS
+        and s.get("value") == "down"
         and (s.get("context") or {}).get("capability") == cap
     )
-    if downs >= 3:
+    implicit = sum(
+        1 for s in sigs
+        if s.get("kind") == KIND_IMPLICIT_REJECT
+        and (s.get("context") or {}).get("capability") == cap
+    )
+    weighted = float(explicit) + 0.5 * float(implicit)
+    if weighted >= 3.0:
         return Verdict("veto",
-                       f"{downs} recent thumbs-down on capability '{cap}'",
+                       f"{explicit} thumbs-down + {implicit} implicit rejections on '{cap}' "
+                       f"(weighted={weighted:.1f})",
                        "recent_thumbs_down")
-    return Verdict("pass", "no concerning thumbs trail", "recent_thumbs_down")
+    return Verdict("pass",
+                   f"weighted negative signal {weighted:.1f} below threshold",
+                   "recent_thumbs_down")
 
 
 def _validator_constitution_check(candidate: Dict[str, Any]) -> Verdict:
