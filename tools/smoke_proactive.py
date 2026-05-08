@@ -230,22 +230,42 @@ def _smoke_vertical_slice_agent_flow(verbose: bool) -> None:
             text = "NONE"
         return {"request": prompt, "response": {"content": text, "content_type": "str"}}
 
-    transforms = [(i, n) for i, n in enumerate(wf.nodes) if n.type == "transform_flow"]
+    from nodes import NodeExecutionContext, create_node
+    import asyncio as _asyncio
+
+    pipeline = [(i, n) for i, n in enumerate(wf.nodes) if n.type in _PIPELINE_FLOW_TYPES]
     variables: Dict[str, Any] = {}
 
     for tick in range(1, 6):
         data: Any = {"event_type": "tick", "tick": tick}
-        for idx, node in transforms:
-            ns = {"input": data, "variables": variables, "context": None, "output": None}
+        for idx, node in pipeline:
+            node_name = (node.extra or {}).get("name") or node.type
             try:
-                _engine_exec(node.script, ns)
+                if node.type == "transform_flow":
+                    ns = {"input": data, "variables": variables, "context": None, "output": None}
+                    _engine_exec(node.script, ns)
+                    data = ns["output"]
+                else:
+                    wf_node = create_node(node)
+                    ctx     = NodeExecutionContext()
+                    ctx.variables  = variables
+                    ctx.node_index = idx
+                    ctx.inputs = {"input": data}
+                    for fname in type(node).model_fields:
+                        if fname in ("type", "extra", "flow_in", "flow_out", "input"):
+                            continue
+                        val = getattr(node, fname, None)
+                        if val is not None:
+                            ctx.inputs[fname] = val
+                    res = _asyncio.run(wf_node.execute(ctx))
+                    if not res.success:
+                        raise RuntimeError(res.error or "unknown")
+                    data = res.outputs.get("output")
             except Exception as exc:
-                node_name = (node.extra or {}).get("name") or node.type
                 raise RuntimeError(
                     f"agent-flow slice node[{idx}] {node_name!r} failed: "
                     f"{type(exc).__name__}: {exc}"
                 ) from exc
-            data = ns["output"]
             # Inject synthetic agent reply between Build Prompt and Parse Response.
             if idx == build_idx:
                 data = _synthesise_agent_reply(data if isinstance(data, str) else "")
