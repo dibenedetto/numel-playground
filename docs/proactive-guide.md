@@ -645,7 +645,39 @@ flowchart LR
 
 > M5.4–M5.6 doesn't add new entry points beyond `/agents/*` — the unification is on the *invocation side*. Local `agent_flow` calls, remote `agent_endpoint_flow` calls, and A2A `send` / `share_state` all share `proactive.agents.call_agent`, which dispatches to `mcp.call_tool`. Per-stage details: M5.4 = `agent.<alias>` for local agents, M5.5 = `agent.endpoint.<alias>.<mode>` for remote endpoints with mode-specific scopes, M5.6 = `a2a.<peer>.<verb>` for federation with `tier:<tier>` as a scope. `register_agent_handler` is Python-only (handlers aren't JSON-serialisable); registration happens automatically when a workflow loads (M5.4 / M5.5) or a peer is registered (M5.6).
 
-### 9.5 Glossary
+### 9.5 Configuration overlay (M5.9)
+
+Most operator-tunable knobs in the proactive stack live as in-code defaults *and* as paths in a JSON overlay file at `state_dir()/proactive_config.json`. The overlay wins when set; the in-code default wins when silent. Reference catalogue: [`app/proactive/config.example.json`](../app/proactive/config.example.json) (every path with its default value) — copy into `state_dir()`, drop the keys you don't want to override, edit the rest.
+
+Discovery: `POST /proactive/config` returns the live overrides + the catalogue of paths the modules consult. Set: `POST /proactive/config/set {path, value}`. Clear: `POST /proactive/config/clear {path?}` (omit `path` to clear everything).
+
+| Path | Default | What it controls |
+|---|---|---|
+| `optimization.deny_rate_threshold` | `0.50` | `tighten_governor` proposes a hard ban once a capability's deny-rate ≥ this |
+| `optimization.deny_min_samples` | `4` | Minimum total verdicts before deny-rate is meaningful |
+| `optimization.quarantine_failure_floor` | `5` | `prune_quarantine` promotes a quarantine to a hard ban after this many failures |
+| `optimization.thumbs_up_to_relax` | `3` | `relax_constitution` proposes removing a `never` rule after this much weighted positive signal |
+| `evolution.implicit_weight` | `0.5` | Multiplier for implicit feedback signals when summed against explicit thumbs (0.5 = "half a thumb") |
+| `evolution.thumbs_down_veto_threshold` | `3.0` | `recent_thumbs_down` validator vetoes when weighted negative signal ≥ this |
+| `llm_proposer.alias` | `"evolution_proposer"` | Capability alias for the LLM-backed proposer (cap_name = `agent.<alias>`) |
+| `llm_proposer.ledger_limit` | `50` | Most-recent N Ledger entries to summarise into the proposer prompt |
+| `llm_proposer.feedback_limit` | `30` | Most-recent N feedback signals to summarise |
+| `llm_proposer.model.source` | `"ollama"` | Endpoint family for the auto-registered proposer handler — `ollama` / `openai` / `anthropic` |
+| `llm_proposer.model.name` | `"llama3"` | Model id at the chosen endpoint |
+| `llm_proposer.model.base_url` | per-source default | Override the endpoint URL — useful for self-hosted vLLM, Azure OpenAI, custom proxies |
+| `llm_proposer.model.api_key_env` | per-source default | Environment variable holding the bearer / x-api-key token |
+| `transports.default_scopes` | `["external-network", "spends-money"]` | Scopes applied to a `register_transport()` call when the caller doesn't pass scopes explicitly |
+| `agents.default_scopes.local` | `["llm"]` | Default scopes for `register_agent_handler(kind=KIND_LOCAL)` |
+| `agents.default_scopes.endpoint` | `["external-network", "delegates-authority"]` | Default scopes for `register_agent_handler(kind=KIND_ENDPOINT)` |
+| `agents.default_scopes.a2a` | `["external-network"]` | Default scopes for `register_agent_handler(kind=KIND_A2A)` |
+
+**Auto-registered LLM proposer.** Setting `llm_proposer.model.*` is enough — `ensure_default_proposer()` lazily registers a transport-backed handler so the operator gets the LLM proposer without writing Python. To use a custom handler instead (e.g. an Agno-backed agent with tools), call `proactive.agents.register_agent_handler(<llm_proposer.alias>, <handler>, kind=KIND_LOCAL)` before any `propose()` call — `ensure_default_proposer` skips when an alias is already registered.
+
+**Prompts** live as plain text under `app/proactive/prompts/` (package-shipped defaults) with optional per-state-dir overrides at `state_dir()/prompts/<name>.txt`. Today the only prompt is `evolution_proposer.txt`; future LLM-backed Substrate components (Veracity scorer, Capability classifier, etc.) will follow the same pattern.
+
+**What's NOT operator-tunable (intentional)**: the regex pattern lists in `middleware.py` (`_SUSPICION_PATTERNS`, `_PRIVACY_PATTERNS`, `_INJECTION_MARKERS`). Those are security primitives — making them runtime-configurable means a misconfigured overlay could silently disable PII redaction. Changes go through code review.
+
+### 9.6 Glossary
 
 | Term | Meaning |
 |---|---|
@@ -660,7 +692,7 @@ flowchart LR
 | **Verdict** | An alignment-validator result: accept / veto / abstain (+ reason). |
 | **Why-chain** | The full reasoning trace attached to a Ledger entry. |
 
-### 9.6 How this guide relates to the other proactive docs
+### 9.7 How this guide relates to the other proactive docs
 
 - **[docs/proactive.md](proactive.md)** — *what* the system is and *why* it's shaped this way (conceptual blueprint).
 - **[docs/proactive-technical.md](proactive-technical.md)** — *exhaustive* engineer-facing spec (every API, every persistence file, every endpoint).

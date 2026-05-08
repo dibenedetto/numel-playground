@@ -264,6 +264,36 @@ This commit closes M5.1 — Numel can now be discovered as an MCP server (with s
 
 This commit closes **Phase 5 — External integrations**. Numel can now (a) advertise its capabilities via MCP and consume peers' tools (M5.1), (b) federate with other systems through three trust tiers with adversarial-gated inbound and privacy-gated outbound (M5.2), and (c) bridge external LLMs (OpenAI-compatible + Claude) as first-class capabilities subject to the same Substrate gates (M5.3).
 
+### Proactive System — Phase 5 (M5.9: proactive_config.json overlay + prompt files)
+
+The proactive stack used to scatter magic numbers, default lists, and an LLM system prompt as in-code constants — operators couldn't tune any of it without patching code. M5.9 adds a single overlay file (`state_dir()/proactive_config.json`) plus a prompts directory (`state_dir()/prompts/<name>.txt`) that can override any registered tunable. In-code defaults are preserved so a developer reading `_DENY_RATE_THRESHOLD = 0.50` still knows the safe baseline; an operator who wants to tighten doesn't need to ship new code.
+
+**Stage 1 — config overlay + Optimization tunables ([`0f95bd6`](https://github.com/dibenedetto/numel-playground/commit/0f95bd6))**
+
+- New `app/proactive/config.py`: `cfg(path, default)` resolves a single dotted-path tunable; `get_overrides()` / `set_override(path, value)` / `clear_override(path?)` for round-trip; `list_known_paths()` for discovery.
+- Tunables converted (defaults preserved): `optimization.deny_rate_threshold`, `.deny_min_samples`, `.quarantine_failure_floor`, `.thumbs_up_to_relax`, `evolution.implicit_weight`, `evolution.thumbs_down_veto_threshold`.
+- HTTP: `POST /proactive/config` (inspect overlay + known paths), `POST /proactive/config/set` (persist), `POST /proactive/config/clear` (reset one path or all).
+- Smoke: tighten `deny_rate_threshold` to 1.01 and prove the strategy stops proposing; bump `evolution.implicit_weight` to 1.0 and verify the relax candidate's `weighted_pos` doubles; lower the veto threshold to 1.0 and verify a single explicit thumbs-down vetoes.
+
+**Stage 2 — LLM proposer + prompt + scope defaults ([`4028ee1`](https://github.com/dibenedetto/numel-playground/commit/4028ee1))**
+
+- LLM proposer alias / window sizes / prompt all read through `proactive.config` now (defaults match the previous in-code constants). The hardcoded prompt string moves to `app/proactive/prompts/evolution_proposer.txt`; in-code `_LLM_PROMPT_FALLBACK` kept as last-resort.
+- New `_resolve_proposer_model()`: maps `llm_proposer.model.source ∈ {ollama, openai, anthropic}` to a transport spec, with per-source `base_url` + `api_key_env` defaults that the operator can override (e.g. `source=openai` + `base_url=http://my-vllm:8000/v1` for self-hosted vLLM behind a custom URL).
+- New `ensure_default_proposer(*, dry_run=False)`: idempotent helper that auto-registers a transport-backed handler from the resolved model spec when no operator-supplied handler exists. Operators get the LLM proposer "for free" by editing `proactive_config.json` — no Python required.
+- `register_transport` / `register_agent_handler` resolve their default scopes through `cfg("transports.default_scopes", …)` / `cfg("agents.default_scopes.<kind>", …)` when the caller doesn't pass scopes explicitly.
+- New `app/proactive/config.py.load_prompt(name, *, default)`: resolves `state_dir()/prompts/<name>.txt` (operator overlay) → `app/proactive/prompts/<name>.txt` (package default) → fallback string.
+- New `app/proactive/config.example.json`: reference catalogue showing every tunable with its default value, each block carrying a `_comment` field. Operators copy it into `state_dir()` and remove keys they don't want to override.
+- New `app/proactive/prompts/evolution_proposer.txt`: default LLM proposer system prompt, plain text (no Python escape gymnastics).
+
+**Stage 3 — docs + changelog (this commit)**
+
+- `docs/proactive-guide.md` §9.5 (new): "Configuration overlay" — full table of every tunable (path, default, what it controls), discovery instructions, and the explicit "what's NOT operator-tunable" note (regex pattern lists in middleware.py stay as code — operators changing them silently could disable PII redaction).
+- Existing §9.5 (Glossary) → §9.6, §9.6 → §9.7.
+
+**Architectural note**: this is a hybrid pattern, not full externalisation. Defaults stay in code (so reading the source is enough to understand the safe baseline) but every operator-relevant knob is overridable without redeployment. Security-sensitive primitives (PII regexes, injection markers) stay in code on purpose — runtime-configurable security defaults are an attack surface.
+
+13/13 in-process + integration smoke pass throughout.
+
 ### Proactive System — Phase 5 (M5.8: implicit feedback + LLM-backed Evolution proposer)
 
 The Evolution loop used to learn only from explicit thumbs and three hardcoded strategies. M5.8 closes the two gaps that mattered most without compromising the auditable-by-default architecture: the system now also learns from operator actions on the running system (implicit feedback), and operators can plug in an LLM agent that proposes Constitution rule changes from raw activity (LLM proposer). Both stages keep every decision in the same Why-chain — no black-box policy networks.
