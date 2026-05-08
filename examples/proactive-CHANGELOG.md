@@ -264,6 +264,29 @@ This commit closes M5.1 — Numel can now be discovered as an MCP server (with s
 
 This commit closes **Phase 5 — External integrations**. Numel can now (a) advertise its capabilities via MCP and consume peers' tools (M5.1), (b) federate with other systems through three trust tiers with adversarial-gated inbound and privacy-gated outbound (M5.2), and (c) bridge external LLMs (OpenAI-compatible + Claude) as first-class capabilities subject to the same Substrate gates (M5.3).
 
+### `examples/proactive-vertical-slice-agent-flow.json` — canonical M5.4 demo
+
+A third variant of the vertical slice — same Substrate scaffold (Sensor → Sensory → Middleware → World Model → Goals → Capabilities → Governor → Motor → Social → Ledger → Vitals), but the Conscious decision is now a real **`agent_flow`** node instead of a `transform_flow` calling an LLM bridge. This is the canonical pattern post-M5.4: the agent_flow auto-registers as `agent.<id>` in the Capability Registry and the Substrate gate chain (Adversarial → Alignment → handler → Privacy) wraps every turn automatically.
+
+Three vertical-slice variants now ship:
+
+| Variant | Conscious is… | Needs a real model? |
+|---|---|---|
+| `proactive-vertical-slice.json` | hand-coded heuristics | no |
+| `proactive-vertical-slice-agent-flow.json` *(new)* | `agent_flow` node | **yes** (Ollama / llama3 by default) |
+| `proactive-vertical-slice-agentic.json` | `transform_flow + transports.call_transport(dry_run=True)` | no — offline / dry-run |
+
+How the new slice works:
+
+- **Conscious** in the new slice is split into three nodes that surround a real `agent_flow`:
+  1. **`Conscious: Build Prompt`** (transform_flow) — assembles the per-observation user message (Subject / Sender / Summary), stashes the full envelope in `variables["__conscious_env__"]` so the post-agent transform can recover it, emits the prompt as a string.
+  2. **`Conscious: Agent`** (agent_flow) — wired to `agent_config` ← (`model_config`, `agent_options_config`). The system prompt lives on `agent_options_config.instructions`: *"Reply with EXACTLY one token: TRANSFER, NOTIFY, or NONE. No prose, no punctuation, no explanation."*
+  3. **`Conscious: Parse Response`** (transform_flow) — pops the stashed envelope, reads the agent's `{request, response: {content}}` output, maps the reply to a structured `intent`, records the agent's raw text in `provenance` for audit. Same downstream shape as the deterministic / transport-based slices, so Goal Hierarchy / Capability Registry / Governor / Motor / Social / Ledger / Vitals keep working without changes.
+- **Config island** added to the graph — `model_config` (source=ollama, name=llama3), `agent_options_config` (the three-line system prompt above), `agent_config`. To swap models, edit one node. To add tools / memory / knowledge: wire them into `agent_config` exactly as in `docs/tutorial-06-agent.json`.
+- **Smoke check** — `Phase 5 · vertical slice (agent_flow)` added to `tools/smoke_proactive.py`. Drives all transforms through five fixture observations exactly as the deterministic slice does, but injects a synthetic agent reply between Build Prompt and Parse Response (TRANSFER / NOTIFY / NONE based on subject keywords) so the slice can be validated end-to-end without spinning up a real model. Asserts the same final counts as the deterministic vertical slice (1 action executed, 1 pending consent, decisions={allow:1, consent_required:1}) plus that `conscious_anticipate_agent_flow` provenance was recorded with both TRANSFER and NOTIFY decisions. **All 13 in-process + integration smoke checks pass.**
+- **Linter** — `tools/lint_transforms.py` clean on the new slice (no recursive defs, no helper-to-helper calls, no captures, no comprehension leaks).
+- **Doc updates** — `docs/proactive-guide.md` reference-workflow note now lists all three slices side-by-side with their trade-offs; §9.1 file inventory adds the new example.
+
 ### Migration guidance: prefer `agent_flow` over `transform_flow + call_transport`
 
 Audit + repositioning, no behaviour changes. Now that M5.4 makes `agent_flow` a first-class gated Capability, the previous workaround (a `transform_flow` calling `proactive.transports.call_transport(...)` because `agent_flow` couldn't be gated) has a cleaner replacement: just wire an `agent_flow` node directly. The Capability Registry, Governor, and audit log treat it identically to a transport bridge but you also get Agno's full feature set (tools / memory / knowledge / multimodal).

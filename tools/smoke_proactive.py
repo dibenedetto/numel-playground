@@ -144,6 +144,96 @@ def _smoke_vertical_slice(verbose: bool) -> None:
         print(f"  decisions:        {decision}")
 
 
+def _smoke_vertical_slice_agent_flow(verbose: bool) -> None:
+    """M5.4 agent_flow variant of the vertical slice. Same pipeline as the
+    deterministic vertical slice except the Conscious decision is split
+    into Build Prompt -> agent_flow -> Parse Response. We can't actually
+    run the agent_flow node (needs a real model backend), so the smoke
+    injects a deterministic agent reply between the two transforms based
+    on the observation's subject — same end shape as if a real model had
+    classified it. Validates: parse + link, both transforms exec under
+    engine semantics, the env round-trips through variables[__conscious_env__],
+    and the resulting motor / governor / vitals counts match the
+    deterministic vertical slice exactly."""
+    from schema import Workflow
+
+    path = _REPO_ROOT / "examples" / "proactive-vertical-slice-agent-flow.json"
+    wf   = Workflow.model_validate(json.loads(path.read_text(encoding="utf-8")))
+    wf.link()
+
+    # Find the Conscious nodes by display name.
+    nodes_by_name = {(n.extra or {}).get("name"): (i, n) for i, n in enumerate(wf.nodes)}
+    build_idx, build_node  = nodes_by_name["Conscious: Build Prompt"]
+    parse_idx, parse_node  = nodes_by_name["Conscious: Parse Response"]
+
+    # Run all transforms, injecting a synthetic agent reply at the
+    # build/parse boundary. The reply is a function of the prompt so
+    # different observations get different "decisions" — TRANSFER if the
+    # subject mentions transfer/wire/urgent, NOTIFY if calendar/meeting/
+    # reminder, NONE otherwise. Same heuristic used by the agentic
+    # transport-based slice in DRY_RUN.
+    def _synthesise_agent_reply(prompt: str) -> Dict[str, Any]:
+        lo = prompt.lower()
+        if "transfer" in lo or "wire" in lo or "urgent" in lo:
+            text = "TRANSFER"
+        elif "calendar" in lo or "meeting" in lo or "reminder" in lo:
+            text = "NOTIFY"
+        else:
+            text = "NONE"
+        return {"request": prompt, "response": {"content": text, "content_type": "str"}}
+
+    transforms = [(i, n) for i, n in enumerate(wf.nodes) if n.type == "transform_flow"]
+    variables: Dict[str, Any] = {}
+
+    for tick in range(1, 6):
+        data: Any = {"event_type": "tick", "tick": tick}
+        for idx, node in transforms:
+            ns = {"input": data, "variables": variables, "context": None, "output": None}
+            try:
+                _engine_exec(node.script, ns)
+            except Exception as exc:
+                node_name = (node.extra or {}).get("name") or node.type
+                raise RuntimeError(
+                    f"agent-flow slice node[{idx}] {node_name!r} failed: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
+            data = ns["output"]
+            # Inject synthetic agent reply between Build Prompt and Parse Response.
+            if idx == build_idx:
+                data = _synthesise_agent_reply(data if isinstance(data, str) else "")
+
+    actions  = variables.get("actions") or []
+    pending  = variables.get("pending_consents") or []
+    motor    = variables["vitals"]["motor_status_counts"]
+    decision = variables["vitals"]["governor_decisions"]
+    # Same expected counts as the deterministic vertical slice — five
+    # ticks, fixture #3 hits TRANSFER (high-stake -> consent_required),
+    # fixture #4 hits NOTIFY (low-stake -> allow).
+    assert len(actions) == 1,                  f"agent-flow: expected 1 action executed, got {len(actions)}"
+    assert len(pending) == 1,                  f"agent-flow: expected 1 pending consent, got {len(pending)}"
+    assert motor.get("executed") == 1,         f"agent-flow: motor.executed != 1: {motor}"
+    assert motor.get("deferred_to_social") == 1, f"agent-flow: motor.deferred_to_social != 1: {motor}"
+    assert decision.get("allow") == 1 and decision.get("consent_required") == 1, \
+        f"agent-flow: decisions {decision} != {{allow:1, consent_required:1}}"
+    # Provenance from the agent_flow stage is recorded with the agent's
+    # raw text so operators can audit what the model "said".
+    last_action_entries = [e for e in variables["ledger"]
+                           if (e.get("trigger") or {}).get("topic") == "core.motor.action_attempt"]
+    af_provs = [p for entry in last_action_entries for p in (entry.get("provenance") or [])
+                if p.get("stage") == "conscious_anticipate_agent_flow"]
+    assert af_provs, "agent-flow: no conscious_anticipate_agent_flow provenance found"
+    assert any(p.get("emitted_intent") == "core.transfer_funds" for p in af_provs), \
+        "agent-flow: no TRANSFER intent recorded in provenance"
+    assert any(p.get("emitted_intent") == "core.notify" for p in af_provs), \
+        "agent-flow: no NOTIFY intent recorded in provenance"
+
+    if verbose:
+        print(f"  actions executed: {len(actions)}  pending consents: {len(pending)}")
+        print(f"  motor states:     {motor}")
+        print(f"  decisions:        {decision}")
+        print(f"  agent provenance: {[p['emitted_intent'] for p in af_provs]}")
+
+
 def _smoke_persistent(verbose: bool) -> None:
     """Phase 3 — exercise persistence + middleware + governor + quarantine.
     Resets state before and after to keep the smoke deterministic."""
@@ -1416,6 +1506,7 @@ _INPROC_TESTS = [
     ("Phase 1 · substrate stub",       _smoke_substrate_stub),
     ("Phase 1 · sensory slice",        _smoke_sensory_slice),
     ("Phase 2 · vertical slice",       _smoke_vertical_slice),
+    ("Phase 5 · vertical slice (agent_flow)", _smoke_vertical_slice_agent_flow),
     ("Phase 3 · persistent stack",     _smoke_persistent),
     ("Phase 4 · alignment layer",      _smoke_alignment),
     ("Phase 4 · optimization sandbox", _smoke_optimization),

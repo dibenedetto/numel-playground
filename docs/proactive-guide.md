@@ -273,7 +273,11 @@ Layers are where the agent's "personality" lives. They are deliberately thin —
 | **Motor** | Acts. Reads candidates the Governor has approved, invokes the matching capability, writes the result back. | Output: `kind="motor_status"`, payload `{"status": "executed"\|"errored", "result": ..., "error": ...}`. |
 | **Social** | Negotiates. Holds consent inboxes, manages dialogues, asks the operator before high-stakes actions. | Output: `kind="consent_request"` or `kind="dialogue"`. Persists pending requests to `consent_requests.json`. |
 
-> The reference workflow that demonstrates all four is `examples/proactive-vertical-slice.json` (deterministic). For the LLM-backed variant, the canonical pattern post-M5.4 is to wire an `agent_flow` node into the Conscious slot — gating is automatic and you get full Agno features (tools, memory, knowledge, multimodal) for free. `examples/proactive-vertical-slice-agentic.json` predates M5.4 and uses the legacy pattern (`transform_flow` calling `transports.call_transport(..., dry_run=True)`); it remains useful as the **offline / dry-run** variant since `agent_flow` requires a real model backend to run.
+> Three reference workflows demonstrate the four-layer pipeline:
+>
+> - **`examples/proactive-vertical-slice.json`** — deterministic Conscious. Hand-coded heuristics, no LLM required.
+> - **`examples/proactive-vertical-slice-agent-flow.json`** — **canonical M5.4 variant.** Conscious is a real `agent_flow` node wired to `agent_config` + `model_config` + `agent_options_config`. The agent_flow auto-registers as `agent.<id>` in the Capability Registry and runs through the Substrate gate chain automatically. Requires a real model backend (defaults to Ollama with `llama3`); swap models by editing the `model_config` node. Get full Agno features (tools, memory, knowledge, multimodal) for free.
+> - **`examples/proactive-vertical-slice-agentic.json`** — predates M5.4. Conscious is a `transform_flow` calling `transports.call_transport(..., dry_run=True)`. **Offline / dry-run variant** — useful when you don't have a model backend running. Kept for that purpose.
 
 ---
 
@@ -499,7 +503,8 @@ Click any Ledger row in the **Vitals** sidebar to see one of these entries prett
 | `examples/proactive-substrate-persistent.json` | Substrate stub with disk persistence |
 | `examples/proactive-sensory-slice.json` | Sensory layer + Substrate |
 | `examples/proactive-vertical-slice.json` | All four layers, deterministic Conscious |
-| `examples/proactive-vertical-slice-agentic.json` | All four layers, LLM-backed Conscious via transport bridge |
+| `examples/proactive-vertical-slice-agent-flow.json` | All four layers, M5.4 canonical — Conscious is an `agent_flow` node + AgentConfig (Ollama / llama3 by default) |
+| `examples/proactive-vertical-slice-agentic.json` | All four layers, offline / dry-run variant — Conscious is a transform calling `transports.call_transport` |
 | `tools/lint_transforms.py` | AST linter for `transform_flow` script hazards |
 | `tools/smoke_proactive.py` | 11-check smoke suite (in-process + integration) |
 | `tools/git-hooks/pre-commit` | Runs the linter on staged transforms |
