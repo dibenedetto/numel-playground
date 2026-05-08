@@ -2164,6 +2164,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			'Event Sources'  : '#a0522d',  // Sienna
 			'Interactive'    : '#c06050',  // Coral red
 			'Tutorial'       : '#d4882a',  // Amber
+			'Proactive'      : '#1d3557',  // Substrate deep blue (matches docs/proactive-architecture.md)
 			'Miscellanea'    : '#606070',  // Cool gray
 		});
 
