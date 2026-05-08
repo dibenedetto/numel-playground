@@ -264,6 +264,41 @@ This commit closes M5.1 — Numel can now be discovered as an MCP server (with s
 
 This commit closes **Phase 5 — External integrations**. Numel can now (a) advertise its capabilities via MCP and consume peers' tools (M5.1), (b) federate with other systems through three trust tiers with adversarial-gated inbound and privacy-gated outbound (M5.2), and (c) bridge external LLMs (OpenAI-compatible + Claude) as first-class capabilities subject to the same Substrate gates (M5.3).
 
+### Proactive System — Phase 5 (M5.8: implicit feedback + LLM-backed Evolution proposer)
+
+The Evolution loop used to learn only from explicit thumbs and three hardcoded strategies. M5.8 closes the two gaps that mattered most without compromising the auditable-by-default architecture: the system now also learns from operator actions on the running system (implicit feedback), and operators can plug in an LLM agent that proposes Constitution rule changes from raw activity (LLM proposer). Both stages keep every decision in the same Why-chain — no black-box policy networks.
+
+**Stage A — implicit feedback ([`b05f258`](https://github.com/dibenedetto/numel-playground/commit/b05f258))**
+
+- `app/proactive/evolution.py`:
+  - Two new feedback kinds: `KIND_IMPLICIT_ACCEPT`, `KIND_IMPLICIT_REJECT`.
+  - Controlled signal vocabulary: reject signals = `{consent_rejected, action_undone, notification_dismissed, agent_output_discarded}`; accept signals = `{consent_approved, action_let_stand, notification_engaged, agent_output_accepted}`. The signal name is preserved on the entry so downstream layers can tell *what kind* of implicit signal it was.
+  - `record_implicit_signal(target_id, signal, *, context)` helper routes a signal to the right kind; raises `ValueError` for unknown vocabulary.
+  - `_validator_recent_thumbs_down` now counts implicit_reject at weight 0.5 alongside explicit thumbs-down at 1.0; veto fires at weighted sum ≥ 3.0 (was: ≥ 3 explicit downs only).
+- `app/proactive/optimization.py`:
+  - New `_per_cap_signals` aggregates per-capability pos/neg weights across both explicit thumbs and implicit signals.
+  - `strategy_relax_constitution` rewritten to use the weighted positive signal: a banned capability can now relax from a mix of explicit thumbs-up and implicit acceptance, with the candidate's `evidence` dict breaking down the components.
+- `app/api.py`:
+  - `POST /proactive/feedback/implicit` — generic record-implicit endpoint (`{target_id, signal, context?}`).
+  - `POST /proactive/motor/undo` — convenience wrapper that records an `action_undone` signal against an action id (and optionally tags the underlying capability so the proposer can learn from manual reversals).
+
+**Stage B — LLM-backed proposer ([`97b25e5`](https://github.com/dibenedetto/numel-playground/commit/97b25e5))**
+
+- `app/proactive/optimization.py`:
+  - `LLM_PROPOSER_ALIAS = "evolution_proposer"`. `llm_proposer_registered()` checks for `agent.evolution_proposer` in the Capability Registry (operator opts in by registering a handler).
+  - `strategy_llm_propose(ledger, signals, *, alias)` assembles a deterministic prompt (recent ledger summary + recent feedback + current Constitution), routes through M5.4's `proactive.agents.call_agent`, parses the JSON response, returns Constitution rule candidates indistinguishable from heuristic ones to the rest of the pipeline.
+  - `propose_from_state()` calls the LLM strategy at the end. Clean no-op when no proposer is registered.
+  - **Hallucination guard**: `allowed_targets = capabilities.json keys ∪ Ledger-seen capability names ∪ Constitution-rule targets`. Proposals against unknown targets are dropped silently (the raw response is preserved on the agent's audit log). Lets the LLM act on real activity but stops it inventing capability names.
+  - **Prose-tolerant parser**: extracts the first balanced JSON object from the LLM's response, so leading/trailing prose ("Here's my analysis: …") doesn't break parsing.
+- `app/api.py`:
+  - `POST /proactive/evolution/proposer` — status endpoint (registered? alias? cap_name?). Registration is Python-only because handlers aren't JSON-serialisable.
+
+**Architectural note**: the LLM is one validator/strategy among many, not the system's policy. It produces a Constitution rule candidate that flows through the same `simulate → run_alignment → promote` pipeline as a heuristic candidate. A bad LLM proposal is vetoed by the existing validators (recent_thumbs_down, constitution_check); a good one becomes a declarative JSON rule that the operator can read and edit. Compare to a learned policy network, which would need a parallel infrastructure for explainability that doesn't currently exist.
+
+**Bug fix bundled with M5.8-B**: subprocess pipe-drain deadlock. The integration smoke piped stdout/stderr but never read them, so once Uvicorn's access log filled the ~64KB OS pipe buffer the worker blocked mid-response — surfaced as a client-side `TimeoutError`. Both pipes now drain to background-thread bytearrays; the captured stderr tail still surfaces in the premature-exit error path.
+
+13/13 in-process + integration smoke pass.
+
 ### Proactive System — Phase 5 (M5.7: Substrate primitives as first-class flow nodes)
 
 The proactive workflows used to be ~80% `transform_flow` scripts that called `proactive.*` APIs. That defeated the visual-workflow point of the graph: anyone reading the JSON had to expand 11+ tiny Python adapters to understand what the slice did. **M5.7 promotes every Substrate primitive to its own `FlowType` + `WFFlowType`**, so workflows now compose typed nodes the operator can drag-and-drop.
