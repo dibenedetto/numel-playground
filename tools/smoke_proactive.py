@@ -610,6 +610,57 @@ def _smoke_optimization(verbose: bool) -> None:
     assert relax_cand["evidence"]["implicit_accept"] == 6
     assert relax_cand["evidence"]["weighted_pos"]    >= 3.0
 
+    # M5.8-B — LLM-backed proposer. Without a registered
+    # agent.evolution_proposer the strategy is a no-op.
+    assert opt.llm_proposer_registered() is False, \
+        "no proposer should be registered yet"
+    cands_no_llm = opt.propose_from_state()
+    assert not any(c["by"] == "llm_propose" for c in cands_no_llm), \
+        "llm_propose strategy must no-op when nothing is registered"
+
+    # Register a stub handler — emits one ban + one relax + one bogus
+    # target the parser must drop. The bogus target tests the
+    # allowed_targets filter (never invent capabilities).
+    from proactive import agents as ag
+    def _stub_proposer(args):
+        prompt = args.get("request", "")
+        # Quick sanity that the prompt was assembled.
+        assert "Recent ledger activity" in prompt, "proposer prompt malformed"
+        assert "Recent feedback"       in prompt
+        assert "Current Constitution"  in prompt
+        # Mix valid + invalid + plain prose around the JSON to test the
+        # parser's tolerance.
+        body = (
+            '{"proposals": ['
+            '{"action": "ban",   "target": "core.bad_actor",     "rationale": "deny rate is 100%"},'
+            '{"action": "relax", "target": "core.legacy",        "rationale": "user keeps overriding"},'
+            '{"action": "ban",   "target": "core.does_not_exist","rationale": "should be dropped"}'
+            ']}'
+        )
+        text = f"Here is my analysis:\n{body}\nDone."
+        return {"content_type": "text", "content": text}
+    ag.register_agent_handler(opt.LLM_PROPOSER_ALIAS, _stub_proposer,
+                                kind=ag.KIND_LOCAL,
+                                description="Stub LLM proposer (smoke)")
+
+    # Without the bogus capability in the registry, the parser must
+    # drop it; the two valid ones must appear.
+    cands_with_llm = opt.propose_from_state()
+    llm_cands = [c for c in cands_with_llm if c["by"] == "llm_propose"]
+    targets   = sorted(c["target"] for c in llm_cands)
+    assert targets == ["core.bad_actor", "core.legacy"], \
+        f"llm_propose targets: expected [bad_actor, legacy], got {targets}"
+
+    ban   = next(c for c in llm_cands if c["target"] == "core.bad_actor")
+    relax = next(c for c in llm_cands if c["target"] == "core.legacy")
+    assert ban["kind"]   == "constitution_rule_add"
+    assert relax["kind"] == "constitution_rule_remove"
+    assert ban["evidence"]["source"]   == "llm_proposer"
+    assert relax["evidence"]["source"] == "llm_proposer"
+    # Cleanup so subsequent smoke runs don't see the stub.
+    ag.drop_agent(opt.LLM_PROPOSER_ALIAS, kind=ag.KIND_LOCAL)
+    assert opt.llm_proposer_registered() is False
+
     # Unsupported candidate kind returns a structured error rather than raising.
     sim_x = opt.simulate_candidate({"kind": "future_thing", "payload": {}})
     assert sim_x["kind"] == "unsupported"
@@ -1329,13 +1380,34 @@ def _smoke_integration(verbose: bool) -> None:
         stdout=subprocess.PIPE, stderr=subprocess.PIPE,
     )
 
+    # Drain stdout / stderr in background threads. Otherwise the
+    # Uvicorn access log eventually fills the OS pipe buffer (~64 KB)
+    # and the FastAPI worker blocks mid-response, looking like a
+    # client-side timeout. Keep the captured tail for the
+    # premature-exit error message.
+    import threading
+    _stderr_buf = bytearray()
+    _stdout_buf = bytearray()
+    def _drain(stream, buf):
+        try:
+            while True:
+                chunk = stream.read(4096)
+                if not chunk:
+                    return
+                buf.extend(chunk)
+        except Exception:
+            return
+    _t_err = threading.Thread(target=_drain, args=(proc.stderr, _stderr_buf), daemon=True)
+    _t_out = threading.Thread(target=_drain, args=(proc.stdout, _stdout_buf), daemon=True)
+    _t_err.start(); _t_out.start()
+
     try:
         url      = f"http://127.0.0.1:{port}"
         deadline = time.time() + 60.0
         ready    = False
         while time.time() < deadline:
             if proc.poll() is not None:
-                stderr = (proc.stderr.read() or b"").decode("utf-8", errors="replace")
+                stderr = bytes(_stderr_buf).decode("utf-8", errors="replace")
                 raise AssertionError(
                     f"app.py exited prematurely (code={proc.returncode}). "
                     f"stderr tail:\n{stderr[-1500:]}"
@@ -1409,6 +1481,31 @@ def _smoke_integration(verbose: bool) -> None:
         assert fb["entry"]["kind"] == "thumbs"
         listed_fb = _post_json(f"{url}/proactive/feedback/list", {"limit": 5})
         assert listed_fb["count"] >= 1 and listed_fb["entries"][0]["target_id"] == "led_3"
+
+        # M5.8-A — implicit feedback endpoints (round-trip + vocabulary guard).
+        imp = _post_json(f"{url}/proactive/feedback/implicit",
+                         {"target_id": "led_3", "signal": "consent_rejected",
+                          "context": {"capability": "core.notify"}})
+        assert imp["entry"]["kind"] == "implicit_reject"
+
+        undo = _post_json(f"{url}/proactive/motor/undo",
+                          {"action_id": "act_42", "capability": "core.notify",
+                           "reason": "operator preview"})
+        assert undo["entry"]["kind"] == "implicit_reject"
+        assert undo["entry"]["context"]["action_id"] == "act_42"
+
+        bad_imp = None
+        try:
+            _post_json(f"{url}/proactive/feedback/implicit",
+                       {"target_id": "led_3", "signal": "not_a_real_signal"})
+        except urllib.error.HTTPError as exc:
+            bad_imp = exc.code
+        assert bad_imp == 400, f"unknown implicit signal must 400, got {bad_imp}"
+
+        # M5.8-B — proposer status (no agent registered in subprocess).
+        prop = _post_json(f"{url}/proactive/evolution/proposer")
+        assert prop["alias"] == "evolution_proposer"
+        assert prop["registered"] is False, f"proposer should be unregistered: {prop}"
 
         cons0 = _post_json(f"{url}/proactive/constitution")
         v0 = cons0.get("version", 0)

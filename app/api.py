@@ -3197,6 +3197,24 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		return {"entry": entry}
 
 
+	@app.post("/proactive/evolution/proposer")
+	async def proactive_evolution_proposer_status(body: Optional[Dict[str, Any]] = None):
+		"""Status of the LLM-backed Evolution proposer (M5.8-B). Returns
+		whether an `agent.evolution_proposer` Capability is registered;
+		registration itself is Python-only (handlers are not
+		JSON-serialisable). To wire one up: from your in-process code,
+		`proactive.agents.register_agent_handler('evolution_proposer',
+		<handler>, kind=KIND_LOCAL)` — typically backed by an Agno agent."""
+		from proactive.optimization import (
+			llm_proposer_registered, LLM_PROPOSER_ALIAS,
+		)
+		return {
+			"alias":      LLM_PROPOSER_ALIAS,
+			"cap_name":   f"agent.{LLM_PROPOSER_ALIAS}",
+			"registered": llm_proposer_registered(),
+		}
+
+
 	@app.post("/proactive/motor/undo")
 	async def proactive_motor_undo(body: Optional[Dict[str, Any]] = None):
 		"""Convenience wrapper — records an `action_undone` implicit-reject

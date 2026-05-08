@@ -309,12 +309,242 @@ def propose_from_state() -> List[Dict[str, Any]]:
     out.extend(strategy_tighten_governor(ledger))
     out.extend(strategy_prune_quarantine(quar))
     out.extend(strategy_relax_constitution(ledger, signals))
+    # M5.8-B — LLM-backed proposer joins the strategy mix when an
+    # `agent.evolution_proposer` Capability is registered (operator
+    # opt-in). When no proposer is registered the call returns []
+    # and the live state is unchanged.
+    out.extend(strategy_llm_propose(ledger, signals))
 
     # Stamp each candidate with a consistent surface for downstream layers.
     now = time.time()
     for c in out:
         c.setdefault("ts", now)
     return out
+
+
+# ============================================================================
+# LLM-backed proposer (M5.8-B)
+# ============================================================================
+
+LLM_PROPOSER_ALIAS  = "evolution_proposer"
+_LLM_PROPOSER_CAP   = "agent.evolution_proposer"   # cap_name = agent.<alias>
+_LLM_LEDGER_LIMIT   = 50    # most-recent N entries to summarise
+_LLM_FEEDBACK_LIMIT = 30
+_LLM_PROMPT_GUARD   = (
+    "You are an Evolution proposer for the Numel proactive system. "
+    "Read the recent system activity below and propose ZERO OR MORE "
+    "Constitution rule changes that would improve safety / alignment. "
+    "Reply with a single JSON object exactly matching this shape:\n"
+    '{"proposals": [{"action": "ban"|"relax", '
+    '"target": "<capability_name>", "rationale": "<one sentence>"}]}\n'
+    "If you have no proposals, reply {\"proposals\": []}. "
+    "Do NOT propose anything outside the visible capability set."
+)
+
+
+def llm_proposer_registered() -> bool:
+    """True when an `agent.evolution_proposer` capability is in the
+    Capability Registry (i.e. an operator has called
+    `proactive.agents.register_agent_handler('evolution_proposer', …)`)."""
+    caps = _persistence.read_json("capabilities", default={})
+    return _LLM_PROPOSER_CAP in caps
+
+
+def _summarise_ledger_for_llm(
+    ledger: List[Dict[str, Any]],
+    limit:  int = _LLM_LEDGER_LIMIT,
+) -> str:
+    """Build a compact, deterministic ledger summary for the LLM prompt.
+
+    One line per entry: `<topic>  <decision>  <capability>  <motor_status>`.
+    Only the last `limit` entries (most-recent first)."""
+    rows: List[str] = []
+    for entry in list(reversed(ledger))[:max(1, limit)]:
+        topic    = (entry.get("trigger") or {}).get("topic", "?")
+        verdict  = entry.get("governor_verdict") or {}
+        decision = verdict.get("decision") or "-"
+        cap      = verdict.get("capability") or "-"
+        motor    = entry.get("motor_status") or "-"
+        rows.append(f"{topic:35s} {decision:18s} {cap:30s} {motor}")
+    return "\n".join(rows) if rows else "(no ledger entries)"
+
+
+def _summarise_feedback_for_llm(
+    signals: List[Dict[str, Any]],
+    limit:   int = _LLM_FEEDBACK_LIMIT,
+) -> str:
+    """Compact feedback summary — kind, value, and the targeted capability."""
+    rows: List[str] = []
+    for s in list(reversed(signals))[:max(1, limit)]:
+        kind  = s.get("kind") or "-"
+        value = s.get("value")
+        cap   = (s.get("context") or {}).get("capability") or "-"
+        rows.append(f"{kind:18s} {str(value)[:25]:25s} {cap}")
+    return "\n".join(rows) if rows else "(no feedback signals)"
+
+
+def _summarise_constitution_for_llm() -> str:
+    cur   = _evolution.read_constitution()
+    rules = cur.get("rules") or []
+    if not rules:
+        return "(no rules)"
+    return "\n".join(
+        f"- {r.get('kind') or '?'}  {r.get('target') or '?'}"
+        for r in rules if isinstance(r, dict)
+    )
+
+
+def _parse_llm_proposals(text: Any, *, allowed_targets: set) -> List[Dict[str, Any]]:
+    """Extract Constitution rule candidates from the LLM's response.
+
+    The LLM is instructed to return `{"proposals": [...]}`. We tolerate
+    leading / trailing prose by extracting the first balanced JSON
+    object. Each proposal must reference a capability that's in
+    `allowed_targets` (the visible capability set) — proposals against
+    unknown targets are dropped to prevent the LLM from inventing
+    capability names.
+    """
+    if not text:
+        return []
+    s = str(text).strip()
+    # Find the first '{' and matching '}' — the prompt asks for a single
+    # JSON object so this is robust to LLM padding like "Here's the JSON:".
+    start = s.find("{")
+    if start < 0:
+        return []
+    depth, end = 0, -1
+    for i in range(start, len(s)):
+        c = s[i]
+        if c == "{": depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    if end < 0:
+        return []
+    try:
+        obj = json.loads(s[start:end])
+    except Exception:
+        return []
+    proposals = obj.get("proposals") if isinstance(obj, dict) else None
+    if not isinstance(proposals, list):
+        return []
+
+    out: List[Dict[str, Any]] = []
+    for p in proposals:
+        if not isinstance(p, dict):
+            continue
+        action = str(p.get("action") or "").strip().lower()
+        target = str(p.get("target") or "").strip()
+        if not target or target not in allowed_targets:
+            # LLM hallucinated a capability — drop silently. The Why-chain
+            # records the raw response so the operator can audit.
+            continue
+        rationale = str(p.get("rationale") or "").strip()[:200]
+        if action == "ban":
+            out.append({
+                "kind":      "constitution_rule_add",
+                "target":    target,
+                "payload":   {"rule": {"kind": "never", "target": target}},
+                "rationale": rationale or f"LLM proposer suggested banning '{target}'",
+                "evidence":  {"source": "llm_proposer", "raw": p},
+                "by":        "llm_propose",
+            })
+        elif action == "relax":
+            # Find an existing `never` rule we'd be undoing.
+            constitution = _evolution.read_constitution()
+            rule = next(
+                (r for r in (constitution.get("rules") or [])
+                 if isinstance(r, dict)
+                 and r.get("kind") == "never"
+                 and r.get("target") == target),
+                None,
+            )
+            if not rule:
+                # No matching rule to relax — skip.
+                continue
+            out.append({
+                "kind":      "constitution_rule_remove",
+                "target":    target,
+                "payload":   {"rule_id": rule.get("id"), "rule": rule},
+                "rationale": rationale or f"LLM proposer suggested relaxing '{target}'",
+                "evidence":  {"source": "llm_proposer", "raw": p},
+                "by":        "llm_propose",
+            })
+    return out
+
+
+def strategy_llm_propose(
+    ledger:  List[Dict[str, Any]],
+    signals: List[Dict[str, Any]],
+    *,
+    alias:   str = LLM_PROPOSER_ALIAS,
+) -> List[Dict[str, Any]]:
+    """Ask a registered LLM agent (`agent.<alias>`) to propose Constitution
+    rule changes. The agent reads a compact summary of recent activity
+    and returns JSON proposals. Each proposal becomes a candidate the
+    rest of the Evolution loop (simulator, validators, promotion gate)
+    treats identically to a heuristic-strategy candidate.
+
+    Returns [] if no `agent.<alias>` is registered, or the call fails,
+    or the LLM returns no parseable proposals. The strategy is
+    side-effect-free apart from the gate-routed agent call (which itself
+    appends to `agent_calls.jsonl` for audit)."""
+    if not llm_proposer_registered():
+        return []
+
+    # Lazy import — proactive.agents pulls in mcp + middleware. Importing
+    # at module top would force every optimization caller to take the
+    # whole gate-chain dependency.
+    from . import agents as _agents
+
+    # Capabilities the LLM is allowed to propose against:
+    #  - everything in capabilities.json (formally registered)
+    #  - everything seen in the Ledger's governor_verdict.capability
+    #    (real activity, even if the cap was registered in-memory only)
+    #  - every target a Constitution rule already references
+    #    (so `relax` proposals can name caps not in capabilities.json)
+    caps = _persistence.read_json("capabilities", default={})
+    allowed_targets: set = set(caps.keys())
+    for entry in ledger:
+        cap = (entry.get("governor_verdict") or {}).get("capability")
+        if isinstance(cap, str) and cap:
+            allowed_targets.add(cap)
+    for rule in (_evolution.read_constitution().get("rules") or []):
+        if isinstance(rule, dict):
+            tgt = rule.get("target")
+            if isinstance(tgt, str) and tgt:
+                allowed_targets.add(tgt)
+
+    prompt = (
+        f"## Recent ledger activity (newest first)\n"
+        f"{_summarise_ledger_for_llm(ledger)}\n\n"
+        f"## Recent feedback (newest first)\n"
+        f"{_summarise_feedback_for_llm(signals)}\n\n"
+        f"## Current Constitution rules\n"
+        f"{_summarise_constitution_for_llm()}\n\n"
+        f"{_LLM_PROMPT_GUARD}"
+    )
+
+    try:
+        response = _agents.call_agent(alias, prompt, kind=_agents.KIND_LOCAL)
+    except Exception:
+        return []
+
+    if not isinstance(response, dict) or not response.get("ok"):
+        # Gate veto, alignment refusal, handler error — nothing to add.
+        return []
+
+    result = response.get("result")
+    if isinstance(result, dict):
+        text = result.get("content") or result.get("text") or ""
+    elif isinstance(result, str):
+        text = result
+    else:
+        text = str(result or "")
+
+    return _parse_llm_proposals(text, allowed_targets=allowed_targets)
 
 
 # ============================================================================
