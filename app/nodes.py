@@ -997,6 +997,34 @@ class WFSocialConsentFlow(WFFlowType):
 		return result
 
 
+class WFProactiveStateDirFlow(WFFlowType):
+	"""Set the proactive state directory for the rest of this workflow run.
+
+	The contextvar set here lives for the duration of the workflow's
+	asyncio task — concurrent workflows each see their own override
+	because `proactive.persistence._STATE_DIR_OVERRIDE` is a ContextVar.
+	The node never resets the override on the way out: it deliberately
+	persists so every downstream node in the same workflow inherits the
+	new path. When the workflow's task ends the context is discarded by
+	the asyncio runtime, so nothing leaks across workflows."""
+
+	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
+		result = await super().execute(context)
+		try:
+			path = (context.inputs.get("path") or "").strip() if isinstance(context.inputs.get("path"), str) else context.inputs.get("path")
+			if path:
+				_ensure_proactive_on_path()
+				from proactive import persistence as _p
+				_p.set_state_dir_override(str(path))
+			# Pass the upstream envelope through unchanged so the node can
+			# sit mid-pipeline without disturbing data flow.
+			result.outputs["output"] = context.inputs.get("input")
+		except Exception as e:
+			result.success = False
+			result.error   = str(e)
+		return result
+
+
 class WFVitalsSweepFlow(WFFlowType):
 	"""Substrate §3.6 — recompute Vitals counters over the rolling Ledger."""
 
@@ -2329,6 +2357,7 @@ _NODE_TYPES = {
 	"governor_decide_flow"     : WFGovernorDecideFlow,
 	"motor_execute_flow"       : WFMotorExecuteFlow,
 	"social_consent_flow"      : WFSocialConsentFlow,
+	"proactive_state_dir_flow" : WFProactiveStateDirFlow,
 	"vitals_sweep_flow"        : WFVitalsSweepFlow,
 
 	# Loop nodes

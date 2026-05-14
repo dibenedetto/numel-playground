@@ -71,6 +71,7 @@ _PIPELINE_FLOW_TYPES = {
     "governor_decide_flow",
     "motor_execute_flow",
     "social_consent_flow",
+    "proactive_state_dir_flow",
     "vitals_sweep_flow",
 }
 
@@ -309,6 +310,169 @@ def _smoke_vertical_slice_agent_flow(verbose: bool) -> None:
         print(f"  motor states:     {motor}")
         print(f"  decisions:        {decision}")
         print(f"  agent provenance: {[p['emitted_intent'] for p in af_provs]}")
+
+
+def _smoke_state_dir_override(verbose: bool) -> None:
+    """M5.10-1: contextvar override mechanism. Verifies use_state_dir() wins
+    over env var, env var wins over default, and that nested blocks restore
+    the outer value on exit. Also exercises set/reset_state_dir_override
+    (the lower-level primitive used by the HTTP middleware)."""
+    from proactive.persistence import (
+        state_dir, state_dir_source, use_state_dir,
+        set_state_dir_override, reset_state_dir_override,
+    )
+
+    # Snapshot env. Tests should not leak overrides into other smoke checks.
+    saved_env = os.environ.get("NUMEL_PROACTIVE_DIR")
+    if "NUMEL_PROACTIVE_DIR" in os.environ:
+        del os.environ["NUMEL_PROACTIVE_DIR"]
+
+    try:
+        # Default fallback.
+        assert state_dir_source() == "default", state_dir_source()
+        default_path = state_dir()
+        assert default_path.exists()
+
+        # Env-var layer.
+        with tempfile.TemporaryDirectory(prefix="dir_env_") as env_dir:
+            os.environ["NUMEL_PROACTIVE_DIR"] = env_dir
+            assert state_dir_source() == "env"
+            assert state_dir().resolve() == Path(env_dir).resolve()
+
+            # Override beats env.
+            with tempfile.TemporaryDirectory(prefix="dir_ovr_") as ovr_dir:
+                with use_state_dir(ovr_dir):
+                    assert state_dir_source() == "override"
+                    assert state_dir().resolve() == Path(ovr_dir).resolve()
+
+                    # Nesting: inner override wins, outer restored on exit.
+                    with tempfile.TemporaryDirectory(prefix="dir_inner_") as inner_dir:
+                        with use_state_dir(inner_dir):
+                            assert state_dir().resolve() == Path(inner_dir).resolve()
+                        # Back to outer override
+                        assert state_dir().resolve() == Path(ovr_dir).resolve()
+
+                # Override block exited; falls back to env.
+                assert state_dir_source() == "env"
+                assert state_dir().resolve() == Path(env_dir).resolve()
+
+            # Falsy override is a no-op.
+            with use_state_dir(""):
+                assert state_dir_source() == "env"
+            with use_state_dir(None):
+                assert state_dir_source() == "env"
+
+            # Lower-level set/reset (the HTTP middleware path).
+            with tempfile.TemporaryDirectory(prefix="dir_set_") as set_dir:
+                token = set_state_dir_override(set_dir)
+                try:
+                    assert state_dir_source() == "override"
+                    assert state_dir().resolve() == Path(set_dir).resolve()
+                finally:
+                    reset_state_dir_override(token)
+                assert state_dir_source() == "env"
+
+            del os.environ["NUMEL_PROACTIVE_DIR"]
+
+        # Env cleared → back to default.
+        assert state_dir_source() == "default"
+
+        if verbose:
+            print(f"  default path:    {default_path}")
+            print(f"  override / env / default precedence verified")
+            print(f"  nested use_state_dir restores outer on exit")
+            print(f"  falsy override is a clean no-op")
+
+    finally:
+        if saved_env is not None:
+            os.environ["NUMEL_PROACTIVE_DIR"] = saved_env
+        else:
+            os.environ.pop("NUMEL_PROACTIVE_DIR", None)
+
+
+def _smoke_state_dir_integrations(verbose: bool) -> None:
+    """M5.10 stages 3 + 4: WorkflowOptions.proactive_dir + the
+    `proactive_state_dir_flow` typed node both route the run's substrate
+    writes to a per-run directory. We don't need to spin up the full
+    engine — drive the relevant flow nodes through their WFFlowType.execute
+    in fresh `contextvars.copy_context()` contexts (which is what the
+    engine does at workflow start), and verify state lands in the override
+    directory."""
+    import asyncio as _asyncio_local
+    import contextvars as _cv
+
+    from proactive.persistence import (
+        state_dir, state_dir_source, use_state_dir, clear_state,
+    )
+    from nodes import (
+        NodeExecutionContext, create_node,
+    )
+    from schema import (
+        ProactiveStateDirFlow, LedgerAppendFlow,
+    )
+
+    saved_env = os.environ.get("NUMEL_PROACTIVE_DIR")
+    if "NUMEL_PROACTIVE_DIR" in os.environ:
+        del os.environ["NUMEL_PROACTIVE_DIR"]
+
+    try:
+        # ---- Stage 4: proactive_state_dir_flow node sets the override ----
+        with tempfile.TemporaryDirectory(prefix="ws_per_node_") as node_dir:
+            # Run inside a fresh context so the override doesn't leak.
+            ctx = _cv.copy_context()
+
+            async def _drive_node():
+                node_inst = ProactiveStateDirFlow(path=node_dir)
+                wf_node   = create_node(node_inst)
+                nctx      = NodeExecutionContext()
+                nctx.inputs = {"input": {"hello": "world"}, "path": node_dir}
+                nctx.variables = {}
+                res = await wf_node.execute(nctx)
+                assert res.success, res.error
+                assert state_dir_source() == "override"
+                assert state_dir().resolve() == Path(node_dir).resolve()
+                # Pass-through: the node returns the upstream envelope unchanged.
+                assert res.outputs["output"] == {"hello": "world"}
+
+                # Persistence writes inside the same task now route to the
+                # override directory. WFLedgerAppendFlow itself uses the
+                # in-memory `variables["ledger"]` list (so workflow nodes
+                # don't fight over a shared file mid-pipeline), so to verify
+                # the override actually flows through to disk we exercise
+                # `proactive.persistence.append_jsonl` directly — the same
+                # primitive a persistent transform would call.
+                from proactive.persistence import append_jsonl as _append
+                _append("ledger", {"id": "led_per_node_1", "ts": 1.0})
+                assert (Path(node_dir) / "ledger.jsonl").is_file(), \
+                    f"ledger should be written into the node-dir override; tree: {list(Path(node_dir).iterdir())}"
+
+            ctx.run(_asyncio_local.run, _drive_node())
+
+            # The fresh context kept the override scoped — outside, no leak.
+            assert state_dir_source() == "default", state_dir_source()
+
+        # ---- Stage 3: WorkflowOptions.proactive_dir wraps the run ----
+        with tempfile.TemporaryDirectory(prefix="ws_per_wf_") as wf_dir:
+            # Drive a transform that writes to the ledger from inside
+            # `use_state_dir(...)` — same code path the engine takes.
+            with use_state_dir(wf_dir):
+                from proactive.persistence import append_jsonl
+                append_jsonl("ledger", {"id": "led_per_wf_1", "topic": "test"})
+                assert (Path(wf_dir) / "ledger.jsonl").is_file()
+            # Outside the context: default again.
+            assert state_dir_source() == "default"
+
+        if verbose:
+            print(f"  proactive_state_dir_flow override routed ledger to per-node dir")
+            print(f"  WorkflowOptions.proactive_dir wrap routed ledger to per-wf dir")
+
+    finally:
+        # Ensure no override leaks across tests.
+        clear_state()
+        if saved_env is not None:
+            os.environ["NUMEL_PROACTIVE_DIR"] = saved_env
+        else:
+            os.environ.pop("NUMEL_PROACTIVE_DIR", None)
 
 
 def _smoke_persistent(verbose: bool) -> None:
@@ -1465,13 +1629,13 @@ def _pick_ephemeral_port() -> int:
     return port
 
 
-def _post_json(url: str, body: Optional[Dict[str, Any]] = None, timeout: float = 10.0) -> Dict[str, Any]:
+def _post_json(url: str, body: Optional[Dict[str, Any]] = None, timeout: float = 10.0,
+                 headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     data = json.dumps(body or {}).encode()
-    req  = urllib.request.Request(
-        url, data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    hdrs = {"Content-Type": "application/json"}
+    if headers:
+        hdrs.update(headers)
+    req  = urllib.request.Request(url, data=data, headers=hdrs, method="POST")
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read())
 
@@ -1640,6 +1804,28 @@ def _smoke_integration(verbose: bool) -> None:
         prop = _post_json(f"{url}/proactive/evolution/proposer")
         assert prop["alias"] == "evolution_proposer"
         assert prop["registered"] is False, f"proposer should be unregistered: {prop}"
+
+        # M5.10-1 — state_dir endpoint + X-Proactive-Dir header override.
+        sd_default = _post_json(f"{url}/proactive/state_dir")
+        assert sd_default["source"] == "env"  # subprocess runs with NUMEL_PROACTIVE_DIR set
+        baseline_path = sd_default["path"]
+
+        # Header override scopes to this request only — the next request
+        # (without the header) goes back to the env-var path.
+        with tempfile.TemporaryDirectory(prefix="numel_hdr_") as hdr_dir:
+            sd_hdr = _post_json(f"{url}/proactive/state_dir",
+                                  headers={"X-Proactive-Dir": hdr_dir})
+            assert sd_hdr["source"] == "override", \
+                f"X-Proactive-Dir should make source=override, got {sd_hdr}"
+            # Resolve both paths for cross-platform comparison (Windows
+            # case-folding, trailing slashes, etc.).
+            assert Path(sd_hdr["path"]).resolve() == Path(hdr_dir).resolve(), \
+                f"override path mismatch: {sd_hdr['path']} vs {hdr_dir}"
+
+            sd_after = _post_json(f"{url}/proactive/state_dir")
+            assert sd_after["source"] == "env", \
+                f"header should not leak across requests: {sd_after}"
+            assert sd_after["path"] == baseline_path
 
         # M5.9 — config overlay endpoints.
         cfg0 = _post_json(f"{url}/proactive/config")
@@ -1902,6 +2088,8 @@ _INPROC_TESTS = [
     ("Phase 1 · sensory slice",        _smoke_sensory_slice),
     ("Phase 2 · vertical slice",       _smoke_vertical_slice),
     ("Phase 5 · vertical slice (agent_flow)", _smoke_vertical_slice_agent_flow),
+    ("Phase 5 · state-dir override",   _smoke_state_dir_override),
+    ("Phase 5 · state-dir integrations", _smoke_state_dir_integrations),
     ("Phase 3 · persistent stack",     _smoke_persistent),
     ("Phase 4 · alignment layer",      _smoke_alignment),
     ("Phase 4 · optimization sandbox", _smoke_optimization),

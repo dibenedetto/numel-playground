@@ -603,6 +603,28 @@ class WorkflowEngine:
 
 	async def _execute_workflow(self, workflow: Workflow, backend: ImplementedBackend, state: WorkflowExecutionState, initial_data: Dict[str, Any]):
 		"""Main execution loop - frontier-based with loop support"""
+		# M5.10-3: per-workflow proactive state directory. When the workflow
+		# JSON sets `options.proactive_dir`, every proactive call inside this
+		# run (ledger appends, world-model writes, capability lookups, …)
+		# resolves to that path via the contextvar override. Falsy → no-op.
+		_proactive_dir = None
+		try:
+			_opts = getattr(workflow, "options", None)
+			if _opts is not None:
+				_proactive_dir = getattr(_opts, "proactive_dir", None)
+		except Exception:
+			_proactive_dir = None
+
+		try:
+			from proactive.persistence import use_state_dir as _use_state_dir
+		except ImportError:
+			from contextlib import nullcontext as _use_state_dir   # type: ignore
+
+		with _use_state_dir(_proactive_dir):
+			return await self._execute_workflow_body(workflow, backend, state, initial_data)
+
+
+	async def _execute_workflow_body(self, workflow: Workflow, backend: ImplementedBackend, state: WorkflowExecutionState, initial_data: Dict[str, Any]):
 		try:
 			if not initial_data:
 				initial_data = {}

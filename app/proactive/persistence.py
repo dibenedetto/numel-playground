@@ -29,15 +29,27 @@ the JSON file is the durable source of truth across runs.
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
 import json
 import os
 import threading
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Iterator, List, Optional
 
 
 _DEFAULT_REL = "app/storage/proactive"
 _lock = threading.Lock()
+
+
+# Per-task override. Set by `use_state_dir(path)` (or by integrations like
+# the HTTP `X-Proactive-Dir` middleware / workflow options /
+# proactive_state_dir_flow node). Innermost-set value wins because the
+# `use_state_dir` context manager stacks. None means "fall through to env
+# var, then to the package default".
+_STATE_DIR_OVERRIDE: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "proactive_state_dir_override", default=None,
+)
 
 
 def _project_root() -> Path:
@@ -46,11 +58,72 @@ def _project_root() -> Path:
 
 
 def state_dir() -> Path:
-    """Resolve the proactive state directory; create if missing."""
-    env = os.environ.get("NUMEL_PROACTIVE_DIR", "").strip()
-    root = Path(env).resolve() if env else (_project_root() / _DEFAULT_REL).resolve()
+    """Resolve the proactive state directory; create if missing.
+
+    Resolution order (most-local wins):
+      1. `use_state_dir(...)` context var override — set by the HTTP
+         middleware, workflow runner, or the proactive_state_dir_flow node.
+      2. `NUMEL_PROACTIVE_DIR` env var — process-wide default
+         (settable via `app.py --proactive-dir <path>`).
+      3. `<repo>/app/storage/proactive` — package default.
+    """
+    override = _STATE_DIR_OVERRIDE.get()
+    if override:
+        root = Path(override).resolve()
+    else:
+        env = os.environ.get("NUMEL_PROACTIVE_DIR", "").strip()
+        root = Path(env).resolve() if env else (_project_root() / _DEFAULT_REL).resolve()
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def state_dir_source() -> str:
+    """Return how the current `state_dir()` value was resolved:
+    `"override"`, `"env"`, or `"default"`. Useful for the
+    `/proactive/state_dir` introspection endpoint and for the docs."""
+    if _STATE_DIR_OVERRIDE.get():
+        return "override"
+    if (os.environ.get("NUMEL_PROACTIVE_DIR") or "").strip():
+        return "env"
+    return "default"
+
+
+@contextlib.contextmanager
+def use_state_dir(path: Any) -> Iterator[Path]:
+    """Override the proactive state directory for the duration of this
+    block (and any awaited tasks that inherit this `contextvars.Context`).
+    Falsy `path` is a no-op — useful for `with use_state_dir(maybe_dir):`
+    patterns where the override may or may not be configured.
+
+    Stacking works naturally — nested `use_state_dir` blocks set the
+    innermost path while the block is active and restore the outer one
+    on exit. Concurrent async tasks each see their own override because
+    `ContextVar` is task-scoped."""
+    if not path:
+        yield state_dir()
+        return
+    token = _STATE_DIR_OVERRIDE.set(str(path))
+    try:
+        yield state_dir()
+    finally:
+        _STATE_DIR_OVERRIDE.reset(token)
+
+
+def set_state_dir_override(path: Any) -> contextvars.Token:
+    """Lower-level than `use_state_dir` — set the override and return the
+    token so the caller can `reset()` it later. Used by the HTTP
+    middleware (which can't easily wrap downstream handlers in a `with`)
+    and by the `proactive_state_dir_flow` node (which sets the override
+    that downstream nodes inherit, never resets it — the engine cleans up
+    when the workflow's task ends)."""
+    if path:
+        return _STATE_DIR_OVERRIDE.set(str(path))
+    return _STATE_DIR_OVERRIDE.set(None)
+
+
+def reset_state_dir_override(token: contextvars.Token) -> None:
+    """Companion to `set_state_dir_override` — restore the previous value."""
+    _STATE_DIR_OVERRIDE.reset(token)
 
 
 def read_json(name: str, default: Optional[Any] = None) -> Any:

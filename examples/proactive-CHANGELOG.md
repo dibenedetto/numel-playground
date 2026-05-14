@@ -264,6 +264,54 @@ This commit closes M5.1 — Numel can now be discovered as an MCP server (with s
 
 This commit closes **Phase 5 — External integrations**. Numel can now (a) advertise its capabilities via MCP and consume peers' tools (M5.1), (b) federate with other systems through three trust tiers with adversarial-gated inbound and privacy-gated outbound (M5.2), and (c) bridge external LLMs (OpenAI-compatible + Claude) as first-class capabilities subject to the same Substrate gates (M5.3).
 
+### Proactive System — Phase 5 (M5.10: per-run state-directory override)
+
+Until now the proactive state directory was process-wide — set by `NUMEL_PROACTIVE_DIR` (or the `--proactive-dir` CLI flag landing in M5.10), with one value for every workflow / request / deployment running in the process. M5.10 adds three more layers that stack innermost-wins via `contextvars.ContextVar`, so concurrent workflows and per-request operations each see their own state directory without process-global mutation or locking.
+
+**Resolution chain (innermost wins, each layer falls through when silent):**
+
+```
+proactive_state_dir_flow node       (per-subgraph; most local)
+  ↓ falls through to
+WorkflowOptions.proactive_dir       (per-workflow; engine wraps the run)
+  ↓ falls through to
+X-Proactive-Dir HTTP header         (per-request; middleware wraps the handler)
+  ↓ falls through to
+NUMEL_PROACTIVE_DIR env var         (process-wide; `app.py --proactive-dir <path>`)
+  ↓ falls through to
+<repo>/app/storage/proactive        (package default)
+```
+
+**Stage 1 — context-var override mechanism**
+
+- `app/proactive/persistence.py`: new `_STATE_DIR_OVERRIDE` `ContextVar`, `use_state_dir(path)` context manager (stacking, falsy = no-op), `set_state_dir_override(path) -> token` / `reset_state_dir_override(token)` lower-level pair for callers that can't easily `with` (HTTP middleware, the typed node). `state_dir()` now reads the override first, falls through to the env var, then to the package default. New `state_dir_source()` helper returns `"override"` / `"env"` / `"default"` for introspection.
+
+**Stage 2 — HTTP header**
+
+- `app/app.py`: new FastAPI middleware reads `X-Proactive-Dir: <path>` on any `/proactive/*` request, wraps the handler in `set_state_dir_override(...)`, resets the token on the way out. Concurrent requests each see their own override because the `ContextVar` is task-scoped.
+- `app/api.py`: `POST /proactive/state_dir` returns the resolved path plus `source` (`"override"` / `"env"` / `"default"`) so operators can verify which layer is active without restarting anything.
+
+**Stage 3 — workflow option**
+
+- `app/schema.py`: new `WorkflowOptions.proactive_dir: Optional[str]` field.
+- `app/engine.py`: `_execute_workflow` now wraps the body in `with use_state_dir(workflow.options.proactive_dir):` so every proactive call inside the run resolves to that path. The wrapper is the only function that reads the option; the body was renamed to `_execute_workflow_body` to keep the wrapper as a one-liner.
+
+**Stage 4 — typed flow node**
+
+- `app/schema.py`: new `ProactiveStateDirFlow` (section `Proactive`, slot in `WorkflowNodeUnion`). Inputs: `input` (pass-through) and `path`. Output: `input` passed through unchanged.
+- `app/nodes.py`: new `WFProactiveStateDirFlow` executor — calls `set_state_dir_override(path)` and **does not reset** by design. The override persists for every downstream node in the same workflow execution; the asyncio task's `ContextVar` context is discarded by the runtime when the task ends, so nothing leaks across workflows.
+- Registry: `_NODE_TYPES["proactive_state_dir_flow"] = WFProactiveStateDirFlow` + `_PIPELINE_FLOW_TYPES` set in the smoke harness.
+
+**CLI flag** (already merged earlier): `python app/app.py --proactive-dir <path>` sets `NUMEL_PROACTIVE_DIR` before any module imports, making the path the process-wide default for the lifetime of the run.
+
+**Smoke**:
+- `Phase 5 · state-dir override` — drives `use_state_dir` nesting, the lower-level `set/reset_state_dir_override` pair, env-var precedence, default fallback, and falsy no-op semantics.
+- `Phase 5 · state-dir integrations` — drives the typed flow node in a fresh `contextvars.copy_context()` (which is what the engine does at workflow start) + a direct `use_state_dir` block standing in for the workflow-option path. Both verify a `proactive.persistence.append_jsonl("ledger", …)` call after the override lands the ledger file under the override path. Outside the contexts: source falls back to `"default"`, no leak.
+- Integration: `X-Proactive-Dir` header round-trip on `/proactive/state_dir`.
+- **15/15** in-process + integration smoke pass.
+
+**Doc**: new `docs/proactive-guide.md` §9.5 "State-directory override" with the resolution chain, the four override surfaces in a table, and the two API helpers (`use_state_dir` context manager + lower-level set/reset pair).
+
 ### Proactive System — Phase 5 (M5.9: proactive_config.json overlay + prompt files)
 
 The proactive stack used to scatter magic numbers, default lists, and an LLM system prompt as in-code constants — operators couldn't tune any of it without patching code. M5.9 adds a single overlay file (`state_dir()/proactive_config.json`) plus a prompts directory (`state_dir()/prompts/<name>.txt`) that can override any registered tunable. In-code defaults are preserved so a developer reading `_DENY_RATE_THRESHOLD = 0.50` still knows the safe baseline; an operator who wants to tighten doesn't need to ship new code.

@@ -1349,6 +1349,30 @@ class SocialConsentFlow(FlowType):
 
 
 @node_info(
+	title       = "Proactive: State Dir",
+	description = "Override the proactive state directory for the rest of this workflow run",
+	icon        = "📁",
+	section     = "Proactive",
+	layer       = 2,
+	visible     = True
+)
+class ProactiveStateDirFlow(FlowType):
+	"""Set the proactive state directory for every node that runs AFTER this
+	one in the same workflow execution. Lives at the top of a proactive
+	subgraph; downstream Substrate nodes (`ledger_append_flow`,
+	`world_model_write_flow`, etc.) automatically resolve to the new path
+	via the `proactive.persistence` contextvar override. Falls through to
+	the workflow option, the X-Proactive-Dir HTTP header, the
+	NUMEL_PROACTIVE_DIR env var, then the package default when `path` is
+	empty. The override is task-scoped — concurrent workflows each see
+	their own."""
+	type   : Annotated[Literal["proactive_state_dir_flow"], FieldRole.CONSTANT] = "proactive_state_dir_flow"
+	input  : Annotated[Optional[Any]                       , FieldRole.INPUT   ] = Field(default=None, description="Passed through unchanged on `output`. Useful when wiring the node mid-pipeline.")
+	path   : Annotated[Optional[str]                       , FieldRole.INPUT   ] = Field(default=None, description="Absolute or repo-relative path. Empty / None = no-op (fall through to outer scope).")
+	output : Annotated[Any                                 , FieldRole.OUTPUT  ] = Field(default=None, description="Envelope passed through unchanged.")
+
+
+@node_info(
 	title       = "Vitals: Sweep",
 	description = "Substrate §3.6 — recompute Vitals counters over the rolling Ledger",
 	icon        = "📊",
@@ -2142,6 +2166,7 @@ WorkflowNodeUnion = Union[
 	GovernorDecideFlow,
 	MotorExecuteFlow,
 	SocialConsentFlow,
+	ProactiveStateDirFlow,
 	VitalsSweepFlow,
 
 	# Loop nodes
@@ -2212,8 +2237,9 @@ DEFAULT_WORKFLOW_OPTIONS_SEED : int = 777
 
 @node_info(visible=False, layer=1)
 class WorkflowOptions(OptionsType):
-	type : Annotated[Literal["workflow_options"], FieldRole.CONSTANT] = "workflow_options"
-	seed : Annotated[int                        , FieldRole.INPUT   ] = Field(default=DEFAULT_WORKFLOW_OPTIONS_SEED, description="Random seed for reproducibility across workflow runs")
+	type          : Annotated[Literal["workflow_options"], FieldRole.CONSTANT] = "workflow_options"
+	seed          : Annotated[int                        , FieldRole.INPUT   ] = Field(default=DEFAULT_WORKFLOW_OPTIONS_SEED, description="Random seed for reproducibility across workflow runs")
+	proactive_dir : Annotated[Optional[str]              , FieldRole.INPUT   ] = Field(default=None, description="Optional path to a per-workflow proactive state directory (M5.10). When set, the engine wraps the run in `proactive.persistence.use_state_dir(path)` so the workflow's Ledger / World Model / Capabilities / feedback / config / prompts all land under this directory. Falls back to the X-Proactive-Dir header, then NUMEL_PROACTIVE_DIR, then the package default when unset.")
 
 	@property
 	def get(self) -> Annotated[WorkflowOptions, FieldRole.OUTPUT]:

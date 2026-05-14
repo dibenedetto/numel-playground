@@ -1310,6 +1310,24 @@ async def run_server(
 	for ws in workspace_mgr._workspaces.values():
 		ws.manager._skill_mgr = skill_mgr
 
+	# ── Proactive per-request state-dir override ─────────────────────────
+	# When an `X-Proactive-Dir` header is present on a /proactive/* request,
+	# scope the request to that state directory. The override is wired via
+	# proactive.persistence.set_state_dir_override (contextvar) so concurrent
+	# requests each see their own state without process-global mutation.
+
+	@app.middleware("http")
+	async def proactive_state_dir_middleware(request: Request, call_next):
+		hdr = (request.headers.get("x-proactive-dir") or "").strip()
+		if not hdr or not request.url.path.startswith("/proactive/"):
+			return await call_next(request)
+		from proactive.persistence import set_state_dir_override, reset_state_dir_override
+		token = set_state_dir_override(hdr)
+		try:
+			return await call_next(request)
+		finally:
+			reset_state_dir_override(token)
+
 	# ── API Routes (order matters: specific routes before static mount) ──
 	setup_api(app, event_bus, schema_code, workspace_mgr, skill_mgr=skill_mgr, assistant_deployment_mgr=assistant_deployment_mgr)
 	setup_console_api(app, console_mgr, channel_pool=channel_pool, channel_cmd=channel_cmd)
@@ -1441,7 +1459,16 @@ def main():
 	parser .add_argument("--seed",   type=int,  default=DEFAULT_APP_SEED, help="Seed for pseudorandom number generator")
 	parser .add_argument("--tunnel", action="store_true",                 help="Start a cloudflared/ngrok tunnel for public webhook access")
 	parser .add_argument("--open-browser", action="store_false",          help="Open the frontend in the default browser after startup")
+	parser .add_argument("--proactive-dir",                                help="Override the proactive state directory for this run (default: app/storage/proactive/). All ledger / world-model / capabilities / feedback / config / prompts state lands under the given path. Equivalent to setting NUMEL_PROACTIVE_DIR.")
 	args   = parser.parse_args()
+
+	# Per-run proactive state location. The proactive package reads
+	# NUMEL_PROACTIVE_DIR on every state_dir() call, so setting it
+	# process-wide here makes it stick for the whole run without
+	# touching any module-level constant.
+	if getattr(args, "proactive_dir", None):
+		os.environ["NUMEL_PROACTIVE_DIR"] = str(args.proactive_dir)
+		log_print(f"Proactive state directory: {args.proactive_dir}")
 
 	asyncio.run(run_server(args, open_browser=bool(getattr(args, "open_browser", False))))
 

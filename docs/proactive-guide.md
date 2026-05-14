@@ -645,7 +645,50 @@ flowchart LR
 
 > M5.4–M5.6 doesn't add new entry points beyond `/agents/*` — the unification is on the *invocation side*. Local `agent_flow` calls, remote `agent_endpoint_flow` calls, and A2A `send` / `share_state` all share `proactive.agents.call_agent`, which dispatches to `mcp.call_tool`. Per-stage details: M5.4 = `agent.<alias>` for local agents, M5.5 = `agent.endpoint.<alias>.<mode>` for remote endpoints with mode-specific scopes, M5.6 = `a2a.<peer>.<verb>` for federation with `tier:<tier>` as a scope. `register_agent_handler` is Python-only (handlers aren't JSON-serialisable); registration happens automatically when a workflow loads (M5.4 / M5.5) or a peer is registered (M5.6).
 
-### 9.5 Configuration overlay (M5.9)
+### 9.5 State-directory override (M5.10)
+
+The proactive state directory (where the Ledger, World Model, Capabilities, feedback, config, and prompt overrides all land) defaults to `<repo>/app/storage/proactive/` but can be overridden at four levels. The resolution chain is **innermost wins** — `use_state_dir(...)` blocks stack via `contextvars.ContextVar`, and each layer falls through to the next when silent.
+
+```
+proactive_state_dir_flow node       (per-subgraph; most local)
+  ↓ falls through to
+WorkflowOptions.proactive_dir       (per-workflow; engine wraps the run)
+  ↓ falls through to
+X-Proactive-Dir HTTP header         (per-request; middleware wraps the handler)
+  ↓ falls through to
+NUMEL_PROACTIVE_DIR env var         (process-wide; `app.py --proactive-dir <path>`)
+  ↓ falls through to
+<repo>/app/storage/proactive        (package default)
+```
+
+| Surface | How to set it | Scope |
+|---|---|---|
+| **CLI flag** | `python app/app.py --proactive-dir D:\state` (sets `NUMEL_PROACTIVE_DIR` before any module imports) | Process-wide for the lifetime of the run |
+| **HTTP header** | `X-Proactive-Dir: D:\state` on any `/proactive/*` request | One request (middleware wraps the handler in `set_state_dir_override`) |
+| **Workflow option** | `{"options": {"proactive_dir": "D:\\state"}}` in the workflow JSON | One workflow execution (`_execute_workflow` wraps the run in `use_state_dir`) |
+| **Typed node** | Place a `proactive_state_dir_flow` node at the top of the proactive subgraph; set its `path` input | Rest of the workflow run after the node executes |
+
+Two API helpers in `proactive.persistence`:
+
+```python
+from proactive.persistence import use_state_dir, set_state_dir_override, reset_state_dir_override
+
+# High-level context manager (preferred where you have a `with` scope):
+with use_state_dir("/var/agent-A/proactive"):
+    # All proactive reads/writes inside this block route to /var/agent-A/proactive
+    ...
+
+# Lower-level set/reset (for middleware / nodes that can't easily `with`):
+token = set_state_dir_override("/var/agent-A/proactive")
+try:
+    ...
+finally:
+    reset_state_dir_override(token)
+```
+
+Inspect at any time via `POST /proactive/state_dir` — returns the resolved path plus a `source` field (`"override"` / `"env"` / `"default"`) so an operator can verify which layer is active. The `ContextVar` is task-scoped, so concurrent workflows / requests each see their own override without locking or process-global mutation.
+
+### 9.6 Configuration overlay (M5.9)
 
 Most operator-tunable knobs in the proactive stack live as in-code defaults *and* as paths in a JSON overlay file at `state_dir()/proactive_config.json`. The overlay wins when set; the in-code default wins when silent. Reference catalogue: [`app/proactive/config.example.json`](../app/proactive/config.example.json) (every path with its default value) — copy into `state_dir()`, drop the keys you don't want to override, edit the rest.
 
@@ -677,7 +720,7 @@ Discovery: `POST /proactive/config` returns the live overrides + the catalogue o
 
 **What's NOT operator-tunable (intentional)**: the regex pattern lists in `middleware.py` (`_SUSPICION_PATTERNS`, `_PRIVACY_PATTERNS`, `_INJECTION_MARKERS`). Those are security primitives — making them runtime-configurable means a misconfigured overlay could silently disable PII redaction. Changes go through code review.
 
-### 9.6 Glossary
+### 9.7 Glossary
 
 | Term | Meaning |
 |---|---|
@@ -692,7 +735,7 @@ Discovery: `POST /proactive/config` returns the live overrides + the catalogue o
 | **Verdict** | An alignment-validator result: accept / veto / abstain (+ reason). |
 | **Why-chain** | The full reasoning trace attached to a Ledger entry. |
 
-### 9.7 How this guide relates to the other proactive docs
+### 9.8 How this guide relates to the other proactive docs
 
 - **[docs/proactive.md](proactive.md)** — *what* the system is and *why* it's shaped this way (conceptual blueprint).
 - **[docs/proactive-technical.md](proactive-technical.md)** — *exhaustive* engineer-facing spec (every API, every persistence file, every endpoint).

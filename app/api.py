@@ -3199,6 +3199,32 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 
 	# === M5.9 — Proactive runtime config overlay ============================
 
+	@app.post("/proactive/state_dir")
+	async def proactive_state_dir(body: Optional[Dict[str, Any]] = None):
+		"""Report the live proactive state directory + how it was resolved.
+
+		`source` is one of:
+		  - "override" — a per-run override is active in this task's context
+		                  (X-Proactive-Dir HTTP header, workflow option,
+		                  or proactive_state_dir_flow node).
+		  - "env"      — picked up from NUMEL_PROACTIVE_DIR
+		                  (set by `app.py --proactive-dir <path>` or by
+		                  the operator's shell environment).
+		  - "default"  — fell back to `<repo>/app/storage/proactive`.
+
+		Pass `X-Proactive-Dir: <path>` on the request to test how a
+		per-request override resolves — this endpoint reports the path it
+		would actually use, not just the configured ones."""
+		from proactive.persistence import state_dir, state_dir_source
+		env_value = (os.environ.get("NUMEL_PROACTIVE_DIR") or "").strip()
+		return {
+			"path":      str(state_dir()),
+			"source":    state_dir_source(),
+			"env_var":   "NUMEL_PROACTIVE_DIR",
+			"env_value": env_value or None,
+		}
+
+
 	@app.post("/proactive/config")
 	async def proactive_config_get(body: Optional[Dict[str, Any]] = None):
 		"""Return the live overlay file contents + the catalogue of paths the
