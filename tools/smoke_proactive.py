@@ -963,6 +963,105 @@ def _smoke_optimization(verbose: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Phase 5 (M5.11-1) — Social consent approval flow
+# ---------------------------------------------------------------------------
+
+def _smoke_social_consent(verbose: bool) -> None:
+    """M5.11-1: pending consents persist, approve/reject is idempotent,
+    decisions emit a Ledger entry + an implicit feedback signal so
+    Optimization can learn from operator choices."""
+    from proactive.persistence import clear_state, state_dir, read_jsonl
+    from proactive import social as soc
+    from proactive import evolution as ev
+
+    snap_dir = state_dir() / "snapshots"
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+    # ---- Record two pending consents -------------------------------------
+    rec1 = soc.record_pending({
+        "capability":     "core.transfer_funds",
+        "rationale":      "Eve wants $5,000 wired",
+        "correlation_id": "corr_eve",
+        "intent":         {"capability": "core.transfer_funds",
+                            "args": {"amount": 5000, "recipient": "9876-1122"}},
+    })
+    rec2 = soc.record_pending({
+        "capability":     "core.send_email",
+        "rationale":      "Draft reply to Bob",
+        "correlation_id": "corr_bob",
+        "intent":         {"capability": "core.send_email"},
+    })
+    assert rec1["status"] == soc.STATUS_AWAITING
+    assert rec1["id"] != rec2["id"]
+
+    awaiting = soc.list_pending(status=soc.STATUS_AWAITING)
+    assert len(awaiting) == 2, f"expected 2 awaiting, got {len(awaiting)}"
+
+    # ---- Approve rec1 → implicit_accept feedback + Ledger entry ----------
+    decided = soc.approve(rec1["id"], operator="alice", note="ok this time")
+    assert decided["status"] == soc.STATUS_APPROVED
+    assert decided["operator"] == "alice"
+    assert decided["decided_at"] is not None
+
+    # Idempotent re-approve returns same record.
+    again = soc.approve(rec1["id"])
+    assert again["status"] == soc.STATUS_APPROVED
+    assert again["decided_at"] == decided["decided_at"]
+
+    # Implicit-accept signal recorded against the underlying capability.
+    accepts = ev.list_feedback(kind=ev.KIND_IMPLICIT_ACCEPT)
+    assert any((s.get("context") or {}).get("capability") == "core.transfer_funds"
+               and s.get("value") == "consent_approved"
+               for s in accepts), f"missing implicit_accept signal: {accepts}"
+
+    # Ledger entry for the approval.
+    led = read_jsonl("ledger")
+    approval_entries = [e for e in led
+                        if (e.get("trigger") or {}).get("topic") == "core.social.consent_approved"]
+    assert len(approval_entries) == 1, f"expected 1 approval ledger entry, got {len(approval_entries)}"
+    assert approval_entries[0]["consent"]["capability"] == "core.transfer_funds"
+    assert approval_entries[0]["consent"]["operator"]   == "alice"
+
+    # ---- Reject rec2 → implicit_reject feedback + Ledger entry -----------
+    decided2 = soc.reject(rec2["id"], operator="alice", note="not now")
+    assert decided2["status"] == soc.STATUS_REJECTED
+
+    rejects = ev.list_feedback(kind=ev.KIND_IMPLICIT_REJECT)
+    assert any((s.get("context") or {}).get("capability") == "core.send_email"
+               and s.get("value") == "consent_rejected"
+               for s in rejects), f"missing implicit_reject signal: {rejects}"
+
+    led2 = read_jsonl("ledger")
+    reject_entries = [e for e in led2
+                      if (e.get("trigger") or {}).get("topic") == "core.social.consent_rejected"]
+    assert len(reject_entries) == 1
+
+    # ---- List filtering -------------------------------------------------
+    assert soc.list_pending(status=soc.STATUS_AWAITING)  == []
+    assert len(soc.list_pending(status=soc.STATUS_APPROVED)) == 1
+    assert len(soc.list_pending(status=soc.STATUS_REJECTED)) == 1
+    assert len(soc.list_pending()) == 2
+
+    # ---- Unknown id raises ----------------------------------------------
+    try:
+        soc.approve("consent_does_not_exist")
+        assert False, "approve(<unknown>) must raise"
+    except KeyError:
+        pass
+
+    if verbose:
+        print(f"  pending consents: 2 created, 1 approved, 1 rejected")
+        print(f"  implicit signals: {len(accepts)} accept, {len(rejects)} reject")
+        print(f"  ledger entries:   {len(approval_entries)} approve, {len(reject_entries)} reject")
+
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Phase 4 (M4.3) — Promotion gate
 # ---------------------------------------------------------------------------
 
@@ -1805,6 +1904,38 @@ def _smoke_integration(verbose: bool) -> None:
         assert prop["alias"] == "evolution_proposer"
         assert prop["registered"] is False, f"proposer should be unregistered: {prop}"
 
+        # M5.11-1 — social consent endpoints. Pre-seed a consent in the
+        # subprocess's pending_consents.json (the subprocess's state dir
+        # is the temp dir we created above), then list / approve over HTTP.
+        seeded_id = "consent_seeded_smoke"
+        (tmp_dir / "pending_consents.json").write_text(json.dumps({
+            seeded_id: {
+                "id":             seeded_id,
+                "capability":     "core.notify",
+                "rationale":      "smoke pre-seeded",
+                "correlation_id": "corr_smoke",
+                "requested_at":   1.0,
+                "status":         "awaiting_user",
+                "intent":         {"capability": "core.notify"},
+            }
+        }), encoding="utf-8")
+
+        cs_list = _post_json(f"{url}/proactive/social/consent", {"status": "awaiting_user"})
+        assert cs_list["count"] == 1 and cs_list["entries"][0]["id"] == seeded_id
+
+        cs_approve = _post_json(f"{url}/proactive/social/consent/{seeded_id}/approve",
+                                  {"operator": "smoke_op"})
+        assert cs_approve["consent"]["status"]   == "approved"
+        assert cs_approve["consent"]["operator"] == "smoke_op"
+
+        # Unknown id → 404.
+        cs_404 = None
+        try:
+            _post_json(f"{url}/proactive/social/consent/no_such_id/reject", {})
+        except urllib.error.HTTPError as exc:
+            cs_404 = exc.code
+        assert cs_404 == 404, f"reject(<unknown>) expected 404, got {cs_404}"
+
         # M5.10-1 — state_dir endpoint + X-Proactive-Dir header override.
         sd_default = _post_json(f"{url}/proactive/state_dir")
         assert sd_default["source"] == "env"  # subprocess runs with NUMEL_PROACTIVE_DIR set
@@ -2094,6 +2225,7 @@ _INPROC_TESTS = [
     ("Phase 4 · alignment layer",      _smoke_alignment),
     ("Phase 4 · optimization sandbox", _smoke_optimization),
     ("Phase 4 · promotion gate",       _smoke_promotion),
+    ("Phase 5 · social consent flow",  _smoke_social_consent),
     ("Phase 5 · MCP bridge",           _smoke_mcp),
     ("Phase 5 · A2A federation",       _smoke_a2a),
     ("Phase 5 · LLM transports",       _smoke_transports),

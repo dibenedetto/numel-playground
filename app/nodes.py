@@ -957,7 +957,15 @@ class WFMotorExecuteFlow(WFFlowType):
 
 
 class WFSocialConsentFlow(WFFlowType):
-	"""Substrate §4 Social — emit a pending consent request on consent_required."""
+	"""Substrate §4 Social — emit a pending consent request on consent_required.
+
+	Records to BOTH the workflow-local `variables["pending_consents"]`
+	(used by the rest of the workflow during the run) AND the durable
+	`proactive.social.pending_consents.json` (used by the operator's
+	approve/reject endpoints between runs / across processes). The
+	durable record carries the `intent` so an operator can see what
+	would have happened on approval, plus the rationale and capability
+	for the consent prompt."""
 
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		import time as _time
@@ -979,6 +987,17 @@ class WFSocialConsentFlow(WFFlowType):
 				}
 				pending.append(consent)
 				env["social_consent_request"] = consent
+
+				# Mirror to the durable store so the operator's
+				# approve/reject endpoints can see this consent.
+				try:
+					_ensure_proactive_on_path()
+					from proactive import social as _social
+					_social.record_pending({**consent, "intent": intent})
+				except Exception:
+					# Persistent mirror is best-effort — workflow-local
+					# tracking still works without it.
+					pass
 			result.outputs["output"] = env
 		except Exception as e:
 			result.success = False

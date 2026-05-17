@@ -3289,6 +3289,57 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		}
 
 
+	# === M5.11 — Social consent approval flow ================================
+
+	@app.post("/proactive/social/consent")
+	async def proactive_social_consent_list(body: Optional[Dict[str, Any]] = None):
+		"""Body: {status?: "awaiting_user"|"approved"|"rejected"}. List
+		consent records from the durable store, optionally filtered. The
+		Social layer's `social_consent_flow` mirrors every
+		`consent_required` envelope here, so operators can approve or
+		reject between workflow runs."""
+		from proactive.social import list_pending
+		body   = body or {}
+		status = (body.get("status") or "").strip() or None
+		rows   = list_pending(status=status)
+		return {"entries": rows, "count": len(rows)}
+
+
+	@app.post("/proactive/social/consent/{consent_id}/approve")
+	async def proactive_social_consent_approve(consent_id: str, body: Optional[Dict[str, Any]] = None):
+		"""Body: {operator?: str, note?: str}. Mark a pending consent as
+		approved. Side-effects: Ledger entry (topic
+		`core.social.consent_approved`), `implicit_accept` feedback signal
+		on the underlying capability. Idempotent — already-decided
+		consents are returned unchanged."""
+		from proactive.social import approve
+		body     = body or {}
+		operator = (body.get("operator") or "").strip() or None
+		note     = (body.get("note")     or "").strip() or None
+		try:
+			record = approve(str(consent_id), operator=operator, note=note)
+		except KeyError as exc:
+			raise HTTPException(status_code=404, detail=str(exc))
+		return {"consent": record}
+
+
+	@app.post("/proactive/social/consent/{consent_id}/reject")
+	async def proactive_social_consent_reject(consent_id: str, body: Optional[Dict[str, Any]] = None):
+		"""Body: {operator?: str, note?: str}. Mark a pending consent as
+		rejected. Side-effects: Ledger entry (topic
+		`core.social.consent_rejected`), `implicit_reject` feedback signal
+		on the underlying capability. Idempotent."""
+		from proactive.social import reject
+		body     = body or {}
+		operator = (body.get("operator") or "").strip() or None
+		note     = (body.get("note")     or "").strip() or None
+		try:
+			record = reject(str(consent_id), operator=operator, note=note)
+		except KeyError as exc:
+			raise HTTPException(status_code=404, detail=str(exc))
+		return {"consent": record}
+
+
 	@app.post("/proactive/motor/undo")
 	async def proactive_motor_undo(body: Optional[Dict[str, Any]] = None):
 		"""Convenience wrapper — records an `action_undone` implicit-reject
