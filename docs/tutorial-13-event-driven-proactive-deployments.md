@@ -232,8 +232,25 @@ That is the important shift:
 - and event-driven tasks are no longer flattened into one hidden trigger
 - they can now behave like runtime services built from source nodes plus one listener
 
+## What's Available Once The Deployment Is Running (M5.4 – M5.11)
+
+The deployment you've wired here is one thing; the Proactive Agent Ecology under it is another. Once your deployment is running, every observation flows through a Substrate (Middleware → World Model → Goal Hierarchy → Capability Registry → Governor → Motor / Social → Ledger → Vitals). M5.4 through M5.11 added a lot of operator surfaces on top of that scaffold — here's the short tour so you know what you can reach for. The full picture is in [`docs/proactive-guide.md`](proactive-guide.md).
+
+| Want to… | Use | Since |
+|---|---|---|
+| Replace a hand-coded Conscious heuristic with a real LLM | An `agent_flow` node — auto-registers as `agent.<id>` and runs through the Substrate gate chain (Adversarial → Alignment → handler → Privacy) without extra wiring | M5.4 |
+| Build the Substrate visually instead of inside `transform_flow` scripts | The typed nodes under the **Proactive** palette: `veracity_gate_flow`, `privacy_gate_flow`, `adversarial_gate_flow`, `world_model_write_flow`, `ledger_append_flow`, `goal_match_flow`, `capability_lookup_flow`, `governor_decide_flow`, `motor_execute_flow`, `social_consent_flow`, `vitals_sweep_flow` | M5.7 |
+| Learn from operator actions (manual undo, dismissed notification, consent reject) — not just thumbs | `POST /proactive/feedback/implicit` and `POST /proactive/motor/undo` — recorded as `KIND_IMPLICIT_*` signals that feed the same Optimization strategies | M5.8-A |
+| Have an LLM propose Constitution rule changes from recent activity | Register `agent.evolution_proposer` (or set `llm_proposer.model.*` in `proactive_config.json` and let `ensure_default_proposer` wire it from Ollama / OpenAI / Anthropic) | M5.8-B |
+| Tune thresholds, default scopes, alias names, system prompts without code changes | The overlay file at `state_dir()/proactive_config.json` + per-prompt overrides at `state_dir()/prompts/<name>.txt`. Catalogue: [`app/proactive/config.example.json`](../app/proactive/config.example.json). Inspect: `POST /proactive/config`. | M5.9 |
+| Run a deployment with its own isolated state directory | One of four override surfaces: the `proactive_state_dir_flow` node, `WorkflowOptions.proactive_dir`, the `X-Proactive-Dir` HTTP header, or `--proactive-dir` on `app.py`. Innermost wins. | M5.10 |
+| Approve / reject pending consents from the operator UI | The **Consent inbox** subsection in the Vitals sidebar; `POST /proactive/social/consent/{id}/{approve|reject}` under the hood | M5.11-1 |
+| Augment the regex-based Veracity / Adversarial gates with an LLM scorer | Register `agent.veracity_scorer` / `agent.adversarial_scorer`. The heuristic always runs first; the LLM blends in (min for veracity, additive for adversarial) and shows up in provenance | M5.11-2 |
+| Edit `proactive_config.json` from the UI | The **Configuration overlay** subsection in the Vitals sidebar | M5.11-5 |
+
 ## Where To Go Next
 
 - [assistant-deployments.md](assistant-deployments.md)
 - [assistant-deployment-operations.md](assistant-deployment-operations.md)
 - [tutorial-12-workflow-backed-runtime.md](tutorial-12-workflow-backed-runtime.md)
+- [proactive-guide.md](proactive-guide.md) — the full proactive system reference; every M5.* feature above documented end-to-end

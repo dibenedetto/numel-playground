@@ -264,6 +264,50 @@ This commit closes M5.1 — Numel can now be discovered as an MCP server (with s
 
 This commit closes **Phase 5 — External integrations**. Numel can now (a) advertise its capabilities via MCP and consume peers' tools (M5.1), (b) federate with other systems through three trust tiers with adversarial-gated inbound and privacy-gated outbound (M5.2), and (c) bridge external LLMs (OpenAI-compatible + Claude) as first-class capabilities subject to the same Substrate gates (M5.3).
 
+### Proactive System — Phase 5 (M5.11: roadmap wrap-up — consent flow, LLM scorers, Governor module, UI panels, tutorial refresh)
+
+All three open items from the roadmap audit plus all three "nice-to-have" follow-ups in one batch.
+
+**M5.11-1 — Social consent approval flow ([`aaa9bef`](https://github.com/dibenedetto/numel-playground/commit/aaa9bef))**
+
+Closes the longest-standing open item: until now `WFSocialConsentFlow` recorded `awaiting_user` consents into `variables["pending_consents"]` but there was no operator-facing approve/reject path. Per `docs/proactive-technical.md` §6.1: *"Approval is not yet wired — the `awaiting_user` records sit until cleaned up."*
+
+- `app/proactive/social.py` — new module with the consent lifecycle. Durable store at `pending_consents.json` (state-dir scoped per M5.10). API: `list_pending(*, status)`, `record_pending(record)`, `approve(consent_id, *, operator, note)`, `reject(consent_id, *, operator, note)`, `get(consent_id)`. **Idempotent**: re-calling `approve` / `reject` on an already-decided consent returns the existing record without re-emitting the Ledger entry or feedback signal.
+- `app/nodes.py` — `WFSocialConsentFlow` mirrors each consent to the durable store via `proactive.social.record_pending`, alongside the existing workflow-local tracking. Best-effort — workflow-local tracking still works without the mirror.
+- `app/api.py` — three new endpoints: `POST /proactive/social/consent` (list), `POST /proactive/social/consent/{id}/approve`, `POST /proactive/social/consent/{id}/reject`. 404 on unknown id; idempotent on already-decided.
+- **Side-effects on a real state change**: Ledger entry (`core.social.consent_approved` / `consent_rejected`) carrying id / capability / operator / note, plus an implicit feedback signal (`KIND_IMPLICIT_ACCEPT` / `KIND_IMPLICIT_REJECT`) — so the Optimization sandbox learns from every operator decision.
+
+**M5.11-2 — Opt-in LLM-backed Middleware scorers ([`aa55cc5`](https://github.com/dibenedetto/numel-playground/commit/aa55cc5))**
+
+Per `middleware.py` docstring: *"These remain heuristics — Phase 6 will swap in LLM-backed scorers."* Lands the opt-in version: heuristic gates stay deterministic and security-critical; LLM scorer is consulted on top when an operator registers an `agent.<scorer_alias>` Capability. The LLM **augments — never replaces** — the heuristic verdict.
+
+- `veracity_gate` — calls `agent.veracity_scorer` if registered, expects JSON `{"trust": float, "reason": str}`. Blends via `min(heuristic_conf, llm_trust)` — the LLM can lower confidence but never raise it past what the heuristic earned.
+- `adversarial_gate` — calls `agent.adversarial_scorer` if registered, expects JSON `{"injection_hits": [str], "reason": str}`. Hits are **additive** — heuristic ∪ LLM merged into `untrusted_content.injection_hits`. Confidence penalty fires on either path.
+- Privacy gate stays as regex — deterministic redaction is exactly what we want, an LLM would only add latency / cost.
+- Resilience: no agent registered, call fails, or unparseable JSON → `_llm_score` returns `None` and the gate falls back to heuristic-alone silently. **Security primitives never depend on an LLM.**
+- Config knobs: `middleware.scorer.veracity.alias` / `.adversarial.alias` (defaults: `"veracity_scorer"`, `"adversarial_scorer"`).
+- Default prompts ship at [`app/proactive/prompts/veracity_scorer.txt`](../app/proactive/prompts/veracity_scorer.txt) + [`adversarial_scorer.txt`](../app/proactive/prompts/adversarial_scorer.txt); operator overrides at `state_dir()/prompts/<name>.txt` per the M5.9 overlay.
+
+**M5.11-3 — `proactive/governor.py` extraction ([`a25af76`](https://github.com/dibenedetto/numel-playground/commit/a25af76))**
+
+Per `proactive-technical.md` §3: *"Promoting the Governor itself to `app/proactive/governor.py` is left as a future refactor."* Done — Governor decision logic moves out of `WFGovernorDecideFlow.execute()` into a dedicated module with two entry points: `decide(scopes, confidence, …) -> (decision, reason)` (pure) and `gate(envelope, …) -> envelope` (mutates `governor_verdict`). Same defaults, same behaviour; future budget enforcement / attention throttling will live next to the existing scope policy.
+
+**M5.11-4/5 — Vitals UI panels for Consent inbox + Configuration overlay ([`8f6c835`](https://github.com/dibenedetto/numel-playground/commit/8f6c835))**
+
+Two new subsections in the proactive Vitals sidebar so operators stop having to curl + edit JSON by hand.
+
+- **Consent inbox** — every `awaiting_user` consent: capability, timestamp, rationale (truncated), Approve / Reject buttons that hit the M5.11-1 endpoints with `operator="vitals_ui"`.
+- **Configuration overlay** — state-dir row up top (path + source: `override` / `env` / `default` — confirms which layer of the M5.10 chain is active), then a table of every known path: green-highlighted when overridden, "default" when falling through. Set / Clear buttons per row.
+- `web/numel-api.js` — six new helpers: `proactiveStateDir`, `proactiveConfig`, `proactiveConfigSet`, `proactiveConfigClear`, `proactiveConsentList`, `proactiveConsentApprove`, `proactiveConsentReject`.
+
+**M5.11-6 — Tutorial-13 refresh (this commit)**
+
+`docs/tutorial-13-event-driven-proactive-deployments.md` got a new "What's Available Once The Deployment Is Running" section — a 9-row "want to / use / since" table covering every M5.4–M5.11 operator surface so anyone arriving via the deployment tutorial knows what's under the hood. Cross-links to [`docs/proactive-guide.md`](../docs/proactive-guide.md) for the full picture.
+
+**Smoke**: two new in-process checks (`Phase 5 · social consent flow`, `Phase 5 · middleware LLM scorers`), one extended integration block for the consent + config + state-dir endpoints. **17 / 17 pass** end-to-end.
+
+**What's left**: nothing on the published roadmap. Optimization tunables are tunable; Substrate is visual; agents / endpoints / A2A / transports share one Capability model; Evolution learns from explicit + implicit + LLM signals; state lives in a configurable, overridable location; the consent loop is wired; security primitives remain code where they should be. The proactive system is feature-complete for Phase 5.
+
 ### Proactive System — Phase 5 (M5.10: per-run state-directory override)
 
 Until now the proactive state directory was process-wide — set by `NUMEL_PROACTIVE_DIR` (or the `--proactive-dir` CLI flag landing in M5.10), with one value for every workflow / request / deployment running in the process. M5.10 adds three more layers that stack innermost-wins via `contextvars.ContextVar`, so concurrent workflows and per-request operations each see their own state directory without process-global mutation or locking.
