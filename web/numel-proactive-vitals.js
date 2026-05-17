@@ -38,6 +38,10 @@ class ProactiveVitalsPanel {
 		this._a2aRefreshBtn = document.getElementById('proactiveVitalsA2aRefreshBtn');
 		this._transportsEl = document.getElementById('proactiveVitalsTransports');
 		this._transportsRefreshBtn = document.getElementById('proactiveVitalsTransportsRefreshBtn');
+		this._consentsEl    = document.getElementById('proactiveVitalsConsents');
+		this._consentsRefreshBtn = document.getElementById('proactiveVitalsConsentsRefreshBtn');
+		this._configEl      = document.getElementById('proactiveVitalsConfig');
+		this._configRefreshBtn = document.getElementById('proactiveVitalsConfigRefreshBtn');
 		this._timer   = null;
 		this._lastError = null;
 
@@ -70,6 +74,10 @@ class ProactiveVitalsPanel {
 		this._mcpRefreshBtn?.addEventListener('click', () => this._refreshMcp());
 		this._a2aRefreshBtn?.addEventListener('click', () => this._refreshA2a());
 		this._transportsRefreshBtn?.addEventListener('click', () => this._refreshTransports());
+		this._consentsRefreshBtn?.addEventListener('click', () => this.refresh());
+		this._configRefreshBtn?.addEventListener('click',   () => this.refresh());
+		this._consentsEl?.addEventListener('click', (e) => this._handleConsentClick(e));
+		this._configEl?.addEventListener('click',   (e) => this._handleConfigClick(e));
 
 		// React to section collapse/expand to pause polling when hidden.
 		const observer = new MutationObserver(() => this._reschedule());
@@ -102,7 +110,8 @@ class ProactiveVitalsPanel {
 			const [vitals, ledger, quarantine, snapshots,
 			       mcpTools, mcpRemote, mcpCalls,
 			       a2aPeers, a2aInbox, a2aOutbox, a2aShared,
-			       transports, transportCalls] = await Promise.all([
+			       transports, transportCalls,
+			       consents, configState, stateDirInfo] = await Promise.all([
 				this.api.proactiveVitals(),
 				this.api.proactiveLedger({ limit: 8 }),
 				this.api.proactiveQuarantine(),
@@ -116,6 +125,9 @@ class ProactiveVitalsPanel {
 				this.api.proactiveA2aShared(5),
 				this.api.proactiveTransports(),
 				this.api.proactiveTransportsCalls(5),
+				this.api.proactiveConsentList('awaiting_user').catch(() => ({ entries: [] })),
+				this.api.proactiveConfig().catch(()        => ({ overrides: {}, known_paths: [] })),
+				this.api.proactiveStateDir().catch(()      => null),
 			]);
 			this._lastError = null;
 			this._renderStats(vitals);
@@ -126,6 +138,8 @@ class ProactiveVitalsPanel {
 			this._renderMcp(mcpTools?.tools || [], mcpRemote?.remote_tools || [], mcpCalls?.entries || []);
 			this._renderA2a(a2aPeers?.peers || [], a2aInbox?.entries || [], a2aOutbox?.entries || [], a2aShared?.entries || []);
 			this._renderTransports(transports?.transports || [], transportCalls?.entries || []);
+			this._renderConsents(consents?.entries || []);
+			this._renderConfig(configState?.overrides || {}, configState?.known_paths || [], stateDirInfo);
 			if (this._lastUpd) {
 				const t = new Date();
 				this._lastUpd.textContent = t.toLocaleTimeString();
@@ -191,6 +205,143 @@ class ProactiveVitalsPanel {
 				<span class="nw-vitals-mcp-label">Recent calls</span>
 				<span class="nw-vitals-mcp-detail">${callRows || '<em>none</em>'}</span>
 			</div>`;
+	}
+
+	// ── M5.11-1 Consent inbox ────────────────────────────────────────
+
+	_renderConsents(entries) {
+		if (!this._consentsEl) return;
+		if (!entries.length) {
+			this._consentsEl.innerHTML = '<div class="nw-vitals-empty">No pending consents.</div>';
+			return;
+		}
+		const rows = entries.map((e) => {
+			const cap = this._escape(e.capability || '?');
+			const id  = this._escape(e.id || '');
+			const rat = this._escape((e.rationale || '').slice(0, 120));
+			const req = e.requested_at
+				? new Date(e.requested_at * 1000).toLocaleTimeString()
+				: '';
+			return `
+				<div class="nw-vitals-mcp-call" data-consent-id="${id}">
+					<span class="nw-vitals-mcp-call-tool">${cap}</span>
+					<span class="nw-vitals-mcp-call-status">${this._escape(req)}</span>
+					<span class="nw-vitals-mcp-detail">${rat}</span>
+					<span class="nw-vitals-mcp-detail">
+						<button class="nw-btn nw-btn-sm nw-btn-secondary" data-action="approve" data-consent-id="${id}">Approve</button>
+						<button class="nw-btn nw-btn-sm nw-btn-secondary" data-action="reject"  data-consent-id="${id}">Reject</button>
+					</span>
+				</div>`;
+		}).join('');
+		this._consentsEl.innerHTML = `
+			<div class="nw-vitals-mcp-row">
+				<span class="nw-vitals-mcp-label">Awaiting user</span>
+				<span class="nw-vitals-mcp-count">${entries.length}</span>
+				<span class="nw-vitals-mcp-detail"><em>click Approve / Reject below</em></span>
+			</div>
+			${rows}`;
+	}
+
+	async _handleConsentClick(e) {
+		const btn = e.target?.closest('button[data-consent-id]');
+		if (!btn) return;
+		const id     = btn.dataset.consentId;
+		const action = btn.dataset.action;
+		if (!id || !(action === 'approve' || action === 'reject')) return;
+		btn.disabled = true;
+		try {
+			const fn = action === 'approve'
+				? this.api.proactiveConsentApprove.bind(this.api)
+				: this.api.proactiveConsentReject.bind(this.api);
+			await fn(id, { operator: 'vitals_ui' });
+			await this.refresh();
+		} catch (err) {
+			this._renderError(err);
+		} finally {
+			btn.disabled = false;
+		}
+	}
+
+	// ── M5.9 Configuration overlay ───────────────────────────────────
+
+	_renderConfig(overrides, knownPaths, stateDirInfo) {
+		if (!this._configEl) return;
+		// State-dir row up top (M5.10) so the operator sees which path is active.
+		const sdSrc = stateDirInfo?.source || 'default';
+		const sdPath = stateDirInfo?.path || '';
+		const sdRow = `
+			<div class="nw-vitals-mcp-row">
+				<span class="nw-vitals-mcp-label">State dir</span>
+				<span class="nw-vitals-mcp-count">${this._escape(sdSrc)}</span>
+				<span class="nw-vitals-mcp-detail"><code>${this._escape(sdPath)}</code></span>
+			</div>`;
+		// Flatten the override tree into dotted-path:value pairs so we can
+		// table it next to the known-paths catalogue.
+		const flatOverrides = {};
+		(function flatten(obj, prefix) {
+			if (!obj || typeof obj !== 'object' || Array.isArray(obj)) {
+				flatOverrides[prefix] = obj;
+				return;
+			}
+			for (const k of Object.keys(obj)) {
+				if (k.startsWith('_')) continue;   // skip _comment keys
+				const next = prefix ? `${prefix}.${k}` : k;
+				flatten(obj[k], next);
+			}
+		})(overrides, '');
+		const allPaths = new Set([...knownPaths, ...Object.keys(flatOverrides)]);
+		const pathRows = Array.from(allPaths).sort().map((p) => {
+			const has = Object.prototype.hasOwnProperty.call(flatOverrides, p);
+			const v   = has ? flatOverrides[p] : undefined;
+			const cls = has ? 'nw-vitals-verdict-pass' : '';
+			const val = has ? this._escape(JSON.stringify(v)) : '<em>default</em>';
+			return `
+				<div class="nw-vitals-mcp-call" data-config-path="${this._escape(p)}">
+					<span class="nw-vitals-mcp-call-tool">${this._escape(p)}</span>
+					<span class="nw-vitals-mcp-call-status ${cls}">${val}</span>
+					<span class="nw-vitals-mcp-detail">
+						<button class="nw-btn nw-btn-sm nw-btn-secondary" data-action="set"   data-config-path="${this._escape(p)}">Set</button>
+						<button class="nw-btn nw-btn-sm nw-btn-secondary" data-action="clear" data-config-path="${this._escape(p)}" ${has ? '' : 'disabled'}>Clear</button>
+					</span>
+				</div>`;
+		}).join('');
+		this._configEl.innerHTML = `
+			${sdRow}
+			<div class="nw-vitals-mcp-row">
+				<span class="nw-vitals-mcp-label">Overrides</span>
+				<span class="nw-vitals-mcp-count">${Object.keys(flatOverrides).length}</span>
+				<span class="nw-vitals-mcp-detail"><em>green = overridden; <code>default</code> = falls through to in-code value</em></span>
+			</div>
+			${pathRows || '<div class="nw-vitals-empty">No known paths.</div>'}`;
+	}
+
+	async _handleConfigClick(e) {
+		const btn = e.target?.closest('button[data-config-path]');
+		if (!btn) return;
+		const path   = btn.dataset.configPath;
+		const action = btn.dataset.action;
+		if (!path || !(action === 'set' || action === 'clear')) return;
+		btn.disabled = true;
+		try {
+			if (action === 'set') {
+				const raw = window.prompt(`New value for ${path} (JSON):`, '');
+				if (raw === null) return;
+				let value;
+				try {
+					value = JSON.parse(raw);
+				} catch {
+					value = raw;   // accept bare strings without quoting
+				}
+				await this.api.proactiveConfigSet(path, value);
+			} else {
+				await this.api.proactiveConfigClear(path);
+			}
+			await this.refresh();
+		} catch (err) {
+			this._renderError(err);
+		} finally {
+			btn.disabled = false;
+		}
 	}
 
 	_renderA2a(peers, inbox, outbox, shared) {

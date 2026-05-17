@@ -274,6 +274,16 @@ class NumelAPI {
 	}
 	proactiveTransportsCalls(limit = 25)               { return this.json('/proactive/transports/calls', { limit }); }
 
+	// ── Phase 5 (M5.9-M5.11) Config overlay + consent + state-dir ────
+
+	proactiveStateDir()                                { return this.json('/proactive/state_dir'); }
+	proactiveConfig()                                  { return this.json('/proactive/config'); }
+	proactiveConfigSet(path, value)                    { return this.json('/proactive/config/set',   { path, value }); }
+	proactiveConfigClear(path = null)                  { return this.json('/proactive/config/clear', path ? { path } : {}); }
+	proactiveConsentList(status = null)                { return this.json('/proactive/social/consent', status ? { status } : {}); }
+	proactiveConsentApprove(id, opts = {})             { return this.json(`/proactive/social/consent/${encodeURIComponent(id)}/approve`, opts); }
+	proactiveConsentReject (id, opts = {})             { return this.json(`/proactive/social/consent/${encodeURIComponent(id)}/reject`,  opts); }
+
 	// ── Console API ──────────────────────────────────────────────
 
 	consoleStart(opts = {})       { return this.json('/console/start', opts); }
