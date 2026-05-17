@@ -963,6 +963,119 @@ def _smoke_optimization(verbose: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Phase 5 (M5.11-2) — Opt-in LLM-backed Middleware scorers
+# ---------------------------------------------------------------------------
+
+def _smoke_middleware_llm_scorers(verbose: bool) -> None:
+    """M5.11-2: heuristic gates stay deterministic; when an
+    `agent.<scorer_alias>` Capability is registered the gate ALSO
+    consults the LLM, merges its verdict (additive for adversarial,
+    `min` blend for veracity), and records it in provenance for the
+    Why-chain. No scorer registered = clean fallback to heuristic."""
+    from proactive.persistence import clear_state, state_dir
+    from proactive import middleware as mw
+    from proactive import agents     as ag
+
+    snap_dir = state_dir() / "snapshots"
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+    # ---- No scorer registered → heuristic alone -------------------------
+    env_clean = {"source": "user", "payload": {"body": "weather looks great today"}}
+    out_v = mw.veracity_gate(dict(env_clean))
+    assert "llm_scorer" not in (out_v.get("provenance") or [])[-1], \
+        "no scorer registered → no llm_scorer key in provenance"
+
+    out_a = mw.adversarial_gate(dict(env_clean))
+    prov_a = (out_a.get("provenance") or [])[-1]
+    assert "llm_scorer" not in prov_a, \
+        "no scorer registered → no llm_scorer key in adversarial provenance"
+    assert prov_a.get("llm_hits") == []
+    assert prov_a.get("heuristic_hits") == []
+
+    # ---- Register stub veracity scorer that drops trust to 0.1 ----------
+    def _veracity_stub(args):
+        return {"content_type": "text",
+                "content": '{"trust": 0.1, "reason": "smoke-test downvote"}'}
+    ag.register_agent_handler("veracity_scorer", _veracity_stub,
+                              kind=ag.KIND_LOCAL,
+                              description="Stub veracity scorer (smoke)")
+
+    out_v2 = mw.veracity_gate({"source": "user",
+                               "payload": {"body": "anything"}})
+    prov_v = (out_v2.get("provenance") or [])[-1]
+    assert "llm_scorer" in prov_v, f"veracity provenance missing llm_scorer: {prov_v}"
+    assert prov_v["llm_scorer"]["trust"] == 0.1
+    # 'user' source has base_trust 0.95 → heuristic confidence ~0.95
+    # LLM scorer says 0.1 → min blend → 0.1
+    assert out_v2["confidence"] == 0.1, \
+        f"expected min-blend confidence=0.1, got {out_v2['confidence']}"
+    assert prov_v["heuristic_conf"] >= 0.5, \
+        "heuristic conf preserved separately so audit shows both sides"
+
+    # ---- Register stub adversarial scorer that flags an injection -------
+    def _adv_stub(args):
+        return {"content_type": "text", "content": (
+            '{"injection_hits": ["llm-detected-jailbreak"], '
+            '"reason": "smoke-test flag"}'
+        )}
+    ag.register_agent_handler("adversarial_scorer", _adv_stub,
+                              kind=ag.KIND_LOCAL,
+                              description="Stub adversarial scorer (smoke)")
+
+    out_a2 = mw.adversarial_gate({"source": "user",
+                                  "payload": {"body": "looks innocuous to regex"}})
+    prov_a2 = (out_a2.get("provenance") or [])[-1]
+    assert "llm-detected-jailbreak" in (out_a2["untrusted_content"]["injection_hits"]), \
+        f"LLM hit not merged into injection_hits: {out_a2['untrusted_content']}"
+    assert prov_a2["heuristic_hits"] == [], "heuristic should still report empty"
+    assert prov_a2["llm_hits"] == ["llm-detected-jailbreak"]
+    # Confidence penalty fires because LLM flagged.
+    assert out_a2["confidence"] < 0.5, \
+        f"LLM injection hit should drop confidence: {out_a2['confidence']}"
+
+    # ---- Alias config override picks a different agent ------------------
+    from proactive import config as cfg
+    def _custom_veracity(args):
+        return {"content_type": "text",
+                "content": '{"trust": 0.99, "reason": "custom scorer"}'}
+    ag.register_agent_handler("custom_veracity_scorer", _custom_veracity,
+                              kind=ag.KIND_LOCAL)
+    cfg.set_override("middleware.scorer.veracity.alias", "custom_veracity_scorer")
+    out_v3 = mw.veracity_gate({"source": "user", "payload": {"body": "anything"}})
+    prov_v3 = (out_v3.get("provenance") or [])[-1]
+    assert prov_v3["llm_scorer"]["alias"] == "custom_veracity_scorer"
+    assert prov_v3["llm_scorer"]["trust"] == 0.99
+    cfg.clear_override()
+
+    # ---- Scorer failure (raises) → silent fallback to heuristic ---------
+    def _broken_scorer(args):
+        raise RuntimeError("LLM broke")
+    ag.drop_agent("veracity_scorer", kind=ag.KIND_LOCAL)
+    ag.register_agent_handler("veracity_scorer", _broken_scorer,
+                              kind=ag.KIND_LOCAL)
+    out_v4 = mw.veracity_gate({"source": "user", "payload": {"body": "anything"}})
+    prov_v4 = (out_v4.get("provenance") or [])[-1]
+    assert "llm_scorer" not in prov_v4, \
+        "broken scorer must fall back silently — no provenance noise"
+
+    if verbose:
+        print(f"  veracity heuristic-only: confidence={out_v['confidence']:.2f}")
+        print(f"  veracity LLM-blended:    confidence={out_v2['confidence']:.2f} (heuristic={prov_v['heuristic_conf']:.2f})")
+        print(f"  adversarial LLM hit:     {out_a2['untrusted_content']['injection_hits']}")
+        print(f"  config alias override:   {prov_v3['llm_scorer']['alias']}")
+
+    # Cleanup
+    ag.drop_agent("veracity_scorer",        kind=ag.KIND_LOCAL)
+    ag.drop_agent("adversarial_scorer",     kind=ag.KIND_LOCAL)
+    ag.drop_agent("custom_veracity_scorer", kind=ag.KIND_LOCAL)
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Phase 5 (M5.11-1) — Social consent approval flow
 # ---------------------------------------------------------------------------
 
@@ -2226,6 +2339,7 @@ _INPROC_TESTS = [
     ("Phase 4 · optimization sandbox", _smoke_optimization),
     ("Phase 4 · promotion gate",       _smoke_promotion),
     ("Phase 5 · social consent flow",  _smoke_social_consent),
+    ("Phase 5 · middleware LLM scorers", _smoke_middleware_llm_scorers),
     ("Phase 5 · MCP bridge",           _smoke_mcp),
     ("Phase 5 · A2A federation",       _smoke_a2a),
     ("Phase 5 · LLM transports",       _smoke_transports),
