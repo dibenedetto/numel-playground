@@ -896,36 +896,25 @@ class WFCapabilityLookupFlow(WFFlowType):
 
 
 class WFGovernorDecideFlow(WFFlowType):
-	"""Substrate §3.5 — runs the Governor over scopes + confidence."""
+	"""Substrate §3.5 — Governor verdict over scopes + confidence.
+
+	Logic lives in `proactive.governor.gate`; this executor is a thin
+	adapter that reads the per-node tunables (`high_stake_scopes`,
+	`write_scopes`, `write_confidence_threshold`) off the node's inputs.
+	"""
 
 	async def execute(self, context: NodeExecutionContext) -> NodeExecutionResult:
 		result = await super().execute(context)
 		try:
-			env             = _coerce_envelope(context.inputs.get("input"))
-			scopes          = list(env.get("scopes", ["read-only"]))
-			conf            = float(env.get("confidence", 1.0))
-			high_stake      = set(context.inputs.get("high_stake_scopes")
-			                      or ["spends-money", "impersonates-user", "affects-third-party"])
-			write_scopes    = set(context.inputs.get("write_scopes") or ["write"])
-			conf_threshold  = float(context.inputs.get("write_confidence_threshold") or 0.85)
-
-			has_high  = any(s in high_stake   for s in scopes)
-			has_write = any(s in write_scopes for s in scopes)
-
-			if has_high:
-				decision, reason = "consent_required", "high-stake scope present"
-			elif has_write and conf < conf_threshold:
-				decision, reason = "consent_required", "write at low confidence"
-			else:
-				decision, reason = "allow", "low-class action"
-
-			env["governor_verdict"] = {
-				"decision":   decision,
-				"reason":     reason,
-				"scopes":     scopes,
-				"confidence": conf,
-			}
-			result.outputs["output"] = env
+			_ensure_proactive_on_path()
+			from proactive import governor as _g
+			env = _coerce_envelope(context.inputs.get("input"))
+			result.outputs["output"] = _g.gate(
+				env,
+				high_stake_scopes          = context.inputs.get("high_stake_scopes"),
+				write_scopes               = context.inputs.get("write_scopes"),
+				write_confidence_threshold = float(context.inputs.get("write_confidence_threshold") or _g.DEFAULT_WRITE_CONF_THRESHOLD),
+			)
 		except Exception as e:
 			result.success = False
 			result.error   = str(e)
