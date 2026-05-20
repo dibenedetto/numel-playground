@@ -973,9 +973,28 @@ class WorkflowEngine:
 
 														received_events[event.source_id] = event.data
 
-														if md == "any" or md == "race":
-															# First event triggers
-															return idx, event.data, event.source_id, received_events
+														if md == "race":
+															# Strict winner-takes-all: report only the
+															# event that won the race. Any siblings buffered
+															# in the queue at this instant are discarded
+															# (the operator asked for a pure race).
+															return idx, event.data, event.source_id, {event.source_id: event.data}
+
+														elif md == "any":
+															# First event triggers, but ALSO drain whatever
+															# else is already buffered so the workflow can
+															# observe every source that fired during this
+															# tick. Non-blocking — we only collect what's
+															# already in the queue, never wait for more.
+															winner_source = event.source_id
+															winner_data   = event.data
+															while True:
+																try:
+																	extra = event_queue.get_nowait()
+																except asyncio.QueueEmpty:
+																	break
+																received_events[extra.source_id] = extra.data
+															return idx, winner_data, winner_source, received_events
 
 														elif md == "all":
 															# Check if we have events from all sources

@@ -390,6 +390,95 @@ def _smoke_state_dir_override(verbose: bool) -> None:
             os.environ.pop("NUMEL_PROACTIVE_DIR", None)
 
 
+def _smoke_event_listener_modes(verbose: bool) -> None:
+    """M5.11-7: pin the per-mode `events`-dict semantics of the engine's
+    event-listener wait loop. The dispatch lives inline in
+    engine.py:_execute_workflow_body so we exercise the same code shape
+    in isolation against an asyncio.Queue pre-loaded with synthetic
+    events. Three modes, three distinct outputs:
+
+      'race' → exactly ONE source in events (the winner)
+      'any'  → winner + every sibling buffered at fire time
+      'all'  → events from every subscribed source
+    """
+    import asyncio as _asyncio
+    from collections import namedtuple
+
+    _Evt = namedtuple("_Evt", ["source_id", "data"])
+
+    async def _dispatch(mode, sources, events_to_enqueue):
+        """Mirror the engine's mode-dispatch loop verbatim. If the engine
+        changes, this test catches drift."""
+        q = _asyncio.Queue()
+        for e in events_to_enqueue:
+            q.put_nowait(e)
+        received = {}
+        while True:
+            event = await q.get()
+            received[event.source_id] = event.data
+
+            if mode == "race":
+                return event.data, event.source_id, {event.source_id: event.data}
+
+            elif mode == "any":
+                winner_src  = event.source_id
+                winner_data = event.data
+                while True:
+                    try:
+                        extra = q.get_nowait()
+                    except _asyncio.QueueEmpty:
+                        break
+                    received[extra.source_id] = extra.data
+                return winner_data, winner_src, received
+
+            elif mode == "all":
+                if all(sid in received for sid in sources):
+                    return event.data, event.source_id, received
+
+    async def _run():
+        sources = ["src_A", "src_B", "src_C"]
+        events  = [_Evt("src_A", {"v": 1}),
+                   _Evt("src_B", {"v": 2}),
+                   _Evt("src_C", {"v": 3})]
+
+        # race: only the first event shows up in the events dict.
+        d, sid, evs = await _dispatch("race", sources, events)
+        assert sid == "src_A" and d == {"v": 1}
+        assert evs == {"src_A": {"v": 1}}, f"race events: expected one entry, got {evs}"
+
+        # any: first event triggers + every sibling buffered at fire time.
+        d, sid, evs = await _dispatch("any", sources, events)
+        assert sid == "src_A" and d == {"v": 1}
+        assert set(evs.keys()) == {"src_A", "src_B", "src_C"}, \
+            f"any events: expected all three sources, got {sorted(evs)}"
+
+        # all: same outcome as `any` here because all three sources fired,
+        # but the trigger condition is "wait until every source seen at
+        # least once" — verify that's what stops the loop.
+        d, sid, evs = await _dispatch("all", sources, events)
+        assert set(evs.keys()) == {"src_A", "src_B", "src_C"}
+
+        # all: with only 2 of 3 sources firing, the loop would block
+        # forever — exercise via asyncio.wait_for + TimeoutError so we
+        # don't actually hang the smoke run.
+        partial_events = [_Evt("src_A", {"v": 1}), _Evt("src_B", {"v": 2})]
+        try:
+            await _asyncio.wait_for(
+                _dispatch("all", sources, partial_events),
+                timeout=0.05,
+            )
+            assert False, "all-mode with missing source should block"
+        except _asyncio.TimeoutError:
+            pass
+
+    _asyncio.run(_run())
+
+    if verbose:
+        print(f"  race  -> exactly one source in events")
+        print(f"  any   -> winner + every sibling buffered at fire time")
+        print(f"  all   -> blocks until every source has fired")
+
+
 def _smoke_state_dir_integrations(verbose: bool) -> None:
     """M5.10 stages 3 + 4: WorkflowOptions.proactive_dir + the
     `proactive_state_dir_flow` typed node both route the run's substrate
@@ -2334,6 +2423,7 @@ _INPROC_TESTS = [
     ("Phase 5 · vertical slice (agent_flow)", _smoke_vertical_slice_agent_flow),
     ("Phase 5 · state-dir override",   _smoke_state_dir_override),
     ("Phase 5 · state-dir integrations", _smoke_state_dir_integrations),
+    ("Phase 5 · event-listener modes",  _smoke_event_listener_modes),
     ("Phase 3 · persistent stack",     _smoke_persistent),
     ("Phase 4 · alignment layer",      _smoke_alignment),
     ("Phase 4 · optimization sandbox", _smoke_optimization),

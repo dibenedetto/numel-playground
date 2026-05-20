@@ -1782,16 +1782,27 @@ class EventListenerFlow(FlowType):
 	"""
 	Event Listener node - waits for events from external event sources.
 
-	Modes:
-	- 'any': Triggers on first event from any source (default)
-	- 'all': Waits for one event from each source before triggering
-	- 'race': First event wins, resets listener for next round
+	Modes (all three fire on the FIRST event from any subscribed source
+	except `all`; they differ in what they report in the `events` output):
+
+	- 'any':  Trigger fires on the first event; the listener ALSO drains
+	          whatever else is already buffered in the queue at fire time
+	          and includes those sibling events in `events`. Use this when
+	          you want to see "what fired in this tick" — multiple sources
+	          may show up in the events dict.
+	- 'race': Strict winner-takes-all. The first event fires the trigger
+	          and `events` carries exactly one entry — the winner. Any
+	          siblings buffered at fire time are discarded. Use this when
+	          you want pure race semantics (one source per iteration).
+	- 'all':  Wait until ONE event has been received from EACH source
+	          before firing. `events` carries every source's most-recent
+	          event. Use this for fan-in / barrier patterns.
 
 	The node blocks workflow execution until an event is received.
 	"""
 	type       : Annotated[Literal["event_listener_flow"], FieldRole.CONSTANT   ] = "event_listener_flow"
 	sources    : Annotated[Optional[Dict[str, Any]]      , FieldRole.MULTI_INPUT] = Field(default=None,   description="Dict of registered source IDs to listen to — wire from source node 'registered_id' outputs")  # Source IDs (multi-input from source nodes)
-	mode       : Annotated[Literal["any", "all", "race"] , FieldRole.INPUT      ] = Field(default="any",  description="Trigger mode — 'any' fires on first source, 'all' waits for all sources, 'race' fires then resets")
+	mode       : Annotated[Literal["any", "all", "race"] , FieldRole.INPUT      ] = Field(default="any",  description="Trigger mode — 'any' fires on first source and reports every sibling buffered in the same tick, 'all' waits for one event per source, 'race' fires on first source and reports only the winner")
 	timeout_ms : Annotated[Optional[int]                 , FieldRole.INPUT      ] = Field(default=None,   description="Maximum wait time in milliseconds; None means wait indefinitely for an event")  # None = no timeout
 	# Outputs
 	event      : Annotated[Any                           , FieldRole.OUTPUT     ] = Field(default=None,   description="The event data payload received from the triggering source")
