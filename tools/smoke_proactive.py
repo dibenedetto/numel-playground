@@ -2211,6 +2211,22 @@ def _smoke_integration(verbose: bool) -> None:
             }
         }), encoding="utf-8")
 
+        # M5.12 — the user-facing feed should surface the seeded consent as
+        # an 'asks' card (plain language, no substrate vocabulary).
+        feed = _post_json(f"{url}/proactive/feed", {"limit": 10})
+        assert feed["pending_count"] == 1, f"feed pending_count: {feed}"
+        ask_card = next((c for c in feed["cards"] if c["kind"] == "asks"), None)
+        assert ask_card is not None, f"no asks card in feed: {feed['cards']}"
+        assert "notification" in ask_card["headline"].lower(), \
+            f"feed card not humanised: {ask_card['headline']}"
+        blob = json.dumps(feed["cards"]).lower()
+        assert "governor_verdict" not in blob and "scopes" not in blob, \
+            "substrate vocabulary leaked into the user feed"
+        # Dismiss endpoint records an implicit signal cleanly.
+        dis = _post_json(f"{url}/proactive/feed/dismiss",
+                         {"target_id": "led_x", "capability": "core.notify"})
+        assert dis["entry"]["kind"] == "implicit_reject"
+
         cs_list = _post_json(f"{url}/proactive/social/consent", {"status": "awaiting_user"})
         assert cs_list["count"] == 1 and cs_list["entries"][0]["id"] == seeded_id
 

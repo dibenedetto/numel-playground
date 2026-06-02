@@ -264,6 +264,32 @@ This commit closes M5.1 — Numel can now be discovered as an MCP server (with s
 
 This commit closes **Phase 5 — External integrations**. Numel can now (a) advertise its capabilities via MCP and consume peers' tools (M5.1), (b) federate with other systems through three trust tiers with adversarial-gated inbound and privacy-gated outbound (M5.2), and (c) bridge external LLMs (OpenAI-compatible + Claude) as first-class capabilities subject to the same Substrate gates (M5.3).
 
+### Proactive System — Phase 5 (M5.12: "Your Assistant" — the user-facing surface)
+
+**The conceptual fix.** Everything before this — Ledger, Vitals, governor verdicts, Why-chains, the config overlay UI — is the *operator/engineer* view of a proactive agent. It's instrumentation. A normal user doesn't want to read `governor_verdict: consent_required, scopes: [spends-money], confidence: 0.95`; they want their assistant to *message them*: "I noticed an urgent $5,000 wire request from eve@example.com — want me to handle it?" with two buttons. M5.12 adds that missing half: a plain-language, user-facing surface, fully selectable in form.
+
+**M5.12-1 — feed translator (backend, [`f3e6496`](https://github.com/dibenedetto/numel-playground/commit/f3e6496))**
+
+- `app/proactive/feed.py` — `build_feed(*, limit, include_done)` turns the Ledger + pending-consent store into plain-language cards: `asks` ❓ / `did` ✅ / `noticed` 💡. Pending consents sort to the top (they need a decision). Capability names humanised (`core.transfer_funds` → "a money transfer"); amounts / recipients / messages pulled from `intent.args`. **No substrate vocabulary** (`scopes` / `governor_verdict` / `confidence`) ever reaches a card — that stays in Vitals.
+- `app/api.py` — `POST /proactive/feed {limit?, include_done?}` → `{cards, pending_count}`; `POST /proactive/feed/dismiss` records a `notification_dismissed` implicit signal. Card actions map to the **existing** M5.11 endpoints (consent approve/reject, motor undo) — pure presentation layer, no new persistence.
+
+**M5.12-2 — "Your Assistant" surface (frontend, this commit)**
+
+The three design questions the user was asked — interaction model, placement, Vitals visibility — all became **user-selectable settings** (their explicit instruction: "do all three, make this option selectable"). Persisted to `localStorage` (`numel_proactive_assistant_prefs_v1`).
+
+- `web/numel-proactive-assistant.js` — new `ProactiveAssistantPanel`. Polls `/proactive/feed` (6 s, pauses when collapsed). Three interaction modes:
+  - **Feed + reply box** (default) — cards + a free-text box that writes standing instructions into the User Constitution preferences.
+  - **Inbox of cards** — pure card list.
+  - **Conversational chat** — each card rendered as an assistant bubble.
+- **Placement** preference — `panel` / `console` / `both`. Console + both mirror the top pending ask into the existing console slide-out via a new `AgentConsoleManager.pushProactiveCard` hook (reuses the suggestion channel + badge).
+- **Vitals visibility** preference — `developer` (collapse by default) / `hidden` (display:none) / `asis`. Lets a non-technical operator hide the engineering dashboard entirely.
+- `web/numel-console.js` — `pushProactiveCard(card)` added; the live console instance is exposed as `window._numelConsole` from `numel-workflow-ui.js`.
+- `web/index.html` — new "Your Assistant" `<section>` above Vitals (gear-toggled settings strip + feed container + reply box) and a `<script>` tag. `web/numel-api.js` — `proactiveFeed`, `proactiveFeedDismiss`, `proactiveMotorUndo` helpers. `web/numel-workflow.css` — `nw-assistant-*` classes (cards, bubbles, settings, reply).
+
+**Smoke**: new in-process `Phase 5 · user-facing feed` check (asks-first ordering, money-aware humanisation, did/noticed translation, asserts no substrate term leaks into a card, `include_done=False` drops did cards). Integration probe hits `/proactive/feed` + `/proactive/feed/dismiss` in the subprocess. JS syntax-checked with `node --check`. **19 / 19 pass.**
+
+**Doc**: `docs/proactive-guide.md` new §8 "Two faces" — a side-by-side table of the user surface vs the operator dashboard, the three interaction modes, and the placement / Vitals-visibility preferences. Existing §8 renumbered to §8b.
+
 ### Proactive System — Phase 5 (M5.11: roadmap wrap-up — consent flow, LLM scorers, Governor module, UI panels, tutorial refresh)
 
 All three open items from the roadmap audit plus all three "nice-to-have" follow-ups in one batch.

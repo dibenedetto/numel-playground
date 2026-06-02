@@ -409,7 +409,31 @@ Constitution rules can target any of these by name (`{kind: never, target: "agen
 
 ---
 
-## 8. Operating Numel — the Vitals panel walk-through
+## 8. Two faces: the user surface and the operator dashboard (M5.12)
+
+The proactive system has **two** front-ends, and which one you use depends on who you are:
+
+| | **Your Assistant** (user surface) | **Proactive Vitals** (operator dashboard) |
+|---|---|---|
+| Who it's for | The person the assistant works for | The engineer building / tuning it |
+| What it shows | Plain-language cards: 💡 "I noticed…", ❓ "Can I…?", ✅ "I did…" | Ledger rows, governor verdicts, scopes, confidence, Why-chains |
+| Actions | Approve / Dismiss / Undo, a reply box for standing instructions | Snapshots, promotion, config overrides, quarantine release |
+| Wired to | `/proactive/feed` (+ consent / undo / dismiss endpoints) | `/proactive/vitals`, `/proactive/ledger`, `/proactive/config`, … |
+
+**Your Assistant** is the user-facing translation layer. The server-side [`proactive.feed.build_feed`](../app/proactive/feed.py) turns raw Ledger entries + pending consents into human cards — no `scopes` / `governor_verdict` / `confidence` ever reaches the user; that vocabulary stays in Vitals. Three interaction modes, all user-selectable (gear icon) and persisted to `localStorage`:
+
+- **Feed + reply box** (default) — scannable cards plus a free-text box for "always handle newsletters" / "ignore eve@".
+- **Inbox of cards** — pure notification list, no reply box.
+- **Conversational chat** — the assistant "speaks" each card as a bubble.
+
+Two more selectable preferences:
+
+- **Placement** — `This panel only` / `Console slide-out` (mirror the top pending ask into the existing console badge) / `Both`.
+- **Vitals dashboard** — `Developer view` (collapsed by default) / `Hidden` / `Always show`. So a non-technical operator can hide the engineering dashboard entirely and only ever see Your Assistant.
+
+The card actions reuse the M5.11 endpoints exactly — `Approve`/`Dismiss` → `/proactive/social/consent/{id}/{approve|reject}`, `Undo` → `/proactive/motor/undo`, `Dismiss` on a notice → `/proactive/feed/dismiss` (records a `notification_dismissed` implicit signal so the Optimization loop learns). It's a pure presentation layer; there's no new persistence.
+
+## 8b. Operating Numel — the Vitals panel walk-through
 
 The Vitals panel (right sidebar of the workflow UI when a proactive workflow is loaded) is the operator's window into the system. Sections:
 

@@ -3093,6 +3093,9 @@ async function connect() {
 
 		// Initialize console manager
 		consoleManager = new AgentConsoleManager(serverUrl, syncWorkflow, api);
+		// Expose the live instance so the proactive assistant surface can
+		// mirror cards into the console slide-out (placement = console/both).
+		window._numelConsole = consoleManager;
 		$('consoleToggleBtn').style.display = '';
 		// In the docked-assistant layout the panel is always visible, so
 		// open the console immediately to start the agent and avoid the
@@ -3111,6 +3114,15 @@ async function connect() {
 			window._proactiveVitalsPanel = new ProactiveVitalsPanel(api);
 		} catch (err) {
 			console.warn('[ProactiveVitals] init failed:', err);
+		}
+
+		// Initialize Your Assistant surface (M5.12 — user-facing feed).
+		// Constructed AFTER Vitals so its Vitals-visibility preference can
+		// reach the already-mounted Vitals section.
+		try {
+			window._proactiveAssistantPanel = new ProactiveAssistantPanel(api);
+		} catch (err) {
+			console.warn('[ProactiveAssistant] init failed:', err);
 		}
 
 		// Initialize published apps manager

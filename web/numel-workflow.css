@@ -2686,6 +2686,91 @@ body.nw-layout-project-workbench .nw-mono-text {
 .nw-vitals-mcp-call-tool   { font-family: 'Courier New', monospace; color: var(--sg-text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nw-vitals-mcp-call-status { font-weight: 600; font-size: 10px; }
 
+/* ====================================================================
+   M5.12 — Your Assistant (user-facing proactive feed)
+   ==================================================================== */
+
+.nw-assistant-badge {
+	display: inline-block;
+	min-width: 16px;
+	padding: 0 5px;
+	margin-left: 6px;
+	border-radius: 8px;
+	background: var(--sg-accent-purple, #9370db);
+	color: #fff;
+	font-size: 10px;
+	font-weight: 700;
+	text-align: center;
+	line-height: 16px;
+}
+.nw-assistant-settings {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	padding: 6px;
+	margin-bottom: 6px;
+	background: var(--sg-bg-quaternary);
+	border-radius: 4px;
+}
+.nw-assistant-field {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	font-size: 10px;
+	color: var(--sg-text-tertiary);
+	text-transform: uppercase;
+	letter-spacing: 0.4px;
+}
+.nw-select-sm, .nw-input-sm { font-size: 11px; padding: 2px 4px; }
+
+.nw-assistant-feed {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.nw-assistant-card {
+	padding: 8px;
+	border-radius: 6px;
+	background: var(--sg-bg-tertiary, var(--sg-bg-quaternary));
+	border-left: 3px solid var(--sg-text-tertiary);
+}
+.nw-assistant-card-asks    { border-left-color: var(--sg-accent-purple, #9370db); }
+.nw-assistant-card-did     { border-left-color: #4caf7d; }
+.nw-assistant-card-noticed { border-left-color: #5a8fc0; }
+.nw-assistant-card-head {
+	display: flex;
+	gap: 6px;
+	align-items: baseline;
+}
+.nw-assistant-card-icon     { font-size: 13px; }
+.nw-assistant-card-headline { color: var(--sg-text-primary); font-weight: 600; font-size: 12px; }
+.nw-assistant-card-detail   { color: var(--sg-text-secondary); font-size: 11px; margin: 4px 0 0 19px; }
+.nw-assistant-card-meta     { color: var(--sg-text-tertiary); font-size: 10px; margin: 4px 0 0 19px; }
+.nw-assistant-card-actions  { display: flex; gap: 6px; margin: 6px 0 0 19px; }
+
+/* chat mode — bubbles */
+.nw-assistant-bubble {
+	display: flex;
+	gap: 6px;
+	align-items: flex-start;
+	padding: 6px 8px;
+	border-radius: 10px;
+	background: var(--sg-bg-tertiary, var(--sg-bg-quaternary));
+}
+.nw-assistant-bubble-icon { font-size: 14px; }
+.nw-assistant-bubble-body { font-size: 12px; color: var(--sg-text-primary); }
+.nw-assistant-bubble-body .nw-assistant-card-actions { margin-left: 0; }
+
+/* cards mode — slightly denser */
+.nw-assistant-mode-cards .nw-assistant-card-detail { display: none; }
+
+.nw-assistant-reply {
+	display: flex;
+	gap: 6px;
+	margin-top: 8px;
+}
+.nw-assistant-reply .nw-input { flex: 1; }
+
 /* M5.2 A2A — federation peers + inbox/outbox */
 
 .nw-vitals-a2a {

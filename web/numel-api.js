@@ -284,6 +284,16 @@ class NumelAPI {
 	proactiveConsentApprove(id, opts = {})             { return this.json(`/proactive/social/consent/${encodeURIComponent(id)}/approve`, opts); }
 	proactiveConsentReject (id, opts = {})             { return this.json(`/proactive/social/consent/${encodeURIComponent(id)}/reject`,  opts); }
 
+	// ── Phase 5 (M5.12) User-facing feed ─────────────────────────
+	proactiveFeed(limit = 30, include_done = true)     { return this.json('/proactive/feed', { limit, include_done }); }
+	proactiveFeedDismiss(target_id, capability = null) { return this.json('/proactive/feed/dismiss', capability ? { target_id, capability } : { target_id }); }
+	proactiveMotorUndo(action_id, capability = null, reason = null) {
+		const body = { action_id };
+		if (capability) body.capability = capability;
+		if (reason)     body.reason     = reason;
+		return this.json('/proactive/motor/undo', body);
+	}
+
 	// ── Console API ──────────────────────────────────────────────
 
 	consoleStart(opts = {})       { return this.json('/console/start', opts); }

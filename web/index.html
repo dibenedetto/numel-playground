@@ -355,6 +355,57 @@
 				<div id="eventLog" class="nw-event-log"></div>
 			</section>
 
+			<!-- Your Assistant Section (M5.12 — user-facing proactive feed) -->
+			<section id="proactiveAssistantSection" class="nw-section nw-section-secondary">
+				<div class="nw-section-header">
+					<h3 class="nw-section-title">
+						<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+						<span>Your Assistant</span>
+						<span id="proactiveAssistantBadge" class="nw-assistant-badge" style="display:none;"></span>
+					</h3>
+					<button id="proactiveAssistantSettingsBtn" class="nw-btn-icon" type="button" title="Assistant display settings">⚙</button>
+				</div>
+				<div class="nw-section-actions">
+					<button id="proactiveAssistantRefreshBtn" class="nw-btn nw-btn-sm nw-btn-secondary" type="button" title="Refresh now">Refresh</button>
+				</div>
+
+				<!-- Settings strip (toggled by the gear) -->
+				<div id="proactiveAssistantSettings" class="nw-assistant-settings" hidden>
+					<label class="nw-assistant-field">
+						<span>Show as</span>
+						<select id="proactiveAssistantInteraction" class="nw-select nw-select-sm">
+							<option value="feed">Feed + reply box</option>
+							<option value="cards">Inbox of cards</option>
+							<option value="chat">Conversational chat</option>
+						</select>
+					</label>
+					<label class="nw-assistant-field">
+						<span>Where</span>
+						<select id="proactiveAssistantPlacement" class="nw-select nw-select-sm">
+							<option value="panel">This panel only</option>
+							<option value="console">Console slide-out</option>
+							<option value="both">Both (mirror)</option>
+						</select>
+					</label>
+					<label class="nw-assistant-field">
+						<span>Vitals dashboard</span>
+						<select id="proactiveAssistantVitals" class="nw-select nw-select-sm">
+							<option value="developer">Developer view</option>
+							<option value="hidden">Hidden</option>
+							<option value="asis">Always show</option>
+						</select>
+					</label>
+				</div>
+
+				<div id="proactiveAssistantFeed" class="nw-assistant-feed"></div>
+
+				<!-- Reply box (feed + chat modes) -->
+				<div id="proactiveAssistantReplyWrap" class="nw-assistant-reply" hidden>
+					<input type="text" id="proactiveAssistantReply" class="nw-input nw-input-sm" placeholder="Tell me what to watch or ignore…" autocomplete="off">
+					<button id="proactiveAssistantReplySend" class="nw-btn nw-btn-sm nw-btn-primary" type="button">Send</button>
+				</div>
+			</section>
+
 			<!-- Proactive Vitals Section (Phase 3 M3.3 — reads app/storage/proactive/ledger.jsonl) -->
 			<section id="proactiveVitalsSection" class="nw-section nw-section-secondary nw-section-collapsed">
 				<div class="nw-section-header">
@@ -1324,6 +1375,7 @@
 
 		<script src="numel-api.js"></script>
 		<script src="numel-proactive-vitals.js"></script>
+		<script src="numel-proactive-assistant.js"></script>
 		<script src="numel-file-upload.js"></script>
 		<script src="numel-user-panel.js"></script>
 		<script src="numel-admin.js"></script>

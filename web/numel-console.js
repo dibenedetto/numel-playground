@@ -1872,6 +1872,24 @@ class AgentConsoleManager {
 		this._thinkingEl = null;
 	}
 
+	// M5.12 — surface a proactive-feed card in the console slide-out.
+	// Called by ProactiveAssistantPanel when the user's placement
+	// preference is 'console' or 'both'. Reuses the existing suggestion
+	// channel: posts the card's plain-language headline as a suggestion
+	// message (when open) or queues it + lights the badge (when closed).
+	pushProactiveCard(card) {
+		if (!card) return;
+		const icon = card.icon || '🤖';
+		const detail = card.detail ? ` — ${card.detail}` : '';
+		const text = `${icon} ${card.headline || ''}${detail}`;
+		if (this._open) {
+			this._addMessage('suggestion', text);
+		} else {
+			this._pendingSuggestions.push(text);
+			if (this._badge) this._badge.style.display = '';
+		}
+	}
+
 	_addMessage(role, content) {
 		const el = document.createElement('div');
 		el.className = `nw-console-msg ${role}`;
