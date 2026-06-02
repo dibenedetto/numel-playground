@@ -3289,6 +3289,46 @@ def setup_api(app: FastAPI, event_bus: EventBus, schema_code: str, workspace_mgr
 		}
 
 
+	# === M5.12 — User-facing proactive feed ==================================
+
+	@app.post("/proactive/feed")
+	async def proactive_feed(body: Optional[Dict[str, Any]] = None):
+		"""The plain-language card feed a normal user sees — the user-facing
+		half of the proactive system (the operator half is the Vitals
+		dashboard). Body: {limit?: int, include_done?: bool}. Returns
+		`{cards, pending_count}` where each card is
+		{id, kind: asks|did|noticed, icon, headline, detail, ts, source,
+		 status, actions}. Pure presentation over the Ledger + consent
+		store — no new persistence."""
+		from proactive.feed import build_feed
+		body = body or {}
+		try:    limit = int(body.get("limit", 30))
+		except (TypeError, ValueError): limit = 30
+		include_done = body.get("include_done", True)
+		return build_feed(limit=limit, include_done=bool(include_done))
+
+
+	@app.post("/proactive/feed/dismiss")
+	async def proactive_feed_dismiss(body: Optional[Dict[str, Any]] = None):
+		"""Dismiss a 'noticed' card. Records a `notification_dismissed`
+		implicit-reject signal (so Optimization learns the user doesn't
+		care about this kind of thing) and returns ok. The card's removal
+		from the user's view is client-side. Body:
+		{target_id: str, capability?: str}."""
+		from proactive.evolution import record_implicit_signal
+		body      = body or {}
+		target_id = str(body.get("target_id") or "").strip()
+		cap       = str(body.get("capability") or "").strip() or None
+		if not target_id:
+			raise HTTPException(status_code=400, detail="missing 'target_id'")
+		entry = record_implicit_signal(
+			target_id = target_id,
+			signal    = "notification_dismissed",
+			context   = {"capability": cap} if cap else None,
+		)
+		return {"entry": entry}
+
+
 	# === M5.11 — Social consent approval flow ================================
 
 	@app.post("/proactive/social/consent")

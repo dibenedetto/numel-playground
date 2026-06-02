@@ -1165,6 +1165,95 @@ def _smoke_middleware_llm_scorers(verbose: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Phase 5 (M5.12) — User-facing proactive feed
+# ---------------------------------------------------------------------------
+
+def _smoke_user_feed(verbose: bool) -> None:
+    """M5.12: the feed translator turns Ledger entries + pending consents
+    into plain-language cards. Verifies: pending consents become 'asks'
+    cards at the top, executed motor actions become 'did' cards,
+    observations become 'noticed' cards, and the raw substrate
+    vocabulary (governor_verdict, scopes, confidence) never leaks into
+    a card."""
+    from proactive.persistence import clear_state, state_dir, append_jsonl
+    from proactive import social as soc
+    from proactive import feed   as fd
+
+    snap_dir = state_dir() / "snapshots"
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+    # Pending consent → asks card.
+    soc.record_pending({
+        "capability": "core.transfer_funds",
+        "rationale":  "Eve requested a wire",
+        "intent":     {"capability": "core.transfer_funds",
+                        "args": {"amount": 5000, "recipient": "9876-1122"}},
+    })
+
+    # Executed motor action → did card (with Undo for money).
+    append_jsonl("ledger", {
+        "id": "led_did_1", "ts": 100.0,
+        "trigger": {"topic": "core.motor.action_attempt"},
+        "intent": {"capability": "core.notify", "args": {"message": "Heads up: Design review"},
+                   "rationale": "calendar nudge"},
+        "motor_status": "executed",
+        "motor_action": {"id": "act_1"},
+        "observation": {"sender": "ops@example.com"},
+        "governor_verdict": {"decision": "allow", "scopes": ["read-only"], "confidence": 0.95},
+    })
+
+    # Observation only → noticed card.
+    append_jsonl("ledger", {
+        "id": "led_obs_1", "ts": 90.0,
+        "trigger": {"topic": "core.sensory.observation"},
+        "observation": {"observation_type": "email", "sender": "news@example.com",
+                        "subject": "Weekly digest — 5 stories"},
+    })
+
+    out = fd.build_feed(limit=20)
+    cards = out["cards"]
+    assert out["pending_count"] == 1, f"expected 1 pending ask, got {out['pending_count']}"
+
+    # asks card is first, plain-language, money-aware.
+    ask = cards[0]
+    assert ask["kind"] == "asks"
+    assert "$5,000" in ask["headline"], f"asks headline not humanised: {ask['headline']}"
+    assert "9876-1122" in ask["headline"]
+    assert any(a["action"] == "approve" for a in ask["actions"])
+
+    did = next(c for c in cards if c["kind"] == "did")
+    assert "notification" in did["headline"].lower(), f"did headline: {did['headline']}"
+
+    noticed = next(c for c in cards if c["kind"] == "noticed")
+    assert "Weekly digest" in noticed["headline"]
+
+    # No substrate vocabulary leaks into any card.
+    import json as _j
+    blob = _j.dumps(cards).lower()
+    for forbidden in ("governor_verdict", "scopes", "confidence", "core.transfer_funds"):
+        assert forbidden not in blob, f"substrate term '{forbidden}' leaked into feed cards"
+
+    # include_done=False drops the did cards but keeps asks + noticed.
+    out2 = fd.build_feed(limit=20, include_done=False)
+    assert not any(c["kind"] == "did" for c in out2["cards"]), \
+        "include_done=False should drop did cards"
+    assert any(c["kind"] == "asks" for c in out2["cards"])
+
+    if verbose:
+        print(f"  cards: {len(cards)} (pending asks: {out['pending_count']})")
+        print(f"  ask headline:     {ask['headline']!r}")
+        print(f"  did headline:     {did['headline']!r}")
+        print(f"  noticed headline: {noticed['headline']!r}")
+        print(f"  no substrate vocabulary leaked")
+
+    clear_state()
+    if snap_dir.exists():
+        shutil.rmtree(snap_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
 # Phase 5 (M5.11-1) — Social consent approval flow
 # ---------------------------------------------------------------------------
 
@@ -2429,6 +2518,7 @@ _INPROC_TESTS = [
     ("Phase 4 · optimization sandbox", _smoke_optimization),
     ("Phase 4 · promotion gate",       _smoke_promotion),
     ("Phase 5 · social consent flow",  _smoke_social_consent),
+    ("Phase 5 · user-facing feed",      _smoke_user_feed),
     ("Phase 5 · middleware LLM scorers", _smoke_middleware_llm_scorers),
     ("Phase 5 · MCP bridge",           _smoke_mcp),
     ("Phase 5 · A2A federation",       _smoke_a2a),
