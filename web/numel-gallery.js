@@ -395,7 +395,7 @@ class AppsManager {
 		this._modelNames = [];
 		this._fallbackModelSources = ['ollama', 'openai', 'anthropic'];
 		this._fallbackModelNamesBySource = {
-			ollama: ['qwen3.5:cloud', 'mistral', 'llama3', 'qwen2.5'],
+			ollama: ['deepseek-v4-flash:cloud', 'qwen3.5:cloud', 'gemma4'],
 			openai: ['gpt-4o-mini', 'gpt-4o'],
 			anthropic: ['claude-sonnet-4-20250514'],
 		};
@@ -551,7 +551,7 @@ class AppsManager {
 		const maxTokensRaw = this._maxTokensInput.value.trim();
 		const pageGeneration = {
 			model_source: this._modelSourceSelect.value || 'ollama',
-			model_name: this._modelNameInput.value || 'qwen3.5:cloud',
+			model_name: this._modelNameInput.value || 'deepseek-v4-flash:cloud',
 			page_prompt: this._pagePromptInput.value.trim(),
 		};
 		if (temperatureRaw !== '') pageGeneration.temperature = Number(temperatureRaw);

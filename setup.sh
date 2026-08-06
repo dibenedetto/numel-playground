@@ -3,7 +3,7 @@
 # Numel Playground - Linux / macOS launcher
 # Installs uv (if missing), downloads Python 3.12, syncs dependencies from
 # uv.lock, then starts the application.
-# Usage:  ./run.sh [app arguments...]
+# Usage:  ./setup.sh [app arguments...]
 # =============================================================================
 set -euo pipefail
 
@@ -37,8 +37,9 @@ uv python install "$UV_PYTHON" --install-dir "$UV_PYTHON_INSTALL_DIR" --quiet
 
 # 3. Sync dependencies (create / update .venv)
 echo "[numel] Syncing dependencies..."
-uv sync --frozen --quiet
+# uv sync --frozen --quiet
+uv sync
 
 # 4. Run the application
-echo "[numel] Starting Numel Playground..."
-exec uv run --no-sync --frozen python app/app.py "$@"
+# echo "[numel] Starting Numel Playground..."
+# exec uv run --no-sync --frozen python app/app.py "$@"

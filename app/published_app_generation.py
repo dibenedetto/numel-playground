@@ -60,7 +60,7 @@ Rules:
 @dataclass
 class PublishedAppGenerationConfig:
 	model_source: str = "ollama"
-	model_name: str = "qwen3.5:cloud"
+	model_name: str = "gemma4"
 	temperature: Optional[float] = None
 	max_tokens: Optional[int] = None
 	page_prompt: str = _DEFAULT_PAGE_PROMPT

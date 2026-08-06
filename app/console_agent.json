@@ -1,7 +1,7 @@
 {
 	"model": {
 		"source": "ollama",
-		"name": "qwen3.5:cloud"
+		"name": "deepseek-v4-flash:cloud"
 	},
 	"options": {
 		"name": "Numel Assistant",

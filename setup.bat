@@ -4,7 +4,7 @@ setlocal EnableDelayedExpansion
 :: Numel Playground - Windows launcher
 :: Installs uv (if missing), downloads Python 3.12, syncs dependencies from
 :: uv.lock, then starts the application.
-:: Usage:  run.bat [app arguments...]
+:: Usage:  setup.bat [app arguments...]
 :: =============================================================================
 
 set UV_PYTHON=3.12
@@ -39,12 +39,14 @@ if %errorlevel% neq 0 (
 :: 2. Ensure Python 3.12 is available
 cd /d "%SCRIPT_DIR%"
 echo [numel] Checking Python %UV_PYTHON%...
-uv python install %UV_PYTHON% --install-dir "%UV_PYTHON_INSTALL_DIR%" --quiet
+:: uv python install %UV_PYTHON% --install-dir "%UV_PYTHON_INSTALL_DIR%" --quiet
+uv python install %UV_PYTHON% --install-dir "%UV_PYTHON_INSTALL_DIR%"
 
 :: 3. Sync dependencies (create / update .venv)
 echo [numel] Syncing dependencies...
-uv sync --frozen --quiet
+:: uv sync --frozen --quiet
+uv sync
 
 :: 4. Run the application
-echo [numel] Starting Numel Playground...
-uv run --no-sync --frozen python app\app.py %*
+:: echo [numel] Starting Numel Playground...
+:: uv run --no-sync --frozen python app\app.py %*

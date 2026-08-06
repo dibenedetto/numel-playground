@@ -46,7 +46,7 @@ class AgentConsoleManager {
 		this._pendingModelSelection = null;    // {source, name} deferred until options load
 		this._fallbackModelSources = ['ollama', 'openai', 'anthropic'];
 		this._fallbackModelNamesBySource = {
-			ollama:    ['qwen3.5:cloud', 'mistral', 'llama3', 'qwen2.5'],
+			ollama:    ['deepseek-v4-flash:cloud', 'qwen3.5:cloud', 'gemma4'],
 			openai:    ['gpt-4o-mini', 'gpt-4o'],
 			anthropic: ['claude-sonnet-4-20250514'],
 		};
